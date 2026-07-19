@@ -1928,16 +1928,16 @@ function flightLineHtml(p) {
 let forecastChart = null;
 
 function monthProjectCost(pid, mk, useActuals) {
-  const store = useActuals ? state.actuals : state.assignments;
-  return Object.entries(store[mk] || {}).reduce((sum, [key, hrs]) => {
-    if (!key.endsWith('__' + pid)) return sum;
-    const st = state.staff.find(x => x.id === key.split('__')[0]);
-    return sum + (st ? hrs * st.hourlyCost : 0);
-  }, 0);
+  // Build keys from known ids (same as actualFor/assignFor) instead of parsing
+  // stored keys apart — parsing breaks silently on ids containing '__'.
+  const bucket = (useActuals ? state.actuals : state.assignments)[mk] || {};
+  return state.staff.reduce((sum, st) => sum + ((bucket[st.id + '__' + pid] || 0) * st.hourlyCost), 0);
 }
 function staffMonthHours(sid, mk, useActuals) {
-  const store = useActuals ? state.actuals : state.assignments;
-  return Object.entries(store[mk] || {}).reduce((sum, [key, hrs]) => sum + (key.startsWith(sid + '__') ? hrs : 0), 0);
+  const bucket = (useActuals ? state.actuals : state.assignments)[mk] || {};
+  let sum = bucket[sid + '__' + INTERNAL_ID] || 0;
+  state.projects.forEach(p => { sum += bucket[sid + '__' + p.id] || 0; });
+  return sum;
 }
 /* True payroll for a month: salaried people cost their fixed monthly share
    (workday capacity x derived rate) no matter what they log; hourly people
