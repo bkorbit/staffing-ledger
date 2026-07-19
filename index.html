@@ -1,0 +1,2176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Ledger — Staffing & Profitability</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+:root{
+  --paper: #ebebeb;
+  --paper-raised: #FFFFFF;
+  --ink: #23272b;
+  --brand: #0a493c;
+  --accent: #3bc9ac;
+  --slate: #67706d;
+  --line: #d2d2d2;
+  --teal: #0a493c;
+  --teal-bg: #dff5ee;
+  --rust: #B5482A;
+  --rust-bg: #FBEAE4;
+  --amber: #B4790E;
+  --amber-bg: #FBF0DD;
+  --internal: #9a9a94;
+  --font-display: 'Montserrat', sans-serif;
+  --font-body: 'Montserrat', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font-body); background: var(--paper); color: var(--ink); }
+.app { max-width: 1280px; margin: 0 auto; padding: 28px 20px 60px; }
+
+header { border-bottom: 2px solid var(--brand); padding-bottom: 16px; margin-bottom: 20px; display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:12px; }
+.eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; color: var(--slate); margin-bottom: 6px; }
+h1 { font-family: var(--font-display); font-size: 34px; margin: 0; font-weight: 700; letter-spacing: -0.01em; color: var(--brand); }
+.sub { font-family: var(--font-mono); font-size: 12px; color: var(--slate); margin: 4px 0 0; }
+.header-actions { display:flex; gap:8px; }
+
+button.ghost { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.03em; background: transparent; border: 1px solid var(--line); color: var(--slate); padding: 7px 12px; border-radius: 4px; cursor: pointer; }
+button.ghost:hover { border-color: var(--ink); color: var(--ink); }
+button.primary { font-family: var(--font-mono); font-size: 12px; background: var(--brand); color: var(--paper); border: none; padding: 7px 13px; border-radius: 4px; cursor: pointer; }
+button.primary:hover { background: #0d5c4c; }
+button.assign { font-family: var(--font-mono); font-size: 11px; background: var(--brand); color: #fff; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
+button.assign:hover { background: #0d5c4c; }
+button.assign:disabled { background: var(--line); color: var(--slate); cursor: default; }
+button.confirm-armed { background: var(--rust) !important; color: #fff !important; border-color: var(--rust) !important; }
+
+.month-nav { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; flex-wrap: wrap; }
+.mode-toggle { display: flex; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+.mode-btn { font-family: var(--font-mono); font-size: 11px; background: var(--paper-raised); border: none; padding: 8px 14px; cursor: pointer; color: var(--slate); }
+.mode-btn.active { background: var(--brand); color: #fff; }
+.range-input { border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; font-family: var(--font-mono); font-size: 12px; background: var(--paper-raised); width: auto; }
+.range-lbl { font-family: var(--font-mono); font-size: 11px; color: var(--slate); }
+.month-nav .month-label { font-family: var(--font-display); font-size: 22px; font-weight: 700; min-width: 200px; text-align: center; }
+.month-nav button.nav { font-family: var(--font-mono); font-size: 14px; background: var(--paper-raised); border: 1px solid var(--line); padding: 6px 14px; border-radius: 4px; cursor: pointer; color: var(--ink); }
+.month-nav button.nav:hover { border-color: var(--ink); }
+.month-nav .today-btn { font-size: 11px; }
+
+.summary-strip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); margin-bottom: 24px; border-radius: 6px; overflow: hidden; }
+.summary-cell { background: var(--paper-raised); padding: 12px 14px; }
+.summary-label { font-family: var(--font-mono); font-size: 9px; color: var(--slate); letter-spacing: 0.08em; text-transform: uppercase; }
+.summary-value { font-family: var(--font-mono); font-size: 18px; font-weight: 700; margin-top: 4px; }
+.summary-value.pos { color: var(--teal); }
+.summary-value.neg { color: var(--rust); }
+.summary-value.muted { color: var(--slate); }
+
+/* Tabs */
+.tab-bar { display: flex; gap: 0; border-bottom: 2px solid var(--brand); margin-bottom: 24px; flex-wrap: wrap; }
+.tab-btn { font-family: var(--font-display); font-size: 14px; font-weight: 600; background: transparent; border: none; color: var(--slate); padding: 10px 18px; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; }
+.tab-btn:hover { color: var(--ink); }
+.tab-btn.active { color: var(--brand); border-bottom-color: var(--accent); }
+.tab-btn .tab-count { font-family: var(--font-mono); font-size: 10px; color: var(--slate); margin-left: 4px; }
+.tab-section { display: none; }
+.tab-section.active { display: block; }
+
+.panel { margin-bottom: 36px; }
+.panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+.panel-head h2 { font-family: var(--font-display); font-size: 18px; margin: 0; font-weight: 600; color: var(--brand); }
+
+.filter-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.filter-bar input[type=text], .filter-bar select { border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; font-family: var(--font-mono); font-size: 11px; background: var(--paper-raised); width: auto; min-width: 160px; }
+.filter-bar label { font-family: var(--font-mono); font-size: 11px; color: var(--slate); display: flex; align-items: center; gap: 5px; }
+.filter-bar input[type=checkbox] { width: auto; }
+
+table { width: 100%; border-collapse: collapse; background: var(--paper-raised); border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+th { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--ink); }
+th .sort-ind { font-size: 9px; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--line); font-family: var(--font-mono); font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+td input[type=text] { font-family: var(--font-body); font-size: 13px; }
+input, select { width: 100%; border: none; background: transparent; font-family: inherit; font-size: inherit; color: var(--ink); padding: 4px 2px; border-radius: 3px; }
+input:focus { outline: none; background: var(--teal-bg); }
+input[type=month] { font-family: var(--font-mono); font-size: 12px; }
+input.numfield { font-family: var(--font-mono); text-align: right; }
+.num-col { width: 110px; }
+.date-col { width: 130px; }
+.dept-col { width: 140px; }
+.cap-readout { color: var(--slate); }
+.remove-btn { background: none; border: none; color: var(--slate); cursor: pointer; font-size: 15px; line-height: 1; padding: 4px; }
+.remove-btn:hover { color: var(--rust); }
+.remove-col { width: 34px; text-align: center; }
+.inactive-tag { font-family: var(--font-mono); font-size: 9px; color: var(--slate); border: 1px solid var(--line); border-radius: 3px; padding: 1px 5px; }
+.computed-cell { font-family: var(--font-mono); font-size: 12px; }
+.computed-sub { font-family: var(--font-mono); font-size: 10px; color: var(--slate); white-space: nowrap; }
+input.rev-input { min-width: 110px; }
+
+.mini-track { position: relative; width: 100%; max-width: 140px; height: 10px; background: #dedede; border-radius: 2px; overflow: hidden; margin-top: 3px; }
+.mini-bar { position: absolute; top: 0; bottom: 0; left: 0; background: var(--accent); }
+.mini-bar.over { background: var(--rust); }
+.util-pct { font-family: var(--font-mono); font-size: 11px; }
+.util-pct.over { color: var(--rust); font-weight: 700; }
+.util-pct.full { color: var(--teal); font-weight: 700; }
+.util-pct.under { color: var(--slate); }
+
+/* Team member breakout */
+.name-cell { display: flex; align-items: center; gap: 4px; }
+.name-cell input { flex: 1; }
+.team-breakout td { background: #f5f5f5; padding: 6px 12px 12px; }
+.tm-row { display: grid; grid-template-columns: 240px 130px 110px 110px 1fr; gap: 10px; align-items: center; padding: 4px 0 4px 26px; border-bottom: 1px dashed #e3e3e3; }
+.tm-row:last-of-type { border-bottom: none; }
+.tm-row .tm-name { font-family: var(--font-display); font-size: 12px; font-weight: 600; }
+.tm-row .tm-meta { font-family: var(--font-mono); font-size: 10px; color: var(--slate); }
+.tm-row input.numfield { font-size: 12px; border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; background: var(--paper-raised); width: 90px; }
+.tm-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 0 0 26px; }
+.tm-add select, .tm-add input { border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; background: var(--paper); width: auto; font-family: var(--font-mono); font-size: 11px; }
+.tm-add input.numfield { width: 80px; }
+.tm-empty { font-family: var(--font-mono); font-size: 11px; color: var(--slate); padding: 6px 0 2px 26px; }
+
+/* Dashboard */
+.dash-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+.dash-kpi { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
+.dash-kpi .k-label { font-family: var(--font-mono); font-size: 9px; color: var(--slate); letter-spacing: 0.08em; text-transform: uppercase; }
+.dash-kpi .k-value { font-family: var(--font-mono); font-size: 20px; font-weight: 700; margin-top: 4px; }
+.dash-kpi .k-sub { font-family: var(--font-mono); font-size: 11px; margin-top: 2px; color: var(--slate); }
+.k-delta-good { color: var(--teal); font-weight: 700; }
+.k-delta-bad { color: var(--rust); font-weight: 700; }
+.dash-section { margin-bottom: 30px; }
+.dash-section h3 { font-family: var(--font-display); font-size: 15px; margin: 0 0 10px; font-weight: 600; color: var(--brand); }
+.dash-card { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.dash-row { display: grid; grid-template-columns: 200px 1fr 210px 130px; gap: 14px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.dash-row:last-child { border-bottom: none; }
+.dash-row .d-name { font-family: var(--font-display); font-size: 13px; font-weight: 600; }
+.dash-row .d-meta { font-family: var(--font-mono); font-size: 10px; color: var(--slate); margin-top: 2px; }
+.pv-pair { display: flex; flex-direction: column; gap: 4px; }
+.pv-line { display: grid; grid-template-columns: 42px 1fr 76px; gap: 8px; align-items: center; font-family: var(--font-mono); font-size: 10px; color: var(--slate); }
+.pv-track { position: relative; height: 10px; background: #dedede; border-radius: 2px; overflow: hidden; }
+.pv-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 2px; }
+.pv-plan { background: #0a493c; opacity: 0.55; }
+.pv-act { background: var(--accent); }
+.pv-act.over { background: var(--rust); }
+.d-numbers { font-family: var(--font-mono); font-size: 11px; line-height: 1.6; }
+.d-flag { justify-self: end; text-align: right; }
+.dash-note { font-family: var(--font-mono); font-size: 11px; color: var(--slate); padding: 10px 2px; }
+@media (max-width: 900px) { .dash-kpis { grid-template-columns: repeat(2, 1fr); } .dash-row { grid-template-columns: 1fr; } .d-flag { justify-self: start; text-align: left; } }
+
+/* Demand plan */
+.demand-project { border: 1px solid var(--line); border-radius: 6px; background: var(--paper-raised); margin-bottom: 14px; overflow: hidden; }
+.demand-project-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: #f5f5f5; border-bottom: 1px solid var(--line); flex-wrap: wrap; gap: 8px; }
+.demand-project-head .pname { font-family: var(--font-display); font-weight: 600; font-size: 14px; }
+.demand-project-head .pmeta { font-family: var(--font-mono); font-size: 11px; color: var(--slate); }
+.demand-rows { padding: 4px 0; }
+.demand-row { display: grid; grid-template-columns: 22px 170px 100px 1fr 200px 90px 34px; gap: 10px; align-items: center; padding: 6px 14px; border-bottom: 1px dashed #e3e3e3; }
+.demand-row .dept-input input { font-family: var(--font-body); font-size: 13px; border: 1px solid transparent; }
+.demand-row .dept-input input:hover { border-color: var(--line); border-radius: 4px; }
+.demand-row input.numfield { font-size: 13px; border: 1px solid transparent; }
+.demand-row input.numfield:hover { border-color: var(--line); border-radius: 4px; }
+.expand-btn { background: none; border: none; cursor: pointer; font-family: var(--font-mono); font-size: 11px; color: var(--slate); padding: 2px; }
+.expand-btn:hover { color: var(--ink); }
+.person-row { display: grid; grid-template-columns: 22px 240px 110px 100px 1fr; gap: 10px; align-items: center; padding: 4px 14px 4px 36px; background: #f5f5f5; border-bottom: 1px dashed #e3e3e3; }
+.person-row .p-name { font-family: var(--font-display); font-size: 12px; font-weight: 600; }
+.person-row .p-meta { font-family: var(--font-mono); font-size: 10px; color: var(--slate); }
+.person-row input.numfield { font-size: 12px; border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; background: var(--paper-raised); width: 90px; }
+.fill-track { position: relative; height: 12px; background: #dedede; border-radius: 2px; overflow: hidden; }
+.fill-bar { position: absolute; top:0; bottom:0; left:0; }
+.fill-label { font-family: var(--font-mono); font-size: 10px; }
+.fill-label.done { color: var(--teal); }
+.fill-label.partial { color: var(--amber); }
+.fill-label.overfilled { color: var(--rust); }
+.fill-label.open { color: var(--slate); }
+.fill-label.unplanned { color: var(--internal); }
+.demand-add { padding: 10px 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; border-top: 1px dashed #e3e3e3; }
+.demand-add input, .demand-add select { border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; background: var(--paper); width: auto; }
+.demand-add input[type=text] { font-family: var(--font-body); font-size: 12px; min-width: 160px; }
+.demand-add input.numfield { font-family: var(--font-mono); font-size: 12px; width: 90px; }
+.demand-add select { font-family: var(--font-mono); font-size: 11px; }
+.demand-add .hint { font-family: var(--font-mono); font-size: 10px; color: var(--slate); }
+
+/* Assign modal */
+.modal-overlay { position: fixed; inset: 0; background: rgba(32,36,46,0.45); display: none; align-items: flex-start; justify-content: center; z-index: 50; padding: 40px 16px; overflow-y: auto; }
+.modal-overlay.open { display: flex; }
+.modal { background: var(--paper); border-radius: 8px; max-width: 740px; width: 100%; border: 2px solid var(--brand); }
+.modal-head { padding: 16px 20px; border-bottom: 2px solid var(--brand); display: flex; justify-content: space-between; align-items: flex-start; }
+.modal-head h3 { font-family: var(--font-display); font-size: 18px; margin: 0; color: var(--brand); }
+.modal-head .context { font-family: var(--font-mono); font-size: 11px; color: var(--slate); margin-top: 4px; }
+.modal-body { padding: 16px 20px; }
+.modal-hours { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-family: var(--font-mono); font-size: 12px; flex-wrap: wrap; }
+.modal-hours input { width: 90px; border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; text-align: right; font-family: var(--font-mono); background: var(--paper-raised); }
+.modal-hours select { width: auto; border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; font-family: var(--font-mono); font-size: 11px; background: var(--paper-raised); }
+.modal-conversion { font-family: var(--font-mono); font-size: 10px; color: var(--slate); margin-bottom: 14px; }
+.candidate { display: grid; grid-template-columns: 1fr 150px 220px 80px; gap: 12px; align-items: center; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; margin-bottom: 8px; }
+.candidate.dept-match { border-left: 4px solid var(--teal); }
+.candidate .c-name { font-family: var(--font-display); font-weight: 600; font-size: 13px; }
+.candidate .c-meta { font-family: var(--font-mono); font-size: 10px; color: var(--slate); margin-top: 2px; }
+.candidate .c-capacity { font-family: var(--font-mono); font-size: 11px; }
+.candidate .c-capacity.over { color: var(--rust); }
+.candidate .c-capacity.ok { color: var(--teal); }
+.candidate .c-impact { font-family: var(--font-mono); font-size: 11px; line-height: 1.5; }
+.impact-arrow { color: var(--slate); }
+.impact-good { color: var(--teal); font-weight: 700; }
+.impact-bad { color: var(--rust); font-weight: 700; }
+.impact-warn { color: var(--amber); font-weight: 700; }
+.no-candidates { font-family: var(--font-mono); font-size: 12px; color: var(--slate); padding: 12px; text-align: center; }
+
+/* Gantt */
+.gantt-wrap { border: 1px solid var(--line); border-radius: 6px; background: var(--paper-raised); overflow-x: auto; padding-bottom: 6px; }
+.gantt-inner { min-width: 760px; }
+.gantt-row { display: grid; grid-template-columns: 190px 1fr; align-items: stretch; }
+.gantt-label { padding: 10px 12px; font-family: var(--font-display); font-size: 12px; font-weight: 600; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+.gantt-label .g-sub { font-family: var(--font-mono); font-size: 10px; color: var(--slate); font-weight: 400; }
+.gantt-track { position: relative; border-bottom: 1px solid var(--line); }
+.gantt-monthgrid { position: absolute; inset: 0; display: grid; }
+.gantt-monthcell { border-right: 1px dashed #e3e3e3; }
+.gantt-monthcell.current { background: var(--teal-bg); }
+.gantt-bar { position: absolute; top: 50%; transform: translateY(-50%); height: 20px; border-radius: 4px; display: flex; align-items: center; padding: 0 8px; color: #fff; font-family: var(--font-mono); font-size: 10px; white-space: nowrap; overflow: hidden; box-shadow: 0 1px 3px rgba(32,36,46,0.25); }
+.gantt-head .gantt-label { font-family: var(--font-mono); font-size: 10px; color: var(--slate); text-transform: uppercase; letter-spacing: 0.08em; }
+.gantt-head .gantt-monthcell { display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 10px; color: var(--slate); cursor: pointer; border-right: 1px dashed #e3e3e3; }
+.gantt-head .gantt-monthcell:hover { color: var(--ink); background: #f0f0f0; }
+.gantt-head .gantt-monthcell.current { background: var(--teal-bg); color: var(--teal); font-weight: 700; }
+.gantt-head .gantt-track { display: grid; position: static; }
+.gantt-undated { margin-top: 12px; font-family: var(--font-mono); font-size: 11px; color: var(--slate); }
+.gantt-undated .chip { display: inline-block; border: 1px solid var(--line); border-radius: 3px; padding: 2px 8px; margin: 2px 4px 2px 0; background: var(--paper-raised); }
+
+/* Import panel */
+.import-panel { border: 1px dashed var(--slate); border-radius: 6px; background: var(--paper-raised); padding: 18px; margin-bottom: 32px; display: none; }
+.import-panel.open { display: block; }
+.import-panel h3 { font-family: var(--font-display); font-size: 15px; margin: 0 0 10px; }
+.import-step { margin-bottom: 16px; }
+.import-step .step-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); margin-bottom: 6px; }
+.mapping-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.mapping-grid label { font-family: var(--font-mono); font-size: 11px; color: var(--ink); display: block; margin-bottom: 4px; }
+.mapping-grid select { border: 1px solid var(--line); border-radius: 4px; padding: 6px; font-family: var(--font-mono); font-size: 12px; background: var(--paper); }
+.preview-wrap { overflow-x: auto; margin-top: 10px; }
+.preview-wrap td, .preview-wrap th { padding: 5px 8px; font-size: 11px; white-space: nowrap; }
+.import-note { font-family: var(--font-mono); font-size: 11px; color: var(--slate); margin-top: 8px; line-height: 1.5; }
+.import-actions { display: flex; gap: 8px; margin-top: 14px; }
+input[type=file] { border: 1px solid var(--line); border-radius: 4px; padding: 8px; font-family: var(--font-mono); font-size: 11px; background: var(--paper); width: auto; }
+
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--paper); font-family: var(--font-mono); font-size: 12px; padding: 12px 18px; border-radius: 6px; max-width: 560px; z-index: 100; white-space: pre-line; line-height: 1.6; display: none; box-shadow: 0 4px 16px rgba(32,36,46,0.3); }
+.toast.show { display: block; }
+
+.empty-note { font-family: var(--font-mono); font-size: 12px; color: var(--slate); padding: 16px; text-align: center; }
+footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color: var(--slate); text-align: center; }
+
+/* Auth gate */
+.auth-overlay { position: fixed; inset: 0; background: var(--paper); display: flex; align-items: center; justify-content: center; z-index: 200; padding: 24px; }
+.auth-card { background: var(--paper-raised); border: 2px solid var(--brand); border-radius: 10px; max-width: 380px; width: 100%; padding: 30px 28px; }
+.auth-card .eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; color: var(--slate); margin-bottom: 6px; }
+.auth-card h1 { font-family: var(--font-display); font-size: 28px; margin: 0 0 4px; font-weight: 700; color: var(--brand); }
+.auth-card .auth-sub { font-family: var(--font-mono); font-size: 12px; color: var(--slate); margin: 0 0 22px; }
+.auth-field { margin-bottom: 14px; }
+.auth-field label { display: block; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); margin-bottom: 5px; }
+.auth-field input { width: 100%; border: 1px solid var(--line); border-radius: 5px; padding: 10px 12px; font-family: var(--font-mono); font-size: 13px; background: var(--paper); color: var(--ink); }
+.auth-field input:focus { outline: none; border-color: var(--brand); background: var(--paper-raised); }
+.auth-btn { width: 100%; font-family: var(--font-mono); font-size: 13px; background: var(--brand); color: #fff; border: none; padding: 11px; border-radius: 5px; cursor: pointer; margin-top: 4px; }
+.auth-btn:hover { background: #0d5c4c; }
+.auth-btn:disabled { background: var(--line); color: var(--slate); cursor: default; }
+.auth-msg { font-family: var(--font-mono); font-size: 11px; margin-top: 14px; line-height: 1.5; min-height: 14px; }
+.auth-msg.err { color: var(--rust); }
+.auth-msg.info { color: var(--slate); }
+.user-chip { font-family: var(--font-mono); font-size: 11px; color: var(--slate); display: flex; align-items: center; gap: 8px; }
+</style>
+</head>
+<body>
+
+<div class="auth-overlay" id="auth-overlay">
+  <div class="auth-card">
+    <div class="eyebrow">STAFFING &amp; PROFITABILITY</div>
+    <h1>The Ledger</h1>
+    <p class="auth-sub">Sign in to your team workspace.</p>
+    <div class="auth-field">
+      <label>Email</label>
+      <input type="email" id="auth-email" autocomplete="username" placeholder="you@company.com">
+    </div>
+    <div class="auth-field">
+      <label>Password</label>
+      <input type="password" id="auth-password" autocomplete="current-password" placeholder="••••••••">
+    </div>
+    <button class="auth-btn" id="auth-signin-btn">Sign in</button>
+    <div class="auth-msg info" id="auth-msg">Accounts are created by your workspace admin in Supabase.</div>
+  </div>
+</div>
+
+<div class="app" id="app-root" style="display:none;">
+
+  <header>
+    <div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY</div>
+      <h1>The Ledger</h1>
+      <p class="sub">Plan by department. Assign with eyes open. Watch the margins move.</p>
+    </div>
+    <div class="header-actions">
+      <span class="user-chip" id="user-chip"></span>
+      <button class="primary" id="open-import-btn">Import hour tracking data</button>
+      <button class="ghost" id="reset-btn">Clear all data</button>
+      <button class="ghost" id="signout-btn">Sign out</button>
+    </div>
+  </header>
+
+  <div class="import-panel" id="import-panel">
+    <h3>Import data</h3>
+    <div class="import-step">
+      <div class="step-label">1 · What are you importing?</div>
+      <select id="import-type" style="border:1px solid var(--line); border-radius:4px; padding:7px 8px; font-family:var(--font-mono); font-size:12px; background:var(--paper); width:auto;">
+        <option value="hours">Hour tracking (actual hours worked)</option>
+        <option value="projects">Project list (flights &amp; monthly revenue)</option>
+      </select>
+    </div>
+    <div class="import-step">
+      <div class="step-label">2 · Choose file (.csv, .xlsx, .xls)</div>
+      <input type="file" id="import-file" accept=".csv,.xlsx,.xls,.tsv">
+    </div>
+    <div class="import-step" id="mapping-step" style="display:none;">
+      <div class="step-label">3 · Match your columns</div>
+      <div class="mapping-grid" id="mapping-grid-hours">
+        <div><label>Person *</label><select id="map-person"></select></div>
+        <div><label>Project *</label><select id="map-project"></select></div>
+        <div><label>Date *</label><select id="map-date"></select></div>
+        <div><label>Hours *</label><select id="map-hours"></select></div>
+        <div><label>Department (optional)</label><select id="map-dept"></select></div>
+      </div>
+      <div class="mapping-grid" id="mapping-grid-projects" style="display:none;">
+        <div><label>Project *</label><select id="map-p-name"></select></div>
+        <div><label>Revenue *</label><select id="map-p-rev"></select></div>
+        <div><label>Month (optional)</label><select id="map-p-month"></select></div>
+        <div><label>Flight start (optional)</label><select id="map-p-start"></select></div>
+        <div><label>Flight end (optional)</label><select id="map-p-end"></select></div>
+      </div>
+      <div class="step-label" style="margin-top:14px;">4 · Preview (first 5 rows)</div>
+      <div class="preview-wrap" id="import-preview"></div>
+      <div class="import-note" id="import-note"></div>
+      <div class="import-actions">
+        <button class="primary" id="run-import-btn">Import</button>
+        <button class="ghost" id="cancel-import-btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="month-nav">
+    <div class="mode-toggle">
+      <button class="mode-btn active" data-mode="month" id="mode-month">Single month</button>
+      <button class="mode-btn" data-mode="range" id="mode-range">Period</button>
+    </div>
+    <div id="nav-month" style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+      <button class="nav" id="prev-month">&larr;</button>
+      <div class="month-label" id="month-label"></div>
+      <button class="nav" id="next-month">&rarr;</button>
+      <button class="nav today-btn" id="today-btn">This month</button>
+      <button class="ghost" id="copy-prev-btn" title="Copy last month's plan and department demand into this month">Copy plan from previous month</button>
+    </div>
+    <div id="nav-range" style="display:none; align-items:center; gap:10px; flex-wrap:wrap;">
+      <span class="range-lbl">From</span> <input type="month" id="range-start" class="range-input">
+      <span class="range-lbl">to</span> <input type="month" id="range-end" class="range-input">
+      <button class="ghost" id="preset-quarter">This quarter</button>
+      <button class="ghost" id="preset-next3">Next 3 months</button>
+      <span class="range-lbl" id="range-summary"></span>
+    </div>
+  </div>
+
+  <div class="summary-strip" id="summary-strip"></div>
+
+  <div class="tab-bar" id="tab-bar">
+    <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+    <button class="tab-btn" data-tab="plan">Department plan</button>
+    <button class="tab-btn" data-tab="timeline">Timeline</button>
+    <button class="tab-btn" data-tab="team">Team <span class="tab-count" id="count-team"></span></button>
+    <button class="tab-btn" data-tab="projects">Projects <span class="tab-count" id="count-projects"></span></button>
+  </div>
+
+  <div class="tab-section active" id="tab-dashboard">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Executive dashboard — <span id="dash-month"></span></h2>
+        <span style="font-family:var(--font-mono); font-size:11px; color:var(--slate);">plan vs actual · actuals come from imported hour tracking</span>
+      </div>
+      <div id="dashboard-container"></div>
+    </section>
+  </div>
+
+  <div class="tab-section" id="tab-plan">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Department plan — <span id="demand-month"></span></h2>
+        <span style="font-family:var(--font-mono); font-size:11px; color:var(--slate);">plan hours per department, expand a line to see and edit who's on it</span>
+      </div>
+      <div id="demand-list"></div>
+    </section>
+  </div>
+
+  <div class="tab-section" id="tab-timeline">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Account timeline</h2>
+        <span style="font-family:var(--font-mono); font-size:11px; color:var(--slate);">flights by start / end month · click a month to jump to it</span>
+      </div>
+      <div id="gantt-container"></div>
+    </section>
+  </div>
+
+  <div class="tab-section" id="tab-team">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Team</h2>
+        <div class="actions"><button class="primary" id="add-staff-btn">+ Add person</button></div>
+      </div>
+      <div class="filter-bar">
+        <input type="text" id="team-search" placeholder="Search name…">
+        <select id="team-dept-filter"><option value="">All departments</option></select>
+      </div>
+      <table>
+        <thead>
+          <tr id="team-head">
+            <th class="sortable" data-sort="name">Name <span class="sort-ind" data-ind="name"></span></th>
+            <th class="dept-col sortable" data-sort="department">Department <span class="sort-ind" data-ind="department"></span></th>
+            <th class="num-col sortable" data-sort="hourlyCost">Hourly cost ($) <span class="sort-ind" data-ind="hourlyCost"></span></th>
+            <th class="num-col sortable" data-sort="weeklyCapacity">Weekly cap <span class="sort-ind" data-ind="weeklyCapacity"></span></th>
+            <th class="num-col">Monthly cap</th>
+            <th class="num-col sortable" data-sort="internalHrs">Internal hrs <span class="sort-ind" data-ind="internalHrs"></span></th>
+            <th class="sortable" data-sort="utilization">Utilization (plan) <span class="sort-ind" data-ind="utilization"></span></th>
+            <th class="sortable" data-sort="loggedHrs">Logged vs assigned <span class="sort-ind" data-ind="loggedHrs"></span></th>
+            <th class="remove-col"></th>
+          </tr>
+        </thead>
+        <tbody id="staff-tbody"></tbody>
+      </table>
+    </section>
+  </div>
+
+  <div class="tab-section" id="tab-projects">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Projects</h2>
+        <div class="actions"><button class="primary" id="add-project-btn">+ Add project</button></div>
+      </div>
+      <div class="filter-bar">
+        <input type="text" id="proj-search" placeholder="Search project…">
+        <label><input type="checkbox" id="proj-active-only"> active this month only</label>
+      </div>
+      <table>
+        <thead>
+          <tr id="proj-head">
+            <th class="sortable" data-sort="name">Project <span class="sort-ind" data-ind="name"></span></th>
+            <th class="num-col sortable" data-sort="revenue">Revenue (this month) <span class="sort-ind" data-ind="revenue"></span></th>
+            <th class="num-col sortable" data-sort="hoursAssigned">Hrs assigned <span class="sort-ind" data-ind="hoursAssigned"></span></th>
+            <th class="num-col sortable" data-sort="profitPerHour">Profit / hr <span class="sort-ind" data-ind="profitPerHour"></span></th>
+            <th class="date-col sortable" data-sort="startMonth">Flight start <span class="sort-ind" data-ind="startMonth"></span></th>
+            <th class="date-col sortable" data-sort="endMonth">Flight end <span class="sort-ind" data-ind="endMonth"></span></th>
+            <th class="num-col">Status</th>
+            <th class="remove-col"></th>
+          </tr>
+        </thead>
+        <tbody id="project-tbody"></tbody>
+      </table>
+    </section>
+  </div>
+
+  <footer>Data is saved automatically to your account and reloads next time you open this tool.</footer>
+</div>
+
+<datalist id="dept-datalist"></datalist>
+<div class="toast" id="toast"></div>
+
+<div class="modal-overlay" id="assign-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <div>
+        <h3 id="assign-title">Assign hours</h3>
+        <div class="context" id="assign-context"></div>
+      </div>
+      <button class="ghost" id="assign-close">Close</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-hours">
+        Assign
+        <input type="text" inputmode="decimal" id="assign-hours">
+        <select id="assign-unit">
+          <option value="month">hrs / month</option>
+          <option value="week">hrs / week</option>
+          <option value="flight">hrs, entire flight</option>
+        </select>
+        <span id="assign-remaining" style="color:var(--slate);"></span>
+      </div>
+      <div class="modal-conversion" id="assign-conversion"></div>
+      <div id="assign-candidates"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   SUPABASE CONFIG  —  fill these two in (Step 4 of the guide)
+   ============================================================ */
+const SUPABASE_URL = 'https://YOUR-PROJECT-ref.supabase.co';
+const SUPABASE_ANON_KEY = 'YOUR-ANON-PUBLIC-KEY';
+const WORKSPACE_ID = 'default'; // one shared ledger for the whole team
+/* ============================================================ */
+
+const PROJECT_COLORS = ['#3B6E8F', '#8A6642', '#5C7A54', '#7A4B6E', '#1F7A6C', '#B4790E'];
+const STORAGE_KEY = 'staffing-ledger-state-v2';
+const INTERNAL_ID = '__internal__';
+const INTERNAL_NAMES = ['internal', 'internal time', 'non-billable', 'nonbillable', 'non billable', 'admin', 'overhead'];
+const NO_DEPT = '(no department)';
+const WEEKS_PER_MONTH = 52 / 12;
+
+let state = {
+  staff: [],       // {id, name, department, hourlyCost, weeklyCapacity}
+  projects: [],    // {id, name, monthlyRevenue (default), revenueOverrides: {month: amount}, startMonth, endMonth}
+  assignments: {}, // planned:  assignments[month]['staffId__projectId'] = hours
+  actuals: {},     // imported: actuals[month]['staffId__projectId'] = hours
+  demand: {}       // demand[month][projectId] = { 'Department Name': hours }
+};
+
+let ui = {
+  tab: 'dashboard',
+  period: {mode: 'month', start: '', end: ''},
+  teamSearch: '', teamDept: '', teamSort: {key: null, dir: 1},
+  projSearch: '', projActiveOnly: false, projSort: {key: null, dir: 1},
+  expanded: {},     // `${projectId}__${dept}` -> true
+  teamExpanded: {}  // staffId -> true
+};
+
+let currentMonth = monthKey(new Date());
+let saveTimer = null;
+let importRows = null, importHeaders = null;
+let assignCtx = null;
+
+/* Supabase runtime */
+let sb = null;
+let appEntered = false;
+let channel = null;
+let pendingRemoteReload = false;
+const clientId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+function monthKey(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
+function shiftMonth(key, delta) { const [y, m] = key.split('-').map(Number); return monthKey(new Date(y, m - 1 + delta, 1)); }
+function monthLabel(key) { const [y, m] = key.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('en-US', {month: 'long', year: 'numeric'}); }
+function monthShort(key) { const [y, m] = key.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('en-US', {month: 'short', year: '2-digit'}); }
+
+function uid() { return Math.random().toString(36).slice(2, 10); }
+function fmtMoney(n) { const sign = n < 0 ? '-' : ''; return sign + '$' + Math.abs(Math.round(n)).toLocaleString(); }
+function fmtMoney2(n) { const sign = n < 0 ? '-' : ''; return sign + '$' + Math.abs(n).toFixed(0); }
+function fmtHrs(n) { return (Math.round(n * 10) / 10).toString(); }
+function normDept(d) { return String(d || '').trim(); }
+function deptLabelOf(s) { const d = normDept(s.department); return d || NO_DEPT; }
+
+let toastTimer = null;
+function toast(msg, ms) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), ms || 6000);
+}
+
+const armed = {};
+function armToConfirm(btn, actionId, armedLabel, onConfirm) {
+  if (armed[actionId]) {
+    clearTimeout(armed[actionId].timer);
+    delete armed[actionId];
+    btn.classList.remove('confirm-armed');
+    btn.textContent = btn.dataset.origLabel || btn.textContent;
+    onConfirm();
+    return;
+  }
+  btn.dataset.origLabel = btn.textContent;
+  btn.textContent = armedLabel;
+  btn.classList.add('confirm-armed');
+  armed[actionId] = { timer: setTimeout(() => {
+    delete armed[actionId];
+    btn.classList.remove('confirm-armed');
+    btn.textContent = btn.dataset.origLabel;
+  }, 4000) };
+}
+
+function setTab(tab) {
+  ui.tab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.tab-section').forEach(s => s.classList.toggle('active', s.id === 'tab-' + tab));
+}
+
+function normalizeState(raw) {
+  const s = Object.assign({staff: [], projects: [], assignments: {}, actuals: {}, demand: {}}, raw || {});
+  if (!s.actuals) s.actuals = {};
+  if (!s.demand) s.demand = {};
+  (s.projects || []).forEach(p => { if (!p.revenueOverrides) p.revenueOverrides = {}; });
+  return s;
+}
+
+async function loadFromSupabase() {
+  const { data, error } = await sb.from('ledger_state').select('data').eq('id', WORKSPACE_ID).maybeSingle();
+  if (error) throw error;
+  return data ? data.data : null;
+}
+
+async function saveToSupabase(obj) {
+  const { error } = await sb.from('ledger_state').upsert({
+    id: WORKSPACE_ID,
+    data: obj,
+    last_writer: clientId,
+    updated_at: new Date().toISOString()
+  });
+  if (error) throw error;
+}
+
+async function loadState() {
+  try {
+    const remote = await loadFromSupabase();
+    if (remote && ((remote.staff && remote.staff.length) || (remote.projects && remote.projects.length))) {
+      state = normalizeState(remote);
+      render();
+      return;
+    }
+  } catch (e) { console.error('Load failed', e); toast('Could not load from the server — check your Supabase settings.', 8000); }
+  seedExample();
+  render();
+}
+
+async function reloadFromRemote() {
+  try {
+    const remote = await loadFromSupabase();
+    if (remote) { state = normalizeState(remote); render(); toast("Ledger updated with a teammate's changes.", 4000); }
+  } catch (e) { console.error('Remote reload failed', e); }
+}
+
+function handleRemoteChange(payload) {
+  if (payload && payload.new && payload.new.last_writer === clientId) return; // ignore my own writes
+  const ae = document.activeElement;
+  const editing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA');
+  if (editing) {
+    pendingRemoteReload = true;
+    toast('A teammate updated the ledger — it will refresh when you finish editing.', 5000);
+    return;
+  }
+  reloadFromRemote();
+}
+document.addEventListener('focusout', () => {
+  if (pendingRemoteReload) { pendingRemoteReload = false; setTimeout(reloadFromRemote, 400); }
+});
+
+function subscribeRealtime() {
+  if (channel) return;
+  channel = sb.channel('ledger-' + WORKSPACE_ID)
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'ledger_state', filter: 'id=eq.' + WORKSPACE_ID },
+      handleRemoteChange)
+    .subscribe();
+}
+
+/* ===== Auth gate ===== */
+function showAuthMsg(text, kind) {
+  const el = document.getElementById('auth-msg');
+  el.textContent = text;
+  el.className = 'auth-msg ' + (kind || 'info');
+}
+function configLooksUnset() {
+  return SUPABASE_URL.indexOf('YOUR-') !== -1 || SUPABASE_ANON_KEY.indexOf('YOUR-') !== -1;
+}
+
+async function enterApp(session) {
+  if (appEntered) return;
+  appEntered = true;
+  document.getElementById('auth-overlay').style.display = 'none';
+  document.getElementById('app-root').style.display = '';
+  const email = session && session.user ? session.user.email : '';
+  document.getElementById('user-chip').textContent = email;
+  await loadState();
+  subscribeRealtime();
+}
+
+function showLogin() {
+  appEntered = false;
+  document.getElementById('app-root').style.display = 'none';
+  document.getElementById('auth-overlay').style.display = 'flex';
+}
+
+async function doLogin() {
+  const btn = document.getElementById('auth-signin-btn');
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  if (!email || !password) { showAuthMsg('Enter your email and password.', 'err'); return; }
+  btn.disabled = true; showAuthMsg('Signing in…', 'info');
+  try {
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) { showAuthMsg(error.message, 'err'); btn.disabled = false; }
+    // success → onAuthStateChange fires enterApp
+  } catch (e) { showAuthMsg('Sign-in failed. Check your connection.', 'err'); btn.disabled = false; }
+}
+
+async function init() {
+  if (!window.supabase) { showAuthMsg('Supabase library failed to load. Check your internet connection.', 'err'); return; }
+  if (configLooksUnset()) {
+    showAuthMsg('Setup needed: add your Supabase URL and anon key at the top of this file (Step 4 of the guide).', 'err');
+    document.getElementById('auth-signin-btn').disabled = true;
+    return;
+  }
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  document.getElementById('auth-signin-btn').addEventListener('click', doLogin);
+  document.getElementById('auth-password').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+  document.getElementById('signout-btn').addEventListener('click', async () => { await sb.auth.signOut(); });
+
+  sb.auth.onAuthStateChange((event, session) => {
+    if (session) enterApp(session);
+    else { appEntered = false; showLogin(); }
+  });
+}
+
+function seedExample() {
+  const s1 = uid(), s2 = uid();
+  const p1 = uid(), p2 = uid();
+  const start = shiftMonth(currentMonth, -1), end = shiftMonth(currentMonth, 3);
+  state.staff = [
+    {id: s1, name: 'Sample: A. Rivera', department: 'Design', hourlyCost: 65, weeklyCapacity: 40},
+    {id: s2, name: 'Sample: J. Okafor', department: 'Engineering', hourlyCost: 55, weeklyCapacity: 40}
+  ];
+  state.projects = [
+    {id: p1, name: 'Sample: Acme Rebrand', monthlyRevenue: 18000, revenueOverrides: {}, startMonth: start, endMonth: end},
+    {id: p2, name: 'Sample: Northwind App', monthlyRevenue: 9000, revenueOverrides: {}, startMonth: '', endMonth: ''}
+  ];
+  state.assignments = {};
+  state.assignments[currentMonth] = {
+    [`${s1}__${p1}`]: 90, [`${s2}__${p1}`]: 40,
+    [`${s1}__${p2}`]: 30, [`${s2}__${p2}`]: 80,
+    [`${s1}__${INTERNAL_ID}`]: 12, [`${s2}__${INTERNAL_ID}`]: 20
+  };
+  state.actuals = {};
+  state.demand = {};
+  state.demand[currentMonth] = { [p1]: {'Design': 100, 'Engineering': 60} };
+}
+
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    if (!sb || !appEntered) return;
+    try { await saveToSupabase(state); }
+    catch (e) { console.error('Save failed', e); toast('Could not save to the server — your last change may not be shared.', 6000); }
+  }, 400);
+}
+
+function monthlyCapacity(w) { return w * WEEKS_PER_MONTH; }
+
+/* ===== PERIOD (single month or range) ===== */
+function viewMonths() {
+  if (ui.period.mode === 'range' && ui.period.start && ui.period.end && ui.period.end >= ui.period.start) {
+    const arr = [];
+    let mk = ui.period.start, g = 0;
+    while (mk <= ui.period.end && g < 24) { arr.push(mk); mk = shiftMonth(mk, 1); g++; }
+    return arr;
+  }
+  return [currentMonth];
+}
+function isRange() { return viewMonths().length > 1; }
+function periodLabel() {
+  const vm = viewMonths();
+  if (vm.length === 1) return monthLabel(vm[0]);
+  return monthShort(vm[0]) + ' – ' + monthShort(vm[vm.length - 1]) + ' (' + vm.length + ' mo)';
+}
+
+/* per-month accessors */
+function assignFor(mk, sid, pid) { return (state.assignments[mk] || {})[sid + '__' + pid] || 0; }
+function actualFor(mk, sid, pid) { return (state.actuals[mk] || {})[sid + '__' + pid] || 0; }
+function demandFor(mk, pid, dept) { return ((state.demand[mk] || {})[pid] || {})[dept] || 0; }
+function revenueFor(p, mk) {
+  const o = p.revenueOverrides || {};
+  return (o[mk] !== undefined) ? o[mk] : (p.monthlyRevenue || 0);
+}
+
+/* aggregated over the view period */
+function monthAssignments(mk) { const m = mk || currentMonth; if (!state.assignments[m]) state.assignments[m] = {}; return state.assignments[m]; }
+function monthActuals() { return state.actuals[currentMonth] || {}; }
+function monthDemand(mk) { const m = mk || currentMonth; if (!state.demand[m]) state.demand[m] = {}; return state.demand[m]; }
+
+function getAssignment(staffId, projectId) { return viewMonths().reduce((s, mk) => s + assignFor(mk, staffId, projectId), 0); }
+function getActual(staffId, projectId) { return viewMonths().reduce((s, mk) => s + actualFor(mk, staffId, projectId), 0); }
+function getDemand(projectId, dept) { return viewMonths().reduce((s, mk) => s + demandFor(mk, projectId, dept), 0); }
+function hasActualsThisMonth() { return viewMonths().some(mk => Object.keys(state.actuals[mk] || {}).length > 0); }
+
+/* uniform display value for editable fields: the per-month value if identical
+   across the period, otherwise null (shown as "mixed") */
+function uniformOver(fn) {
+  const vm = viewMonths();
+  const v0 = fn(vm[0]);
+  for (let i = 1; i < vm.length; i++) { if (Math.abs(fn(vm[i]) - v0) > 0.005) return null; }
+  return v0;
+}
+function hourInputAttrs(perMonthUniform) {
+  if (perMonthUniform === null) return 'value="" placeholder="mixed" title="Months in this period have different values — typing here sets the same value for every month in the period"';
+  return 'value="' + (perMonthUniform || '') + '" placeholder="0"' + (isRange() ? ' title="Applies to every month in the period"' : '');
+}
+
+/* writes apply the entered per-month value to every month in the period */
+function setAssignment(staffId, projectId, hours) {
+  const v = (!hours || hours <= 0) ? 0 : Math.round(hours * 100) / 100;
+  viewMonths().forEach(mk => {
+    const a = monthAssignments(mk);
+    const key = `${staffId}__${projectId}`;
+    if (v <= 0) delete a[key];
+    else a[key] = v;
+  });
+  scheduleSave();
+  render();
+}
+function addToAssignmentInMonth(mk, staffId, projectId, hours) {
+  const key = `${staffId}__${projectId}`;
+  const a = monthAssignments(mk);
+  const next = (a[key] || 0) + hours;
+  if (next <= 0) delete a[key];
+  else a[key] = Math.round(next * 100) / 100;
+}
+/* revenue aggregated over the view period, counting only months the project is active */
+function getRevenue(p, mkIgnored) {
+  return viewMonths().filter(mk => projectActiveInMonth(p, mk)).reduce((s, mk) => s + revenueFor(p, mk), 0);
+}
+function hasOverride(p, mkIgnored) { return viewMonths().some(mk => p.revenueOverrides && p.revenueOverrides[mk] !== undefined); }
+
+function projectActiveInMonth(p, month) {
+  if (p.startMonth && month < p.startMonth) return false;
+  if (p.endMonth && month > p.endMonth) return false;
+  return true;
+}
+function activeProjects() {
+  const vm = viewMonths();
+  return state.projects.filter(p =>
+    vm.some(mk => projectActiveInMonth(p, mk)) ||
+    vm.some(mk => Object.keys(state.actuals[mk] || {}).some(k => k.endsWith('__' + p.id)))
+  );
+}
+function monthsOfFlight(p) {
+  if (!p.startMonth || !p.endMonth || p.endMonth < p.startMonth) return null;
+  const arr = [];
+  let mk = p.startMonth, guard = 0;
+  while (mk <= p.endMonth && guard < 60) { arr.push(mk); mk = shiftMonth(mk, 1); guard++; }
+  return arr;
+}
+
+function allDepartments() {
+  const set = new Set();
+  state.staff.forEach(s => { const d = normDept(s.department); if (d) set.add(d); });
+  Object.values(state.demand).forEach(m => Object.values(m).forEach(dep => Object.keys(dep).forEach(d => set.add(d))));
+  return [...set].sort();
+}
+
+function addStaff() { state.staff.push({id: uid(), name: '', department: '', hourlyCost: 0, weeklyCapacity: 40}); scheduleSave(); render(); }
+function addProject() { state.projects.push({id: uid(), name: '', monthlyRevenue: 0, revenueOverrides: {}, startMonth: '', endMonth: ''}); scheduleSave(); render(); }
+
+function removeStaff(id) {
+  state.staff = state.staff.filter(s => s.id !== id);
+  [state.assignments, state.actuals].forEach(store => Object.values(store).forEach(mA => Object.keys(mA).forEach(k => { if (k.startsWith(id + '__')) delete mA[k]; })));
+  scheduleSave(); render();
+}
+function removeProject(id) {
+  state.projects = state.projects.filter(p => p.id !== id);
+  [state.assignments, state.actuals].forEach(store => Object.values(store).forEach(mA => Object.keys(mA).forEach(k => { if (k.endsWith('__' + id)) delete mA[k]; })));
+  Object.values(state.demand).forEach(m => delete m[id]);
+  scheduleSave(); render();
+}
+
+function updateStaffField(id, field, value) {
+  const s = state.staff.find(s => s.id === id);
+  if (!s) return;
+  s[field] = (field === 'name' || field === 'department') ? value : (parseFloat(value) || 0);
+  scheduleSave(); render();
+}
+function updateProjectField(id, field, value) {
+  const p = state.projects.find(p => p.id === id);
+  if (!p) return;
+  if (field === 'name' || field === 'startMonth' || field === 'endMonth') p[field] = value;
+  else p[field] = parseFloat(value) || 0;
+  scheduleSave(); render();
+}
+function setRevenueThisMonth(id, value) {
+  if (isRange()) return; // revenue is edited in single-month view
+  const p = state.projects.find(p => p.id === id);
+  if (!p) return;
+  if (!p.revenueOverrides) p.revenueOverrides = {};
+  const v = parseFloat(String(value).replace(/[^0-9.\-]/g, '')) || 0;
+  if (v === (p.monthlyRevenue || 0)) delete p.revenueOverrides[currentMonth];
+  else p.revenueOverrides[currentMonth] = v;
+  scheduleSave(); render();
+}
+
+/* demand ops */
+function setDemandInMonth(mk, projectId, dept, hours) {
+  const d = monthDemand(mk);
+  if (!d[projectId]) d[projectId] = {};
+  if (!hours || hours <= 0) delete d[projectId][dept];
+  else d[projectId][dept] = Math.round(hours * 100) / 100;
+}
+function setDemand(projectId, dept, hours) {
+  const v = (!hours || hours <= 0) ? 0 : hours;
+  viewMonths().forEach(mk => setDemandInMonth(mk, projectId, dept, v));
+  scheduleSave(); render();
+}
+
+// After assigning someone from the Team view, make sure their department's demand
+// line on that project at least covers what's now assigned (per month).
+function ensureDemandCovers(mk, projectId, dept) {
+  if (!dept || dept === NO_DEPT) return false;
+  const a = state.assignments[mk] || {};
+  const assigned = staffInDept(dept).reduce((sum, s) => sum + (a[`${s.id}__${projectId}`] || 0), 0);
+  const existing = ((state.demand[mk] || {})[projectId] || {})[dept] || 0;
+  if (assigned > existing + 0.001) {
+    setDemandInMonth(mk, projectId, dept, assigned);
+    return true;
+  }
+  return false;
+}
+function renameDemandDept(projectId, oldDept, newDept) {
+  if (oldDept === newDept) return;
+  viewMonths().forEach(mk => {
+    const d = monthDemand(mk);
+    if (!d[projectId] || d[projectId][oldDept] === undefined) return;
+    const hrs = d[projectId][oldDept];
+    delete d[projectId][oldDept];
+    if (newDept && hrs) d[projectId][newDept] = (d[projectId][newDept] || 0) + hrs;
+  });
+  scheduleSave(); render();
+}
+function removeDemand(projectId, dept) {
+  viewMonths().forEach(mk => {
+    const d = monthDemand(mk);
+    if (d[projectId]) delete d[projectId][dept];
+  });
+  scheduleSave(); render();
+}
+function staffInDept(dept) {
+  if (dept === NO_DEPT) return state.staff.filter(s => !normDept(s.department));
+  const dl = dept.toLowerCase();
+  return state.staff.filter(s => normDept(s.department).toLowerCase() === dl);
+}
+function assignedHoursForDept(projectId, dept) {
+  return staffInDept(dept).reduce((sum, s) => sum + getAssignment(s.id, projectId), 0);
+}
+function demandDeptsForProject(pid) {
+  const set = new Set();
+  viewMonths().forEach(mk => Object.keys((state.demand[mk] || {})[pid] || {}).forEach(d => set.add(d)));
+  state.staff.forEach(s => { if (getAssignment(s.id, pid) > 0) set.add(deptLabelOf(s)); });
+  return [...set].sort();
+}
+
+function projectHours(projectId, useActuals) { return state.staff.reduce((sum, s) => sum + (useActuals ? getActual(s.id, projectId) : getAssignment(s.id, projectId)), 0); }
+function projectCost(projectId, useActuals) { return state.staff.reduce((sum, s) => sum + (useActuals ? getActual(s.id, projectId) : getAssignment(s.id, projectId)) * s.hourlyCost, 0); }
+function internalCost(useActuals) { return state.staff.reduce((sum, s) => sum + (useActuals ? getActual(s.id, INTERNAL_ID) : getAssignment(s.id, INTERNAL_ID)) * s.hourlyCost, 0); }
+function internalHoursTotal(useActuals) { return state.staff.reduce((sum, s) => sum + (useActuals ? getActual(s.id, INTERNAL_ID) : getAssignment(s.id, INTERNAL_ID)), 0); }
+
+function projectStatus(project, useActuals) {
+  const cost = projectCost(project.id, useActuals);
+  const revenue = getRevenue(project);
+  const profit = revenue - cost;
+  const hours = projectHours(project.id, useActuals);
+  const profitPerHour = hours > 0 ? profit / hours : null;
+  if (!revenue) return {profit, cost, hours, revenue, margin: null, profitPerHour, label: 'no revenue', cls: 'none'};
+  const margin = (profit / revenue) * 100;
+  if (margin < 0) return {profit, cost, hours, revenue, margin, profitPerHour, label: 'loss', cls: 'loss'};
+  if (margin < 15) return {profit, cost, hours, revenue, margin, profitPerHour, label: 'tight', cls: 'tight'};
+  return {profit, cost, hours, revenue, margin, profitPerHour, label: 'profit', cls: 'profit'};
+}
+
+function staffTotalHours(staffId, useActuals) {
+  const projHrs = activeProjects().reduce((sum, p) => sum + (useActuals ? getActual(staffId, p.id) : getAssignment(staffId, p.id)), 0);
+  return projHrs + (useActuals ? getActual(staffId, INTERNAL_ID) : getAssignment(staffId, INTERNAL_ID));
+}
+function periodCapacity(s) { return monthlyCapacity(s.weeklyCapacity) * viewMonths().length; }
+function staffUtilizationPct(s) {
+  const cap = periodCapacity(s);
+  if (cap <= 0) return 0;
+  return (staffTotalHours(s.id, false) / cap) * 100;
+}
+
+function copyFromPreviousMonth(force) {
+  const prev = shiftMonth(currentMonth, -1);
+  const prevA = state.assignments[prev];
+  const prevD = state.demand[prev];
+  if ((!prevA || Object.keys(prevA).length === 0) && (!prevD || Object.keys(prevD).length === 0)) {
+    toast('No plan or department demand found in ' + monthLabel(prev) + '.');
+    return;
+  }
+  const cur = monthAssignments();
+  if (Object.keys(cur).length > 0 && !force) return 'needs-confirm';
+  state.assignments[currentMonth] = Object.assign({}, prevA || {});
+  state.demand[currentMonth] = JSON.parse(JSON.stringify(prevD || {}));
+  scheduleSave(); render();
+  toast('Copied ' + monthLabel(prev) + "'s plan into " + monthLabel(currentMonth) + '.');
+}
+
+/* ============ UNIT CONVERSION ============ */
+// Returns {perMonth, months (array of month keys to apply to), describe}
+function resolveUnits(hrs, unit, project) {
+  if (unit === 'week') {
+    const vm = viewMonths();
+    return {perMonth: hrs * WEEKS_PER_MONTH, months: vm,
+      describe: fmtHrs(hrs) + ' hrs/week ≈ ' + fmtHrs(hrs * WEEKS_PER_MONTH) + ' hrs/month' + (vm.length > 1 ? ' across ' + vm.length + ' months' : '')};
+  }
+  if (unit === 'flight') {
+    const flight = monthsOfFlight(project);
+    if (!flight) return {error: 'This project needs both a flight start and end month before you can spread hours across the flight. Set them on the Projects tab.'};
+    const perMonth = hrs / flight.length;
+    return {perMonth, months: flight,
+      describe: fmtHrs(hrs) + ' hrs over ' + flight.length + '-month flight ≈ ' + fmtHrs(perMonth) + ' hrs/month (' + monthShort(flight[0]) + '–' + monthShort(flight[flight.length-1]) + ')'};
+  }
+  const vm = viewMonths();
+  return {perMonth: hrs, months: vm, describe: vm.length > 1 ? fmtHrs(hrs) + ' hrs/month across ' + vm.length + ' months' : ''};
+}
+
+/* ============ ASSIGN MODAL ============ */
+
+function openAssignModal(projectId, dept) {
+  assignCtx = {projectId, dept};
+  const project = state.projects.find(p => p.id === projectId);
+  const need = getDemand(projectId, dept);
+  const assigned = assignedHoursForDept(projectId, dept);
+  const remaining = Math.max(need - assigned, 0);
+  document.getElementById('assign-title').textContent = 'Assign ' + dept + ' hours';
+  document.getElementById('assign-context').textContent =
+    (project ? project.name : 'Project') + ' · ' + periodLabel() + ' · need ' + fmtHrs(need) + 'h, assigned ' + fmtHrs(assigned) + 'h';
+  document.getElementById('assign-hours').value = remaining > 0 ? Math.round(remaining / viewMonths().length) : '';
+  document.getElementById('assign-unit').value = 'month';
+  document.getElementById('assign-remaining').textContent = remaining > 0 ? '(' + fmtHrs(remaining) + 'h remaining in period)' : (need > 0 ? '(demand filled — extra hours will overfill)' : '');
+  renderCandidates();
+  document.getElementById('assign-modal').classList.add('open');
+}
+
+function closeAssignModal() {
+  document.getElementById('assign-modal').classList.remove('open');
+  assignCtx = null;
+}
+
+function renderCandidates() {
+  if (!assignCtx) return;
+  const {projectId, dept} = assignCtx;
+  const project = state.projects.find(p => p.id === projectId);
+  const hrs = parseFloat(document.getElementById('assign-hours').value) || 0;
+  const unit = document.getElementById('assign-unit').value;
+  const res = resolveUnits(hrs, unit, project);
+  const convEl = document.getElementById('assign-conversion');
+  const el = document.getElementById('assign-candidates');
+
+  if (res.error) {
+    convEl.textContent = '';
+    el.innerHTML = '<div class="no-candidates">' + escapeHtml(res.error) + '</div>';
+    return;
+  }
+  convEl.textContent = res.describe;
+
+  if (state.staff.length === 0) { el.innerHTML = '<div class="no-candidates">No people on the team yet.</div>'; return; }
+
+  const before = projectStatus(project, false);
+  const dl = dept.toLowerCase();
+  const perMonth = res.perMonth;
+
+  const sorted = [...state.staff].sort((a, b) => {
+    const am = deptLabelOf(a).toLowerCase() === dl ? 0 : 1;
+    const bm = deptLabelOf(b).toLowerCase() === dl ? 0 : 1;
+    if (am !== bm) return am - bm;
+    return a.hourlyCost - b.hourlyCost;
+  });
+
+  el.innerHTML = sorted.map(s => {
+    const match = deptLabelOf(s).toLowerCase() === dl;
+    const cap = periodCapacity(s);
+    const open = cap - staffTotalHours(s.id, false);
+    const vm = viewMonths();
+    const monthsApplied = res.months.filter(mk => vm.includes(mk)).length || res.months.length;
+    const totalAdd = perMonth * monthsApplied;
+    const overBy = totalAdd - open;
+    const addedCost = totalAdd * s.hourlyCost;
+    const afterCost = before.cost + addedCost;
+    const rev = getRevenue(project);
+    const afterProfit = rev - afterCost;
+    const afterMargin = rev ? (afterProfit / rev) * 100 : null;
+    const beforeMarginTxt = before.margin === null ? '—' : Math.round(before.margin) + '%';
+    const afterMarginTxt = afterMargin === null ? '—' : Math.round(afterMargin) + '%';
+    let marginCls = 'impact-good';
+    if (afterMargin !== null && afterMargin < 0) marginCls = 'impact-bad';
+    else if (afterMargin !== null && afterMargin < 15) marginCls = 'impact-warn';
+
+    return `
+      <div class="candidate ${match ? 'dept-match' : ''}">
+        <div>
+          <div class="c-name">${escapeHtml(s.name) || 'Unnamed'}</div>
+          <div class="c-meta">${escapeHtml(deptLabelOf(s))} · ${fmtMoney(s.hourlyCost)}/hr</div>
+        </div>
+        <div class="c-capacity ${overBy > 0.01 ? 'over' : 'ok'}">
+          ${fmtHrs(Math.max(open,0))}h open
+          ${overBy > 0.01 ? `<br>⚠ over by ${fmtHrs(overBy)}h` : ''}
+        </div>
+        <div class="c-impact">
+          +${fmtMoney(addedCost)} cost<br>
+          profit ${fmtMoney(before.profit)} <span class="impact-arrow">→</span> <span class="${afterProfit >= 0 ? 'impact-good' : 'impact-bad'}">${fmtMoney(afterProfit)}</span><br>
+          margin ${beforeMarginTxt} <span class="impact-arrow">→</span> <span class="${marginCls}">${afterMarginTxt}</span>
+        </div>
+        <button class="assign" data-role="do-assign" data-staff="${s.id}" ${hrs > 0 ? '' : 'disabled'}>Assign</button>
+      </div>`;
+  }).join('');
+}
+
+function doAssign(staffId) {
+  if (!assignCtx) return;
+  const hrs = parseFloat(document.getElementById('assign-hours').value) || 0;
+  if (hrs <= 0) return;
+  const unit = document.getElementById('assign-unit').value;
+  const project = state.projects.find(p => p.id === assignCtx.projectId);
+  const res = resolveUnits(hrs, unit, project);
+  if (res.error) { toast(res.error); return; }
+  res.months.forEach(mk => addToAssignmentInMonth(mk, staffId, assignCtx.projectId, res.perMonth));
+  scheduleSave();
+  if (res.months.length > 1) toast('Assigned ' + fmtHrs(res.perMonth) + ' hrs/month across ' + res.months.length + ' months.');
+  const {projectId, dept} = assignCtx;
+  render();
+  openAssignModal(projectId, dept);
+}
+
+/* ============ IMPORT ============ */
+
+function guessColumn(headers, patterns) {
+  const lower = headers.map(h => String(h || '').toLowerCase());
+  for (const pat of patterns) {
+    const idx = lower.findIndex(h => h.includes(pat));
+    if (idx >= 0) return idx;
+  }
+  return -1;
+}
+
+function handleFileChosen(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const wb = XLSX.read(e.target.result, {type: 'array', cellDates: true});
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, {header: 1, raw: false, dateNF: 'yyyy-mm-dd'});
+      if (!rows || rows.length < 2) { toast('That file appears to be empty or has no data rows.'); return; }
+      importHeaders = rows[0].map(h => String(h == null ? '' : h));
+      importRows = rows.slice(1).filter(r => r && r.some(c => c !== null && c !== undefined && String(c).trim() !== ''));
+      buildMappingUI();
+    } catch (err) {
+      toast('Could not read that file: ' + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+const HOURS_NOTE = 'Hours are imported as <strong>actuals</strong>, grouped by month from the date column. Names are matched to existing people and projects (case-insensitive); anything new is created automatically. Project names like "Internal", "Non-billable", "Admin", or "Overhead" go to internal hours. Hourly costs aren\'t in tracking exports — fill those in on the Team tab after importing.';
+const PROJECTS_NOTE = 'Two row shapes work, and you can mix them: <strong>one row per project</strong> (Project, Revenue, Flight start, Flight end) for flat monthly revenue, or <strong>one row per project-month</strong> (Project, Month, Revenue) to capture fluctuating revenue. With monthly rows, the flight start/end are inferred from the first and last month listed (unless given explicitly), the most common revenue becomes the project default, and months that differ become overrides. Existing projects are matched by name and updated; new names are created.';
+
+function importType() { return document.getElementById('import-type').value; }
+
+function buildMappingUI() {
+  const type = importType();
+  document.getElementById('mapping-grid-hours').style.display = type === 'hours' ? 'grid' : 'none';
+  document.getElementById('mapping-grid-projects').style.display = type === 'projects' ? 'grid' : 'none';
+  document.getElementById('import-note').innerHTML = type === 'hours' ? HOURS_NOTE : PROJECTS_NOTE;
+
+  const configs = type === 'hours' ? {
+    'map-person':  {patterns: ['person', 'name', 'employee', 'user', 'staff', 'member', 'resource', 'who'], required: true},
+    'map-project': {patterns: ['project', 'client', 'job', 'task', 'engagement'], required: true},
+    'map-date':    {patterns: ['date', 'day', 'week', 'month', 'start'], required: true},
+    'map-hours':   {patterns: ['hour', 'time', 'duration', 'hrs', 'qty'], required: true},
+    'map-dept':    {patterns: ['department', 'dept', 'team', 'group', 'discipline'], required: false}
+  } : {
+    'map-p-name':  {patterns: ['project', 'account', 'client', 'campaign', 'name'], required: true},
+    'map-p-rev':   {patterns: ['revenue', 'rev', 'budget', 'fee', 'amount', 'value', 'price'], required: true},
+    'map-p-month': {patterns: ['month', 'period', 'date'], required: false},
+    'map-p-start': {patterns: ['start', 'begin', 'from', 'launch'], required: false},
+    'map-p-end':   {patterns: ['end', 'finish', 'to', 'through', 'until'], required: false}
+  };
+  Object.entries(configs).forEach(([id, cfg]) => {
+    const sel = document.getElementById(id);
+    sel.innerHTML = (cfg.required ? '' : '<option value="-1">— not in file —</option>') +
+      importHeaders.map((h, i) => `<option value="${i}">${escapeHtml(h || '(column ' + (i+1) + ')')}</option>`).join('');
+    const guess = guessColumn(importHeaders, cfg.patterns);
+    sel.value = guess >= 0 ? guess : (cfg.required ? 0 : -1);
+    sel.onchange = renderImportPreview;
+  });
+  document.getElementById('mapping-step').style.display = 'block';
+  renderImportPreview();
+}
+
+function renderImportPreview() {
+  const el = document.getElementById('import-preview');
+  const rows = importRows.slice(0, 5);
+
+  if (importType() === 'projects') {
+    const cName = +document.getElementById('map-p-name').value;
+    const cRev = +document.getElementById('map-p-rev').value;
+    const cMonth = +document.getElementById('map-p-month').value;
+    const cStart = +document.getElementById('map-p-start').value;
+    const cEnd = +document.getElementById('map-p-end').value;
+    const cols = [['Project', cName], ['Revenue', cRev], ['Month', cMonth], ['Flight start', cStart], ['Flight end', cEnd]].filter(([, i]) => i >= 0);
+    el.innerHTML = `<table><thead><tr>${cols.map(([l]) => `<th>${l}</th>`).join('')}<th>→ Interpreted</th></tr></thead><tbody>` +
+      rows.map(r => {
+        let interp;
+        const mk = cMonth >= 0 ? parseDateToMonth(r[cMonth]) : null;
+        if (mk) interp = 'revenue for ' + monthLabel(mk);
+        else {
+          const s = cStart >= 0 ? parseDateToMonth(r[cStart]) : null;
+          const e = cEnd >= 0 ? parseDateToMonth(r[cEnd]) : null;
+          interp = (s || e) ? 'flight ' + (s ? monthShort(s) : '?') + '–' + (e ? monthShort(e) : '?') + ', flat revenue' : 'flat revenue, no dates';
+        }
+        return `<tr>${cols.map(([, idx]) => `<td>${escapeHtml(String(r[idx] == null ? '' : r[idx]))}</td>`).join('')}<td>${interp}</td></tr>`;
+      }).join('') + '</tbody></table>';
+    return;
+  }
+
+  const cols = {
+    Person: +document.getElementById('map-person').value,
+    Project: +document.getElementById('map-project').value,
+    Date: +document.getElementById('map-date').value,
+    Hours: +document.getElementById('map-hours').value,
+    Department: +document.getElementById('map-dept').value
+  };
+  const shown = Object.entries(cols).filter(([, idx]) => idx >= 0);
+  el.innerHTML = `<table><thead><tr>${shown.map(([label]) => `<th>${label}</th>`).join('')}<th>→ Month</th></tr></thead><tbody>` +
+    rows.map(r => {
+      const mk = parseDateToMonth(r[cols.Date]);
+      return `<tr>${shown.map(([, idx]) => `<td>${escapeHtml(String(r[idx] == null ? '' : r[idx]))}</td>`).join('')}<td>${mk ? monthLabel(mk) : '<span style="color:var(--rust)">unreadable date</span>'}</td></tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+function parseDateToMonth(raw) {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{4})[-\/](\d{1,2})([-\/]\d{1,2})?/);
+  if (m) {
+    const mo = +m[2];
+    if (mo >= 1 && mo <= 12) return m[1] + '-' + String(mo).padStart(2, '0');
+  }
+  m = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/);
+  if (m) {
+    let mo = +m[1], dd = +m[2];
+    if (mo > 12 && dd <= 12) { const t = mo; mo = dd; dd = t; }
+    if (mo >= 1 && mo <= 12) return m[3] + '-' + String(mo).padStart(2, '0');
+  }
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return monthKey(d);
+  return null;
+}
+
+function runProjectImport() {
+  const cName = +document.getElementById('map-p-name').value;
+  const cRev = +document.getElementById('map-p-rev').value;
+  const cMonth = +document.getElementById('map-p-month').value;
+  const cStart = +document.getElementById('map-p-start').value;
+  const cEnd = +document.getElementById('map-p-end').value;
+
+  const byName = {};
+  state.projects.forEach(p => byName[p.name.trim().toLowerCase()] = p);
+
+  const collect = {};
+  let skipped = 0;
+
+  importRows.forEach(r => {
+    const name = String(r[cName] == null ? '' : r[cName]).trim();
+    if (!name) { skipped++; return; }
+    const rev = parseFloat(String(r[cRev] == null ? '' : r[cRev]).replace(/[$,\s]/g, ''));
+    const key = name.toLowerCase();
+    if (!collect[key]) collect[key] = {name, months: {}, start: '', end: '', flatRev: null};
+    const c = collect[key];
+    if (cStart >= 0) { const s = parseDateToMonth(r[cStart]); if (s) c.start = s; }
+    if (cEnd >= 0) { const e = parseDateToMonth(r[cEnd]); if (e) c.end = e; }
+    const mk = cMonth >= 0 ? parseDateToMonth(r[cMonth]) : null;
+    if (mk) {
+      if (isNaN(rev)) { skipped++; return; }
+      c.months[mk] = rev;
+    } else if (!isNaN(rev)) {
+      c.flatRev = rev;
+    }
+  });
+
+  const created = [], updated = [];
+  Object.values(collect).forEach(c => {
+    const mks = Object.keys(c.months).sort();
+    let start = c.start, end = c.end;
+    let def = c.flatRev !== null ? c.flatRev : 0;
+    const overrides = {};
+    if (mks.length) {
+      if (!start) start = mks[0];
+      if (!end) end = mks[mks.length - 1];
+      const freq = {};
+      mks.forEach(mk => { const v = c.months[mk]; freq[v] = (freq[v] || 0) + 1; });
+      def = +Object.entries(freq).sort((a, b) => b[1] - a[1])[0][0];
+      mks.forEach(mk => { if (c.months[mk] !== def) overrides[mk] = c.months[mk]; });
+    }
+    let p = byName[c.name.toLowerCase()];
+    if (p) {
+      p.monthlyRevenue = def;
+      if (!p.revenueOverrides) p.revenueOverrides = {};
+      mks.forEach(mk => { if (p.revenueOverrides[mk] !== undefined && c.months[mk] === def) delete p.revenueOverrides[mk]; });
+      Object.assign(p.revenueOverrides, overrides);
+      if (start) p.startMonth = start;
+      if (end) p.endMonth = end;
+      updated.push(c.name);
+    } else {
+      state.projects.push({id: uid(), name: c.name, monthlyRevenue: def, revenueOverrides: overrides, startMonth: start || '', endMonth: end || ''});
+      created.push(c.name);
+    }
+  });
+
+  scheduleSave();
+  closeImport();
+  render();
+  let msg = `Projects import: ${created.length} created, ${updated.length} updated${skipped ? ', ' + skipped + ' rows skipped' : ''}.`;
+  if (created.length) msg += `\nNew: ${created.join(', ')}`;
+  toast(msg, 10000);
+}
+
+function runImport() {
+  if (importType() === 'projects') { runProjectImport(); return; }
+  const cPerson = +document.getElementById('map-person').value;
+  const cProject = +document.getElementById('map-project').value;
+  const cDate = +document.getElementById('map-date').value;
+  const cHours = +document.getElementById('map-hours').value;
+  const cDept = +document.getElementById('map-dept').value;
+
+  const staffByName = {};
+  state.staff.forEach(s => staffByName[s.name.trim().toLowerCase()] = s);
+  const projByName = {};
+  state.projects.forEach(p => projByName[p.name.trim().toLowerCase()] = p);
+
+  let imported = 0, skipped = 0;
+  const newStaff = [], newProjects = [], monthsTouched = new Set();
+  const agg = {};
+
+  importRows.forEach(r => {
+    const personName = String(r[cPerson] == null ? '' : r[cPerson]).trim();
+    const projectName = String(r[cProject] == null ? '' : r[cProject]).trim();
+    const mk = parseDateToMonth(r[cDate]);
+    const hours = parseFloat(String(r[cHours] == null ? '' : r[cHours]).replace(',', '.'));
+    if (!personName || !projectName || !mk || !hours || hours <= 0) { skipped++; return; }
+
+    let person = staffByName[personName.toLowerCase()];
+    if (!person) {
+      person = {id: uid(), name: personName, department: '', hourlyCost: 0, weeklyCapacity: 40};
+      state.staff.push(person);
+      staffByName[personName.toLowerCase()] = person;
+      newStaff.push(personName);
+    }
+    if (cDept >= 0 && !person.department) {
+      const d = String(r[cDept] == null ? '' : r[cDept]).trim();
+      if (d) person.department = d;
+    }
+
+    let projectId;
+    if (INTERNAL_NAMES.includes(projectName.toLowerCase())) {
+      projectId = INTERNAL_ID;
+    } else {
+      let proj = projByName[projectName.toLowerCase()];
+      if (!proj) {
+        proj = {id: uid(), name: projectName, monthlyRevenue: 0, revenueOverrides: {}, startMonth: '', endMonth: ''};
+        state.projects.push(proj);
+        projByName[projectName.toLowerCase()] = proj;
+        newProjects.push(projectName);
+      }
+      projectId = proj.id;
+    }
+
+    if (!agg[mk]) agg[mk] = {};
+    const key = person.id + '__' + projectId;
+    agg[mk][key] = (agg[mk][key] || 0) + hours;
+    monthsTouched.add(mk);
+    imported++;
+  });
+
+  Object.entries(agg).forEach(([mk, entries]) => {
+    if (!state.actuals[mk]) state.actuals[mk] = {};
+    Object.entries(entries).forEach(([key, hrs]) => {
+      state.actuals[mk][key] = Math.round(hrs * 100) / 100;
+    });
+  });
+
+  scheduleSave();
+  closeImport();
+
+  const monthsList = [...monthsTouched].sort();
+  if (monthsList.length === 1) currentMonth = monthsList[0];
+  render();
+
+  let msg = `Imported ${imported} rows (${skipped} skipped).\n`;
+  msg += `Months with actuals: ${monthsList.map(monthLabel).join(', ') || 'none'}.\n`;
+  if (newStaff.length) msg += `New people added: ${[...new Set(newStaff)].join(', ')} — set their hourly cost in the Team tab.\n`;
+  if (newProjects.length) msg += `New projects added: ${[...new Set(newProjects)].join(', ')} — set their revenue in the Projects tab.`;
+  toast(msg, 12000);
+}
+
+function closeImport() {
+  document.getElementById('import-panel').classList.remove('open');
+  document.getElementById('mapping-step').style.display = 'none';
+  document.getElementById('import-file').value = '';
+  importRows = null;
+  importHeaders = null;
+}
+
+/* ============ RENDER ============ */
+
+function pvPairHtml(planVal, actVal, unit, showActual) {
+  const scale = Math.max(planVal, actVal, 1);
+  const actOver = actVal > planVal * 1.05;
+  return `
+    <div class="pv-pair">
+      <div class="pv-line"><span>plan</span><div class="pv-track"><div class="pv-fill pv-plan" style="width:${(planVal/scale)*100}%"></div></div><span>${unit === 'h' ? fmtHrs(planVal) + 'h' : fmtMoney(planVal)}</span></div>
+      <div class="pv-line"><span>act</span><div class="pv-track"><div class="pv-fill pv-act ${actOver ? 'over' : ''}" style="width:${showActual ? (actVal/scale)*100 : 0}%"></div></div><span>${showActual ? (unit === 'h' ? fmtHrs(actVal) + 'h' : fmtMoney(actVal)) : '—'}</span></div>
+    </div>`;
+}
+
+function deltaHtml(plan, act, invertGood) {
+  if (plan <= 0) return '';
+  const pct = ((act - plan) / plan) * 100;
+  const good = invertGood ? pct >= 0 : pct <= 0;
+  const sign = pct >= 0 ? '+' : '';
+  return `<span class="${good ? 'k-delta-good' : 'k-delta-bad'}">${sign}${Math.round(pct)}%</span>`;
+}
+
+// Totals across a project's entire flight, independent of the selected period
+function flightTotals(p) {
+  const flight = monthsOfFlight(p);
+  if (!flight) return null;
+  let rev = 0, planH = 0, planC = 0, actH = 0, actC = 0;
+  flight.forEach(mk => {
+    rev += revenueFor(p, mk);
+    state.staff.forEach(st => {
+      const a = assignFor(mk, st.id, p.id);
+      const ac = actualFor(mk, st.id, p.id);
+      planH += a; planC += a * st.hourlyCost;
+      actH += ac; actC += ac * st.hourlyCost;
+    });
+  });
+  return {months: flight.length, rev, planH, planC, actH, actC, planProfit: rev - planC, actProfit: rev - actC};
+}
+function flightLineHtml(p) {
+  const f = flightTotals(p);
+  if (!f) return '';
+  return `<div class="d-meta" style="margin-top:3px;">entire flight (${f.months} mo): ${fmtMoney(f.rev)} rev · ${fmtHrs(f.planH)}h plan · <span style="color:${f.planProfit >= 0 ? 'var(--teal)' : 'var(--rust)'}">${fmtMoney(f.planProfit)} profit</span>${f.actH > 0 ? ' · act ' + fmtHrs(f.actH) + 'h, <span style="color:' + (f.actProfit >= 0 ? 'var(--teal)' : 'var(--rust)') + '">' + fmtMoney(f.actProfit) + '</span>' : ''}</div>`;
+}
+
+function renderDashboard() {
+  document.getElementById('dash-month').textContent = periodLabel();
+  const el = document.getElementById('dashboard-container');
+  const projs = activeProjects();
+  const showActual = hasActualsThisMonth();
+
+  const totalRevenue = projs.reduce((s, p) => s + getRevenue(p), 0);
+  const planHrs = projs.reduce((s, p) => s + projectHours(p.id, false), 0) + internalHoursTotal(false);
+  const actHrs = projs.reduce((s, p) => s + projectHours(p.id, true), 0) + internalHoursTotal(true);
+  const planCost = projs.reduce((s, p) => s + projectCost(p.id, false), 0) + internalCost(false);
+  const actCost = projs.reduce((s, p) => s + projectCost(p.id, true), 0) + internalCost(true);
+  const planNet = totalRevenue - planCost;
+  const actNet = totalRevenue - actCost;
+  const atRisk = projs.filter(p => {
+    const a = projectStatus(p, true), pl = projectStatus(p, false);
+    return (showActual && a.hours > 0) ? (a.margin !== null && a.margin < 0) || a.hours > pl.hours * 1.1 : (pl.margin !== null && pl.margin < 0);
+  }).length;
+
+  const kpis = `
+    <div class="dash-kpis">
+      <div class="dash-kpi">
+        <div class="k-label">Hours · plan vs actual</div>
+        <div class="k-value">${fmtHrs(planHrs)}h ${showActual ? '<span style="color:var(--slate); font-size:13px;">→</span> ' + fmtHrs(actHrs) + 'h' : ''}</div>
+        <div class="k-sub">${showActual ? deltaHtml(planHrs, actHrs, false) + ' vs plan' : 'no actuals imported for this month'}</div>
+      </div>
+      <div class="dash-kpi">
+        <div class="k-label">Labor cost · plan vs actual</div>
+        <div class="k-value">${fmtMoney(planCost)} ${showActual ? '<span style="color:var(--slate); font-size:13px;">→</span> ' + fmtMoney(actCost) : ''}</div>
+        <div class="k-sub">${showActual ? deltaHtml(planCost, actCost, false) + ' vs plan' : 'plan only'}</div>
+      </div>
+      <div class="dash-kpi">
+        <div class="k-label">Net profit · plan vs actual</div>
+        <div class="k-value" style="color:${(showActual ? actNet : planNet) >= 0 ? 'var(--teal)' : 'var(--rust)'}">${fmtMoney(planNet)} ${showActual ? '<span style="color:var(--slate); font-size:13px;">→</span> ' + fmtMoney(actNet) : ''}</div>
+        <div class="k-sub">on ${fmtMoney(totalRevenue)} revenue</div>
+      </div>
+      <div class="dash-kpi">
+        <div class="k-label">Projects at risk</div>
+        <div class="k-value" style="color:${atRisk > 0 ? 'var(--rust)' : 'var(--teal)'}">${atRisk} / ${projs.length}</div>
+        <div class="k-sub">${showActual ? 'losing money or >10% over planned hours' : 'planned at a loss'}</div>
+      </div>
+    </div>`;
+
+  const projRows = projs.map((p, i) => {
+    const plan = projectStatus(p, false);
+    const act = projectStatus(p, true);
+    const hasAct = showActual && act.hours > 0;
+    const idx = state.projects.indexOf(p);
+    let flag;
+    if (!hasAct) flag = `<div class="stamp ${plan.cls}">${plan.label}${plan.margin !== null ? ' ' + Math.round(plan.margin) + '%' : ''}</div>`;
+    else flag = `<div class="stamp ${act.cls}">${act.label}${act.margin !== null ? ' ' + Math.round(act.margin) + '%' : ''}</div>
+      ${plan.hours > 0 ? `<div class="d-meta" style="margin-top:4px;">${deltaHtml(plan.hours, act.hours, false)} hrs vs plan</div>` : ''}`;
+    return `
+      <div class="dash-row">
+        <div>
+          <div class="d-name" style="color:${PROJECT_COLORS[idx % PROJECT_COLORS.length]}">${escapeHtml(p.name) || 'Untitled'}</div>
+          <div class="d-meta">${fmtMoney(getRevenue(p))} rev${isRange() ? ' (period)' : ''}</div>
+          ${flightLineHtml(p)}
+        </div>
+        ${pvPairHtml(plan.hours, act.hours, 'h', showActual)}
+        <div class="d-numbers">
+          cost ${fmtMoney(plan.cost)}${hasAct ? ' → ' + fmtMoney(act.cost) : ''}<br>
+          profit <span style="color:${plan.profit >= 0 ? 'var(--teal)' : 'var(--rust)'}">${fmtMoney(plan.profit)}</span>${hasAct ? ' → <span style="color:' + (act.profit >= 0 ? 'var(--teal)' : 'var(--rust)') + '">' + fmtMoney(act.profit) + '</span>' : ''}
+        </div>
+        <div class="d-flag">${flag}</div>
+      </div>`;
+  }).join('');
+
+  const depts = [];
+  allDepartments().forEach(d => depts.push(d));
+  if (state.staff.some(s => !normDept(s.department))) depts.push(NO_DEPT);
+  const deptRows = depts.map(dept => {
+    const members = staffInDept(dept);
+    if (members.length === 0) return '';
+    const capacity = members.reduce((s, m) => s + periodCapacity(m), 0);
+    const dPlanHrs = members.reduce((s, m) => s + staffTotalHours(m.id, false), 0);
+    const dActHrs = members.reduce((s, m) => s + staffTotalHours(m.id, true), 0);
+    const dIntHrs = members.reduce((s, m) => s + getAssignment(m.id, INTERNAL_ID), 0);
+    const dPlanCost = members.reduce((s, m) => s + staffTotalHours(m.id, false) * m.hourlyCost, 0);
+    const util = capacity > 0 ? (dPlanHrs / capacity) * 100 : 0;
+    const utilCls = util > 100.1 ? 'over' : util >= 90 ? 'full' : 'under';
+    return `
+      <div class="dash-row">
+        <div>
+          <div class="d-name">${escapeHtml(dept)}</div>
+          <div class="d-meta">${members.length} ${members.length === 1 ? 'person' : 'people'} · ${fmtHrs(capacity)}h capacity</div>
+        </div>
+        ${pvPairHtml(dPlanHrs, dActHrs, 'h', showActual)}
+        <div class="d-numbers">
+          planned cost ${fmtMoney(dPlanCost)}<br>
+          <span class="d-meta">${dIntHrs > 0 ? fmtHrs(dIntHrs) + 'h internal' : 'no internal hours'}</span>
+        </div>
+        <div class="d-flag">
+          <span class="util-pct ${utilCls}">${Math.round(util)}%</span>
+          <div class="d-meta">utilization (plan)</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    ${kpis}
+    <div class="dash-section">
+      <h3>Projects — plan vs actual</h3>
+      <div class="dash-card">${projRows || '<div class="empty-note">No active projects this month.</div>'}</div>
+    </div>
+    <div class="dash-section">
+      <h3>Departments</h3>
+      <div class="dash-card">${deptRows || '<div class="empty-note">No team members yet.</div>'}</div>
+    </div>
+    ${!showActual ? '<div class="dash-note">Actual bars will fill in once you import hour tracking data for this month (Import button, top right).</div>' : ''}
+  `;
+}
+
+function renderSummary() {
+  const projs = activeProjects();
+  const totalRevenue = projs.reduce((s, p) => s + getRevenue(p), 0);
+  const plannedCost = projs.reduce((s, p) => s + projectCost(p.id, false), 0) + internalCost(false);
+  const actualCost = projs.reduce((s, p) => s + projectCost(p.id, true), 0) + internalCost(true);
+  const plannedNet = totalRevenue - plannedCost;
+  const actualNet = totalRevenue - actualCost;
+  const showActual = hasActualsThisMonth();
+  const overCount = state.staff.filter(s => staffTotalHours(s.id, false) > periodCapacity(s) + 0.01).length;
+  const underCount = state.staff.filter(s => staffTotalHours(s.id, false) < periodCapacity(s) * 0.9).length;
+
+  document.getElementById('summary-strip').innerHTML = `
+    <div class="summary-cell"><div class="summary-label">Revenue${isRange() ? ' (period)' : ''}</div><div class="summary-value">${fmtMoney(totalRevenue)}</div></div>
+    <div class="summary-cell"><div class="summary-label">Planned labor</div><div class="summary-value">${fmtMoney(plannedCost)}</div></div>
+    <div class="summary-cell"><div class="summary-label">Actual labor</div><div class="summary-value ${showActual ? '' : 'muted'}">${showActual ? fmtMoney(actualCost) : '—'}</div></div>
+    <div class="summary-cell"><div class="summary-label">Planned net</div><div class="summary-value ${plannedNet >= 0 ? 'pos' : 'neg'}">${fmtMoney(plannedNet)}</div></div>
+    <div class="summary-cell"><div class="summary-label">Actual net</div><div class="summary-value ${showActual ? (actualNet >= 0 ? 'pos' : 'neg') : 'muted'}">${showActual ? fmtMoney(actualNet) : '—'}</div></div>
+    <div class="summary-cell"><div class="summary-label">Capacity flags (plan)</div>
+      <div class="summary-value" style="font-size:14px; display:flex; gap:10px;">
+        <span style="color:var(--rust)">${overCount} over</span>
+        <span style="color:var(--slate)">${underCount} under</span>
+      </div>
+    </div>`;
+}
+
+function sortIndicator(sortState, key) {
+  if (sortState.key !== key) return '';
+  return sortState.dir === 1 ? '▲' : '▼';
+}
+
+function sortedFilteredStaff() {
+  let list = [...state.staff];
+  const q = ui.teamSearch.trim().toLowerCase();
+  if (q) list = list.filter(s => s.name.toLowerCase().includes(q));
+  if (ui.teamDept) list = list.filter(s => normDept(s.department).toLowerCase() === ui.teamDept.toLowerCase());
+  if (ui.teamSort.key) {
+    const k = ui.teamSort.key, dir = ui.teamSort.dir;
+    const computed = {
+      utilization: staffUtilizationPct,
+      internalHrs: s => getAssignment(s.id, INTERNAL_ID),
+      loggedHrs: s => staffTotalHours(s.id, true)
+    };
+    list.sort((a, b) => {
+      const av = computed[k] ? computed[k](a) : a[k];
+      const bv = computed[k] ? computed[k](b) : b[k];
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+      return String(av || '').localeCompare(String(bv || '')) * dir;
+    });
+  }
+  return list;
+}
+
+function sortedFilteredProjects() {
+  let list = [...state.projects];
+  const q = ui.projSearch.trim().toLowerCase();
+  if (q) list = list.filter(p => p.name.toLowerCase().includes(q));
+  if (ui.projActiveOnly) list = list.filter(p => projectActiveInMonth(p, currentMonth));
+  if (ui.projSort.key) {
+    const k = ui.projSort.key, dir = ui.projSort.dir;
+    const computed = {
+      revenue: p => getRevenue(p),
+      hoursAssigned: p => projectHours(p.id, false),
+      profitPerHour: p => { const v = projectStatus(p, false).profitPerHour; return v === null ? -Infinity : v; }
+    };
+    list.sort((a, b) => {
+      const av = computed[k] ? computed[k](a) : a[k];
+      const bv = computed[k] ? computed[k](b) : b[k];
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+      return String(av || '').localeCompare(String(bv || '')) * dir;
+    });
+  }
+  return list;
+}
+
+function renderStaffTable() {
+  const deptSel = document.getElementById('team-dept-filter');
+  const depts = allDepartments();
+  const cur = ui.teamDept;
+  deptSel.innerHTML = '<option value="">All departments</option>' + depts.map(d => `<option value="${escapeAttr(d)}" ${d === cur ? 'selected' : ''}>${escapeHtml(d)}</option>`).join('');
+  document.getElementById('dept-datalist').innerHTML = depts.map(d => `<option value="${escapeAttr(d)}">`).join('');
+  document.querySelectorAll('#team-head .sort-ind').forEach(el => el.textContent = sortIndicator(ui.teamSort, el.dataset.ind));
+
+  const tbody = document.getElementById('staff-tbody');
+  const list = sortedFilteredStaff();
+  if (state.staff.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-note">No one on the roster yet — add a person or import your tracking data.</td></tr>`;
+    return;
+  }
+  if (list.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-note">No people match the current filters.</td></tr>`;
+    return;
+  }
+  const showActual = hasActualsThisMonth();
+  tbody.innerHTML = list.map(s => {
+    const cap = periodCapacity(s);
+    const total = staffTotalHours(s.id, false);
+    const pct = staffUtilizationPct(s);
+    const over = pct > 100.1;
+    let pctCls = 'under';
+    if (over) pctCls = 'over';
+    else if (pct >= 90) pctCls = 'full';
+    const intHrs = getAssignment(s.id, INTERNAL_ID);
+    const intAct = getActual(s.id, INTERNAL_ID);
+    const logged = staffTotalHours(s.id, true);
+    const loggedOver = total > 0 && logged > total * 1.05;
+    const loggedPct = total > 0 ? (logged / total) * 100 : (logged > 0 ? 100 : 0);
+    let loggedCell;
+    if (!showActual) {
+      loggedCell = '<span class="computed-sub">no actuals imported</span>';
+    } else if (logged <= 0 && total <= 0) {
+      loggedCell = '<span class="computed-sub">—</span>';
+    } else {
+      loggedCell = `
+        <span class="util-pct ${loggedOver ? 'over' : (total > 0 && logged >= total * 0.95 ? 'full' : 'under')}">${fmtHrs(logged)}h</span>
+        <span class="computed-sub"> / ${fmtHrs(total)}h assigned${total > 0 ? ' ' : ''}</span>${total > 0 ? deltaHtml(total, logged, false) : ''}
+        <div class="mini-track"><div class="mini-bar ${loggedOver ? 'over' : ''}" style="width:${Math.min(loggedPct, 100)}%;"></div></div>`;
+    }
+    const expanded = !!ui.teamExpanded[s.id];
+
+    let breakout = '';
+    if (expanded) {
+      const projs = activeProjects();
+      const assignedProjs = projs.filter(p => getAssignment(s.id, p.id) > 0);
+      const unassignedProjs = projs.filter(p => getAssignment(s.id, p.id) <= 0);
+      const rows = assignedProjs.map(p => {
+        const hrs = getAssignment(s.id, p.id);
+        const act = getActual(s.id, p.id);
+        const idx = state.projects.indexOf(p);
+        const st = projectStatus(p, false);
+        return `
+          <div class="tm-row">
+            <div>
+              <div class="tm-name" style="color:${PROJECT_COLORS[idx % PROJECT_COLORS.length]}">${escapeHtml(p.name) || 'Untitled'}</div>
+              <div class="tm-meta">${fmtMoney(getRevenue(p))} rev · ${st.margin === null ? 'no revenue' : Math.round(st.margin) + '% margin'}</div>
+            </div>
+            <div><input type="text" inputmode="decimal" class="numfield" ${hourInputAttrs(uniformOver(mk => assignFor(mk, s.id, p.id)))} data-role="assignment" data-staff="${s.id}" data-project="${p.id}"> <span class="tm-meta">hrs/mo${isRange() ? ' · ' + fmtHrs(hrs) + 'h total' : ''}</span></div>
+            <div class="tm-meta">${fmtMoney(hrs * s.hourlyCost)} cost</div>
+            <div class="tm-meta">${showActual && act ? 'act ' + fmtHrs(act) + 'h ' + deltaHtml(hrs, act, false) : ''}</div>
+            <div></div>
+          </div>`;
+      }).join('');
+      const addForm = unassignedProjs.length ? `
+        <div class="tm-add">
+          <select id="tm-proj-${s.id}">
+            ${unassignedProjs.map(p => `<option value="${p.id}">${escapeHtml(p.name) || 'Untitled'}</option>`).join('')}
+          </select>
+          <input type="text" inputmode="decimal" class="numfield" placeholder="Hours" id="tm-hrs-${s.id}">
+          <select id="tm-unit-${s.id}">
+            <option value="month">hrs / month</option>
+            <option value="week">hrs / week</option>
+            <option value="flight">hrs, entire flight</option>
+          </select>
+          <button class="assign" data-role="team-add-assign" data-id="${s.id}">Assign to project</button>
+        </div>` : `<div class="tm-empty">Assigned to every active project this month.</div>`;
+      breakout = `
+        <tr class="team-breakout"><td colspan="9">
+          ${rows || '<div class="tm-empty">No project assignments this month.</div>'}
+          ${intHrs > 0 ? `<div class="tm-row"><div><div class="tm-name" style="color:var(--internal)">Internal (non-billable)</div></div><div class="tm-meta">${fmtHrs(intHrs)} hrs</div><div class="tm-meta">${fmtMoney(intHrs * s.hourlyCost)} cost</div><div class="tm-meta">${showActual && intAct ? 'act ' + fmtHrs(intAct) + 'h' : ''}</div><div></div></div>` : ''}
+          ${addForm}
+        </td></tr>`;
+    }
+
+    return `
+    <tr>
+      <td><div class="name-cell"><button class="expand-btn" data-role="team-toggle" data-id="${s.id}">${expanded ? '▾' : '▸'}</button><input type="text" value="${escapeAttr(s.name)}" placeholder="Name" data-role="staff-name" data-id="${s.id}"></div></td>
+      <td><input type="text" list="dept-datalist" value="${escapeAttr(s.department || '')}" placeholder="e.g. Design" data-role="staff-dept" data-id="${s.id}"></td>
+      <td><input type="text" inputmode="decimal" class="numfield" value="${s.hourlyCost}" data-role="staff-cost" data-id="${s.id}"></td>
+      <td><input type="text" inputmode="decimal" class="numfield" value="${s.weeklyCapacity}" data-role="staff-cap" data-id="${s.id}"></td>
+      <td class="cap-readout">${fmtHrs(monthlyCapacity(s.weeklyCapacity))} hrs${isRange() ? '/mo' : ''}</td>
+      <td>
+        <input type="text" inputmode="decimal" class="numfield" ${hourInputAttrs(uniformOver(mk => assignFor(mk, s.id, INTERNAL_ID)))} data-role="staff-internal" data-id="${s.id}">
+        ${showActual && intAct ? `<div class="computed-sub">act ${fmtHrs(intAct)}h</div>` : ''}
+      </td>
+      <td>
+        <span class="util-pct ${pctCls}">${Math.round(pct)}%</span>
+        <span class="computed-sub"> · ${fmtHrs(total)} / ${fmtHrs(cap)}h</span>
+        <div class="mini-track"><div class="mini-bar ${over ? 'over' : ''}" style="width:${Math.min(pct, 100)}%;"></div></div>
+      </td>
+      <td>${loggedCell}</td>
+      <td class="remove-col"><button class="remove-btn" data-role="remove-staff" data-id="${s.id}">×</button></td>
+    </tr>${breakout}`;
+  }).join('');
+}
+
+function renderProjectTable() {
+  document.querySelectorAll('#proj-head .sort-ind').forEach(el => el.textContent = sortIndicator(ui.projSort, el.dataset.ind));
+  const tbody = document.getElementById('project-tbody');
+  const list = sortedFilteredProjects();
+  if (state.projects.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-note">No projects yet — add a project or import your tracking data.</td></tr>`;
+    return;
+  }
+  if (list.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-note">No projects match the current filters.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = list.map(p => {
+    const active = projectActiveInMonth(p, currentMonth);
+    const plan = projectStatus(p, false);
+    const act = projectStatus(p, true);
+    const rev = getRevenue(p);
+    const overridden = hasOverride(p);
+    const pphTxt = plan.profitPerHour === null ? '—' : fmtMoney2(plan.profitPerHour);
+    const pphColor = plan.profitPerHour === null ? 'var(--slate)' : (plan.profitPerHour >= 0 ? 'var(--teal)' : 'var(--rust)');
+    return `
+    <tr style="${active ? '' : 'opacity:0.55;'}">
+      <td><input type="text" value="${escapeAttr(p.name)}" placeholder="Project name" data-role="project-name" data-id="${p.id}"></td>
+      <td>
+        ${isRange()
+          ? `<div class="computed-cell" style="font-weight:700;">${fmtMoney(rev)}</div><div class="computed-sub">period total · edit in single-month view</div>`
+          : `<input type="text" inputmode="decimal" class="numfield rev-input" value="${'$' + Math.round(rev).toLocaleString()}" data-role="project-revenue-month" data-id="${p.id}"><div class="computed-sub">default ${fmtMoney(p.monthlyRevenue || 0)}${overridden ? ' · differs this month' : ''}</div>`}
+      </td>
+      <td class="computed-cell">
+        ${fmtHrs(plan.hours)}h
+        ${act.hours > 0 ? `<div class="computed-sub">act ${fmtHrs(act.hours)}h</div>` : ''}
+      </td>
+      <td class="computed-cell" style="color:${pphColor}; font-weight:700;">
+        ${pphTxt}${plan.profitPerHour === null ? '' : '/hr'}
+        ${act.hours > 0 && act.profitPerHour !== null ? `<div class="computed-sub">act ${fmtMoney2(act.profitPerHour)}/hr</div>` : ''}
+      </td>
+      <td><input type="month" value="${p.startMonth || ''}" data-role="project-start" data-id="${p.id}"></td>
+      <td><input type="month" value="${p.endMonth || ''}" data-role="project-end" data-id="${p.id}"></td>
+      <td>${active ? '<span style="color:var(--teal); font-size:11px;">active</span>' : '<span class="inactive-tag">not this month</span>'}</td>
+      <td class="remove-col"><button class="remove-btn" data-role="remove-project" data-id="${p.id}">×</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderDemand() {
+  document.getElementById('demand-month').textContent = periodLabel();
+  const el = document.getElementById('demand-list');
+  const projs = activeProjects();
+  if (projs.length === 0) {
+    el.innerHTML = `<div class="empty-note" style="background:var(--paper-raised); border:1px solid var(--line); border-radius:6px;">No active projects this month.</div>`;
+    return;
+  }
+  const showActual = hasActualsThisMonth();
+
+  el.innerHTML = projs.map((p, i) => {
+    const depts = demandDeptsForProject(p.id);
+    const st = projectStatus(p, false);
+    const totalNeed = depts.reduce((a, d) => a + getDemand(p.id, d), 0);
+
+    const rowsHtml = depts.map(dept => {
+      const need = getDemand(p.id, dept);
+      const assigned = assignedHoursForDept(p.id, dept);
+      const expanded = !!ui.expanded[p.id + '__' + dept];
+      const pct = need > 0 ? Math.min(assigned / need, 1) * 100 : 0;
+      const over = need > 0 && assigned > need + 0.01;
+      let fl = 'open', ft = fmtHrs(need - assigned) + 'h to fill';
+      if (need === 0) { fl = 'unplanned'; ft = 'no demand set'; }
+      else if (over) { fl = 'overfilled'; ft = 'overfilled by ' + fmtHrs(assigned - need) + 'h'; }
+      else if (assigned >= need - 0.01) { fl = 'done'; ft = 'filled'; }
+      else if (assigned > 0) { fl = 'partial'; ft = fmtHrs(need - assigned) + 'h to fill'; }
+
+      const members = staffInDept(dept).filter(s => getAssignment(s.id, p.id) > 0);
+      const personRows = expanded ? members.map(s => {
+        const hrs = getAssignment(s.id, p.id);
+        const act = getActual(s.id, p.id);
+        return `
+          <div class="person-row">
+            <div></div>
+            <div>
+              <div class="p-name">${escapeHtml(s.name) || 'Unnamed'}</div>
+              <div class="p-meta">${fmtMoney(s.hourlyCost)}/hr · ${fmtHrs(Math.max(periodCapacity(s) - staffTotalHours(s.id, false), 0))}h open</div>
+            </div>
+            <div><input type="text" inputmode="decimal" class="numfield" ${hourInputAttrs(uniformOver(mk => assignFor(mk, s.id, p.id)))} data-role="assignment" data-staff="${s.id}" data-project="${p.id}"> <span class="p-meta">hrs/mo${isRange() ? ' · ' + fmtHrs(hrs) + 'h total' : ''}</span></div>
+            <div class="p-meta">${showActual && act ? 'act ' + fmtHrs(act) + 'h' : ''}</div>
+            <div class="p-meta">${hrs > 0 ? fmtMoney(hrs * s.hourlyCost) + ' cost' : ''}</div>
+          </div>`;
+      }).join('') + (members.length === 0 ? '<div class="person-row"><div></div><div class="p-meta">No one assigned yet — use the Assign button to staff this line.</div></div>' : '') : '';
+
+      return `
+        <div class="demand-row">
+          <button class="expand-btn" data-role="toggle-expand" data-project="${p.id}" data-dept="${escapeAttr(dept)}">${expanded ? '▾' : '▸'}</button>
+          <div class="dept-input"><input type="text" list="dept-datalist" value="${escapeAttr(dept)}" data-role="demand-dept" data-project="${p.id}" data-dept="${escapeAttr(dept)}" ${need === 0 ? 'readonly' : ''}></div>
+          <input type="text" inputmode="decimal" class="numfield" ${hourInputAttrs(uniformOver(mk => demandFor(mk, p.id, dept)))} data-role="demand-hours" data-project="${p.id}" data-dept="${escapeAttr(dept)}">
+          <div><div class="fill-track"><div class="fill-bar" style="width:${pct}%; background:${over ? 'var(--rust)' : 'var(--accent)'};"></div></div></div>
+          <div class="fill-label ${fl}">${fmtHrs(assigned)}${need > 0 ? ' / ' + fmtHrs(need) : ''}h · ${ft}</div>
+          <button class="assign" data-role="open-assign" data-project="${p.id}" data-dept="${escapeAttr(dept)}">Assign</button>
+          <button class="remove-btn" data-role="remove-demand" data-project="${p.id}" data-dept="${escapeAttr(dept)}" ${need === 0 ? 'disabled title="This line exists because people are assigned — remove their hours to clear it"' : ''}>×</button>
+        </div>${personRows}`;
+    }).join('');
+
+    const flight = monthsOfFlight(p);
+    return `
+      <div class="demand-project">
+        <div class="demand-project-head">
+          <div>
+            <span class="pname" style="color:${PROJECT_COLORS[i % PROJECT_COLORS.length]}">${escapeHtml(p.name) || 'Untitled'}</span>
+            <span class="pmeta"> · ${fmtMoney(getRevenue(p))} rev${isRange() ? ' (period)' : ' this month'}${hasOverride(p) ? ' · varies' : ''} · plan ${fmtMoney(st.cost)} cost · ${st.margin === null ? 'no revenue' : Math.round(st.margin) + '% margin'}${flight ? ' · flight ' + monthShort(p.startMonth) + '–' + monthShort(p.endMonth) : ''}</span>
+          </div>
+          <div class="pmeta">${fmtHrs(totalNeed)}h planned demand</div>
+        </div>
+        <div class="demand-rows">
+          ${rowsHtml || '<div class="empty-note" style="padding:8px;">No department demand yet.</div>'}
+        </div>
+        <div class="demand-add">
+          <input type="text" list="dept-datalist" placeholder="Department (e.g. Design)" id="new-dept-${p.id}">
+          <input type="text" inputmode="decimal" class="numfield" placeholder="Hours" id="new-hrs-${p.id}">
+          <select id="new-unit-${p.id}">
+            <option value="month">hrs / month</option>
+            <option value="week">hrs / week</option>
+            <option value="flight">hrs, entire flight</option>
+          </select>
+          <button class="assign" data-role="add-demand" data-project="${p.id}">+ Add demand</button>
+          <span class="hint">weekly ≈ ×${WEEKS_PER_MONTH.toFixed(2)}/month · flight spreads evenly across ${flight ? flight.length + ' months' : 'the flight (needs start & end dates)'}</span>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function renderGantt() {
+  const el = document.getElementById('gantt-container');
+  const dated = state.projects.filter(p => monthsOfFlight(p));
+  const undated = state.projects.filter(p => !monthsOfFlight(p));
+
+  if (dated.length === 0) {
+    el.innerHTML = `<div class="empty-note" style="background:var(--paper-raised); border:1px solid var(--line); border-radius:6px;">No projects have both a flight start and end month yet. Set them on the Projects tab and they'll appear here.</div>`;
+    return;
+  }
+
+  let minStart = dated.reduce((m, p) => p.startMonth < m ? p.startMonth : m, dated[0].startMonth);
+  let maxEnd = dated.reduce((m, p) => p.endMonth > m ? p.endMonth : m, dated[0].endMonth);
+  const vm = viewMonths();
+  if (vm[0] < minStart) minStart = vm[0];
+  if (vm[vm.length - 1] > maxEnd) maxEnd = vm[vm.length - 1];
+
+  const months = [];
+  let mk = minStart, guard = 0;
+  while (mk <= maxEnd && guard < 24) { months.push(mk); mk = shiftMonth(mk, 1); guard++; }
+  const truncated = mk <= maxEnd;
+  const n = months.length;
+
+  const vmSet = new Set(viewMonths());
+  const headCells = months.map(m =>
+    `<div class="gantt-monthcell ${vmSet.has(m) ? 'current' : ''}" data-role="gantt-month" data-month="${m}">${monthShort(m)}</div>`
+  ).join('');
+
+  const bgCells = months.map(m => `<div class="gantt-monthcell ${vmSet.has(m) ? 'current' : ''}"></div>`).join('');
+
+  const rows = dated.map(p => {
+    const idx = state.projects.indexOf(p);
+    const color = PROJECT_COLORS[idx % PROJECT_COLORS.length];
+    const startIdx = months.indexOf(p.startMonth);
+    const endIdx = months.indexOf(p.endMonth);
+    const s = startIdx >= 0 ? startIdx : 0;
+    const e = endIdx >= 0 ? endIdx : n - 1;
+    const left = (s / n) * 100;
+    const width = ((e - s + 1) / n) * 100;
+    const flightLen = (monthsOfFlight(p) || []).length;
+    const rev = getRevenue(p);
+    return `
+      <div class="gantt-row">
+        <div class="gantt-label">
+          ${escapeHtml(p.name) || 'Untitled'}
+          <span class="g-sub">${flightLen} mo flight · ${fmtMoney(rev)}/mo default${Object.keys(p.revenueOverrides || {}).length ? ' · varies' : ''}</span>
+        </div>
+        <div class="gantt-track">
+          <div class="gantt-monthgrid" style="grid-template-columns: repeat(${n}, 1fr);">${bgCells}</div>
+          <div class="gantt-bar" style="left:${left}%; width:${width}%; background:${color};">${escapeHtml(p.name) || ''}</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="gantt-wrap"><div class="gantt-inner">
+      <div class="gantt-row gantt-head">
+        <div class="gantt-label">Account</div>
+        <div class="gantt-track" style="grid-template-columns: repeat(${n}, 1fr);">${headCells}</div>
+      </div>
+      ${rows}
+    </div></div>
+    ${truncated ? '<div class="gantt-undated">Timeline capped at 24 months — later flights extend beyond the right edge.</div>' : ''}
+    ${undated.length ? `<div class="gantt-undated">No flight dates set: ${undated.map(p => `<span class="chip">${escapeHtml(p.name) || 'Untitled'}</span>`).join('')}</div>` : ''}
+  `;
+}
+
+function escapeHtml(str) {
+  return (str || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function escapeAttr(str) { return escapeHtml(str); }
+
+function inputKey(el) {
+  return [el.dataset.role, el.dataset.id || '', el.dataset.staff || '', el.dataset.project || '', el.dataset.dept || '', el.id || ''].join('|');
+}
+
+function render() {
+  const active = document.activeElement;
+  let focusKey = null, focusValue = null, selStart = null;
+  if (active && active.tagName === 'INPUT' && (active.dataset.role || active.id)) {
+    focusKey = inputKey(active);
+    focusValue = active.value;
+    try { selStart = active.selectionStart; } catch (e) {}
+  }
+
+  document.getElementById('month-label').textContent = monthLabel(currentMonth);
+  document.getElementById('nav-month').style.display = ui.period.mode === 'month' ? 'flex' : 'none';
+  document.getElementById('nav-range').style.display = ui.period.mode === 'range' ? 'flex' : 'none';
+  document.getElementById('mode-month').classList.toggle('active', ui.period.mode === 'month');
+  document.getElementById('mode-range').classList.toggle('active', ui.period.mode === 'range');
+  document.getElementById('range-summary').textContent = isRange() ? viewMonths().length + ' months in view' : '';
+  document.getElementById('count-team').textContent = state.staff.length ? '(' + state.staff.length + ')' : '';
+  document.getElementById('count-projects').textContent = state.projects.length ? '(' + state.projects.length + ')' : '';
+  setTab(ui.tab);
+  renderSummary();
+  renderDashboard();
+  renderStaffTable();
+  renderProjectTable();
+  renderDemand();
+  renderGantt();
+
+  if (focusKey !== null) {
+    const inputs = document.querySelectorAll('input');
+    for (const inp of inputs) {
+      if (inputKey(inp) === focusKey) {
+        inp.value = focusValue;
+        inp.focus();
+        try { if (selStart !== null) inp.setSelectionRange(selStart, selStart); } catch (e) {}
+        break;
+      }
+    }
+  }
+}
+
+/* events */
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (t.id === 'team-search') { ui.teamSearch = t.value; render(); return; }
+  if (t.id === 'proj-search') { ui.projSearch = t.value; render(); return; }
+  if (t.id === 'assign-hours') { renderCandidates(); return; }
+
+  const role = t.dataset.role;
+  if (!role) return;
+  if (role === 'staff-name') updateStaffField(t.dataset.id, 'name', t.value);
+  else if (role === 'staff-dept') updateStaffField(t.dataset.id, 'department', t.value);
+  else if (role === 'staff-cost') updateStaffField(t.dataset.id, 'hourlyCost', t.value);
+  else if (role === 'staff-cap') updateStaffField(t.dataset.id, 'weeklyCapacity', t.value);
+  else if (role === 'staff-internal') setAssignment(t.dataset.id, INTERNAL_ID, parseFloat(t.value) || 0);
+  else if (role === 'project-name') updateProjectField(t.dataset.id, 'name', t.value);
+  else if (role === 'project-revenue-month') setRevenueThisMonth(t.dataset.id, t.value);
+  else if (role === 'project-start') updateProjectField(t.dataset.id, 'startMonth', t.value);
+  else if (role === 'project-end') updateProjectField(t.dataset.id, 'endMonth', t.value);
+  else if (role === 'assignment') setAssignment(t.dataset.staff, t.dataset.project, parseFloat(t.value) || 0);
+  else if (role === 'demand-hours') setDemand(t.dataset.project, t.dataset.dept, parseFloat(t.value) || 0);
+});
+
+document.addEventListener('change', (e) => {
+  const t = e.target;
+  if (t.id === 'import-type') { if (importHeaders) buildMappingUI(); return; }
+  if (t.id === 'team-dept-filter') { ui.teamDept = t.value; render(); return; }
+  if (t.id === 'proj-active-only') { ui.projActiveOnly = t.checked; render(); return; }
+  if (t.id === 'assign-unit') { renderCandidates(); return; }
+  if (t.dataset.role === 'demand-dept') {
+    renameDemandDept(t.dataset.project, t.dataset.dept, normDept(t.value));
+  }
+});
+
+document.addEventListener('click', (e) => {
+  const t = e.target;
+  const role = t.dataset.role;
+  if (role === 'remove-staff') removeStaff(t.dataset.id);
+  else if (role === 'remove-project') removeProject(t.dataset.id);
+  else if (role === 'remove-demand') removeDemand(t.dataset.project, t.dataset.dept);
+  else if (role === 'toggle-expand') {
+    const key = t.dataset.project + '__' + t.dataset.dept;
+    ui.expanded[key] = !ui.expanded[key];
+    render();
+  }
+  else if (role === 'team-toggle') {
+    ui.teamExpanded[t.dataset.id] = !ui.teamExpanded[t.dataset.id];
+    render();
+  }
+  else if (role === 'team-add-assign') {
+    const sid = t.dataset.id;
+    const projSel = document.getElementById('tm-proj-' + sid);
+    const hrsInput = document.getElementById('tm-hrs-' + sid);
+    const unitSel = document.getElementById('tm-unit-' + sid);
+    const pid = projSel ? projSel.value : '';
+    const hrs = parseFloat(hrsInput ? hrsInput.value : '') || 0;
+    const unit = unitSel ? unitSel.value : 'month';
+    const project = state.projects.find(p => p.id === pid);
+    if (!project) { toast('Pick a project first.'); return; }
+    if (hrs <= 0) { toast('Enter the number of hours (greater than 0).'); return; }
+    const res = resolveUnits(hrs, unit, project);
+    if (res.error) { toast(res.error); return; }
+    const person = state.staff.find(x => x.id === sid);
+    const dept = person ? deptLabelOf(person) : '';
+    let demandRaised = false;
+    res.months.forEach(mk => {
+      addToAssignmentInMonth(mk, sid, pid, res.perMonth);
+      if (ensureDemandCovers(mk, pid, dept)) demandRaised = true;
+    });
+    scheduleSave();
+    render();
+    const who = (person || {}).name || 'Person';
+    let msg;
+    if (res.months.length > 1) msg = 'Assigned ' + who + ' to ' + (project.name || 'project') + ' at ' + fmtHrs(res.perMonth) + ' hrs/month across ' + res.months.length + ' months.';
+    else msg = 'Assigned ' + who + ' to ' + (project.name || 'project') + (res.describe ? ' — ' + res.describe : '') + '.';
+    if (demandRaised) msg += '\n' + dept + ' demand on this project was raised to cover the assignment.';
+    toast(msg);
+  }
+  else if (role === 'gantt-month') { currentMonth = t.dataset.month; render(); }
+  else if (role === 'add-demand') {
+    const pid = t.dataset.project;
+    const project = state.projects.find(p => p.id === pid);
+    const deptInput = document.getElementById('new-dept-' + pid);
+    const hrsInput = document.getElementById('new-hrs-' + pid);
+    const unitSel = document.getElementById('new-unit-' + pid);
+    const dept = normDept(deptInput ? deptInput.value : '');
+    const hrs = parseFloat(hrsInput ? hrsInput.value : '') || 0;
+    const unit = unitSel ? unitSel.value : 'month';
+    if (!dept) { toast('Enter a department name first.'); return; }
+    if (hrs <= 0) { toast('Enter the number of hours (greater than 0).'); return; }
+    const res = resolveUnits(hrs, unit, project);
+    if (res.error) { toast(res.error); return; }
+    res.months.forEach(mk => {
+      const existing = ((state.demand[mk] || {})[pid] || {})[dept] || 0;
+      setDemandInMonth(mk, pid, dept, (res.months.length > 1 ? 0 : existing) + res.perMonth);
+    });
+    scheduleSave();
+    render();
+    if (res.months.length > 1) toast('Set ' + fmtHrs(res.perMonth) + 'h/month of ' + dept + ' demand across the ' + res.months.length + '-month flight.');
+    else if (res.describe) toast(res.describe);
+  }
+  else if (role === 'open-assign') openAssignModal(t.dataset.project, t.dataset.dept);
+  else if (role === 'do-assign') doAssign(t.dataset.staff);
+});
+
+document.getElementById('team-head').addEventListener('click', (e) => {
+  const th = e.target.closest('th.sortable');
+  if (!th) return;
+  const key = th.dataset.sort;
+  if (ui.teamSort.key === key) ui.teamSort.dir *= -1;
+  else ui.teamSort = {key, dir: 1};
+  render();
+});
+document.getElementById('proj-head').addEventListener('click', (e) => {
+  const th = e.target.closest('th.sortable');
+  if (!th) return;
+  const key = th.dataset.sort;
+  if (ui.projSort.key === key) ui.projSort.dir *= -1;
+  else ui.projSort = {key, dir: 1};
+  render();
+});
+
+document.getElementById('mode-month').addEventListener('click', () => { ui.period.mode = 'month'; render(); });
+document.getElementById('mode-range').addEventListener('click', () => {
+  ui.period.mode = 'range';
+  if (!ui.period.start) ui.period.start = currentMonth;
+  if (!ui.period.end || ui.period.end < ui.period.start) ui.period.end = shiftMonth(ui.period.start, 2);
+  document.getElementById('range-start').value = ui.period.start;
+  document.getElementById('range-end').value = ui.period.end;
+  render();
+});
+document.getElementById('range-start').addEventListener('change', (e) => { ui.period.start = e.target.value; render(); });
+document.getElementById('range-end').addEventListener('change', (e) => { ui.period.end = e.target.value; render(); });
+document.getElementById('preset-quarter').addEventListener('click', () => {
+  const now = new Date();
+  const qStartMonth = Math.floor(now.getMonth() / 3) * 3;
+  ui.period.start = monthKey(new Date(now.getFullYear(), qStartMonth, 1));
+  ui.period.end = monthKey(new Date(now.getFullYear(), qStartMonth + 2, 1));
+  document.getElementById('range-start').value = ui.period.start;
+  document.getElementById('range-end').value = ui.period.end;
+  render();
+});
+document.getElementById('preset-next3').addEventListener('click', () => {
+  ui.period.start = monthKey(new Date());
+  ui.period.end = shiftMonth(ui.period.start, 2);
+  document.getElementById('range-start').value = ui.period.start;
+  document.getElementById('range-end').value = ui.period.end;
+  render();
+});
+
+document.getElementById('tab-bar').addEventListener('click', (e) => {
+  const btn = e.target.closest('.tab-btn');
+  if (btn) setTab(btn.dataset.tab);
+});
+
+document.getElementById('add-staff-btn').addEventListener('click', addStaff);
+document.getElementById('add-project-btn').addEventListener('click', addProject);
+document.getElementById('prev-month').addEventListener('click', () => { currentMonth = shiftMonth(currentMonth, -1); render(); });
+document.getElementById('next-month').addEventListener('click', () => { currentMonth = shiftMonth(currentMonth, 1); render(); });
+document.getElementById('today-btn').addEventListener('click', () => { currentMonth = monthKey(new Date()); render(); });
+document.getElementById('copy-prev-btn').addEventListener('click', (e) => {
+  if (isRange()) { toast('Switch to single-month view to copy a plan between months.'); return; }
+  const result = copyFromPreviousMonth(false);
+  if (result === 'needs-confirm') {
+    armToConfirm(e.target, 'copy-prev', 'Overwrite this month\'s plan?', () => copyFromPreviousMonth(true));
+  }
+});
+document.getElementById('open-import-btn').addEventListener('click', () => {
+  document.getElementById('import-panel').classList.toggle('open');
+});
+document.getElementById('import-file').addEventListener('change', (e) => {
+  if (e.target.files && e.target.files[0]) handleFileChosen(e.target.files[0]);
+});
+document.getElementById('run-import-btn').addEventListener('click', runImport);
+document.getElementById('cancel-import-btn').addEventListener('click', closeImport);
+document.getElementById('assign-close').addEventListener('click', closeAssignModal);
+document.getElementById('assign-modal').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('assign-modal')) closeAssignModal();
+});
+document.getElementById('reset-btn').addEventListener('click', (e) => {
+  armToConfirm(e.target, 'reset-all', 'Click again to erase everything', async () => {
+    state = {staff: [], projects: [], assignments: {}, actuals: {}, demand: {}};
+    try { await saveToSupabase(state); } catch (err) { console.error(err); }
+    render();
+    toast('All data cleared for everyone in the workspace.');
+  });
+});
+
+init();
+</script>
+</body>
+</html>
