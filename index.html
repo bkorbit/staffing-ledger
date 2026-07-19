@@ -489,7 +489,13 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
         <h2>Projects</h2>
         <div class="actions"><button class="primary" id="add-project-btn">+ Add project</button></div>
       </div>
-      <div class="chart-card" style="margin-bottom:14px;"><h4>Profit margin by project — profit ÷ gross revenue (actuals where available)</h4><div class="chart-wrap"><canvas id="chart-margin"></canvas></div></div>
+      <div class="chart-card" style="margin-bottom:14px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+          <h4 style="margin:0;">Net profit by project — actuals where available</h4>
+          <button class="ghost" id="toggle-margin-chart"></button>
+        </div>
+        <div id="margin-chart-body"><div class="chart-wrap"><canvas id="chart-margin"></canvas></div></div>
+      </div>
       <div class="filter-bar">
         <input type="text" id="proj-search" placeholder="Search project…">
         <label><input type="checkbox" id="proj-active-only"> active this month only</label>
@@ -2334,30 +2340,46 @@ function buildProjCharts() {
 }
 
 let marginChart = null;
+function marginChartHidden() { try { return localStorage.getItem('emg-hide-profit-chart') === '1'; } catch (e) { return false; } }
+
 function buildMarginChart() {
+  const body = document.getElementById('margin-chart-body');
+  const btn = document.getElementById('toggle-margin-chart');
+  const hidden = marginChartHidden();
+  if (btn) btn.textContent = hidden ? 'Show chart' : 'Hide chart';
+  if (body) body.style.display = hidden ? 'none' : 'block';
   const el = document.getElementById('chart-margin');
-  if (!el || !window.Chart) return;
   if (marginChart) { try { marginChart.destroy(); } catch (e) {} marginChart = null; }
+  if (hidden || !el || !window.Chart) return;
   const rows = activeProjects()
     .map(p => {
       const act = projectStatus(p, true);
       const st = act.hours > 0 ? act : projectStatus(p, false);
-      return { name: p.name || 'Untitled', margin: st.margin, basis: act.hours > 0 ? 'act' : 'plan' };
+      return { name: p.name || 'Untitled', profit: st.profit, margin: st.margin, revenue: st.revenue, cost: st.cost, basis: act.hours > 0 ? 'act' : 'plan' };
     })
-    .filter(r => r.margin !== null)
-    .sort((a, b) => b.margin - a.margin);
+    .filter(r => Math.abs(r.profit) > 0.5 || r.revenue !== 0 || r.cost > 0)   // skip empty shells
+    .sort((a, b) => b.profit - a.profit);
   if (!rows.length) return;
   marginChart = new Chart(el, {
     type: 'bar',
     data: {
       labels: rows.map(r => r.name + (r.basis === 'plan' ? ' (plan)' : '')),
       datasets: [{
-        label: 'Margin %',
-        data: rows.map(r => Math.round(r.margin)),
-        backgroundColor: rows.map(r => r.margin < 0 ? '#d1453b' : r.margin < 15 ? '#fabf4d' : '#0a493c')
+        label: 'Net profit $',
+        data: rows.map(r => Math.round(r.profit)),
+        backgroundColor: rows.map(r => r.profit < 0 ? '#d1453b' : (r.margin !== null && r.margin < 15 ? '#fabf4d' : '#0a493c'))
       }]
     },
-    options: Object.assign(chartOpts(), { plugins: { legend: { display: false }, datalabels: { display: false } } })
+    options: (() => {
+      const o = chartOpts();
+      o.plugins = {
+        legend: { display: false },
+        datalabels: { display: false },
+        tooltip: { callbacks: { label: ctx => ' ' + (ctx.parsed.y < 0 ? '-' : '') + '$' + Math.abs(ctx.parsed.y).toLocaleString() } }
+      };
+      o.scales.y.ticks.callback = v => (v < 0 ? '-' : '') + '$' + Math.abs(v).toLocaleString();
+      return o;
+    })()
   });
 }
 
@@ -2819,6 +2841,11 @@ document.getElementById('preset-next3').addEventListener('click', () => {
   document.getElementById('range-start').value = ui.period.start;
   document.getElementById('range-end').value = ui.period.end;
   render();
+});
+
+document.getElementById('toggle-margin-chart').addEventListener('click', () => {
+  try { localStorage.setItem('emg-hide-profit-chart', marginChartHidden() ? '0' : '1'); } catch (e) {}
+  buildMarginChart();
 });
 
 document.getElementById('tab-bar').addEventListener('click', (e) => {
