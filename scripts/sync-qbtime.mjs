@@ -18,7 +18,9 @@ const WORKSPACE_ID = 'default';
 
 const QB_BASE = 'https://rest.tsheets.com/api/v1';
 const INTERNAL_ID = '__internal__';
-const INTERNAL_NAMES = ['internal', 'internal time', 'non-billable', 'nonbillable', 'non billable', 'admin', 'overhead'];
+const INTERNAL_NAMES = ['internal', 'internal time', 'non-billable', 'nonbillable', 'non billable', 'admin', 'overhead',
+  'pto', 'sick', 'sick day', 'vacation', 'holiday', 'company holiday', 'unpaid time off'];
+const INTERNAL_JOBCODE_TYPES = new Set(['pto', 'paid_break', 'unpaid_break', 'unpaid_time_off']);
 const MONTHS_BACK = 2; // sync current month + 2 previous
 
 if (!QBTIME_TOKEN) fail('Missing QBTIME_TOKEN secret.');
@@ -46,6 +48,7 @@ async function qbFetch(path, params) {
 }
 
 // Resolve a jobcode to its top-level parent (the customer), walking parent_id links.
+// PTO/break-type jobcodes resolve to 'Internal' so time off never becomes a fake customer.
 function rootJobcodeName(id, jobcodes) {
   let jc = jobcodes[id];
   let guard = 0;
@@ -53,7 +56,9 @@ function rootJobcodeName(id, jobcodes) {
     jc = jobcodes[jc.parent_id];
     guard++;
   }
-  return jc ? String(jc.name || '').trim() : '';
+  if (!jc) return '';
+  if (INTERNAL_JOBCODE_TYPES.has(String(jc.type || '').toLowerCase())) return 'Internal';
+  return String(jc.name || '').trim();
 }
 
 async function pullTimesheets(startDate, endDate) {
