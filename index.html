@@ -110,10 +110,11 @@ input.numfield { font-family: var(--font-mono); text-align: right; }
 .computed-sub { font-family: var(--font-mono); font-size: 10px; color: var(--slate); white-space: nowrap; }
 input.rev-input { min-width: 110px; }
 #tab-team table { table-layout: fixed; }
-#tab-team th.col-name { width: 14%; }
-#tab-team th.col-dept { width: 9%; }
-#tab-team th.col-capy { width: 13%; }
-#tab-team th.col-int { width: 8%; }
+#tab-team th.col-name { width: 13%; }
+#tab-team th.col-dept { width: 8%; }
+#tab-team th.col-capy { width: 12%; }
+#tab-team th.col-int { width: 7%; }
+#tab-team th.col-profit { width: 12%; }
 #tab-team th.edit-col { width: 40px; }
 .edit-btn { background: none; border: none; color: var(--slate); cursor: pointer; font-size: 14px; line-height: 1; padding: 4px; }
 .edit-btn:hover { color: var(--brand); }
@@ -453,6 +454,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
             <th class="sortable" data-sort="utilization">Utilization (plan) <span class="sort-ind" data-ind="utilization"></span></th>
             <th class="sortable" data-sort="loggedHrs">Logged vs assigned <span class="sort-ind" data-ind="loggedHrs"></span></th>
             <th class="sortable" data-sort="loggedUtil">Logged vs capacity <span class="sort-ind" data-ind="loggedUtil"></span></th>
+            <th class="col-profit sortable" data-sort="profit">Profit (period) <span class="sort-ind" data-ind="profit"></span></th>
             <th class="edit-col"></th>
             <th class="remove-col"></th>
           </tr>
@@ -1628,6 +1630,8 @@ function renderDashboard() {
   const depts = [];
   allDepartments().forEach(d => depts.push(d));
   if (state.staff.some(s => !normDept(s.department))) depts.push(NO_DEPT);
+  const planEco = personEconomics(false);
+  const actEco = personEconomics(true);
   const deptData = depts.map(dept => {
     const members = staffInDept(dept);
     if (members.length === 0) return null;
@@ -1638,7 +1642,10 @@ function renderDashboard() {
       plan: members.reduce((s, m) => s + staffTotalHours(m.id, false), 0),
       act: members.reduce((s, m) => s + staffTotalHours(m.id, true), 0),
       internal: members.reduce((s, m) => s + getAssignment(m.id, INTERNAL_ID), 0),
-      planCost: members.reduce((s, m) => s + staffTotalHours(m.id, false) * m.hourlyCost, 0)
+      planCost: members.reduce((s, m) => s + planEco[m.id].cost, 0),
+      planProfit: members.reduce((s, m) => s + planEco[m.id].profit, 0),
+      actCost: members.reduce((s, m) => s + actEco[m.id].cost, 0),
+      actProfit: members.reduce((s, m) => s + actEco[m.id].profit, 0)
     };
   }).filter(Boolean);
   const deptRows = deptData.map(d => {
@@ -1650,12 +1657,12 @@ function renderDashboard() {
       <div class="dash-row">
         <div>
           <div class="d-name">${escapeHtml(dept)}</div>
-          <div class="d-meta">${members.length} ${members.length === 1 ? 'person' : 'people'} · ${fmtHrs(capacity)}h capacity</div>
+          <div class="d-meta">${members.length} ${members.length === 1 ? 'person' : 'people'} · ${fmtHrs(capacity)}h capacity${dIntHrs > 0 ? ' · ' + fmtHrs(dIntHrs) + 'h internal' : ''}</div>
         </div>
         ${pvPairHtml(dPlanHrs, dActHrs, 'h', showActual)}
         <div class="d-numbers">
-          planned cost ${fmtMoney(dPlanCost)}<br>
-          <span class="d-meta">${dIntHrs > 0 ? fmtHrs(dIntHrs) + 'h internal' : 'no internal hours'}</span>
+          cost ${fmtMoney(dPlanCost)}${showActual ? ' → ' + fmtMoney(d.actCost) : ''}<br>
+          profit <span style="color:${d.planProfit >= 0 ? 'var(--teal)' : 'var(--rust)'}">${fmtMoney(d.planProfit)}</span>${showActual ? ' → <span style="color:' + (d.actProfit >= 0 ? 'var(--teal)' : 'var(--rust)') + '">' + fmtMoney(d.actProfit) + '</span>' : ''}
         </div>
         <div class="d-flag">
           <span class="util-pct ${utilCls}">${Math.round(util)}%</span>
@@ -1673,15 +1680,6 @@ function renderDashboard() {
     <div class="dash-section">
       <h3>Departments</h3>
       <div class="dash-card">${deptRows || '<div class="empty-note">No team members yet.</div>'}</div>
-    </div>
-    <div class="dash-section">
-      <h3>People — profit</h3>
-      <div class="chart-card">
-        <h4>Attributed revenue vs labor cost per person${isRange() ? ' (period)' : ''}</h4>
-        ${showActual
-          ? '<div class="chart-wrap" style="height:280px;"><canvas id="chart-people"></canvas></div>'
-          : '<div class="dash-note">Needs logged hours — import hour tracking data for this period to see per-person profit.</div>'}
-      </div>
     </div>
     <div class="dash-section">
       <h3>Projects — plan vs actual</h3>
@@ -1735,25 +1733,6 @@ function buildDashCharts(projs, deptData, showActual) {
     }));
   }
 
-  const peopleEl = document.getElementById('chart-people');
-  if (peopleEl && showActual) {
-    const pd = personProfitData();
-    if (pd.length) {
-      dashCharts.push(new Chart(peopleEl, {
-        type: 'bar',
-        data: {
-          labels: pd.map(d => d.name),
-          datasets: [
-            { label: 'Revenue attributed', data: pd.map(d => Math.round(d.attributed)), backgroundColor: '#3bc9ac' },
-            { label: 'Labor cost', data: pd.map(d => Math.round(d.cost)), backgroundColor: '#9a9a94' },
-            { label: 'Profit', data: pd.map(d => Math.round(d.profit)), backgroundColor: pd.map(d => d.profit >= 0 ? '#0a493c' : '#B5482A') }
-          ]
-        },
-        options: chartOpts()
-      }));
-    }
-  }
-
   const trendEl = document.getElementById('chart-trend');
   if (trendEl) {
     const vm = viewMonths();
@@ -1789,21 +1768,30 @@ function summaryActualLabor() {
   }, 0);
 }
 
-function personProfitData() {
+/* Per-person economics for the period. Revenue is attributed pro-rata:
+   each revenue project's period revenue / its total hours (plan or logged),
+   times the person's own hours on it. Cost: plan side = planned hours x rate;
+   actual side = salaried at full period capacity, hourly at logged hours. */
+function personEconomics(useActuals) {
   const projs = activeProjects();
   const revPerHour = {};
   projs.forEach(p => {
     const rev = getRevenue(p);
     if (rev <= 0) return;
-    const hrs = projectHours(p.id, true); // logged hours on this project in period
+    const hrs = projectHours(p.id, useActuals);
     if (hrs > 0) revPerHour[p.id] = rev / hrs;
   });
-  return state.staff.map(s => {
-    const attributed = projs.reduce((sum, p) => sum + (revPerHour[p.id] ? getActual(s.id, p.id) * revPerHour[p.id] : 0), 0);
-    const logged = staffTotalHours(s.id, true);
-    const cost = empType(s) === 'fulltime' ? periodCapacity(s) * s.hourlyCost : logged * s.hourlyCost;
-    return { name: s.name || 'Unnamed', attributed, cost, profit: attributed - cost, logged };
-  }).filter(d => d.logged > 0 || d.cost > 0);
+  const get = useActuals ? getActual : getAssignment;
+  const map = {};
+  state.staff.forEach(s => {
+    const attributed = projs.reduce((sum, p) => sum + (revPerHour[p.id] ? get(s.id, p.id) * revPerHour[p.id] : 0), 0);
+    const hours = staffTotalHours(s.id, useActuals);
+    const cost = useActuals
+      ? (empType(s) === 'fulltime' ? periodCapacity(s) * s.hourlyCost : hours * s.hourlyCost)
+      : hours * s.hourlyCost;
+    map[s.id] = { attributed, cost, profit: attributed - cost, hours };
+  });
+  return map;
 }
 
 function renderSummary() {
@@ -1843,11 +1831,13 @@ function sortedFilteredStaff() {
   if (ui.teamDept) list = list.filter(s => normDept(s.department).toLowerCase() === ui.teamDept.toLowerCase());
   if (ui.teamSort.key) {
     const k = ui.teamSort.key, dir = ui.teamSort.dir;
+    const eco = k === 'profit' ? personEconomics(true) : null;
     const computed = {
       utilization: staffUtilizationPct,
       internalHrs: s => getAssignment(s.id, INTERNAL_ID),
       loggedHrs: s => staffTotalHours(s.id, true),
-      loggedUtil: s => { const c = periodCapacity(s); return c > 0 ? staffTotalHours(s.id, true) / c : 0; }
+      loggedUtil: s => { const c = periodCapacity(s); return c > 0 ? staffTotalHours(s.id, true) / c : 0; },
+      profit: s => eco[s.id].profit
     };
     list.sort((a, b) => {
       const av = computed[k] ? computed[k](a) : a[k];
@@ -1892,14 +1882,15 @@ function renderStaffTable() {
   const tbody = document.getElementById('staff-tbody');
   const list = sortedFilteredStaff();
   if (state.staff.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="9" class="empty-note">No one on the roster yet — add a person or import your tracking data.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" class="empty-note">No one on the roster yet — add a person or import your tracking data.</td></tr>`;
     return;
   }
   if (list.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="9" class="empty-note">No people match the current filters.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" class="empty-note">No people match the current filters.</td></tr>`;
     return;
   }
   const showActual = hasActualsThisMonth();
+  const actEco = showActual ? personEconomics(true) : null;
   tbody.innerHTML = list.map(s => {
     const cap = periodCapacity(s);
     const total = staffTotalHours(s.id, false);
@@ -1978,7 +1969,7 @@ function renderStaffTable() {
           <button class="assign" data-role="team-add-assign" data-id="${s.id}">Assign to project</button>
         </div>` : `<div class="tm-empty">Assigned to every active project this month.</div>`;
       breakout = `
-        <tr class="team-breakout"><td colspan="9">
+        <tr class="team-breakout"><td colspan="10">
           ${rows || '<div class="tm-empty">No project assignments this month.</div>'}
           ${intHrs > 0 ? `<div class="tm-row"><div><div class="tm-name" style="color:var(--internal)">Internal (non-billable)</div></div><div class="tm-meta">${fmtHrs(intHrs)} hrs</div><div class="tm-meta">${fmtMoney(intHrs * s.hourlyCost)} cost</div><div class="tm-meta">${showActual && intAct ? 'act ' + fmtHrs(intAct) + 'h' : ''}</div><div></div></div>` : ''}
           ${addForm}
@@ -2006,6 +1997,13 @@ function renderStaffTable() {
       </td>
       <td>${loggedCell}</td>
       <td>${loggedCapCell}</td>
+      <td>${(() => {
+        if (!actEco) return '<span class="computed-sub">needs logged hours</span>';
+        const e = actEco[s.id];
+        if (e.hours <= 0 && e.cost <= 0) return '<span class="computed-sub">—</span>';
+        return `<span class="util-pct ${e.profit >= 0 ? 'full' : 'over'}">${fmtMoney(e.profit)}</span>
+          <div class="computed-sub">rev ${fmtMoney(e.attributed)} · cost ${fmtMoney(e.cost)}</div>`;
+      })()}</td>
       <td class="edit-col"><button class="edit-btn" data-role="edit-staff" data-id="${s.id}" title="Edit details">✎</button></td>
       <td class="remove-col"><button class="remove-btn" data-role="remove-staff" data-id="${s.id}">×</button></td>
     </tr>${breakout}`;
