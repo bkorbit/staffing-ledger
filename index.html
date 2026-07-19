@@ -1964,7 +1964,10 @@ function inputKey(el) {
   return [el.dataset.role, el.dataset.id || '', el.dataset.staff || '', el.dataset.project || '', el.dataset.dept || '', el.id || ''].join('|');
 }
 
+let suppressRender = false; // true while typing in a field: state updates, UI waits
+
 function render() {
+  if (suppressRender) return;
   const active = document.activeElement;
   let focusKey = null, focusValue = null, selStart = null;
   if (active && active.tagName === 'INPUT' && (active.dataset.role || active.id)) {
@@ -1991,18 +1994,30 @@ function render() {
 
   if (focusKey !== null) {
     const inputs = document.querySelectorAll('input');
+    let firstMatch = null, visibleMatch = null;
     for (const inp of inputs) {
       if (inputKey(inp) === focusKey) {
-        inp.value = focusValue;
-        inp.focus();
-        try { if (selStart !== null) inp.setSelectionRange(selStart, selStart); } catch (e) {}
-        break;
+        if (!firstMatch) firstMatch = inp;
+        if (inp.offsetParent !== null) { visibleMatch = inp; break; }
       }
+    }
+    const inp = visibleMatch || firstMatch;
+    if (inp) {
+      inp.value = focusValue;
+      inp.focus();
+      try { if (selStart !== null) inp.setSelectionRange(selStart, selStart); } catch (e) {}
     }
   }
 }
 
 /* events */
+/* Fields where the user types: update state on every keystroke but hold the
+   re-render (and any re-sorting) until they leave the field, so rows don't
+   jump around mid-edit. */
+const TYPED_ROLES = new Set(['staff-name','staff-dept','staff-cost','staff-cap','staff-internal',
+  'project-name','project-revenue-month','assignment','demand-hours']);
+let typedFieldDirty = false;
+
 document.addEventListener('input', (e) => {
   const t = e.target;
   if (t.id === 'team-search') { ui.teamSearch = t.value; render(); return; }
@@ -2011,17 +2026,31 @@ document.addEventListener('input', (e) => {
 
   const role = t.dataset.role;
   if (!role) return;
-  if (role === 'staff-name') updateStaffField(t.dataset.id, 'name', t.value);
-  else if (role === 'staff-dept') updateStaffField(t.dataset.id, 'department', t.value);
-  else if (role === 'staff-cost') updateStaffField(t.dataset.id, 'hourlyCost', t.value);
-  else if (role === 'staff-cap') updateStaffField(t.dataset.id, 'weeklyCapacity', t.value);
-  else if (role === 'staff-internal') setAssignment(t.dataset.id, INTERNAL_ID, parseFloat(t.value) || 0);
-  else if (role === 'project-name') updateProjectField(t.dataset.id, 'name', t.value);
-  else if (role === 'project-revenue-month') setRevenueThisMonth(t.dataset.id, t.value);
-  else if (role === 'project-start') updateProjectField(t.dataset.id, 'startMonth', t.value);
-  else if (role === 'project-end') updateProjectField(t.dataset.id, 'endMonth', t.value);
-  else if (role === 'assignment') setAssignment(t.dataset.staff, t.dataset.project, parseFloat(t.value) || 0);
-  else if (role === 'demand-hours') setDemand(t.dataset.project, t.dataset.dept, parseFloat(t.value) || 0);
+  const typed = TYPED_ROLES.has(role) && t.type !== 'month';
+  if (typed) { suppressRender = true; typedFieldDirty = true; }
+  try {
+    if (role === 'staff-name') updateStaffField(t.dataset.id, 'name', t.value);
+    else if (role === 'staff-dept') updateStaffField(t.dataset.id, 'department', t.value);
+    else if (role === 'staff-cost') updateStaffField(t.dataset.id, 'hourlyCost', t.value);
+    else if (role === 'staff-cap') updateStaffField(t.dataset.id, 'weeklyCapacity', t.value);
+    else if (role === 'staff-internal') setAssignment(t.dataset.id, INTERNAL_ID, parseFloat(t.value) || 0);
+    else if (role === 'project-name') updateProjectField(t.dataset.id, 'name', t.value);
+    else if (role === 'project-revenue-month') setRevenueThisMonth(t.dataset.id, t.value);
+    else if (role === 'project-start') updateProjectField(t.dataset.id, 'startMonth', t.value);
+    else if (role === 'project-end') updateProjectField(t.dataset.id, 'endMonth', t.value);
+    else if (role === 'assignment') setAssignment(t.dataset.staff, t.dataset.project, parseFloat(t.value) || 0);
+    else if (role === 'demand-hours') setDemand(t.dataset.project, t.dataset.dept, parseFloat(t.value) || 0);
+  } finally {
+    if (typed) suppressRender = false;
+  }
+});
+
+document.addEventListener('focusout', (e) => {
+  const t = e.target;
+  if (t && t.dataset && TYPED_ROLES.has(t.dataset.role) && typedFieldDirty) {
+    typedFieldDirty = false;
+    render();
+  }
 });
 
 document.addEventListener('change', (e) => {
