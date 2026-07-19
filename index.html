@@ -6,6 +6,7 @@
 <title>The Ledger — Staffing & Profitability</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
@@ -31,7 +32,7 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; font-family: var(--font-body); background: var(--paper); color: var(--ink); }
-.app { max-width: 1280px; margin: 0 auto; padding: 28px 20px 60px; }
+.app { max-width: none; margin: 0; padding: 28px clamp(20px, 3vw, 48px) 60px; }
 
 header { border-bottom: 2px solid var(--brand); padding-bottom: 16px; margin-bottom: 20px; display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:12px; }
 .eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; color: var(--slate); margin-bottom: 6px; }
@@ -158,6 +159,11 @@ select.type-select:hover { border-color: var(--line); }
 .d-numbers { font-family: var(--font-mono); font-size: 11px; line-height: 1.6; }
 .d-flag { justify-self: end; text-align: right; }
 .dash-note { font-family: var(--font-mono); font-size: 11px; color: var(--slate); padding: 10px 2px; }
+.chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+.chart-card { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
+.chart-card h4 { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); margin: 0 0 10px; font-weight: 500; }
+.chart-wrap { position: relative; height: 250px; }
+@media (max-width: 980px) { .chart-grid { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .dash-kpis { grid-template-columns: repeat(2, 1fr); } .dash-row { grid-template-columns: 1fr; } .d-flag { justify-self: start; text-align: left; } }
 
 /* Demand plan */
@@ -1548,14 +1554,22 @@ function renderDashboard() {
   const depts = [];
   allDepartments().forEach(d => depts.push(d));
   if (state.staff.some(s => !normDept(s.department))) depts.push(NO_DEPT);
-  const deptRows = depts.map(dept => {
+  const deptData = depts.map(dept => {
     const members = staffInDept(dept);
-    if (members.length === 0) return '';
-    const capacity = members.reduce((s, m) => s + periodCapacity(m), 0);
-    const dPlanHrs = members.reduce((s, m) => s + staffTotalHours(m.id, false), 0);
-    const dActHrs = members.reduce((s, m) => s + staffTotalHours(m.id, true), 0);
-    const dIntHrs = members.reduce((s, m) => s + getAssignment(m.id, INTERNAL_ID), 0);
-    const dPlanCost = members.reduce((s, m) => s + staffTotalHours(m.id, false) * m.hourlyCost, 0);
+    if (members.length === 0) return null;
+    return {
+      dept,
+      members,
+      capacity: members.reduce((s, m) => s + periodCapacity(m), 0),
+      plan: members.reduce((s, m) => s + staffTotalHours(m.id, false), 0),
+      act: members.reduce((s, m) => s + staffTotalHours(m.id, true), 0),
+      internal: members.reduce((s, m) => s + getAssignment(m.id, INTERNAL_ID), 0),
+      planCost: members.reduce((s, m) => s + staffTotalHours(m.id, false) * m.hourlyCost, 0)
+    };
+  }).filter(Boolean);
+  const deptRows = deptData.map(d => {
+    const {dept, members, capacity} = d;
+    const dPlanHrs = d.plan, dActHrs = d.act, dIntHrs = d.internal, dPlanCost = d.planCost;
     const util = capacity > 0 ? (dPlanHrs / capacity) * 100 : 0;
     const utilCls = util > 100.1 ? 'over' : util >= 90 ? 'full' : 'under';
     return `
@@ -1578,16 +1592,106 @@ function renderDashboard() {
 
   el.innerHTML = `
     ${kpis}
-    <div class="dash-section">
-      <h3>Projects — plan vs actual</h3>
-      <div class="dash-card">${projRows || '<div class="empty-note">No active projects this month.</div>'}</div>
+    <div class="chart-grid">
+      <div class="chart-card"><h4>Department hours — capacity / plan / actual</h4><div class="chart-wrap"><canvas id="chart-dept"></canvas></div></div>
+      <div class="chart-card"><h4>6-month trend — revenue &amp; labor cost</h4><div class="chart-wrap"><canvas id="chart-trend"></canvas></div></div>
     </div>
     <div class="dash-section">
       <h3>Departments</h3>
       <div class="dash-card">${deptRows || '<div class="empty-note">No team members yet.</div>'}</div>
     </div>
+    <div class="dash-section">
+      <h3>Projects — plan vs actual</h3>
+      <div class="chart-card" style="margin-bottom:12px;"><h4>Profit by project — plan${showActual ? ' vs actual' : ''}</h4><div class="chart-wrap"><canvas id="chart-proj"></canvas></div></div>
+      <div class="dash-card">${projRows || '<div class="empty-note">No active projects this month.</div>'}</div>
+    </div>
     ${!showActual ? '<div class="dash-note">Actual bars will fill in once you import hour tracking data for this month (Import button, top right).</div>' : ''}
   `;
+  buildDashCharts(projs, deptData, showActual);
+}
+
+/* ===== Dashboard charts ===== */
+let dashCharts = [];
+function destroyDashCharts() { dashCharts.forEach(c => { try { c.destroy(); } catch (e) {} }); dashCharts = []; }
+
+function monthLaborCost(store, mk) {
+  return Object.entries(store[mk] || {}).reduce((sum, [key, hrs]) => {
+    const st = state.staff.find(x => x.id === key.split('__')[0]);
+    return sum + (st ? hrs * st.hourlyCost : 0);
+  }, 0);
+}
+
+function chartFont() { return { family: "'JetBrains Mono', monospace", size: 10 }; }
+function chartOpts(extra) {
+  return Object.assign({
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { labels: { font: chartFont(), color: '#67706d', boxWidth: 12 } } },
+    scales: {
+      x: { ticks: { font: chartFont(), color: '#67706d' }, grid: { color: '#e6e6e6' } },
+      y: { ticks: { font: chartFont(), color: '#67706d' }, grid: { color: '#e6e6e6' } }
+    }
+  }, extra || {});
+}
+
+function buildDashCharts(projs, deptData, showActual) {
+  destroyDashCharts();
+  if (!window.Chart) return;
+
+  const deptEl = document.getElementById('chart-dept');
+  if (deptEl && deptData.length) {
+    dashCharts.push(new Chart(deptEl, {
+      type: 'bar',
+      data: {
+        labels: deptData.map(d => d.dept),
+        datasets: [
+          { label: 'Capacity', data: deptData.map(d => Math.round(d.capacity)), backgroundColor: '#d2d2d2' },
+          { label: 'Plan', data: deptData.map(d => Math.round(d.plan)), backgroundColor: '#0a493c' },
+          ...(showActual ? [{ label: 'Actual', data: deptData.map(d => Math.round(d.act)), backgroundColor: '#3bc9ac' }] : [])
+        ]
+      },
+      options: chartOpts()
+    }));
+  }
+
+  const trendEl = document.getElementById('chart-trend');
+  if (trendEl) {
+    const vm = viewMonths();
+    const end = vm[vm.length - 1];
+    const months = [];
+    for (let i = 5; i >= 0; i--) months.push(shiftMonth(end, -i));
+    const rev = months.map(mk => Math.round(state.projects.filter(p => projectActiveInMonth(p, mk)).reduce((s, p) => s + revenueFor(p, mk), 0)));
+    const planC = months.map(mk => Math.round(monthLaborCost(state.assignments, mk)));
+    const actC = months.map(mk => Math.round(monthLaborCost(state.actuals, mk)));
+    dashCharts.push(new Chart(trendEl, {
+      type: 'line',
+      data: {
+        labels: months.map(monthShort),
+        datasets: [
+          { label: 'Revenue', data: rev, borderColor: '#0a493c', backgroundColor: '#0a493c', tension: 0.25 },
+          { label: 'Planned cost', data: planC, borderColor: '#67706d', backgroundColor: '#67706d', borderDash: [5, 4], tension: 0.25 },
+          { label: 'Actual cost', data: actC, borderColor: '#B5482A', backgroundColor: '#B5482A', tension: 0.25 }
+        ]
+      },
+      options: chartOpts()
+    }));
+  }
+
+  const projEl = document.getElementById('chart-proj');
+  if (projEl && projs.length) {
+    const planP = projs.map(p => Math.round(projectStatus(p, false).profit));
+    const actP = projs.map(p => { const a = projectStatus(p, true); return a.hours > 0 ? Math.round(a.profit) : null; });
+    dashCharts.push(new Chart(projEl, {
+      type: 'bar',
+      data: {
+        labels: projs.map(p => p.name || 'Untitled'),
+        datasets: [
+          { label: 'Profit (plan)', data: planP, backgroundColor: planP.map(v => v >= 0 ? '#0a493c' : '#B5482A') },
+          ...(showActual ? [{ label: 'Profit (actual)', data: actP, backgroundColor: actP.map(v => (v === null || v >= 0) ? '#3bc9ac' : '#e08663') }] : [])
+        ]
+      },
+      options: chartOpts()
+    }));
+  }
 }
 
 function summaryActualLabor() {
