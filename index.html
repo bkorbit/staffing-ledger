@@ -93,6 +93,20 @@ button.confirm-armed { background: var(--rust) !important; color: #fff !importan
 .filter-bar input[type=text], .filter-bar select { border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; font-family: var(--font-mono); font-size: 11px; background: var(--paper-raised); width: auto; min-width: 160px; }
 .filter-bar label { font-family: var(--font-mono); font-size: 11px; color: var(--slate); display: flex; align-items: center; gap: 5px; }
 .filter-bar input[type=checkbox] { width: auto; }
+.bulk-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-family: var(--font-mono); font-size: 11px; color: var(--ink); background: var(--mint); border: 1px solid var(--brand-3); border-radius: 5px; padding: 8px 12px; margin-bottom: 8px; }
+.bulk-bar button { font-size: 11px; padding: 5px 10px; }
+.bulk-bar .bulk-hint { color: var(--slate); font-size: 10px; }
+th.sel-col, td.sel-col { width: 30px; text-align: center; }
+td.sel-col input, th.sel-col input { width: auto; margin: 0; cursor: pointer; }
+.fc-breakout > td { background: #f5f5f5; padding: 10px 16px 12px 40px; }
+.fc-head { display: flex; justify-content: space-between; align-items: center; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--slate); margin-bottom: 6px; gap: 10px; flex-wrap: wrap; }
+.fc-head button { font-size: 10px; padding: 4px 8px; }
+.fc-row { display: grid; grid-template-columns: minmax(160px, 1.4fr) 1fr 1.3fr 1fr 90px; gap: 10px; align-items: center; padding: 4px 0; border-bottom: 1px dashed #e3e3e3; font-size: 12px; }
+.fc-row:last-child { border-bottom: none; }
+.fc-name { font-family: var(--font-display); font-weight: 600; font-size: 12px; }
+.fc-basis { font-family: var(--font-mono); font-size: 9px; color: var(--slate); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+.fc-dim { opacity: 0.75; }
+@media (max-width: 860px) { .fc-row { grid-template-columns: 1fr 1fr; row-gap: 2px; } }
 
 table { width: 100%; border-collapse: collapse; background: var(--paper-raised); border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
 th { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
@@ -497,15 +511,18 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
         <span style="font-family:var(--font-mono); font-size:11px; color:var(--slate);">dark = confirmed actual · light = forecasted · mark months as actual on the Projects tab or in a project's ✎ editor</span>
       </div>
       <div class="chart-card" style="margin-bottom:16px;">
-        <h4>Gross revenue month over month</h4>
+        <h4>Gross revenue month over month · second bar = profit after labor</h4>
         <div class="chart-wrap" style="height:300px;"><canvas id="chart-forecast"></canvas></div>
       </div>
       <table>
         <thead><tr>
+          <th style="width:26px;"></th>
           <th>Month</th>
           <th class="num-col">Actual</th>
           <th class="num-col">Forecasted</th>
           <th class="num-col">Total gross revenue</th>
+          <th class="num-col">Labor cost</th>
+          <th class="num-col">Profit after labor</th>
           <th>Confirmed</th>
         </tr></thead>
         <tbody id="forecast-tbody"></tbody>
@@ -561,9 +578,17 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
         <input type="text" id="proj-search" placeholder="Search project…">
         <label><input type="checkbox" id="proj-active-only"> active this month only</label>
       </div>
+      <div id="proj-bulkbar" class="bulk-bar" style="display:none;">
+        <span id="proj-bulk-count"></span>
+        <button class="primary" id="proj-bulk-actual">Mark revenue actual</button>
+        <button class="ghost" id="proj-bulk-forecast">Mark forecasted</button>
+        <button class="ghost" id="proj-bulk-clear">Clear selection</button>
+        <span class="bulk-hint" id="proj-bulk-hint"></span>
+      </div>
       <table>
         <thead>
           <tr id="proj-head">
+            <th class="sel-col"><input type="checkbox" id="proj-select-all" title="Select all shown"></th>
             <th class="sortable" data-sort="name">Project <span class="sort-ind" data-ind="name"></span></th>
             <th class="num-col sortable" data-sort="revenue">Revenue (this month) <span class="sort-ind" data-ind="revenue"></span></th>
             <th class="num-col sortable" data-sort="hoursActual">Hours (act / plan) <span class="sort-ind" data-ind="hoursActual"></span></th>
@@ -691,6 +716,8 @@ let ui = {
   teamSearch: '', teamDept: '', teamSort: {key: null, dir: 1},
   demandSearch: '',
   projSearch: '', projActiveOnly: false, projSort: {key: null, dir: 1},
+  projSelected: {},       // projectId -> true (bulk revenue-actual marking)
+  forecastExpanded: {},   // month -> true
   expanded: {},     // `${projectId}__${dept}` -> true
   teamExpanded: {}, // staffId -> true
   teamShowEnded: false,
@@ -1895,6 +1922,14 @@ function flightLineHtml(p) {
 /* ===== Forecast tab ===== */
 let forecastChart = null;
 
+function monthProjectCost(pid, mk, useActuals) {
+  const store = useActuals ? state.actuals : state.assignments;
+  return Object.entries(store[mk] || {}).reduce((sum, [key, hrs]) => {
+    if (!key.endsWith('__' + pid)) return sum;
+    const st = state.staff.find(x => x.id === key.split('__')[0]);
+    return sum + (st ? hrs * st.hourlyCost : 0);
+  }, 0);
+}
 function revenueByMonthSplit() {
   const set = new Set();
   state.projects.forEach(p => Object.keys(p.revenueOverrides || {}).forEach(mk => {
@@ -1907,14 +1942,26 @@ function revenueByMonthSplit() {
   while (mk <= sorted[sorted.length - 1] && guard < 36) { months.push(mk); mk = shiftMonth(mk, 1); guard++; }
   const capped = months.length > 18 ? months.slice(-18) : months;
   return capped.map(m => {
-    let actual = 0, forecast = 0;
+    let actual = 0, forecast = 0, labor = 0;
+    const contributors = [];
+    const monthHasActuals = Object.keys(state.actuals[m] || {}).length > 0;
     state.projects.forEach(p => {
       const v = (p.revenueOverrides || {})[m] || 0;
-      if (!v) return;
-      if ((p.revenueActuals || {})[m]) actual += v;
-      else forecast += v;
+      const isActual = !!(p.revenueActuals || {})[m];
+      // Cost basis per your rule: revenue confirmed actual -> use logged cost;
+      // otherwise assume the planned cost will be met for that project.
+      const cost = isActual ? monthProjectCost(p.id, m, true) : monthProjectCost(p.id, m, false);
+      if (v === 0 && cost === 0) return;
+      if (v) { if (isActual) actual += v; else forecast += v; }
+      labor += cost;
+      contributors.push({ pid: p.id, name: p.name || 'Untitled', amount: v, isActual, cost });
     });
-    return { mk: m, actual, forecast };
+    // Internal (non-billable) labor: logged when the month has imports, else planned
+    const internalCost = monthProjectCost(INTERNAL_ID, m, monthHasActuals);
+    labor += internalCost;
+    contributors.sort((a, b) => (b.amount - b.cost) - (a.amount - a.cost) || b.amount - a.amount);
+    const total = actual + forecast;
+    return { mk: m, actual, forecast, labor, internalCost, internalBasis: monthHasActuals ? 'logged' : 'planned', profit: total - labor, contributors };
   });
 }
 
@@ -1924,21 +1971,48 @@ function renderForecast() {
   if (forecastChart) { try { forecastChart.destroy(); } catch (e) {} forecastChart = null; }
   const rows = revenueByMonthSplit();
   if (!rows) {
-    if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="empty-note">No revenue entered yet — add amounts on the Projects tab or import a project list.</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="empty-note">No revenue entered yet — add amounts on the Projects tab or import a project list.</td></tr>';
     return;
   }
 
   if (tbody) tbody.innerHTML = rows.map(r => {
     const total = r.actual + r.forecast;
     const pct = total !== 0 ? Math.round((r.actual / total) * 100) : 0;
+    const expanded = !!ui.forecastExpanded[r.mk];
+    let breakout = '';
+    if (expanded) {
+      const withRev = r.contributors.filter(c => c.amount !== 0);
+      const costOnly = r.contributors.filter(c => c.amount === 0);
+      const unconfirmed = withRev.filter(c => !c.isActual).length;
+      breakout = `
+      <tr class="fc-breakout"><td colspan="8">
+        <div class="fc-head">
+          <span>${withRev.length} project${withRev.length === 1 ? '' : 's'} contributing revenue</span>
+          ${unconfirmed > 0 ? `<button class="ghost" data-role="fc-mark-all" data-mk="${r.mk}">Mark all ${unconfirmed} as actual</button>` : '<span class="pmeta">all confirmed</span>'}
+        </div>
+        ${withRev.map(c => `
+          <div class="fc-row">
+            <div class="fc-name">${escapeHtml(c.name)}</div>
+            <div class="pb-num">${fmtMoney(c.amount)} rev</div>
+            <div class="pb-num">${fmtMoney(c.cost)} cost <span class="fc-basis">${c.isActual ? 'logged' : 'planned'}</span></div>
+            <div class="pb-num" style="color:${c.amount - c.cost >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(c.amount - c.cost)} net</div>
+            <label class="rev-act"><input type="checkbox" data-role="fc-rev-actual" data-pid="${c.pid}" data-mk="${r.mk}" ${c.isActual ? 'checked' : ''}> actual</label>
+          </div>`).join('')}
+        ${costOnly.length ? `<div class="fc-row fc-dim"><div class="fc-name">Projects with labor but no revenue this month (${costOnly.map(c => escapeHtml(c.name)).join(', ')})</div><div class="pb-num"></div><div class="pb-num">${fmtMoney(costOnly.reduce((s, c) => s + c.cost, 0))} cost</div><div class="pb-num"></div><div></div></div>` : ''}
+        ${r.internalCost ? `<div class="fc-row fc-dim"><div class="fc-name" style="color:var(--internal);">Internal (non-billable)</div><div class="pb-num"></div><div class="pb-num">${fmtMoney(r.internalCost)} cost <span class="fc-basis">${r.internalBasis}</span></div><div class="pb-num"></div><div></div></div>` : ''}
+      </td></tr>`;
+    }
     return `
     <tr ${r.mk === currentMonth ? 'style="background:var(--mint);"' : ''}>
+      <td><button class="expand-btn" data-role="forecast-toggle" data-mk="${r.mk}">${expanded ? '▾' : '▸'}</button></td>
       <td style="font-family:var(--font-display); font-weight:600;">${monthLabel(r.mk)}</td>
       <td class="computed-cell" style="color:var(--brand); font-weight:700;">${r.actual ? fmtMoney(r.actual) : '—'}</td>
       <td class="computed-cell" style="color:#19a789;">${r.forecast ? fmtMoney(r.forecast) : '—'}</td>
       <td class="computed-cell" style="font-weight:700;">${fmtMoney(total)}</td>
+      <td class="computed-cell">${r.labor ? fmtMoney(r.labor) : '—'}</td>
+      <td class="computed-cell" style="color:${r.profit >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(r.profit)}</td>
       <td class="computed-sub">${total !== 0 ? pct + '% confirmed' : ''}</td>
-    </tr>`;
+    </tr>${breakout}`;
   }).join('');
 
   if (!el || !window.Chart) return;
@@ -1949,7 +2023,8 @@ function renderForecast() {
       labels: rows.map(r => monthShort(r.mk)),
       datasets: [
         { label: 'Actual', data: rows.map(r => Math.round(r.actual)), backgroundColor: '#0a493c', stack: 'rev' },
-        { label: 'Forecasted', data: rows.map(r => Math.round(r.forecast)), backgroundColor: '#3bc9ac', stack: 'rev' }
+        { label: 'Forecasted', data: rows.map(r => Math.round(r.forecast)), backgroundColor: '#3bc9ac', stack: 'rev' },
+        { label: 'Profit after labor', data: rows.map(r => Math.round(r.profit)), backgroundColor: rows.map(r => r.profit >= 0 ? '#7a9d54' : '#B5482A'), stack: 'profit', isProfit: true }
       ]
     },
     options: (() => {
@@ -1961,13 +2036,20 @@ function renderForecast() {
         legend: { labels: { font: chartFont(), color: '#67706d', boxWidth: 12 } },
         tooltip: { callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ' + (ctx.parsed.y < 0 ? '-' : '') + '$' + Math.abs(ctx.parsed.y).toLocaleString() } },
         datalabels: {
-          display: ctx => ctx.datasetIndex === ctx.chart.data.datasets.length - 1,
+          // revenue stack: total label on its top segment; profit bar labels itself
+          display: ctx => {
+            const ds = ctx.chart.data.datasets[ctx.datasetIndex];
+            if (ds.isProfit) return true;
+            const revSets = ctx.chart.data.datasets.filter(d => d.stack === 'rev');
+            return ds === revSets[revSets.length - 1];
+          },
           anchor: 'end', align: 'top', offset: 2, clip: false,
           font: { family: "'DM Mono', monospace", size: 9, weight: '700' },
-          color: '#0a493c',
+          color: ctx => ctx.dataset.isProfit ? (ctx.dataset.data[ctx.dataIndex] >= 0 ? '#7a9d54' : '#B5482A') : '#0a493c',
           formatter: (v, ctx) => {
             const i = ctx.dataIndex;
-            const total = ctx.chart.data.datasets.reduce((sum, ds) => sum + (ds.data[i] || 0), 0);
+            if (ctx.dataset.isProfit) return v !== 0 ? '$' + Math.round(v / 1000) + 'k' : '';
+            const total = ctx.chart.data.datasets.filter(d => d.stack === 'rev').reduce((sum, ds) => sum + (ds.data[i] || 0), 0);
             return total !== 0 ? '$' + Math.round(total / 1000) + 'k' : '';
           }
         }
@@ -2526,13 +2608,24 @@ function renderProjectTable() {
   const tbody = document.getElementById('project-tbody');
   const list = sortedFilteredProjects();
   if (state.projects.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="9" class="empty-note">No projects yet — add a project or import your tracking data.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" class="empty-note">No projects yet — add a project or import your tracking data.</td></tr>`;
     return;
   }
   if (list.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="9" class="empty-note">No projects match the current filters.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" class="empty-note">No projects match the current filters.</td></tr>`;
     return;
   }
+  const selCount = Object.keys(ui.projSelected).filter(id => ui.projSelected[id] && state.projects.some(p => p.id === id)).length;
+  const bulkbar = document.getElementById('proj-bulkbar');
+  if (bulkbar) {
+    bulkbar.style.display = selCount > 0 ? 'flex' : 'none';
+    const c = document.getElementById('proj-bulk-count');
+    if (c) c.textContent = selCount + ' selected';
+    const h = document.getElementById('proj-bulk-hint');
+    if (h) h.textContent = 'applies to months with revenue in the selected period (' + periodLabel() + ')';
+  }
+  const selAll = document.getElementById('proj-select-all');
+  if (selAll) selAll.checked = list.length > 0 && list.every(p => ui.projSelected[p.id]);
   tbody.innerHTML = list.map(p => {
     const active = projectActiveInMonth(p, currentMonth);
     const plan = projectStatus(p, false);
@@ -2561,7 +2654,7 @@ function renderProjectTable() {
         </div>`).join('');
       const hasAnyActuals = contributors.some(c => c.logged > 0);
       breakout = `
-        <tr class="proj-breakout"><td colspan="9">
+        <tr class="proj-breakout"><td colspan="10">
           ${rowsHtml || '<div class="pb-empty">No one has logged or been assigned hours on this project in this period.</div>'}
           ${hasAnyActuals ? `
             <div class="chart-card" style="margin-top:12px;">
@@ -2573,6 +2666,7 @@ function renderProjectTable() {
     }
     return `
     <tr style="${active ? '' : 'opacity:0.55;'}">
+      <td class="sel-col"><input type="checkbox" data-role="proj-select" data-id="${p.id}" ${ui.projSelected[p.id] ? 'checked' : ''}></td>
       <td><div class="name-cell"><button class="expand-btn" data-role="proj-toggle" data-id="${p.id}">${expanded ? '▾' : '▸'}</button><input type="text" value="${escapeAttr(p.name)}" placeholder="Project name" data-role="project-name" data-id="${p.id}"></div></td>
       <td>
         ${isRange()
@@ -3062,6 +3156,23 @@ document.addEventListener('focusout', (e) => {
   }
 });
 
+function bulkSetRevenueActual(ids, months, on) {
+  let touched = 0, projTouched = 0;
+  ids.forEach(id => {
+    const p = state.projects.find(x => x.id === id);
+    if (!p) return;
+    if (!p.revenueActuals) p.revenueActuals = {};
+    let hit = false;
+    months.forEach(mk => {
+      if (((p.revenueOverrides || {})[mk] || 0) === 0) return;   // only months that actually have revenue
+      if (on) p.revenueActuals[mk] = true; else delete p.revenueActuals[mk];
+      touched++; hit = true;
+    });
+    if (hit) projTouched++;
+  });
+  scheduleSave(); render();
+  return { touched, projTouched };
+}
 function toggleRevenueActual(pid, mk, on) {
   const p = state.projects.find(x => x.id === pid);
   if (!p) return;
@@ -3074,6 +3185,14 @@ function toggleRevenueActual(pid, mk, on) {
 document.addEventListener('change', (e) => {
   const t = e.target;
   if (t.dataset && t.dataset.role === 'rev-actual') { toggleRevenueActual(t.dataset.id, currentMonth, t.checked); return; }
+  if (t.dataset && t.dataset.role === 'fc-rev-actual') { toggleRevenueActual(t.dataset.pid, t.dataset.mk, t.checked); return; }
+  if (t.dataset && t.dataset.role === 'proj-select') { if (t.checked) ui.projSelected[t.dataset.id] = true; else delete ui.projSelected[t.dataset.id]; render(); return; }
+  if (t.id === 'proj-select-all') {
+    const list = sortedFilteredProjects();
+    if (t.checked) list.forEach(p => ui.projSelected[p.id] = true);
+    else list.forEach(p => delete ui.projSelected[p.id]);
+    render(); return;
+  }
   if (t.dataset && t.dataset.role === 'pj-rev-actual') { toggleRevenueActual(projectEditId, t.dataset.mk, t.checked); rebuildProjectModalMonths(); return; }
   if (t.id === 'import-type') { if (importHeaders) buildMappingUI(); return; }
   if (t.id === 'team-dept-filter') { ui.teamDept = t.value; render(); return; }
@@ -3108,6 +3227,13 @@ document.addEventListener('click', (e) => {
   }
   else if (role === 'edit-staff') openPersonModal(t.dataset.id);
   else if (role === 'edit-project') openProjectModal(t.dataset.id);
+  else if (role === 'forecast-toggle') { ui.forecastExpanded[t.dataset.mk] = !ui.forecastExpanded[t.dataset.mk]; render(); }
+  else if (role === 'fc-mark-all') {
+    const mk = t.dataset.mk;
+    const ids = state.projects.filter(p => ((p.revenueOverrides || {})[mk] || 0) !== 0).map(p => p.id);
+    const res = bulkSetRevenueActual(ids, [mk], true);
+    toast('Marked ' + res.projTouched + ' project' + (res.projTouched === 1 ? '' : 's') + ' as actual for ' + monthLabel(mk) + '.');
+  }
   else if (role === 'team-toggle') {
     ui.teamExpanded[t.dataset.id] = !ui.teamExpanded[t.dataset.id];
     render();
@@ -3254,6 +3380,17 @@ document.getElementById('cancel-import-btn').addEventListener('click', closeImpo
 document.getElementById('assign-close').addEventListener('click', closeAssignModal);
 document.getElementById('person-close').addEventListener('click', closePersonModal);
 document.getElementById('project-close').addEventListener('click', closeProjectModal);
+document.getElementById('proj-bulk-actual').addEventListener('click', () => {
+  const ids = Object.keys(ui.projSelected).filter(id => ui.projSelected[id]);
+  const res = bulkSetRevenueActual(ids, viewMonths(), true);
+  toast(res.touched ? 'Marked ' + res.touched + ' project-month' + (res.touched === 1 ? '' : 's') + ' as actual across ' + res.projTouched + ' project' + (res.projTouched === 1 ? '' : 's') + '.' : 'No revenue found for the selected projects in this period.');
+});
+document.getElementById('proj-bulk-forecast').addEventListener('click', () => {
+  const ids = Object.keys(ui.projSelected).filter(id => ui.projSelected[id]);
+  const res = bulkSetRevenueActual(ids, viewMonths(), false);
+  toast(res.touched ? 'Set ' + res.touched + ' project-month' + (res.touched === 1 ? '' : 's') + ' back to forecasted.' : 'No revenue found for the selected projects in this period.');
+});
+document.getElementById('proj-bulk-clear').addEventListener('click', () => { ui.projSelected = {}; render(); });
 document.getElementById('project-modal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('project-modal')) closeProjectModal();
 });
