@@ -106,6 +106,9 @@ td.sel-col input, th.sel-col input { width: auto; margin: 0; cursor: pointer; }
 .fc-name { font-family: var(--font-display); font-weight: 600; font-size: 12px; }
 .fc-basis { font-family: var(--font-mono); font-size: 9px; color: var(--slate); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
 .fc-dim { opacity: 0.75; }
+.fc-cols { border-bottom: 1px solid var(--line); padding-bottom: 3px; }
+.fc-col { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); cursor: pointer; user-select: none; }
+.fc-col:hover { color: var(--ink); }
 .fc-rev-input { width: 90px; border: 1px solid transparent; border-radius: 4px; padding: 3px 5px; font-family: var(--font-mono); font-size: 12px; background: transparent; color: var(--ink); font-weight: 700; }
 .fc-rev-input:hover { border-color: var(--line); background: var(--paper-raised); }
 .fc-rev-input:focus { outline: none; border-color: var(--brand); background: var(--paper-raised); }
@@ -514,6 +517,11 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
         <h2>Revenue forecast</h2>
         <span style="font-family:var(--font-mono); font-size:11px; color:var(--slate);">dark = confirmed actual · light = forecasted · mark months as actual on the Projects tab or in a project's ✎ editor</span>
       </div>
+      <div class="filter-bar">
+        <label>from <input type="month" id="fc-from"></label>
+        <label>to <input type="month" id="fc-to"></label>
+        <button class="ghost" id="fc-range-clear">All months</button>
+      </div>
       <div class="chart-card" style="margin-bottom:16px;">
         <h4>Gross revenue month over month · second bar = profit after labor</h4>
         <div class="chart-wrap" style="height:300px;"><canvas id="chart-forecast"></canvas></div>
@@ -723,6 +731,8 @@ let ui = {
   projSearch: '', projActiveOnly: false, projSort: {key: null, dir: 1},
   projSelected: {},       // projectId -> true (bulk revenue-actual marking)
   forecastExpanded: {},   // month -> true
+  fcSort: {key: 'net', dir: -1},   // breakout column sort (shared across months)
+  fcFrom: '', fcTo: '',            // forecast month range filter
   expanded: {},     // `${projectId}__${dept}` -> true
   teamExpanded: {}, // staffId -> true
   teamShowEnded: false,
@@ -1997,9 +2007,18 @@ function renderForecast() {
   const tbody = document.getElementById('forecast-tbody');
   const el = document.getElementById('chart-forecast');
   if (forecastChart) { try { forecastChart.destroy(); } catch (e) {} forecastChart = null; }
-  const rows = revenueByMonthSplit();
+  let rows = revenueByMonthSplit();
+  const fromEl = document.getElementById('fc-from'), toEl = document.getElementById('fc-to');
+  if (fromEl && fromEl.value !== ui.fcFrom) fromEl.value = ui.fcFrom;
+  if (toEl && toEl.value !== ui.fcTo) toEl.value = ui.fcTo;
   if (!rows) {
     if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="empty-note">No revenue entered yet — add amounts on the Projects tab or import a project list.</td></tr>';
+    return;
+  }
+  if (ui.fcFrom) rows = rows.filter(r => r.mk >= ui.fcFrom);
+  if (ui.fcTo) rows = rows.filter(r => r.mk <= ui.fcTo);
+  if (!rows.length) {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="empty-note">No revenue months in the selected range — widen the from/to filter above.</td></tr>';
     return;
   }
 
@@ -2012,11 +2031,29 @@ function renderForecast() {
       const withRev = r.contributors.filter(c => c.amount !== 0);
       const costOnly = r.contributors.filter(c => c.amount === 0);
       const unconfirmed = withRev.filter(c => !c.isActual).length;
+      const sk = ui.fcSort.key, sd = ui.fcSort.dir;
+      const sortVal = c => sk === 'name' ? (c.name || '').toLowerCase()
+        : sk === 'amount' ? c.amount
+        : sk === 'cost' ? c.cost
+        : sk === 'status' ? (c.isActual ? 1 : 0)
+        : c.amount - c.cost;   // net
+      withRev.sort((a, b) => {
+        const va = sortVal(a), vb = sortVal(b);
+        return (typeof va === 'string' ? va.localeCompare(vb) : va - vb) * sd;
+      });
+      const ind = k => sk === k ? (sd === 1 ? ' ▲' : ' ▼') : '';
       breakout = `
       <tr class="fc-breakout"><td colspan="9">
         <div class="fc-head">
           <span>${withRev.length} project${withRev.length === 1 ? '' : 's'} contributing revenue</span>
           ${unconfirmed > 0 ? `<button class="ghost" data-role="fc-mark-all" data-mk="${r.mk}">Mark all ${unconfirmed} as actual</button>` : '<span class="pmeta">all confirmed</span>'}
+        </div>
+        <div class="fc-row fc-cols">
+          <div class="fc-col" data-role="fc-sort" data-key="name">Account${ind('name')}</div>
+          <div class="fc-col" data-role="fc-sort" data-key="amount">Revenue${ind('amount')}</div>
+          <div class="fc-col" data-role="fc-sort" data-key="cost">Labor cost${ind('cost')}</div>
+          <div class="fc-col" data-role="fc-sort" data-key="net">Net${ind('net')}</div>
+          <div class="fc-col" data-role="fc-sort" data-key="status">Status${ind('status')}</div>
         </div>
         ${withRev.map(c => `
           <div class="fc-row">
@@ -3261,6 +3298,11 @@ document.addEventListener('click', (e) => {
   else if (role === 'edit-staff') openPersonModal(t.dataset.id);
   else if (role === 'edit-project') openProjectModal(t.dataset.id);
   else if (role === 'forecast-toggle') { ui.forecastExpanded[t.dataset.mk] = !ui.forecastExpanded[t.dataset.mk]; render(); }
+  else if (role === 'fc-sort') {
+    if (ui.fcSort.key === t.dataset.key) ui.fcSort.dir = -ui.fcSort.dir;
+    else ui.fcSort = { key: t.dataset.key, dir: t.dataset.key === 'name' ? 1 : -1 };
+    render();
+  }
   else if (role === 'fc-mark-all') {
     const mk = t.dataset.mk;
     const ids = state.projects.filter(p => ((p.revenueOverrides || {})[mk] || 0) !== 0).map(p => p.id);
@@ -3424,6 +3466,9 @@ document.getElementById('proj-bulk-forecast').addEventListener('click', () => {
   toast(res.touched ? 'Set ' + res.touched + ' project-month' + (res.touched === 1 ? '' : 's') + ' back to forecasted.' : 'No revenue found for the selected projects in this period.');
 });
 document.getElementById('proj-bulk-clear').addEventListener('click', () => { ui.projSelected = {}; render(); });
+document.getElementById('fc-from').addEventListener('input', (e) => { ui.fcFrom = e.target.value; render(); });
+document.getElementById('fc-to').addEventListener('input', (e) => { ui.fcTo = e.target.value; render(); });
+document.getElementById('fc-range-clear').addEventListener('click', () => { ui.fcFrom = ''; ui.fcTo = ''; render(); });
 document.getElementById('project-modal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('project-modal')) closeProjectModal();
 });
