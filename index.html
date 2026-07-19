@@ -134,6 +134,14 @@ input.rev-input { min-width: 110px; }
 .pm-grid input:focus, .pm-grid select:focus { outline: none; border-color: var(--brand); }
 .pm-hint { display: block; font-family: var(--font-mono); font-size: 10px; color: var(--slate); margin-top: 4px; text-transform: none; letter-spacing: 0; }
 @media (max-width: 640px) { .pm-grid { grid-template-columns: 1fr; } }
+.pj-months-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; color: var(--slate); margin-bottom: 8px; }
+.pj-months { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+.pj-month { border: 1px solid var(--line); border-radius: 5px; padding: 8px; background: var(--paper-raised); }
+.pj-month.overridden { border-color: var(--brand-3); }
+.pj-month .mlabel { font-family: var(--font-mono); font-size: 10px; color: var(--slate); margin-bottom: 4px; display: flex; justify-content: space-between; }
+.pj-month input { width: 100%; border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; font-family: var(--font-mono); font-size: 12px; background: var(--paper); }
+.pj-month input:focus { outline: none; border-color: var(--brand); }
+.pj-empty { font-family: var(--font-mono); font-size: 11px; color: var(--slate); }
 
 .mini-track.split { display: flex; overflow: hidden; }
 .mini-track.split .seg { height: 100%; flex-shrink: 0; }
@@ -468,7 +476,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
   <div class="tab-bar" id="tab-bar">
     <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
-    <button class="tab-btn" data-tab="plan">Department plan</button>
+    <button class="tab-btn" data-tab="plan">Planner</button>
     <button class="tab-btn" data-tab="timeline">Timeline</button>
     <button class="tab-btn" data-tab="team">Team <span class="tab-count" id="count-team"></span></button>
     <button class="tab-btn" data-tab="projects">Projects <span class="tab-count" id="count-projects"></span></button>
@@ -487,7 +495,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
   <div class="tab-section" id="tab-plan">
     <section class="panel">
       <div class="panel-head">
-        <h2>Department plan — <span id="demand-month"></span></h2>
+        <h2>Planner — <span id="demand-month"></span></h2>
         <span style="font-family:var(--font-mono); font-size:11px; color:var(--slate);">plan hours per department, expand a line to see and edit who's on it</span>
       </div>
       <div class="filter-bar">
@@ -602,6 +610,27 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
         <label>Start month<input type="month" data-role="pm-start" id="pm-start"><span class="pm-hint">capacity counts from this month · blank = always</span></label>
         <label>End month<input type="month" data-role="pm-end" id="pm-end"><span class="pm-hint">blank = ongoing</span></label>
       </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="project-modal">
+  <div class="modal" style="max-width:620px;">
+    <div class="modal-head">
+      <div>
+        <h3 id="project-modal-title">Project</h3>
+        <div class="context">Revenue by month · changes save automatically</div>
+      </div>
+      <button class="ghost" id="project-close">Close</button>
+    </div>
+    <div class="modal-body">
+      <div class="pm-grid" style="margin-bottom:16px;">
+        <label>Flight start<input type="date" data-role="pj-start" id="pj-start"></label>
+        <label>Flight end<input type="date" data-role="pj-end" id="pj-end"></label>
+        <label class="pm-full">Default monthly revenue ($)<input type="text" inputmode="decimal" data-role="pj-default" id="pj-default"><span class="pm-hint">used for any month without its own amount · partial months prorate automatically</span></label>
+      </div>
+      <div class="pj-months-label">REVENUE PER MONTH</div>
+      <div id="pj-months" class="pj-months"></div>
     </div>
   </div>
 </div>
@@ -840,6 +869,53 @@ function openPersonModal(id) {
 function closePersonModal() {
   document.getElementById('person-modal').classList.remove('open');
   personEditId = null;
+}
+
+/* ===== Project revenue modal ===== */
+let projectEditId = null;
+function setRevenueOverride(pid, mk, raw) {
+  const p = state.projects.find(x => x.id === pid);
+  if (!p) return;
+  if (!p.revenueOverrides) p.revenueOverrides = {};
+  const cleaned = String(raw).replace(/[^0-9.\-]/g, '');
+  if (cleaned === '') delete p.revenueOverrides[mk];
+  else p.revenueOverrides[mk] = parseFloat(cleaned) || 0;
+  scheduleSave(); render();
+}
+function rebuildProjectModalMonths() {
+  const p = state.projects.find(x => x.id === projectEditId);
+  const el = document.getElementById('pj-months');
+  if (!p || !el) return;
+  const months = monthsOfFlight(p) || viewMonths();
+  if (!months.length) { el.innerHTML = '<div class="pj-empty">Set flight start and end dates to lay out the months.</div>'; return; }
+  el.innerHTML = months.map(mk => {
+    const o = (p.revenueOverrides || {})[mk];
+    const overridden = o !== undefined;
+    const cov = monthCoverage(p, mk);
+    const effDefault = Math.round((p.monthlyRevenue || 0) * cov);
+    return `
+      <div class="pj-month ${overridden ? 'overridden' : ''}">
+        <div class="mlabel"><span>${monthShort(mk)}</span><span>${cov > 0 && cov < 0.999 ? Math.round(cov * 100) + '% of mo' : ''}</span></div>
+        <input type="text" inputmode="decimal" data-role="pj-rev-month" data-mk="${mk}"
+          value="${overridden ? o : ''}" placeholder="${'$' + effDefault.toLocaleString()}"
+          title="${overridden ? 'Custom amount for this month — clear to fall back to the default' : 'Using default' + (cov < 0.999 ? ' (prorated)' : '')}">
+      </div>`;
+  }).join('');
+}
+function openProjectModal(id) {
+  const p = state.projects.find(x => x.id === id);
+  if (!p) return;
+  projectEditId = id;
+  document.getElementById('project-modal-title').textContent = p.name || 'Untitled project';
+  document.getElementById('pj-start').value = p.startDate || (p.startMonth ? p.startMonth + '-01' : '');
+  document.getElementById('pj-end').value = p.endDate || (p.endMonth ? lastDayOf(p.endMonth) : '');
+  document.getElementById('pj-default').value = p.monthlyRevenue || 0;
+  rebuildProjectModalMonths();
+  document.getElementById('project-modal').classList.add('open');
+}
+function closeProjectModal() {
+  document.getElementById('project-modal').classList.remove('open');
+  projectEditId = null;
 }
 
 /* ===== Auth gate ===== */
@@ -2389,7 +2465,7 @@ function renderProjectTable() {
       <td>
         ${isRange()
           ? `<div class="computed-cell" style="font-weight:700;">${fmtMoney(rev)}</div><div class="computed-sub">period total · edit in single-month view</div>`
-          : `<input type="text" inputmode="decimal" class="numfield rev-input" value="${'$' + Math.round(rev).toLocaleString()}" data-role="project-revenue-month" data-id="${p.id}"><div class="computed-sub">default ${fmtMoney(p.monthlyRevenue || 0)}${overridden ? ' · differs this month' : ''}</div>`}
+          : `<input type="text" inputmode="decimal" class="numfield rev-input" value="${'$' + Math.round(rev).toLocaleString()}" data-role="project-revenue-month" data-id="${p.id}"><button class="edit-btn" data-role="edit-project" data-id="${p.id}" title="Edit revenue by month & flight dates">✎</button><div class="computed-sub">default ${fmtMoney(p.monthlyRevenue || 0)}${overridden ? ' · differs this month' : ''}</div>`}
       </td>
       <td class="computed-cell">
         ${hasAct
@@ -2739,6 +2815,7 @@ function renderDemand() {
                 return '<span title="' + (partial ? totalCov + ' months of coverage across ' + flight.length : 'whole months') + '">' + (partial ? totalCov + '/' + flight.length : flight.length) + ' mo</span>';
               })()}
             </span>
+            <button class="edit-btn" data-role="edit-project" data-id="${p.id}" title="Edit revenue by month & flight dates">✎</button>
             <span class="pmeta">${fmtHrs(totalNeed)}h planned demand</span>
           </div>
         </div>
@@ -2887,7 +2964,7 @@ function render() {
    jump around mid-edit. */
 const TYPED_ROLES = new Set(['staff-name','staff-dept','staff-cost','staff-cap','staff-internal',
   'project-name','project-revenue-month','assignment','demand-hours',
-  'pm-name','pm-dept','pm-cost','pm-cap']);
+  'pm-name','pm-dept','pm-cost','pm-cap','pj-default','pj-rev-month']);
 let typedFieldDirty = false;
 
 document.addEventListener('input', (e) => {
@@ -2922,6 +2999,10 @@ document.addEventListener('input', (e) => {
     else if (role === 'pm-type') { setStaffType(personEditId, t.value); refreshPersonCostUI(false); }
     else if (role === 'pm-start') updateStaffField(personEditId, 'startMonth', t.value);
     else if (role === 'pm-end') updateStaffField(personEditId, 'endMonth', t.value);
+    else if (role === 'pj-default') updateProjectField(projectEditId, 'monthlyRevenue', String(t.value).replace(/[^0-9.\-]/g, ''));
+    else if (role === 'pj-rev-month') setRevenueOverride(projectEditId, t.dataset.mk, t.value);
+    else if (role === 'pj-start') { setFlightDate(projectEditId, 'start', t.value); rebuildProjectModalMonths(); }
+    else if (role === 'pj-end') { setFlightDate(projectEditId, 'end', t.value); rebuildProjectModalMonths(); }
   } finally {
     if (typed) suppressRender = false;
   }
@@ -2969,6 +3050,7 @@ document.addEventListener('click', (e) => {
     render();
   }
   else if (role === 'edit-staff') openPersonModal(t.dataset.id);
+  else if (role === 'edit-project') openProjectModal(t.dataset.id);
   else if (role === 'team-toggle') {
     ui.teamExpanded[t.dataset.id] = !ui.teamExpanded[t.dataset.id];
     render();
@@ -3115,6 +3197,14 @@ document.getElementById('run-import-btn').addEventListener('click', runImport);
 document.getElementById('cancel-import-btn').addEventListener('click', closeImport);
 document.getElementById('assign-close').addEventListener('click', closeAssignModal);
 document.getElementById('person-close').addEventListener('click', closePersonModal);
+document.getElementById('project-close').addEventListener('click', closeProjectModal);
+document.getElementById('project-modal').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('project-modal')) closeProjectModal();
+});
+// after leaving the default-revenue field, refresh month placeholders
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.dataset && (e.target.dataset.role === 'pj-default' || e.target.dataset.role === 'pj-rev-month')) rebuildProjectModalMonths();
+});
 document.getElementById('person-modal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('person-modal')) closePersonModal();
 });
