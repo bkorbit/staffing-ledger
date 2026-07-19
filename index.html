@@ -199,11 +199,47 @@ input.rev-input { min-width: 110px; }
 .d-flag { justify-self: end; text-align: right; }
 .dash-note { font-family: var(--font-mono); font-size: 11px; color: var(--slate); padding: 10px 2px; }
 .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
-.chart-card { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
+.chart-grid > .chart-card { min-width: 0; }   /* grid items default to min-width:auto, which stops tracks from shrinking below the canvas */
+.chart-card { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; padding: 14px; min-width: 0; }
 .chart-card h4 { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); margin: 0 0 10px; font-weight: 500; }
-.chart-wrap { position: relative; height: 250px; }
+.chart-wrap { position: relative; height: 250px; width: 100%; min-width: 0; }
+/* Absolutely position the canvas so its rendered pixel size never feeds back
+   into layout — this is what lets Chart.js shrink with the window. */
+.chart-wrap canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
 @media (max-width: 980px) { .chart-grid { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .dash-kpis { grid-template-columns: repeat(2, 1fr); } .dash-row { grid-template-columns: 1fr; } .d-flag { justify-self: start; text-align: left; } }
+
+/* ---- responsive scaling ---- */
+@media (max-width: 1250px) {
+  .summary-strip { grid-template-columns: repeat(3, 1fr); }
+  .dash-row { grid-template-columns: 240px 1fr 170px 130px; gap: 12px; }
+}
+@media (max-width: 1100px) {
+  /* wide tables scroll inside their panel instead of blowing out the page */
+  #tab-team .panel, #tab-projects .panel { overflow-x: auto; }
+  #tab-team table { min-width: 1040px; }
+  #tab-projects table { min-width: 960px; }
+  .demand-row { grid-template-columns: 22px 150px 90px 1fr 170px 80px 30px; gap: 8px; }
+  .pb-row { grid-template-columns: 220px 160px 130px 1fr; }
+  .tm-row { grid-template-columns: 200px 120px 100px 100px 1fr; }
+}
+@media (max-width: 860px) {
+  .demand-row { grid-template-columns: 22px 1fr 90px 80px 30px; }
+  .demand-row .fill-track { display: none; }               /* keep hours + status, drop the bar */
+  .demand-row > div:nth-child(4) { display: none; }
+  .person-row { grid-template-columns: 22px 1fr 100px 90px; }
+  .person-row > div:nth-child(5) { display: none; }
+  .pb-row { grid-template-columns: 1fr 1fr; row-gap: 2px; }
+  .tm-row { grid-template-columns: 1fr 1fr; row-gap: 2px; }
+  .demand-project-head { flex-wrap: wrap; }
+  .head-right { justify-content: flex-start; }
+}
+@media (max-width: 640px) {
+  .summary-strip { grid-template-columns: repeat(2, 1fr); }
+  .dash-kpis { grid-template-columns: 1fr; }
+  .flight-inline { flex-wrap: wrap; white-space: normal; }
+  .header-actions { flex-wrap: wrap; }
+}
 
 /* Demand plan */
 .demand-project { border: 1px solid var(--line); border-radius: 6px; background: var(--paper-raised); margin-bottom: 14px; overflow: hidden; }
