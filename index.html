@@ -244,6 +244,7 @@ input.flight-date { font-family: var(--font-mono); font-size: 11px; border: 1px 
 input.flight-date:hover { border-color: var(--line); }
 input.flight-date:focus { outline: none; border-color: var(--brand); background: var(--paper-raised); }
 #tab-team tbody td { vertical-align: top; }
+.tm-row.tm-logged-only { background: rgba(250, 191, 77, 0.07); border-left: 3px solid var(--gold); }
 td.internal-cell input.numfield { display: block; margin-bottom: 2px; }
 td.internal-cell .computed-sub { min-height: 13px; }
 
@@ -2232,10 +2233,30 @@ function renderStaffTable() {
           </select>
           <button class="assign" data-role="team-add-assign" data-id="${s.id}">Assign to project</button>
         </div>` : `<div class="tm-empty">Assigned to every active project this month.</div>`;
+      const loggedOnly = state.projects
+        .filter(p => getAssignment(s.id, p.id) <= 0 && getActual(s.id, p.id) > 0)
+        .map(p => ({ p, act: getActual(s.id, p.id) }))
+        .sort((a, b) => b.act - a.act);
+      const loggedOnlyRows = loggedOnly.map(({ p, act }) => {
+        const idx = state.projects.indexOf(p);
+        return `
+          <div class="tm-row tm-logged-only">
+            <div>
+              <div class="tm-name" style="color:${PROJECT_COLORS[idx % PROJECT_COLORS.length]}">${escapeHtml(p.name) || 'Untitled'}</div>
+              <div class="tm-meta">logged time, not assigned${projectActiveInMonth(p, currentMonth) ? '' : ' · flight ended'}</div>
+            </div>
+            <div class="tm-meta">— no assignment</div>
+            <div class="tm-meta">${fmtMoney(act * s.hourlyCost)} cost</div>
+            <div class="tm-meta">logged ${fmtHrs(act)}h</div>
+            <div>${pvPairHtml(0, act, 'h', true).replace('>plan<', '>asgn<').replace('>act<', '>log<')}</div>
+          </div>`;
+      }).join('');
+      const intRow = (intHrs > 0 || (showActual && intAct > 0)) ? `<div class="tm-row"><div><div class="tm-name" style="color:var(--internal)">Internal (non-billable)</div>${intHrs <= 0 ? '<div class="tm-meta">logged only — no internal hours planned</div>' : ''}</div><div class="tm-meta">${intHrs > 0 ? fmtHrs(intHrs) + ' hrs' : '—'}</div><div class="tm-meta">${fmtMoney((intHrs || intAct) * s.hourlyCost)} cost</div><div class="tm-meta">${showActual && intAct ? 'logged ' + fmtHrs(intAct) + 'h' : ''}</div><div>${showActual && intAct ? pvPairHtml(intHrs, intAct, 'h', true).replace('>plan<', '>asgn<').replace('>act<', '>log<') : ''}</div></div>` : '';
       breakout = `
         <tr class="team-breakout"><td colspan="10">
           ${rows || '<div class="tm-empty">No project assignments this month.</div>'}
-          ${intHrs > 0 ? `<div class="tm-row"><div><div class="tm-name" style="color:var(--internal)">Internal (non-billable)</div></div><div class="tm-meta">${fmtHrs(intHrs)} hrs</div><div class="tm-meta">${fmtMoney(intHrs * s.hourlyCost)} cost</div><div class="tm-meta">${showActual && intAct ? 'act ' + fmtHrs(intAct) + 'h' : ''}</div><div></div></div>` : ''}
+          ${loggedOnlyRows}
+          ${intRow}
           ${addForm}
         </td></tr>`;
     }
@@ -2368,12 +2389,28 @@ function buildProjCharts() {
     const el = document.getElementById('chart-proj-' + pid);
     if (!el) return;
     const aw = state.actualsW || {};
-    const weekly = Object.keys(aw).some(wk => Object.keys(aw[wk]).some(k => k.endsWith('__' + pid)));
 
     // window = exactly the period selected at the top (single month or range)
     const vm = viewMonths();
 
-    let labels = [], keys = [], valueAt;
+    // weekly detail only works if every month in the period that HAS logged hours
+    // for this project also has weekly rows — otherwise months imported without
+    // dates (e.g. old April data) would silently show as zero. Fall back to monthly.
+    const projHasWeek = wk => Object.entries(aw[wk] || {}).some(([k, v]) => k.endsWith('__' + pid) && v > 0);
+    const weekTouchesMonth = (wk, mk) => {
+      if (wk.slice(0, 7) === mk) return true;
+      const [y, m, d] = wk.split('-').map(Number);
+      return new Date(Date.UTC(y, m - 1, d + 6)).toISOString().slice(0, 7) === mk;
+    };
+    const monthHasMonthly = mk => Object.entries(state.actuals[mk] || {}).some(([k, v]) => k.endsWith('__' + pid) && v > 0);
+    const monthHasWeekly = mk => Object.keys(aw).some(wk => weekTouchesMonth(wk, mk) && projHasWeek(wk));
+    const anyWeekly = Object.keys(aw).some(projHasWeek);
+    const weekly = anyWeekly && vm.every(mk => !monthHasMonthly(mk) || monthHasWeekly(mk));
+    const weeklyGap = anyWeekly && !weekly;
+
+    const monthPlanFor = mk => Object.entries(state.assignments[mk] || {}).reduce((s, [k, v]) => s + (k.endsWith('__' + pid) ? v : 0), 0);
+
+    let labels = [], keys = [], valueAt, planAt;
     const MAX_WEEKS = 26;
     if (weekly) {
       const [sy, sm] = vm[0].split('-').map(Number);
@@ -2389,11 +2426,25 @@ function buildProjCharts() {
       if (keys.length > MAX_WEEKS) keys = keys.slice(-MAX_WEEKS);
       labels = keys.map(weekLabel);
       valueAt = (sid, k) => (aw[k] || {})[sid + '__' + pid] || 0;
+      planAt = (wk) => {   // day-prorated share of each straddled month's plan
+        const [y, m, d] = wk.split('-').map(Number);
+        let sum = 0;
+        for (let i = 0; i < 7; i++) {
+          const day = new Date(Date.UTC(y, m - 1, d + i));
+          const mk = day.toISOString().slice(0, 7);
+          const dim = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth() + 1, 0)).getUTCDate();
+          sum += monthPlanFor(mk) / dim;
+        }
+        return sum;
+      };
     } else {
       keys = vm.slice();
       labels = keys.map(monthShort);
       valueAt = (sid, k) => actualFor(k, sid, pid);
+      planAt = mk => monthPlanFor(mk);
     }
+    const planData = keys.map(k => Math.round(planAt(k) * 10) / 10);
+    const planTotal = Math.round(vm.reduce((s, mk) => s + monthPlanFor(mk), 0) * 10) / 10;
 
     const contributors = state.staff
       .map(st => ({ st, total: keys.reduce((sum, k) => sum + valueAt(st.id, k), 0) }))
@@ -2403,24 +2454,42 @@ function buildProjCharts() {
     if (!contributors.length) return;
 
     const note = document.getElementById('chart-note-' + pid);
-    if (note) note.textContent = weekly
+    if (note) note.textContent = (weekly
       ? 'stacked hours per week across the selected period (max ' + MAX_WEEKS + ' weeks) — number above each week is the team total'
-      : 'stacked hours per month across the selected period — weekly detail appears once hours are imported with dates';
+      : (weeklyGap
+        ? 'showing monthly: some months in this period only have monthly detail (imported without dates)'
+        : 'stacked hours per month across the selected period — weekly detail appears once hours are imported with dates'))
+      + ' · dashed line = assigned plan (' + planTotal + 'h planned in period)';
 
     projCharts.push(new Chart(el, {
       type: 'line',
       plugins: window.ChartDataLabels ? [window.ChartDataLabels] : [],
       data: {
         labels,
-        datasets: contributors.map((c, i) => ({
-          label: c.st.name || 'Unnamed',
-          data: keys.map(k => Math.round(valueAt(c.st.id, k) * 10) / 10),
-          borderColor: LINE_COLORS[i % LINE_COLORS.length],
-          backgroundColor: LINE_COLORS[i % LINE_COLORS.length] + '59',   // ~35% alpha fill
-          fill: true,
-          tension: 0.25,
-          pointRadius: 1.5
-        }))
+        datasets: [
+          ...contributors.map((c, i) => ({
+            label: c.st.name || 'Unnamed',
+            data: keys.map(k => Math.round(valueAt(c.st.id, k) * 10) / 10),
+            borderColor: LINE_COLORS[i % LINE_COLORS.length],
+            backgroundColor: LINE_COLORS[i % LINE_COLORS.length] + '59',   // ~35% alpha fill
+            fill: true,
+            tension: 0.25,
+            pointRadius: 1.5,
+            stack: 'logged'
+          })),
+          {
+            label: 'Planned (assigned)',
+            data: planData,
+            borderColor: '#67706d',
+            backgroundColor: '#67706d',
+            borderDash: [6, 4],
+            fill: false,
+            tension: 0,
+            pointRadius: 0,
+            stack: 'plan',
+            isPlan: true
+          }
+        ]
       },
       options: (() => {
         const o = chartOpts();
@@ -2428,14 +2497,17 @@ function buildProjCharts() {
         o.plugins = {
           legend: { labels: { font: chartFont(), color: '#67706d', boxWidth: 12 } },
           datalabels: {
-            // one label per column: the total, drawn on the topmost dataset of the stack
-            display: ctx => ctx.datasetIndex === ctx.chart.data.datasets.length - 1,
+            // one label per column: the logged total, drawn on the topmost contributor dataset
+            display: ctx => {
+              const logged = ctx.chart.data.datasets.filter(d => !d.isPlan);
+              return ctx.chart.data.datasets[ctx.datasetIndex] === logged[logged.length - 1];
+            },
             anchor: 'end', align: 'top', offset: 2, clip: false,
             font: { family: "'DM Mono', monospace", size: 9, weight: '700' },
             color: '#0a493c',
             formatter: (v, ctx) => {
               const i = ctx.dataIndex;
-              const total = ctx.chart.data.datasets.reduce((sum, ds) => sum + (ds.data[i] || 0), 0);
+              const total = ctx.chart.data.datasets.filter(d => !d.isPlan).reduce((sum, ds) => sum + (ds.data[i] || 0), 0);
               return total > 0 ? Math.round(total * 10) / 10 + 'h' : '';
             }
           }
