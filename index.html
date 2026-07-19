@@ -166,6 +166,23 @@ input.rev-input { min-width: 90px; flex: 1; }
 .pj-month input { width: 100%; border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; font-family: var(--font-mono); font-size: 12px; background: var(--paper); }
 .pj-month input:focus { outline: none; border-color: var(--brand); }
 .pj-empty { font-family: var(--font-mono); font-size: 11px; color: var(--slate); }
+.pj-billing { margin-bottom: 16px; }
+.bl-line { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; background: var(--paper-raised); }
+.bl-top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+.bl-top select, .bl-top input { border: 1px solid var(--line); border-radius: 4px; padding: 5px 7px; font-family: var(--font-mono); font-size: 11px; background: var(--paper); color: var(--ink); }
+.bl-top input { width: 90px; }
+.bl-top input.bl-label { width: 130px; }
+.bl-top label { font-family: var(--font-mono); font-size: 10px; color: var(--slate); display: flex; align-items: center; gap: 4px; }
+.bl-months { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+.bl-m { flex: 0 0 auto; border: 1px dashed var(--line); border-radius: 4px; padding: 4px 6px; min-width: 86px; }
+.bl-m .bl-mk { font-family: var(--font-mono); font-size: 9px; color: var(--slate); margin-bottom: 2px; }
+.bl-m input { width: 100%; border: 1px solid var(--line); border-radius: 3px; padding: 3px 4px; font-family: var(--font-mono); font-size: 11px; background: var(--paper); }
+.bl-m input + input { margin-top: 3px; }
+.bl-gp { font-family: var(--font-mono); font-size: 9px; color: var(--teal); margin-top: 3px; }
+.bl-add { display: flex; gap: 8px; align-items: center; font-family: var(--font-mono); font-size: 11px; }
+.bl-add select { border: 1px solid var(--line); border-radius: 4px; padding: 5px 7px; font-family: var(--font-mono); font-size: 11px; background: var(--paper-raised); }
+.bl-chip { font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--brand); border: 1px solid var(--brand-3); border-radius: 3px; padding: 0 4px; margin-left: 4px; }
+.pj-month .pj-computed { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--ink); padding: 4px 0; }
 
 .mini-track.split { display: flex; overflow: hidden; }
 .mini-track.split .seg { height: 100%; flex-shrink: 0; }
@@ -664,7 +681,9 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
         <label>Flight start<input type="date" data-role="pj-start" id="pj-start"></label>
         <label>Flight end<input type="date" data-role="pj-end" id="pj-end"></label>
       </div>
-      <div class="pj-months-label">REVENUE PER MONTH</div>
+      <div class="pj-months-label" style="display:flex; justify-content:space-between; align-items:center;">BILLING SETUP <span class="pm-hint" style="margin:0;">optional — compute gross profit from how the account makes money</span></div>
+      <div id="pj-billing" class="pj-billing"></div>
+      <div class="pj-months-label" id="pj-months-label">GROSS PROFIT PER MONTH</div>
       <div id="pj-months" class="pj-months"></div>
     </div>
   </div>
@@ -945,22 +964,88 @@ function setRevenueOverride(pid, mk, raw) {
   else p.revenueOverrides[mk] = parseFloat(cleaned) || 0;
   scheduleSave(); render();
 }
+function blMonthInputs(p, line, li) {
+  const flight = monthsOfFlight(p);
+  if (!flight) return '<div class="pj-empty">Set flight start and end dates above to lay out monthly inputs.</div>';
+  const t = line.type;
+  return '<div class="bl-months">' + flight.map(mk => {
+    let inner = '';
+    if (t === 'search' || t === 'social' || t === 'programmatic') {
+      inner += `<input type="text" inputmode="decimal" placeholder="budget $" value="${(line.budgets || {})[mk] || ''}" data-role="bl-budget" data-line="${li}" data-mk="${mk}" title="Billed media budget for ${monthShort(mk)}">`;
+    }
+    if (t === 'programmatic') {
+      const ov = (line.margins || {})[mk];
+      inner += `<input type="text" inputmode="decimal" placeholder="${line.marginPct || 0}%" value="${ov !== undefined ? ov : ''}" data-role="bl-mmargin" data-line="${li}" data-mk="${mk}" title="Margin % for ${monthShort(mk)} — blank uses the default">`;
+    }
+    if (t === 'hourly' && line.mode === 'monthly') {
+      inner += `<input type="text" inputmode="decimal" placeholder="hours" value="${(line.hoursByMonth || {})[mk] || ''}" data-role="bl-mhours" data-line="${li}" data-mk="${mk}">`;
+    }
+    return `<div class="bl-m"><div class="bl-mk">${monthShort(mk)}</div>${inner}<div class="bl-gp">${fmtMoney(lineGP(p, line, mk))}</div></div>`;
+  }).join('') + '</div>';
+}
+
+function rebuildBillingSection() {
+  const p = state.projects.find(x => x.id === projectEditId);
+  const el = document.getElementById('pj-billing');
+  if (!p || !el) return;
+  const lines = (p.billing && p.billing.lines) || [];
+  const lineHtml = lines.map((l, i) => {
+    const t = l.type;
+    let params = '';
+    if (t === 'retainer') params = `<label>amount / flight month $<input type="text" inputmode="decimal" value="${l.amount || ''}" data-role="bl-amount" data-line="${i}"></label>`;
+    if (t === 'search' || t === 'social') params = `<label>fee %<input type="text" inputmode="decimal" value="${l.feePct || ''}" data-role="bl-fee" data-line="${i}"></label><span class="pm-hint" style="margin:0;">media is 1:1 pass-through — only the fee counts as gross profit</span>`;
+    if (t === 'programmatic') params = `<label>fee %<input type="text" inputmode="decimal" value="${l.feePct || ''}" data-role="bl-fee" data-line="${i}"></label><label>default margin %<input type="text" inputmode="decimal" value="${l.marginPct || ''}" data-role="bl-margin" data-line="${i}"></label>`;
+    if (t === 'hourly') params = `<label>rate $/h<input type="text" inputmode="decimal" value="${l.rate || ''}" data-role="bl-rate" data-line="${i}"></label>
+      <label>hours<select data-role="bl-mode" data-line="${i}"><option value="flight" ${l.mode !== 'monthly' ? 'selected' : ''}>spread over flight</option><option value="monthly" ${l.mode === 'monthly' ? 'selected' : ''}>per month</option></select></label>
+      ${l.mode !== 'monthly' ? `<label>total hours<input type="text" inputmode="decimal" value="${l.hours || ''}" data-role="bl-hours" data-line="${i}"></label>` : ''}`;
+    const needsMonths = (t !== 'retainer') && !(t === 'hourly' && l.mode !== 'monthly');
+    return `
+      <div class="bl-line">
+        <div class="bl-top">
+          <strong style="font-family:var(--font-display); font-size:12px;">${BILLING_TYPES[t]}</strong>
+          <input type="text" class="bl-label" placeholder="label (optional)" value="${escapeAttr(l.label || '')}" data-role="bl-label" data-line="${i}">
+          ${params}
+          <button class="remove-btn" data-role="bl-remove" data-line="${i}" style="margin-left:auto;">×</button>
+        </div>
+        ${needsMonths ? blMonthInputs(p, l, i) : ''}
+      </div>`;
+  }).join('');
+  el.innerHTML = lineHtml + `
+    <div class="bl-add">
+      <select id="bl-add-type">
+        <option value="">+ Add billing line…</option>
+        <option value="retainer">Retainer (flat, no COGS)</option>
+        <option value="search">Paid Search (fee % of budget)</option>
+        <option value="social">Paid Social (fee % of budget)</option>
+        <option value="programmatic">Programmatic (fee % + media margin)</option>
+        <option value="hourly">Hourly (rate × scoped hours)</option>
+      </select>
+      ${lines.length ? '' : '<span class="pm-hint" style="margin:0;">no lines — the month amounts below stay hand-entered</span>'}
+    </div>`;
+}
+
 function rebuildProjectModalMonths() {
   const p = state.projects.find(x => x.id === projectEditId);
   const el = document.getElementById('pj-months');
   if (!p || !el) return;
-  const months = monthsOfFlight(p) || viewMonths();
+  const lbl = document.getElementById('pj-months-label');
+  if (lbl) lbl.textContent = billingActive(p) ? 'GROSS PROFIT PER MONTH — computed from billing lines' : 'GROSS PROFIT PER MONTH';
+  const months = billingActive(p) ? (monthsOfFlight(p) || [...billingMonths(p)].sort()) : (monthsOfFlight(p) || viewMonths());
   if (!months.length) { el.innerHTML = '<div class="pj-empty">Set flight start and end dates to lay out the months.</div>'; return; }
   el.innerHTML = months.map(mk => {
+    const computed = billingGP(p, mk);
     const o = (p.revenueOverrides || {})[mk];
     const hasValue = o !== undefined;
     const cov = monthCoverage(p, mk);
-    return `
-      <div class="pj-month ${hasValue ? 'overridden' : ''}">
-        <div class="mlabel"><span>${monthShort(mk)}</span><span>${cov > 0 && cov < 0.999 ? Math.round(cov * 100) + '% of mo' : ''}</span></div>
-        <input type="text" inputmode="decimal" data-role="pj-rev-month" data-mk="${mk}"
+    const body = computed !== null
+      ? `<div class="pj-computed" title="${escapeAttr(billingBreakdown(p, mk))}">${fmtMoney(computed)}</div>`
+      : `<input type="text" inputmode="decimal" data-role="pj-rev-month" data-mk="${mk}"
           value="${hasValue ? o : ''}" placeholder="$0"
-          title="${hasValue ? 'Revenue entered for this month' : 'No revenue entered — counts as $0'}">
+          title="${hasValue ? 'Revenue entered for this month' : 'No revenue entered — counts as $0'}">`;
+    return `
+      <div class="pj-month ${computed !== null || hasValue ? 'overridden' : ''}">
+        <div class="mlabel"><span>${monthShort(mk)}</span><span>${cov > 0 && cov < 0.999 ? Math.round(cov * 100) + '% of mo' : ''}</span></div>
+        ${body}
         <label class="rev-act" title="Check when confirmed actual; unchecked = forecasted"><input type="checkbox" data-role="pj-rev-actual" data-mk="${mk}" ${(p.revenueActuals || {})[mk] ? 'checked' : ''}> actual</label>
       </div>`;
   }).join('');
@@ -972,6 +1057,7 @@ function openProjectModal(id) {
   document.getElementById('project-modal-title').textContent = p.name || 'Untitled project';
   document.getElementById('pj-start').value = p.startDate || (p.startMonth ? p.startMonth + '-01' : '');
   document.getElementById('pj-end').value = p.endDate || (p.endMonth ? lastDayOf(p.endMonth) : '');
+  rebuildBillingSection();
   rebuildProjectModalMonths();
   document.getElementById('project-modal').classList.add('open');
 }
@@ -1106,8 +1192,68 @@ function periodLabel() {
 function assignFor(mk, sid, pid) { return (state.assignments[mk] || {})[sid + '__' + pid] || 0; }
 function actualFor(mk, sid, pid) { return (state.actuals[mk] || {})[sid + '__' + pid] || 0; }
 function demandFor(mk, pid, dept) { return ((state.demand[mk] || {})[pid] || {})[dept] || 0; }
+/* ===== Billing lines (optional per-account gross-profit calculator) =====
+   Line types and their monthly gross profit (all budgets = billed amounts):
+   - retainer:      flat amount per flight month (no COGS)
+   - search/social: budget is 1:1 pass-through, never revenue -> GP = budget x fee%
+   - programmatic:  GP = budget x fee% + budget x margin% (margin can vary by month)
+   - hourly:        rate x hours; hours either spread equally over the flight
+                    or entered per month */
+function billingActive(p) { return !!(p.billing && p.billing.lines && p.billing.lines.length); }
+
+function lineGP(p, line, mk) {
+  const flight = monthsOfFlight(p);
+  const inFlight = flight ? flight.includes(mk) : false;
+  const t = line.type;
+  if (t === 'retainer') return inFlight ? (line.amount || 0) : 0;
+  if (t === 'search' || t === 'social') {
+    return ((line.budgets || {})[mk] || 0) * (line.feePct || 0) / 100;
+  }
+  if (t === 'programmatic') {
+    const budget = (line.budgets || {})[mk] || 0;
+    const margin = (line.margins || {})[mk] !== undefined ? line.margins[mk] : (line.marginPct || 0);
+    return budget * ((line.feePct || 0) + margin) / 100;
+  }
+  if (t === 'hourly') {
+    if (line.mode === 'monthly') return ((line.hoursByMonth || {})[mk] || 0) * (line.rate || 0);
+    if (!flight || !flight.length || !inFlight) return 0;
+    return ((line.hours || 0) / flight.length) * (line.rate || 0);
+  }
+  return 0;
+}
+
+function billingGP(p, mk) {
+  if (!billingActive(p)) return null;
+  return p.billing.lines.reduce((s, l) => s + lineGP(p, l, mk), 0);
+}
+
+function billingBreakdown(p, mk) {
+  if (!billingActive(p)) return '';
+  return p.billing.lines.map(l => {
+    const gp = lineGP(p, l, mk);
+    return (l.label || BILLING_TYPES[l.type] || l.type) + ' ' + fmtMoney(gp);
+  }).join(' + ');
+}
+
+function billingMonths(p) {
+  const set = new Set();
+  if (!billingActive(p)) return set;
+  const flight = monthsOfFlight(p) || [];
+  p.billing.lines.forEach(l => {
+    if (l.type === 'retainer' || (l.type === 'hourly' && l.mode !== 'monthly')) flight.forEach(mk => set.add(mk));
+    Object.keys(l.budgets || {}).forEach(mk => { if (l.budgets[mk]) set.add(mk); });
+    Object.keys(l.hoursByMonth || {}).forEach(mk => { if (l.hoursByMonth[mk]) set.add(mk); });
+  });
+  return set;
+}
+
+const BILLING_TYPES = { retainer: 'Retainer', search: 'Paid Search', social: 'Paid Social', programmatic: 'Programmatic', hourly: 'Hourly' };
+
 function revenueFor(p, mk) {
-  // Explicit-only: a month has revenue only if an amount was entered/imported for it.
+  // Billing lines compute live and win; otherwise a month has revenue only if
+  // an amount was entered/imported for it.
+  const b = billingGP(p, mk);
+  if (b !== null) return b;
   return (p.revenueOverrides || {})[mk] || 0;
 }
 
@@ -1962,9 +2108,12 @@ function monthTotalPayroll(mk) {
 }
 function revenueByMonthSplit() {
   const set = new Set();
-  state.projects.forEach(p => Object.keys(p.revenueOverrides || {}).forEach(mk => {
-    if ((p.revenueOverrides[mk] || 0) !== 0) set.add(mk);
-  }));
+  state.projects.forEach(p => {
+    if (billingActive(p)) billingMonths(p).forEach(mk => set.add(mk));
+    else Object.keys(p.revenueOverrides || {}).forEach(mk => {
+      if ((p.revenueOverrides[mk] || 0) !== 0) set.add(mk);
+    });
+  });
   if (!set.size) return null;
   const sorted = [...set].sort();
   const months = [];
@@ -1976,7 +2125,7 @@ function revenueByMonthSplit() {
     const contributors = [];
     const monthHasActuals = Object.keys(state.actuals[m] || {}).length > 0;
     state.projects.forEach(p => {
-      const v = (p.revenueOverrides || {})[m] || 0;
+      const v = revenueFor(p, m);
       const isActual = !!(p.revenueActuals || {})[m];
       // Cost basis: revenue confirmed actual -> logged cost, but if nothing has
       // been logged for that project-month yet, fall back to planned so the
@@ -2057,8 +2206,8 @@ function renderForecast() {
         </div>
         ${withRev.map(c => `
           <div class="fc-row">
-            <div class="fc-name">${escapeHtml(c.name)}</div>
-            <div class="pb-num"><input type="text" inputmode="decimal" class="fc-rev-input" value="${c.amount ? '$' + Math.round(c.amount).toLocaleString() : ''}" placeholder="$0" data-role="fc-rev-month" data-pid="${c.pid}" data-mk="${r.mk}"> rev</div>
+            <div class="fc-name">${escapeHtml(c.name)}<button class="edit-btn" data-role="edit-project" data-id="${c.pid}" title="Edit billing & months">✎</button>${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? pp.billing.lines.map(l => `<span class="bl-chip">${BILLING_TYPES[l.type]}</span>`).join('') : ''; })()}</div>
+            <div class="pb-num">${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? `<span style="font-weight:700;" title="${escapeAttr(billingBreakdown(pp, r.mk))}">${fmtMoney(c.amount)}</span>` : `<input type="text" inputmode="decimal" class="fc-rev-input" value="${c.amount ? '$' + Math.round(c.amount).toLocaleString() : ''}" placeholder="$0" data-role="fc-rev-month" data-pid="${c.pid}" data-mk="${r.mk}">`; })()} rev</div>
             <div class="pb-num">${fmtMoney(c.cost)} cost <span class="fc-basis">${c.basis}</span></div>
             <div class="pb-num" style="color:${c.amount - c.cost >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(c.amount - c.cost)} net</div>
             <label class="rev-act"><input type="checkbox" data-role="fc-rev-actual" data-pid="${c.pid}" data-mk="${r.mk}" ${c.isActual ? 'checked' : ''}> actual</label>
@@ -2740,7 +2889,7 @@ function renderProjectTable() {
       <td>
         ${isRange()
           ? `<div class="computed-cell" style="font-weight:700;">${fmtMoney(rev)}</div><div class="computed-sub">period total · edit in single-month view</div>`
-          : `<div class="rev-cell"><input type="text" inputmode="decimal" class="numfield rev-input" value="${rev ? '$' + Math.round(rev).toLocaleString() : ''}" placeholder="$0" data-role="project-revenue-month" data-id="${p.id}"><button class="edit-btn" data-role="edit-project" data-id="${p.id}" title="Edit revenue by month & flight dates">✎</button></div><label class="rev-act" title="Check when this month's revenue is confirmed actual; unchecked = forecasted"><input type="checkbox" data-role="rev-actual" data-id="${p.id}" ${(p.revenueActuals || {})[currentMonth] ? 'checked' : ''}> actual</label>`}
+          : `<div class="rev-cell">${billingActive(p) ? `<span class="computed-cell" style="font-weight:700;" title="${escapeAttr(billingBreakdown(p, currentMonth))}">${fmtMoney(rev)}</span>` : `<input type="text" inputmode="decimal" class="numfield rev-input" value="${rev ? '$' + Math.round(rev).toLocaleString() : ''}" placeholder="$0" data-role="project-revenue-month" data-id="${p.id}">`}<button class="edit-btn" data-role="edit-project" data-id="${p.id}" title="Edit revenue by month & flight dates">✎</button></div><label class="rev-act" title="Check when this month's revenue is confirmed actual; unchecked = forecasted"><input type="checkbox" data-role="rev-actual" data-id="${p.id}" ${(p.revenueActuals || {})[currentMonth] ? 'checked' : ''}> actual</label>`}
       </td>
       <td class="computed-cell">
         ${hasAct
@@ -3174,7 +3323,8 @@ function render() {
    jump around mid-edit. */
 const TYPED_ROLES = new Set(['staff-name','staff-dept','staff-cost','staff-cap','staff-internal',
   'project-name','project-revenue-month','assignment','demand-hours',
-  'pm-name','pm-dept','pm-cost','pm-cap','pj-rev-month','fc-rev-month']);
+  'pm-name','pm-dept','pm-cost','pm-cap','pj-rev-month','fc-rev-month',
+  'bl-amount','bl-fee','bl-rate','bl-margin','bl-hours','bl-budget','bl-mmargin','bl-mhours','bl-label']);
 let typedFieldDirty = false;
 
 document.addEventListener('input', (e) => {
@@ -3211,6 +3361,23 @@ document.addEventListener('input', (e) => {
     else if (role === 'pm-end') updateStaffField(personEditId, 'endMonth', t.value);
     else if (role === 'pj-rev-month') setRevenueOverride(projectEditId, t.dataset.mk, t.value);
     else if (role === 'fc-rev-month') setRevenueOverride(t.dataset.pid, t.dataset.mk, t.value);
+    else if (role && role.startsWith('bl-') && role !== 'bl-mode' && role !== 'bl-remove') {
+      const p = state.projects.find(x => x.id === projectEditId);
+      const line = p && p.billing && p.billing.lines[+t.dataset.line];
+      if (line) {
+        const num = v => { const c = String(v).replace(/[^0-9.\-]/g, ''); return c === '' ? undefined : (parseFloat(c) || 0); };
+        if (role === 'bl-label') line.label = t.value;
+        else if (role === 'bl-amount') line.amount = num(t.value) || 0;
+        else if (role === 'bl-fee') line.feePct = num(t.value) || 0;
+        else if (role === 'bl-margin') line.marginPct = num(t.value) || 0;
+        else if (role === 'bl-rate') line.rate = num(t.value) || 0;
+        else if (role === 'bl-hours') line.hours = num(t.value) || 0;
+        else if (role === 'bl-budget') { if (!line.budgets) line.budgets = {}; const v = num(t.value); if (v === undefined) delete line.budgets[t.dataset.mk]; else line.budgets[t.dataset.mk] = v; }
+        else if (role === 'bl-mmargin') { if (!line.margins) line.margins = {}; const v = num(t.value); if (v === undefined) delete line.margins[t.dataset.mk]; else line.margins[t.dataset.mk] = v; }
+        else if (role === 'bl-mhours') { if (!line.hoursByMonth) line.hoursByMonth = {}; const v = num(t.value); if (v === undefined) delete line.hoursByMonth[t.dataset.mk]; else line.hoursByMonth[t.dataset.mk] = v; }
+        scheduleSave(); render();
+      }
+    }
     else if (role === 'pj-start') { setFlightDate(projectEditId, 'start', t.value); rebuildProjectModalMonths(); }
     else if (role === 'pj-end') { setFlightDate(projectEditId, 'end', t.value); rebuildProjectModalMonths(); }
   } finally {
@@ -3298,6 +3465,13 @@ document.addEventListener('click', (e) => {
   else if (role === 'edit-staff') openPersonModal(t.dataset.id);
   else if (role === 'edit-project') openProjectModal(t.dataset.id);
   else if (role === 'forecast-toggle') { ui.forecastExpanded[t.dataset.mk] = !ui.forecastExpanded[t.dataset.mk]; render(); }
+  else if (role === 'bl-remove') {
+    const p = state.projects.find(x => x.id === projectEditId);
+    if (p && p.billing) {
+      p.billing.lines.splice(+t.dataset.line, 1);
+      scheduleSave(); render(); rebuildBillingSection(); rebuildProjectModalMonths();
+    }
+  }
   else if (role === 'fc-sort') {
     if (ui.fcSort.key === t.dataset.key) ui.fcSort.dir = -ui.fcSort.dir;
     else ui.fcSort = { key: t.dataset.key, dir: t.dataset.key === 'name' ? 1 : -1 };
@@ -3475,6 +3649,28 @@ document.getElementById('project-modal').addEventListener('click', (e) => {
 // after leaving the default-revenue field, refresh month placeholders
 document.addEventListener('change', (e) => {
   if (e.target && e.target.dataset && e.target.dataset.role === 'pj-rev-month') rebuildProjectModalMonths();
+  if (e.target && e.target.dataset && e.target.dataset.role === 'bl-mode') {
+    const p = state.projects.find(x => x.id === projectEditId);
+    const line = p && p.billing && p.billing.lines[+e.target.dataset.line];
+    if (line) { line.mode = e.target.value; scheduleSave(); render(); rebuildBillingSection(); rebuildProjectModalMonths(); }
+    return;
+  }
+  if (e.target && e.target.dataset && e.target.dataset.role && e.target.dataset.role.startsWith('bl-')) { rebuildBillingSection(); rebuildProjectModalMonths(); }
+  if (e.target && e.target.id === 'bl-add-type' && e.target.value) {
+    const p = state.projects.find(x => x.id === projectEditId);
+    if (p) {
+      if (!p.billing) p.billing = { lines: [] };
+      const t = e.target.value;
+      const line = { id: uid(), type: t, label: '' };
+      if (t === 'retainer') line.amount = 0;
+      if (t === 'search' || t === 'social') { line.feePct = 0; line.budgets = {}; }
+      if (t === 'programmatic') { line.feePct = 0; line.marginPct = 0; line.budgets = {}; line.margins = {}; }
+      if (t === 'hourly') { line.rate = 0; line.mode = 'flight'; line.hours = 0; line.hoursByMonth = {}; }
+      p.billing.lines.push(line);
+      scheduleSave(); render(); rebuildBillingSection(); rebuildProjectModalMonths();
+    }
+    return;
+  }
 });
 document.getElementById('person-modal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('person-modal')) closePersonModal();
