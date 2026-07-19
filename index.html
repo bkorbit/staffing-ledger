@@ -109,10 +109,24 @@ input.numfield { font-family: var(--font-mono); text-align: right; }
 .computed-cell { font-family: var(--font-mono); font-size: 12px; }
 .computed-sub { font-family: var(--font-mono); font-size: 10px; color: var(--slate); white-space: nowrap; }
 input.rev-input { min-width: 110px; }
-select.type-select { font-family: var(--font-mono); font-size: 11px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--ink); padding: 4px 2px; width: auto; cursor: pointer; }
-select.type-select:hover { border-color: var(--line); }
+#tab-team table { table-layout: fixed; }
+#tab-team th.col-name { width: 14%; }
+#tab-team th.col-dept { width: 9%; }
+#tab-team th.col-capy { width: 13%; }
+#tab-team th.col-int { width: 8%; }
+#tab-team th.edit-col { width: 40px; }
+.edit-btn { background: none; border: none; color: var(--slate); cursor: pointer; font-size: 14px; line-height: 1; padding: 4px; }
+.edit-btn:hover { color: var(--brand); }
+.cap-tag { font-family: var(--font-mono); font-size: 9px; color: var(--slate); border: 1px solid var(--line); border-radius: 3px; padding: 1px 5px; }
+.pm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.pm-grid label { display: block; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--slate); }
+.pm-grid label.pm-full { grid-column: 1 / -1; }
+.pm-grid input, .pm-grid select { display: block; width: 100%; border: 1px solid var(--line); border-radius: 5px; padding: 8px 10px; margin-top: 5px; font-family: var(--font-mono); font-size: 13px; background: var(--paper-raised); color: var(--ink); text-transform: none; }
+.pm-grid input:focus, .pm-grid select:focus { outline: none; border-color: var(--brand); }
+.pm-hint { display: block; font-family: var(--font-mono); font-size: 10px; color: var(--slate); margin-top: 4px; text-transform: none; letter-spacing: 0; }
+@media (max-width: 640px) { .pm-grid { grid-template-columns: 1fr; } }
 
-.mini-track { position: relative; width: 100%; max-width: 140px; height: 10px; background: #dedede; border-radius: 2px; overflow: hidden; margin-top: 3px; }
+.mini-track { position: relative; width: 100%; max-width: 220px; height: 10px; background: #dedede; border-radius: 2px; overflow: hidden; margin-top: 3px; }
 .mini-bar { position: absolute; top: 0; bottom: 0; left: 0; background: var(--accent); }
 .mini-bar.over { background: var(--rust); }
 .util-pct { font-family: var(--font-mono); font-size: 11px; }
@@ -432,16 +446,14 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
       <table>
         <thead>
           <tr id="team-head">
-            <th class="sortable" data-sort="name">Name <span class="sort-ind" data-ind="name"></span></th>
-            <th class="dept-col sortable" data-sort="department">Department <span class="sort-ind" data-ind="department"></span></th>
-            <th class="num-col sortable" data-sort="employmentType">Type <span class="sort-ind" data-ind="employmentType"></span></th>
-            <th class="num-col sortable" data-sort="hourlyCost">Cost ($) <span class="sort-ind" data-ind="hourlyCost"></span></th>
-            <th class="num-col sortable" data-sort="weeklyCapacity">Weekly cap <span class="sort-ind" data-ind="weeklyCapacity"></span></th>
-            <th class="num-col">Monthly cap</th>
-            <th class="num-col sortable" data-sort="internalHrs">Internal hrs <span class="sort-ind" data-ind="internalHrs"></span></th>
+            <th class="col-name sortable" data-sort="name">Name <span class="sort-ind" data-ind="name"></span></th>
+            <th class="col-dept sortable" data-sort="department">Department <span class="sort-ind" data-ind="department"></span></th>
+            <th class="col-capy sortable" data-sort="weeklyCapacity">Capacity <span class="sort-ind" data-ind="weeklyCapacity"></span></th>
+            <th class="col-int sortable" data-sort="internalHrs">Internal hrs <span class="sort-ind" data-ind="internalHrs"></span></th>
             <th class="sortable" data-sort="utilization">Utilization (plan) <span class="sort-ind" data-ind="utilization"></span></th>
             <th class="sortable" data-sort="loggedHrs">Logged vs assigned <span class="sort-ind" data-ind="loggedHrs"></span></th>
             <th class="sortable" data-sort="loggedUtil">Logged vs capacity <span class="sort-ind" data-ind="loggedUtil"></span></th>
+            <th class="edit-col"></th>
             <th class="remove-col"></th>
           </tr>
         </thead>
@@ -483,6 +495,32 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
 <datalist id="dept-datalist"></datalist>
 <div class="toast" id="toast"></div>
+
+<div class="modal-overlay" id="person-modal">
+  <div class="modal" style="max-width:540px;">
+    <div class="modal-head">
+      <div>
+        <h3 id="person-modal-title">Team member</h3>
+        <div class="context">Changes save automatically</div>
+      </div>
+      <button class="ghost" id="person-close">Close</button>
+    </div>
+    <div class="modal-body">
+      <div class="pm-grid">
+        <label class="pm-full">Name<input type="text" data-role="pm-name" id="pm-name" placeholder="Name"></label>
+        <label>Department<input type="text" list="dept-datalist" data-role="pm-dept" id="pm-dept" placeholder="e.g. Design"></label>
+        <label>Employment type<select data-role="pm-type" id="pm-type">
+          <option value="fulltime">Full-time (salaried)</option>
+          <option value="hourly">Hourly</option>
+        </select></label>
+        <label><span id="pm-cost-caption">Annual cost ($)</span><input type="text" inputmode="decimal" data-role="pm-cost" id="pm-cost"><span class="pm-hint" id="pm-rate-hint"></span></label>
+        <label>Weekly capacity (hrs)<input type="text" inputmode="decimal" data-role="pm-cap" id="pm-cap"></label>
+        <label>Start month<input type="month" data-role="pm-start" id="pm-start"><span class="pm-hint">capacity counts from this month · blank = always</span></label>
+        <label>End month<input type="month" data-role="pm-end" id="pm-end"><span class="pm-hint">blank = ongoing</span></label>
+      </div>
+    </div>
+  </div>
+</div>
 
 <div class="modal-overlay" id="assign-modal">
   <div class="modal">
@@ -680,6 +718,36 @@ function subscribeRealtime() {
       { event: '*', schema: 'public', table: 'ledger_state', filter: 'id=eq.' + WORKSPACE_ID },
       handleRemoteChange)
     .subscribe();
+}
+
+/* ===== Person edit modal ===== */
+let personEditId = null;
+function personBeingEdited() { return state.staff.find(x => x.id === personEditId); }
+function refreshPersonCostUI(keepValue) {
+  const s = personBeingEdited();
+  if (!s) return;
+  const ft = empType(s) === 'fulltime';
+  document.getElementById('pm-cost-caption').textContent = ft ? 'Annual cost ($)' : 'Hourly rate ($)';
+  if (!keepValue) document.getElementById('pm-cost').value = ft ? (s.annualCost || 0) : s.hourlyCost;
+  document.getElementById('pm-rate-hint').textContent = ft ? '≈ ' + fmtMoney2(s.hourlyCost) + '/hr at ' + fmtHrs(s.weeklyCapacity || 0) + 'h/wk' : '';
+}
+function openPersonModal(id) {
+  const s = state.staff.find(x => x.id === id);
+  if (!s) return;
+  personEditId = id;
+  document.getElementById('person-modal-title').textContent = s.name || 'Team member';
+  document.getElementById('pm-name').value = s.name || '';
+  document.getElementById('pm-dept').value = s.department || '';
+  document.getElementById('pm-type').value = empType(s);
+  document.getElementById('pm-cap').value = s.weeklyCapacity;
+  document.getElementById('pm-start').value = s.startMonth || '';
+  document.getElementById('pm-end').value = s.endMonth || '';
+  refreshPersonCostUI(false);
+  document.getElementById('person-modal').classList.add('open');
+}
+function closePersonModal() {
+  document.getElementById('person-modal').classList.remove('open');
+  personEditId = null;
 }
 
 /* ===== Auth gate ===== */
@@ -894,7 +962,7 @@ function removeProject(id) {
 function updateStaffField(id, field, value) {
   const s = state.staff.find(s => s.id === id);
   if (!s) return;
-  s[field] = (field === 'name' || field === 'department' || field === 'employmentType') ? value : (parseFloat(value) || 0);
+  s[field] = (field === 'name' || field === 'department' || field === 'employmentType' || field === 'startMonth' || field === 'endMonth') ? value : (parseFloat(value) || 0);
   if (field === 'weeklyCapacity') recomputeSalariedRate(s); // salary is fixed; rate follows capacity
   scheduleSave(); render();
 }
@@ -1012,7 +1080,13 @@ function staffTotalHours(staffId, useActuals) {
   const projHrs = activeProjects().reduce((sum, p) => sum + (useActuals ? getActual(staffId, p.id) : getAssignment(staffId, p.id)), 0);
   return projHrs + (useActuals ? getActual(staffId, INTERNAL_ID) : getAssignment(staffId, INTERNAL_ID));
 }
-function periodCapacity(s) { return monthlyCapacity(s.weeklyCapacity) * viewMonths().length; }
+function staffActiveInMonth(s, mk) {
+  if (s.startMonth && mk < s.startMonth) return false;
+  if (s.endMonth && mk > s.endMonth) return false;
+  return true;
+}
+function staffActiveMonths(s) { return viewMonths().filter(mk => staffActiveInMonth(s, mk)).length; }
+function periodCapacity(s) { return monthlyCapacity(s.weeklyCapacity) * staffActiveMonths(s); }
 function staffUtilizationPct(s) {
   const cap = periodCapacity(s);
   if (cap <= 0) return 0;
@@ -1602,7 +1676,6 @@ function renderDashboard() {
     </div>
     <div class="dash-section">
       <h3>Projects — plan vs actual</h3>
-      <div class="chart-card" style="margin-bottom:12px;"><h4>Profit by project — plan${showActual ? ' vs actual' : ''}</h4><div class="chart-wrap"><canvas id="chart-proj"></canvas></div></div>
       <div class="dash-card">${projRows || '<div class="empty-note">No active projects this month.</div>'}</div>
     </div>
     ${!showActual ? '<div class="dash-note">Actual bars will fill in once you import hour tracking data for this month (Import button, top right).</div>' : ''}
@@ -1676,22 +1749,6 @@ function buildDashCharts(projs, deptData, showActual) {
     }));
   }
 
-  const projEl = document.getElementById('chart-proj');
-  if (projEl && projs.length) {
-    const planP = projs.map(p => Math.round(projectStatus(p, false).profit));
-    const actP = projs.map(p => { const a = projectStatus(p, true); return a.hours > 0 ? Math.round(a.profit) : null; });
-    dashCharts.push(new Chart(projEl, {
-      type: 'bar',
-      data: {
-        labels: projs.map(p => p.name || 'Untitled'),
-        datasets: [
-          { label: 'Profit (plan)', data: planP, backgroundColor: planP.map(v => v >= 0 ? '#0a493c' : '#B5482A') },
-          ...(showActual ? [{ label: 'Profit (actual)', data: actP, backgroundColor: actP.map(v => (v === null || v >= 0) ? '#3bc9ac' : '#e08663') }] : [])
-        ]
-      },
-      options: chartOpts()
-    }));
-  }
 }
 
 function summaryActualLabor() {
@@ -1716,7 +1773,7 @@ function renderSummary() {
   const underCount = state.staff.filter(s => staffTotalHours(s.id, false) < periodCapacity(s) * 0.9).length;
 
   document.getElementById('summary-strip').innerHTML = `
-    <div class="summary-cell"><div class="summary-label">Revenue${isRange() ? ' (period)' : ''}</div><div class="summary-value">${fmtMoney(totalRevenue)}</div></div>
+    <div class="summary-cell"><div class="summary-label">Gross Revenue${isRange() ? ' (period)' : ''}</div><div class="summary-value">${fmtMoney(totalRevenue)}</div></div>
     <div class="summary-cell"><div class="summary-label">Planned labor</div><div class="summary-value">${fmtMoney(plannedCost)}</div></div>
     <div class="summary-cell"><div class="summary-label">Actual labor${state.staff.some(s => empType(s) === 'fulltime') ? ' · salaried at full cost' : ''}</div><div class="summary-value ${showActual ? '' : 'muted'}">${showActual ? fmtMoney(actualCost) : '—'}</div></div>
     <div class="summary-cell"><div class="summary-label">Planned net</div><div class="summary-value ${plannedNet >= 0 ? 'pos' : 'neg'}">${fmtMoney(plannedNet)}</div></div>
@@ -1790,11 +1847,11 @@ function renderStaffTable() {
   const tbody = document.getElementById('staff-tbody');
   const list = sortedFilteredStaff();
   if (state.staff.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="11" class="empty-note">No one on the roster yet — add a person or import your tracking data.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-note">No one on the roster yet — add a person or import your tracking data.</td></tr>`;
     return;
   }
   if (list.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="11" class="empty-note">No people match the current filters.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-note">No people match the current filters.</td></tr>`;
     return;
   }
   const showActual = hasActualsThisMonth();
@@ -1876,7 +1933,7 @@ function renderStaffTable() {
           <button class="assign" data-role="team-add-assign" data-id="${s.id}">Assign to project</button>
         </div>` : `<div class="tm-empty">Assigned to every active project this month.</div>`;
       breakout = `
-        <tr class="team-breakout"><td colspan="11">
+        <tr class="team-breakout"><td colspan="9">
           ${rows || '<div class="tm-empty">No project assignments this month.</div>'}
           ${intHrs > 0 ? `<div class="tm-row"><div><div class="tm-name" style="color:var(--internal)">Internal (non-billable)</div></div><div class="tm-meta">${fmtHrs(intHrs)} hrs</div><div class="tm-meta">${fmtMoney(intHrs * s.hourlyCost)} cost</div><div class="tm-meta">${showActual && intAct ? 'act ' + fmtHrs(intAct) + 'h' : ''}</div><div></div></div>` : ''}
           ${addForm}
@@ -1887,27 +1944,24 @@ function renderStaffTable() {
     <tr>
       <td><div class="name-cell"><button class="expand-btn" data-role="team-toggle" data-id="${s.id}">${expanded ? '▾' : '▸'}</button><input type="text" value="${escapeAttr(s.name)}" placeholder="Name" data-role="staff-name" data-id="${s.id}"></div></td>
       <td><input type="text" list="dept-datalist" value="${escapeAttr(s.department || '')}" placeholder="e.g. Design" data-role="staff-dept" data-id="${s.id}"></td>
-      <td><select class="type-select" data-role="staff-type" data-id="${s.id}">
-        <option value="fulltime" ${empType(s) === 'fulltime' ? 'selected' : ''}>Full-time</option>
-        <option value="hourly" ${empType(s) === 'hourly' ? 'selected' : ''}>Hourly</option>
-      </select></td>
-      <td>
-        <input type="text" inputmode="decimal" class="numfield" value="${empType(s) === 'fulltime' ? (s.annualCost || 0) : s.hourlyCost}" data-role="staff-cost" data-id="${s.id}">
-        <div class="computed-sub">${empType(s) === 'fulltime' ? '/yr ≈ ' + fmtMoney2(s.hourlyCost) + '/hr' : '/hr'}</div>
+      <td class="cap-readout">
+        ${fmtHrs(monthlyCapacity(s.weeklyCapacity))}h/mo <span class="cap-tag">${empType(s) === 'hourly' ? 'hourly' : 'salaried'}</span>
+        ${(s.startMonth || s.endMonth) ? `<div class="computed-sub">${s.startMonth ? 'from ' + monthShort(s.startMonth) : ''}${s.startMonth && s.endMonth ? ' ' : ''}${s.endMonth ? 'until ' + monthShort(s.endMonth) : ''}</div>` : ''}
       </td>
-      <td><input type="text" inputmode="decimal" class="numfield" value="${s.weeklyCapacity}" data-role="staff-cap" data-id="${s.id}"></td>
-      <td class="cap-readout">${fmtHrs(monthlyCapacity(s.weeklyCapacity))} hrs${isRange() ? '/mo' : ''}</td>
       <td>
         <input type="text" inputmode="decimal" class="numfield" ${hourInputAttrs(uniformOver(mk => assignFor(mk, s.id, INTERNAL_ID)))} data-role="staff-internal" data-id="${s.id}">
         ${showActual && intAct ? `<div class="computed-sub">act ${fmtHrs(intAct)}h</div>` : ''}
       </td>
       <td>
-        <span class="util-pct ${pctCls}">${Math.round(pct)}%</span>
+        ${cap <= 0
+          ? `<span class="computed-sub">not active this period</span>${total > 0 ? `<div class="util-pct over">${fmtHrs(total)}h assigned!</div>` : ''}`
+          : `<span class="util-pct ${pctCls}">${Math.round(pct)}%</span>
         <span class="computed-sub"> · ${fmtHrs(total)} / ${fmtHrs(cap)}h</span>
-        <div class="mini-track"><div class="mini-bar ${over ? 'over' : ''}" style="width:${Math.min(pct, 100)}%;"></div></div>
+        <div class="mini-track"><div class="mini-bar ${over ? 'over' : ''}" style="width:${Math.min(pct, 100)}%;"></div></div>`}
       </td>
       <td>${loggedCell}</td>
       <td>${loggedCapCell}</td>
+      <td class="edit-col"><button class="edit-btn" data-role="edit-staff" data-id="${s.id}" title="Edit details">✎</button></td>
       <td class="remove-col"><button class="remove-btn" data-role="remove-staff" data-id="${s.id}">×</button></td>
     </tr>${breakout}`;
   }).join('');
@@ -2167,7 +2221,8 @@ function render() {
    re-render (and any re-sorting) until they leave the field, so rows don't
    jump around mid-edit. */
 const TYPED_ROLES = new Set(['staff-name','staff-dept','staff-cost','staff-cap','staff-internal',
-  'project-name','project-revenue-month','assignment','demand-hours']);
+  'project-name','project-revenue-month','assignment','demand-hours',
+  'pm-name','pm-dept','pm-cost','pm-cap']);
 let typedFieldDirty = false;
 
 document.addEventListener('input', (e) => {
@@ -2183,9 +2238,6 @@ document.addEventListener('input', (e) => {
   try {
     if (role === 'staff-name') updateStaffField(t.dataset.id, 'name', t.value);
     else if (role === 'staff-dept') updateStaffField(t.dataset.id, 'department', t.value);
-    else if (role === 'staff-cost') updateStaffCost(t.dataset.id, t.value);
-    else if (role === 'staff-cap') updateStaffField(t.dataset.id, 'weeklyCapacity', t.value);
-    else if (role === 'staff-type') setStaffType(t.dataset.id, t.value);
     else if (role === 'staff-internal') setAssignment(t.dataset.id, INTERNAL_ID, parseFloat(t.value) || 0);
     else if (role === 'project-name') updateProjectField(t.dataset.id, 'name', t.value);
     else if (role === 'project-revenue-month') setRevenueThisMonth(t.dataset.id, t.value);
@@ -2193,6 +2245,13 @@ document.addEventListener('input', (e) => {
     else if (role === 'project-end') updateProjectField(t.dataset.id, 'endMonth', t.value);
     else if (role === 'assignment') setAssignment(t.dataset.staff, t.dataset.project, parseFloat(t.value) || 0);
     else if (role === 'demand-hours') setDemand(t.dataset.project, t.dataset.dept, parseFloat(t.value) || 0);
+    else if (role === 'pm-name') { updateStaffField(personEditId, 'name', t.value); document.getElementById('person-modal-title').textContent = t.value || 'Team member'; }
+    else if (role === 'pm-dept') updateStaffField(personEditId, 'department', t.value);
+    else if (role === 'pm-cost') { updateStaffCost(personEditId, t.value); refreshPersonCostUI(true); }
+    else if (role === 'pm-cap') { updateStaffField(personEditId, 'weeklyCapacity', t.value); refreshPersonCostUI(true); }
+    else if (role === 'pm-type') { setStaffType(personEditId, t.value); refreshPersonCostUI(false); }
+    else if (role === 'pm-start') updateStaffField(personEditId, 'startMonth', t.value);
+    else if (role === 'pm-end') updateStaffField(personEditId, 'endMonth', t.value);
   } finally {
     if (typed) suppressRender = false;
   }
@@ -2228,6 +2287,7 @@ document.addEventListener('click', (e) => {
     ui.expanded[key] = !ui.expanded[key];
     render();
   }
+  else if (role === 'edit-staff') openPersonModal(t.dataset.id);
   else if (role === 'team-toggle') {
     ui.teamExpanded[t.dataset.id] = !ui.teamExpanded[t.dataset.id];
     render();
@@ -2359,6 +2419,10 @@ document.getElementById('import-file').addEventListener('change', (e) => {
 document.getElementById('run-import-btn').addEventListener('click', runImport);
 document.getElementById('cancel-import-btn').addEventListener('click', closeImport);
 document.getElementById('assign-close').addEventListener('click', closeAssignModal);
+document.getElementById('person-close').addEventListener('click', closePersonModal);
+document.getElementById('person-modal').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('person-modal')) closePersonModal();
+});
 document.getElementById('assign-modal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('assign-modal')) closeAssignModal();
 });
