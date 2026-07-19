@@ -2393,20 +2393,23 @@ function buildProjCharts() {
     // window = exactly the period selected at the top (single month or range)
     const vm = viewMonths();
 
-    // weekly detail only works if every month in the period that HAS logged hours
-    // for this project also has weekly rows — otherwise months imported without
-    // dates (e.g. old April data) would silently show as zero. Fall back to monthly.
-    const projHasWeek = wk => Object.entries(aw[wk] || {}).some(([k, v]) => k.endsWith('__' + pid) && v > 0);
+    // Weekly detail is only trustworthy if the weekly rows account for (nearly)
+    // all of the monthly hours in this period. Months synced/imported without
+    // day dates have monthly totals but thin-or-no weekly rows — existence
+    // checks aren't enough (April had SOME weeks but was missing ~90% of its
+    // hours). Compare sums and fall back to monthly when weekly is incomplete.
+    const projSum = obj => Object.entries(obj || {}).reduce((s, [k, v]) => s + (k.endsWith('__' + pid) ? v : 0), 0);
     const weekTouchesMonth = (wk, mk) => {
       if (wk.slice(0, 7) === mk) return true;
       const [y, m, d] = wk.split('-').map(Number);
       return new Date(Date.UTC(y, m - 1, d + 6)).toISOString().slice(0, 7) === mk;
     };
-    const monthHasMonthly = mk => Object.entries(state.actuals[mk] || {}).some(([k, v]) => k.endsWith('__' + pid) && v > 0);
-    const monthHasWeekly = mk => Object.keys(aw).some(wk => weekTouchesMonth(wk, mk) && projHasWeek(wk));
-    const anyWeekly = Object.keys(aw).some(projHasWeek);
-    const weekly = anyWeekly && vm.every(mk => !monthHasMonthly(mk) || monthHasWeekly(mk));
-    const weeklyGap = anyWeekly && !weekly;
+    const weeklySum = Object.keys(aw)
+      .filter(wk => vm.some(mk => weekTouchesMonth(wk, mk)))
+      .reduce((s, wk) => s + projSum(aw[wk]), 0);
+    const monthlySum = vm.reduce((s, mk) => s + projSum(state.actuals[mk]), 0);
+    const weekly = weeklySum > 0 && weeklySum >= monthlySum * 0.9;
+    const weeklyGap = weeklySum > 0 && !weekly;
 
     const monthPlanFor = mk => Object.entries(state.assignments[mk] || {}).reduce((s, [k, v]) => s + (k.endsWith('__' + pid) ? v : 0), 0);
 
@@ -2457,12 +2460,12 @@ function buildProjCharts() {
     if (note) note.textContent = (weekly
       ? 'stacked hours per week across the selected period (max ' + MAX_WEEKS + ' weeks) — number above each week is the team total'
       : (weeklyGap
-        ? 'showing monthly: some months in this period only have monthly detail (imported without dates)'
+        ? 'showing monthly totals: the weekly rows for this period only cover part of the logged hours (data imported/synced without full day-level detail)'
         : 'stacked hours per month across the selected period — weekly detail appears once hours are imported with dates'))
       + ' · dashed line = assigned plan (' + planTotal + 'h planned in period)';
 
     projCharts.push(new Chart(el, {
-      type: 'line',
+      type: weekly ? 'line' : 'bar',
       plugins: window.ChartDataLabels ? [window.ChartDataLabels] : [],
       data: {
         labels,
@@ -2471,13 +2474,14 @@ function buildProjCharts() {
             label: c.st.name || 'Unnamed',
             data: keys.map(k => Math.round(valueAt(c.st.id, k) * 10) / 10),
             borderColor: LINE_COLORS[i % LINE_COLORS.length],
-            backgroundColor: LINE_COLORS[i % LINE_COLORS.length] + '59',   // ~35% alpha fill
-            fill: true,
+            backgroundColor: weekly ? LINE_COLORS[i % LINE_COLORS.length] + '59' : LINE_COLORS[i % LINE_COLORS.length],
+            fill: weekly,
             tension: 0.25,
             pointRadius: 1.5,
             stack: 'logged'
           })),
           {
+            type: 'line',
             label: 'Planned (assigned)',
             data: planData,
             borderColor: '#67706d',
@@ -2485,7 +2489,7 @@ function buildProjCharts() {
             borderDash: [6, 4],
             fill: false,
             tension: 0,
-            pointRadius: 0,
+            pointRadius: planData.filter(v => v > 0).length === 1 ? 4 : 0,
             stack: 'plan',
             isPlan: true
           }
@@ -2494,6 +2498,7 @@ function buildProjCharts() {
       options: (() => {
         const o = chartOpts();
         o.scales.y.stacked = true;
+        o.scales.x.stacked = true;
         o.plugins = {
           legend: { labels: { font: chartFont(), color: '#67706d', boxWidth: 12 } },
           datalabels: {
