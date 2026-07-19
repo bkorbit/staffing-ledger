@@ -438,6 +438,9 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
         <h2>Department plan — <span id="demand-month"></span></h2>
         <span style="font-family:var(--font-mono); font-size:11px; color:var(--slate);">plan hours per department, expand a line to see and edit who's on it</span>
       </div>
+      <div class="filter-bar">
+        <input type="text" id="demand-search" placeholder="Search project…">
+      </div>
       <div id="demand-list"></div>
     </section>
   </div>
@@ -608,6 +611,7 @@ let ui = {
   tab: 'dashboard',
   period: {mode: 'month', start: '', end: ''},
   teamSearch: '', teamDept: '', teamSort: {key: null, dir: 1},
+  demandSearch: '',
   projSearch: '', projActiveOnly: false, projSort: {key: null, dir: 1},
   expanded: {},     // `${projectId}__${dept}` -> true
   teamExpanded: {}, // staffId -> true
@@ -2428,9 +2432,10 @@ function demandSuggestions(pid) {
 function renderDemand() {
   document.getElementById('demand-month').textContent = periodLabel();
   const el = document.getElementById('demand-list');
-  const projs = activeProjects();
+  const dq = ui.demandSearch.trim().toLowerCase();
+  const projs = activeProjects().filter(p => !dq || (p.name || '').toLowerCase().includes(dq));
   if (projs.length === 0) {
-    el.innerHTML = `<div class="empty-note" style="background:var(--paper-raised); border:1px solid var(--line); border-radius:6px;">No active projects this month.</div>`;
+    el.innerHTML = `<div class="empty-note" style="background:var(--paper-raised); border:1px solid var(--line); border-radius:6px;">${dq ? 'No projects match “' + escapeHtml(ui.demandSearch.trim()) + '”.' : 'No active projects this month.'}</div>`;
     return;
   }
   const showActual = hasActualsThisMonth();
@@ -2661,6 +2666,7 @@ document.addEventListener('input', (e) => {
   if (t.id === 'assign-hours') { renderCandidates(); return; }
   if (t.id === 'assign-search') { renderCandidates(); return; }
   if (t.id === 'dash-proj-search') { ui.dashProjSearch = t.value; render(); return; }
+  if (t.id === 'demand-search') { ui.demandSearch = t.value; render(); return; }
 
   const role = t.dataset.role;
   if (!role) return;
