@@ -730,7 +730,7 @@ const LIGHT_COLORS = new Set(['#fabf4d', '#57cb96', '#3bc9ac', '#dcf4e9']);
 function textOn(color) { return LIGHT_COLORS.has(color) ? '#0a493c' : '#ffffff'; }
 const STORAGE_KEY = 'staffing-ledger-state-v2';
 const INTERNAL_ID = '__internal__';
-const INTERNAL_NAMES = ['internal', 'internal time', 'non-billable', 'nonbillable', 'non billable', 'admin', 'overhead'];
+const INTERNAL_NAMES = ['emg', 'internal', 'internal time', 'non-billable', 'nonbillable', 'non billable', 'admin', 'overhead'];
 const NO_DEPT = '(no department)';
 const WEEKS_PER_MONTH = 52 / 12;
 
@@ -860,6 +860,25 @@ function normalizeState(raw) {
     }
   });
   (s.staff || []).forEach(backfillAnnual);
+  // Migrate hours logged under internal-named projects (e.g. "EMG") into the
+  // internal bucket, then drop the shell project unless it carries revenue/billing.
+  const internalProjects = (s.projects || []).filter(p => INTERNAL_NAMES.includes((p.name || '').trim().toLowerCase()));
+  internalProjects.forEach(p => {
+    [s.actuals, s.assignments, s.actualsW || {}].forEach(store => {
+      Object.keys(store || {}).forEach(bucketKey => {
+        const bucket = store[bucketKey];
+        Object.keys(bucket).forEach(k => {
+          if (!k.endsWith('__' + p.id)) return;
+          const sid = k.slice(0, k.length - ('__' + p.id).length);
+          const ik = sid + '__' + INTERNAL_ID;
+          bucket[ik] = (bucket[ik] || 0) + bucket[k];
+          delete bucket[k];
+        });
+      });
+    });
+    const hasMoney = Object.values(p.revenueOverrides || {}).some(v => v) || (p.billing && p.billing.lines && p.billing.lines.length);
+    if (!hasMoney) s.projects = s.projects.filter(x => x !== p);
+  });
   return s;
 }
 
