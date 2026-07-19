@@ -7,6 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
 
@@ -1781,15 +1782,26 @@ function buildDashCharts(projs, deptData, showActual) {
   if (deptEl && deptData.length) {
     dashCharts.push(new Chart(deptEl, {
       type: 'bar',
+      plugins: window.ChartDataLabels ? [window.ChartDataLabels] : [],
       data: {
-        labels: deptData.map(d => d.dept + ' — cap ' + Math.round(d.capacity) + 'h'),
+        labels: deptData.map(d => d.dept),
         datasets: [
           { label: 'Capacity', data: deptData.map(d => Math.round(d.capacity)), backgroundColor: '#d2d2d2' },
           { label: 'Plan', data: deptData.map(d => Math.round(d.plan)), backgroundColor: '#0a493c' },
           ...(showActual ? [{ label: 'Actual', data: deptData.map(d => Math.round(d.act)), backgroundColor: '#3bc9ac' }] : [])
         ]
       },
-      options: chartOpts()
+      options: Object.assign(chartOpts(), {
+        plugins: {
+          legend: { labels: { font: chartFont(), color: '#67706d', boxWidth: 12 } },
+          datalabels: {
+            anchor: 'end', align: 'end', offset: -2,
+            font: { family: "'DM Mono', monospace", size: 9, weight: '700' },
+            color: '#23272b',
+            formatter: v => v > 0 ? v + 'h' : ''
+          }
+        }
+      })
     }));
   }
 
@@ -1812,7 +1824,7 @@ function buildDashCharts(projs, deptData, showActual) {
           { label: 'Actual cost', data: actC, borderColor: '#d1453b', backgroundColor: '#d1453b', tension: 0.25 }
         ]
       },
-      options: chartOpts()
+      options: Object.assign(chartOpts(), { plugins: { legend: { labels: { font: chartFont(), color: '#67706d', boxWidth: 12 } }, datalabels: { display: false } } })
     }));
   }
 
@@ -2164,7 +2176,7 @@ function buildMarginChart() {
         backgroundColor: rows.map(r => r.margin < 0 ? '#d1453b' : r.margin < 15 ? '#fabf4d' : '#0a493c')
       }]
     },
-    options: Object.assign(chartOpts(), { plugins: { legend: { display: false } } })
+    options: Object.assign(chartOpts(), { plugins: { legend: { display: false }, datalabels: { display: false } } })
   });
 }
 
