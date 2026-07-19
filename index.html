@@ -1099,7 +1099,13 @@ function projectStatus(project, useActuals) {
   const profit = revenue - cost;
   const hours = projectHours(project.id, useActuals);
   const profitPerHour = hours > 0 ? profit / hours : null;
-  if (!revenue) return {profit, cost, hours, revenue, margin: null, profitPerHour, label: 'no revenue', cls: 'none'};
+  if (revenue <= 0) {
+    // Zero or negative revenue (credits/clawbacks): margin math is meaningless —
+    // judge by profit dollars so a negative-revenue project can never look profitable.
+    const loss = profit < -0.5;
+    return {profit, cost, hours, revenue, margin: null, profitPerHour,
+      label: loss ? 'loss' : 'no revenue', cls: loss ? 'loss' : 'none'};
+  }
   const margin = (profit / revenue) * 100;
   if (margin < 0) return {profit, cost, hours, revenue, margin, profitPerHour, label: 'loss', cls: 'loss'};
   if (margin < 15) return {profit, cost, hours, revenue, margin, profitPerHour, label: 'tight', cls: 'tight'};
@@ -1243,10 +1249,10 @@ function renderCandidates() {
     const afterCost = before.cost + addedCost;
     const rev = getRevenue(project);
     const afterProfit = rev - afterCost;
-    const afterMargin = rev ? (afterProfit / rev) * 100 : null;
+    const afterMargin = rev > 0 ? (afterProfit / rev) * 100 : null;
     const beforeMarginTxt = before.margin === null ? '—' : Math.round(before.margin) + '%';
     const afterMarginTxt = afterMargin === null ? '—' : Math.round(afterMargin) + '%';
-    let marginCls = 'impact-good';
+    let marginCls = afterProfit >= 0 ? 'impact-good' : 'impact-bad';
     if (afterMargin !== null && afterMargin < 0) marginCls = 'impact-bad';
     else if (afterMargin !== null && afterMargin < 15) marginCls = 'impact-warn';
 
@@ -2082,7 +2088,7 @@ function renderStaffTable() {
           <div class="tm-row">
             <div>
               <div class="tm-name" style="color:${PROJECT_COLORS[idx % PROJECT_COLORS.length]}">${escapeHtml(p.name) || 'Untitled'}</div>
-              <div class="tm-meta">${fmtMoney(rev)} rev · ${st.margin === null ? 'no revenue' : Math.round(st.margin) + '% margin'}</div>
+              <div class="tm-meta">${fmtMoney(rev)} rev · ${st.margin === null ? st.label : Math.round(st.margin) + '% margin'}</div>
               <div class="tm-meta">their profit: <span style="color:${planContrib >= 0 ? 'var(--teal)' : 'var(--rust)'}">${fmtMoney(planContrib)}</span> plan${actContrib !== null && showActual && act > 0 ? ' · <span style="color:' + (actContrib >= 0 ? 'var(--teal)' : 'var(--rust)') + '">' + fmtMoney(actContrib) + '</span> act' : ''}</div>
             </div>
             <div><input type="text" inputmode="decimal" class="numfield" ${hourInputAttrs(uniformOver(mk => assignFor(mk, s.id, p.id)))} data-role="assignment" data-staff="${s.id}" data-project="${p.id}"> <span class="tm-meta">hrs/mo${isRange() ? ' · ' + fmtHrs(hrs) + 'h total' : ''}</span></div>
@@ -2249,14 +2255,22 @@ function buildProjCharts() {
     const endDate = new Date(Date.UTC(ey, em, 0));
 
     let labels = [], keys = [], valueAt;
+    const MAX_WEEKS = 26;
     if (weekly) {
       const lastWk = weekStartKey(endDate);
-      for (let i = 11; i >= 0; i--) {
-        const [y, m, d] = lastWk.split('-').map(Number);
-        const w = new Date(Date.UTC(y, m - 1, d));
-        w.setUTCDate(w.getUTCDate() - 7 * i);
-        keys.push(w.toISOString().slice(0, 10));
-      }
+      // window starts at the project's earliest logged week (so backfilled history shows),
+      // never later than 12 weeks back, capped at MAX_WEEKS total
+      const projWeeks = Object.keys(aw).filter(wk => Object.keys(aw[wk]).some(k => k.endsWith('__' + pid))).sort();
+      const addWeeks = (wk, n) => {
+        const [y, m, d] = wk.split('-').map(Number);
+        const w = new Date(Date.UTC(y, m - 1, d + 7 * n));
+        return w.toISOString().slice(0, 10);
+      };
+      let startWk = addWeeks(lastWk, -11);
+      if (projWeeks.length && projWeeks[0] < startWk) startWk = projWeeks[0];
+      let w = startWk, guard = 0;
+      while (w <= lastWk && guard < 60) { keys.push(w); w = addWeeks(w, 1); guard++; }
+      if (keys.length > MAX_WEEKS) keys = keys.slice(-MAX_WEEKS);
       labels = keys.map(weekLabel);
       valueAt = (sid, k) => (aw[k] || {})[sid + '__' + pid] || 0;
     } else {
@@ -2277,7 +2291,7 @@ function buildProjCharts() {
 
     const note = document.getElementById('chart-note-' + pid);
     if (note) note.textContent = weekly
-      ? 'stacked hours per week (last 12 weeks) — number above each week is the team total'
+      ? 'stacked hours per week since the first logged week (max ' + MAX_WEEKS + ') — number above each week is the team total'
       : 'stacked hours per month — weekly detail appears once hours are imported with dates going forward';
 
     projCharts.push(new Chart(el, {
@@ -2466,7 +2480,7 @@ function renderDemand() {
         <div class="demand-project-head">
           <div>
             <span class="pname" style="color:${PROJECT_COLORS[i % PROJECT_COLORS.length]}">${escapeHtml(p.name) || 'Untitled'}</span>
-            <span class="pmeta"> · ${fmtMoney(getRevenue(p))} rev${isRange() ? ' (period)' : ' this month'}${hasOverride(p) ? ' · varies' : ''} · plan ${fmtMoney(st.cost)} cost · ${st.margin === null ? 'no revenue' : Math.round(st.margin) + '% margin'}${flight ? ' · flight ' + monthShort(p.startMonth) + '–' + monthShort(p.endMonth) : ''}</span>
+            <span class="pmeta"> · ${fmtMoney(getRevenue(p))} rev${isRange() ? ' (period)' : ' this month'}${hasOverride(p) ? ' · varies' : ''} · plan ${fmtMoney(st.cost)} cost · ${st.margin === null ? st.label : Math.round(st.margin) + '% margin'}${flight ? ' · flight ' + monthShort(p.startMonth) + '–' + monthShort(p.endMonth) : ''}</span>
           </div>
           <div class="pmeta">${fmtHrs(totalNeed)}h planned demand</div>
         </div>
