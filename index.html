@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EMG Staff Plan</title>
+<title>The Ledger — Staffing & Profitability</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -432,6 +432,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
             <th class="num-col sortable" data-sort="internalHrs">Internal hrs <span class="sort-ind" data-ind="internalHrs"></span></th>
             <th class="sortable" data-sort="utilization">Utilization (plan) <span class="sort-ind" data-ind="utilization"></span></th>
             <th class="sortable" data-sort="loggedHrs">Logged vs assigned <span class="sort-ind" data-ind="loggedHrs"></span></th>
+            <th class="sortable" data-sort="loggedUtil">Logged vs capacity <span class="sort-ind" data-ind="loggedUtil"></span></th>
             <th class="remove-col"></th>
           </tr>
         </thead>
@@ -1598,7 +1599,8 @@ function sortedFilteredStaff() {
     const computed = {
       utilization: staffUtilizationPct,
       internalHrs: s => getAssignment(s.id, INTERNAL_ID),
-      loggedHrs: s => staffTotalHours(s.id, true)
+      loggedHrs: s => staffTotalHours(s.id, true),
+      loggedUtil: s => { const c = periodCapacity(s); return c > 0 ? staffTotalHours(s.id, true) / c : 0; }
     };
     list.sort((a, b) => {
       const av = computed[k] ? computed[k](a) : a[k];
@@ -1643,11 +1645,11 @@ function renderStaffTable() {
   const tbody = document.getElementById('staff-tbody');
   const list = sortedFilteredStaff();
   if (state.staff.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="9" class="empty-note">No one on the roster yet — add a person or import your tracking data.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" class="empty-note">No one on the roster yet — add a person or import your tracking data.</td></tr>`;
     return;
   }
   if (list.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="9" class="empty-note">No people match the current filters.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" class="empty-note">No people match the current filters.</td></tr>`;
     return;
   }
   const showActual = hasActualsThisMonth();
@@ -1674,6 +1676,22 @@ function renderStaffTable() {
         <span class="util-pct ${loggedOver ? 'over' : (total > 0 && logged >= total * 0.95 ? 'full' : 'under')}">${fmtHrs(logged)}h</span>
         <span class="computed-sub"> / ${fmtHrs(total)}h assigned${total > 0 ? ' ' : ''}</span>${total > 0 ? deltaHtml(total, logged, false) : ''}
         <div class="mini-track"><div class="mini-bar ${loggedOver ? 'over' : ''}" style="width:${Math.min(loggedPct, 100)}%;"></div></div>`;
+    }
+    const capPct = cap > 0 ? (logged / cap) * 100 : 0;
+    const capOver = capPct > 100.1;
+    let capCls = 'under';
+    if (capOver) capCls = 'over';
+    else if (capPct >= 90) capCls = 'full';
+    let loggedCapCell;
+    if (!showActual) {
+      loggedCapCell = '<span class="computed-sub">no actuals imported</span>';
+    } else if (logged <= 0) {
+      loggedCapCell = '<span class="computed-sub">—</span>';
+    } else {
+      loggedCapCell = `
+        <span class="util-pct ${capCls}">${Math.round(capPct)}%</span>
+        <span class="computed-sub"> · ${fmtHrs(logged)} / ${fmtHrs(cap)}h available</span>
+        <div class="mini-track"><div class="mini-bar ${capOver ? 'over' : ''}" style="width:${Math.min(capPct, 100)}%;"></div></div>`;
     }
     const expanded = !!ui.teamExpanded[s.id];
 
@@ -1713,7 +1731,7 @@ function renderStaffTable() {
           <button class="assign" data-role="team-add-assign" data-id="${s.id}">Assign to project</button>
         </div>` : `<div class="tm-empty">Assigned to every active project this month.</div>`;
       breakout = `
-        <tr class="team-breakout"><td colspan="9">
+        <tr class="team-breakout"><td colspan="10">
           ${rows || '<div class="tm-empty">No project assignments this month.</div>'}
           ${intHrs > 0 ? `<div class="tm-row"><div><div class="tm-name" style="color:var(--internal)">Internal (non-billable)</div></div><div class="tm-meta">${fmtHrs(intHrs)} hrs</div><div class="tm-meta">${fmtMoney(intHrs * s.hourlyCost)} cost</div><div class="tm-meta">${showActual && intAct ? 'act ' + fmtHrs(intAct) + 'h' : ''}</div><div></div></div>` : ''}
           ${addForm}
@@ -1737,6 +1755,7 @@ function renderStaffTable() {
         <div class="mini-track"><div class="mini-bar ${over ? 'over' : ''}" style="width:${Math.min(pct, 100)}%;"></div></div>
       </td>
       <td>${loggedCell}</td>
+      <td>${loggedCapCell}</td>
       <td class="remove-col"><button class="remove-btn" data-role="remove-staff" data-id="${s.id}">×</button></td>
     </tr>${breakout}`;
   }).join('');
