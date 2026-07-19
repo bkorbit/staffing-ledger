@@ -167,11 +167,11 @@ input.rev-input { min-width: 110px; }
 .dash-section { margin-bottom: 30px; }
 .dash-section h3 { font-family: var(--font-display); font-size: 15px; margin: 0 0 10px; font-weight: 600; color: var(--brand); }
 .dash-card { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
-.dash-row { display: grid; grid-template-columns: 230px 1fr 210px 150px; gap: 18px; align-items: center; padding: 16px; border-bottom: 1px solid var(--line); }
+.dash-row { display: grid; grid-template-columns: 300px 1fr 200px 150px; gap: 18px; align-items: center; padding: 16px; border-bottom: 1px solid var(--line); }
 .dash-row.risk-loss { border-left: 4px solid #d1453b; background: #fdf1f0; }
 .dash-row.risk-scope { border-left: 4px solid #fabf4d; background: #fefaf0; }
 .dash-row .d-name { margin-bottom: 4px; }
-.dash-row .d-meta { margin-top: 4px; line-height: 1.55; }
+.dash-row .d-meta { margin-top: 5px; line-height: 1.7; font-size: 11px; }
 .d-profit { font-family: var(--font-mono); font-size: 20px; font-weight: 700; margin-bottom: 4px; }
 .dash-row:last-child { border-bottom: none; }
 .dash-row .d-name { font-family: var(--font-display); font-size: 13px; font-weight: 600; }
@@ -598,7 +598,8 @@ let ui = {
   projSearch: '', projActiveOnly: false, projSort: {key: null, dir: 1},
   expanded: {},     // `${projectId}__${dept}` -> true
   teamExpanded: {}, // staffId -> true
-  teamShowEnded: false  // staffId -> true
+  teamShowEnded: false,
+  dashProjSearch: '', dashProjFilter: 'all'  // staffId -> true
 };
 
 let currentMonth = monthKey(new Date());
@@ -1595,7 +1596,8 @@ function flightTotals(p) {
 function flightLineHtml(p) {
   const f = flightTotals(p);
   if (!f) return '';
-  return `<div class="d-meta" style="margin-top:3px;">entire flight (${f.months} mo): ${fmtMoney(f.rev)} rev · ${fmtHrs(f.planH)}h plan · <span style="color:${f.planProfit >= 0 ? 'var(--teal)' : 'var(--rust)'}">${fmtMoney(f.planProfit)} profit</span>${f.actH > 0 ? ' · act ' + fmtHrs(f.actH) + 'h, <span style="color:' + (f.actProfit >= 0 ? 'var(--teal)' : 'var(--rust)') + '">' + fmtMoney(f.actProfit) + '</span>' : ''}</div>`;
+  return `<div class="d-meta">entire flight (${f.months} mo): ${fmtMoney(f.rev)} rev · ${fmtHrs(f.planH)}h plan</div>
+    <div class="d-meta" style="margin-top:2px;">flight profit: <span style="color:${f.planProfit >= 0 ? 'var(--teal)' : 'var(--rust)'}">${fmtMoney(f.planProfit)} plan</span>${f.actH > 0 ? ' · <span style="color:' + (f.actProfit >= 0 ? 'var(--teal)' : 'var(--rust)') + '">' + fmtMoney(f.actProfit) + ' act</span> (' + fmtHrs(f.actH) + 'h)' : ''}</div>`;
 }
 
 function renderDashboard() {
@@ -1640,6 +1642,7 @@ function renderDashboard() {
       </div>
     </div>`;
 
+  const dq = ui.dashProjSearch.trim().toLowerCase();
   const projRows = projs.map((p, i) => {
     const plan = projectStatus(p, false);
     const act = projectStatus(p, true);
@@ -1648,6 +1651,11 @@ function renderDashboard() {
     const basis = hasAct ? act : plan;
     const lossRisk = basis.margin !== null && basis.margin < 0;                       // losing money -> red
     const scopeRisk = !lossRisk && hasAct && plan.hours > 0 && act.hours > plan.hours * 1.1;  // scope drift -> gold
+    if (dq && !(p.name || '').toLowerCase().includes(dq)) return '';
+    if (ui.dashProjFilter === 'risk' && !lossRisk && !scopeRisk) return '';
+    if (ui.dashProjFilter === 'loss' && !lossRisk) return '';
+    if (ui.dashProjFilter === 'scope' && !scopeRisk) return '';
+    if (ui.dashProjFilter === 'healthy' && (lossRisk || scopeRisk)) return '';
     const shownProfit = hasAct ? act.profit : plan.profit;
     let flag = `<div class="d-profit" style="color:${shownProfit >= 0 ? 'var(--teal)' : 'var(--rust)'}">${fmtMoney(shownProfit)}</div>`;
     if (!hasAct) flag += `<div class="stamp ${plan.cls}">${plan.label}${plan.margin !== null ? ' ' + Math.round(plan.margin) + '%' : ''}</div>`;
@@ -1725,7 +1733,17 @@ function renderDashboard() {
     </div>
     <div class="dash-section">
       <h3>Projects — plan vs actual</h3>
-      <div class="dash-card">${projRows || '<div class="empty-note">No active projects this month.</div>'}</div>
+      <div class="filter-bar" style="margin-top:2px;">
+        <input type="text" id="dash-proj-search" placeholder="Search project…" value="${escapeAttr(ui.dashProjSearch)}">
+        <select id="dash-proj-filter">
+          <option value="all" ${ui.dashProjFilter === 'all' ? 'selected' : ''}>All projects</option>
+          <option value="risk" ${ui.dashProjFilter === 'risk' ? 'selected' : ''}>At risk only</option>
+          <option value="loss" ${ui.dashProjFilter === 'loss' ? 'selected' : ''}>Losing money</option>
+          <option value="scope" ${ui.dashProjFilter === 'scope' ? 'selected' : ''}>Scope overrun</option>
+          <option value="healthy" ${ui.dashProjFilter === 'healthy' ? 'selected' : ''}>Healthy</option>
+        </select>
+      </div>
+      <div class="dash-card">${projRows || '<div class="empty-note">No projects match.</div>'}</div>
     </div>
     ${!showActual ? '<div class="dash-note">Actual bars will fill in once you import hour tracking data for this month (Import button, top right).</div>' : ''}
   `;
@@ -2146,7 +2164,7 @@ function buildMarginChart() {
         backgroundColor: rows.map(r => r.margin < 0 ? '#d1453b' : r.margin < 15 ? '#fabf4d' : '#0a493c')
       }]
     },
-    options: Object.assign(chartOpts(), { indexAxis: 'y', plugins: { legend: { display: false } } })
+    options: Object.assign(chartOpts(), { plugins: { legend: { display: false } } })
   });
 }
 
@@ -2427,6 +2445,7 @@ document.addEventListener('input', (e) => {
   if (t.id === 'proj-search') { ui.projSearch = t.value; render(); return; }
   if (t.id === 'assign-hours') { renderCandidates(); return; }
   if (t.id === 'assign-search') { renderCandidates(); return; }
+  if (t.id === 'dash-proj-search') { ui.dashProjSearch = t.value; render(); return; }
 
   const role = t.dataset.role;
   if (!role) return;
@@ -2467,6 +2486,7 @@ document.addEventListener('change', (e) => {
   if (t.id === 'import-type') { if (importHeaders) buildMappingUI(); return; }
   if (t.id === 'team-dept-filter') { ui.teamDept = t.value; render(); return; }
   if (t.id === 'team-show-ended') { ui.teamShowEnded = t.checked; render(); return; }
+  if (t.id === 'dash-proj-filter') { ui.dashProjFilter = t.value; render(); return; }
   if (t.dataset.role === 'tm-proj-select') {
     // pre-suggest this person's logged hours on the chosen account
     const sid = t.dataset.id;
