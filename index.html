@@ -168,7 +168,8 @@ input.rev-input { min-width: 110px; }
 .dash-section h3 { font-family: var(--font-display); font-size: 15px; margin: 0 0 10px; font-weight: 600; color: var(--brand); }
 .dash-card { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .dash-row { display: grid; grid-template-columns: 230px 1fr 210px 150px; gap: 18px; align-items: center; padding: 16px; border-bottom: 1px solid var(--line); }
-.dash-row.at-risk { box-shadow: inset 0 0 0 2px #d1453b; }
+.dash-row.risk-loss { border-left: 4px solid #d1453b; background: #fdf1f0; }
+.dash-row.risk-scope { border-left: 4px solid #fabf4d; background: #fefaf0; }
 .dash-row .d-name { margin-bottom: 4px; }
 .dash-row .d-meta { margin-top: 4px; line-height: 1.55; }
 .d-profit { font-family: var(--font-mono); font-size: 20px; font-weight: 700; margin-bottom: 4px; }
@@ -1644,16 +1645,16 @@ function renderDashboard() {
     const act = projectStatus(p, true);
     const hasAct = showActual && act.hours > 0;
     const idx = state.projects.indexOf(p);
-    const atRiskRow = hasAct
-      ? (act.margin !== null && act.margin < 0) || act.hours > plan.hours * 1.1
-      : (plan.margin !== null && plan.margin < 0);
+    const basis = hasAct ? act : plan;
+    const lossRisk = basis.margin !== null && basis.margin < 0;                       // losing money -> red
+    const scopeRisk = !lossRisk && hasAct && plan.hours > 0 && act.hours > plan.hours * 1.1;  // scope drift -> gold
     const shownProfit = hasAct ? act.profit : plan.profit;
     let flag = `<div class="d-profit" style="color:${shownProfit >= 0 ? 'var(--teal)' : 'var(--rust)'}">${fmtMoney(shownProfit)}</div>`;
     if (!hasAct) flag += `<div class="stamp ${plan.cls}">${plan.label}${plan.margin !== null ? ' ' + Math.round(plan.margin) + '%' : ''}</div>`;
     else flag += `<div class="stamp ${act.cls}">${act.label}${act.margin !== null ? ' ' + Math.round(act.margin) + '%' : ''}</div>
       ${plan.hours > 0 ? `<div class="d-meta" style="margin-top:4px;">${deltaHtml(plan.hours, act.hours, false)} hrs vs plan</div>` : ''}`;
     return `
-      <div class="dash-row${atRiskRow ? ' at-risk' : ''}">
+      <div class="dash-row${lossRisk ? ' risk-loss' : scopeRisk ? ' risk-scope' : ''}">
         <div>
           <div class="d-name" style="color:${PROJECT_COLORS[idx % PROJECT_COLORS.length]}">${escapeHtml(p.name) || 'Untitled'}</div>
           <div class="d-meta">${fmtMoney(getRevenue(p))} rev${isRange() ? ' (period)' : ''}</div>
