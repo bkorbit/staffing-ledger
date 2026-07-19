@@ -3,31 +3,37 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>The Ledger — Staffing & Profitability</title>
+<title>EMG Staffing Assignments — Staffing & Profitability</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
 
 :root{
   --paper: #ebebeb;
   --paper-raised: #FFFFFF;
   --ink: #23272b;
   --brand: #0a493c;
+  --brand-2: #2e6e56;
+  --brand-3: #48a278;
+  --brand-4: #19a789;
   --accent: #3bc9ac;
+  --accent-2: #57cb96;
+  --mint: #dcf4e9;
+  --gold: #fabf4d;
   --slate: #67706d;
   --line: #d2d2d2;
   --teal: #0a493c;
-  --teal-bg: #dff5ee;
-  --rust: #B5482A;
-  --rust-bg: #FBEAE4;
-  --amber: #B4790E;
-  --amber-bg: #FBF0DD;
+  --teal-bg: #dcf4e9;
+  --rust: #d1453b;          /* alert red — warm enough to sit with the greens and gold */
+  --rust-bg: #fbe7e4;
+  --amber: #b07a14;         /* readable text tone of the brand gold */
+  --amber-bg: #fdf3dc;
   --internal: #9a9a94;
   --font-display: 'Montserrat', sans-serif;
   --font-body: 'Montserrat', sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-mono: 'DM Mono', monospace;
 }
 
 * { box-sizing: border-box; }
@@ -43,9 +49,9 @@ h1 { font-family: var(--font-display); font-size: 34px; margin: 0; font-weight: 
 button.ghost { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.03em; background: transparent; border: 1px solid var(--line); color: var(--slate); padding: 7px 12px; border-radius: 4px; cursor: pointer; }
 button.ghost:hover { border-color: var(--ink); color: var(--ink); }
 button.primary { font-family: var(--font-mono); font-size: 12px; background: var(--brand); color: var(--paper); border: none; padding: 7px 13px; border-radius: 4px; cursor: pointer; }
-button.primary:hover { background: #0d5c4c; }
+button.primary:hover { background: var(--brand-2); }
 button.assign { font-family: var(--font-mono); font-size: 11px; background: var(--brand); color: #fff; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
-button.assign:hover { background: #0d5c4c; }
+button.assign:hover { background: var(--brand-2); }
 button.assign:disabled { background: var(--line); color: var(--slate); cursor: default; }
 button.confirm-armed { background: var(--rust) !important; color: #fff !important; border-color: var(--rust) !important; }
 
@@ -53,6 +59,7 @@ button.confirm-armed { background: var(--rust) !important; color: #fff !importan
 .mode-toggle { display: flex; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
 .mode-btn { font-family: var(--font-mono); font-size: 11px; background: var(--paper-raised); border: none; padding: 8px 14px; cursor: pointer; color: var(--slate); }
 .mode-btn.active { background: var(--brand); color: #fff; }
+.mode-btn:hover:not(.active) { background: var(--mint); color: var(--brand); }
 .range-input { border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; font-family: var(--font-mono); font-size: 12px; background: var(--paper-raised); width: auto; }
 .range-lbl { font-family: var(--font-mono); font-size: 11px; color: var(--slate); }
 .month-nav .month-label { font-family: var(--font-display); font-size: 22px; font-weight: 700; min-width: 200px; text-align: center; }
@@ -71,7 +78,7 @@ button.confirm-armed { background: var(--rust) !important; color: #fff !importan
 /* Tabs */
 .tab-bar { display: flex; gap: 0; border-bottom: 2px solid var(--brand); margin-bottom: 24px; flex-wrap: wrap; }
 .tab-btn { font-family: var(--font-display); font-size: 14px; font-weight: 600; background: transparent; border: none; color: var(--slate); padding: 10px 18px; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; }
-.tab-btn:hover { color: var(--ink); }
+.tab-btn:hover { color: var(--brand); background: var(--mint); border-radius: 4px 4px 0 0; }
 .tab-btn.active { color: var(--brand); border-bottom-color: var(--accent); }
 .tab-btn .tab-count { font-family: var(--font-mono); font-size: 10px; color: var(--slate); margin-left: 4px; }
 .tab-section { display: none; }
@@ -151,7 +158,7 @@ input.rev-input { min-width: 110px; }
 
 /* Dashboard */
 .dash-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
-.dash-kpi { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
+.dash-kpi { background: var(--paper-raised); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 6px; padding: 14px; }
 .dash-kpi .k-label { font-family: var(--font-mono); font-size: 9px; color: var(--slate); letter-spacing: 0.08em; text-transform: uppercase; }
 .dash-kpi .k-value { font-family: var(--font-mono); font-size: 20px; font-weight: 700; margin-top: 4px; }
 .dash-kpi .k-sub { font-family: var(--font-mono); font-size: 11px; margin-top: 2px; color: var(--slate); }
@@ -168,7 +175,7 @@ input.rev-input { min-width: 110px; }
 .pv-line { display: grid; grid-template-columns: 42px 1fr 76px; gap: 8px; align-items: center; font-family: var(--font-mono); font-size: 10px; color: var(--slate); }
 .pv-track { position: relative; height: 10px; background: #dedede; border-radius: 2px; overflow: hidden; }
 .pv-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 2px; }
-.pv-plan { background: #0a493c; opacity: 0.55; }
+.pv-plan { background: var(--brand-2); }
 .pv-act { background: var(--accent); }
 .pv-act.over { background: var(--rust); }
 .d-numbers { font-family: var(--font-mono); font-size: 11px; line-height: 1.6; }
@@ -303,7 +310,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 <div class="auth-overlay" id="auth-overlay">
   <div class="auth-card">
     <div class="eyebrow">STAFFING &amp; PROFITABILITY</div>
-    <h1>The Ledger</h1>
+    <h1>EMG Staffing Assignments</h1>
     <p class="auth-sub">Sign in to your team workspace.</p>
     <div class="auth-field">
       <label>Email</label>
@@ -323,8 +330,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
   <header>
     <div>
       <div class="eyebrow">STAFFING &amp; PROFITABILITY</div>
-      <h1>The Ledger</h1>
-      <p class="sub">Plan by department. Assign with eyes open. Watch the margins move.</p>
+      <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
       <span class="user-chip" id="user-chip"></span>
@@ -559,7 +565,9 @@ const SUPABASE_ANON_KEY = 'sb_publishable_cJRK4z_cAj1oVhVg8tpOkA_FZRwNPhI';
 const WORKSPACE_ID = 'default'; // one shared ledger for the whole team
 /* ============================================================ */
 
-const PROJECT_COLORS = ['#3B6E8F', '#8A6642', '#5C7A54', '#7A4B6E', '#1F7A6C', '#B4790E'];
+const PROJECT_COLORS = ['#0a493c', '#19a789', '#2e6e56', '#fabf4d', '#48a278', '#57cb96'];
+const LIGHT_COLORS = new Set(['#fabf4d', '#57cb96', '#3bc9ac', '#dcf4e9']);
+function textOn(color) { return LIGHT_COLORS.has(color) ? '#0a493c' : '#ffffff'; }
 const STORAGE_KEY = 'staffing-ledger-state-v2';
 const INTERNAL_ID = '__internal__';
 const INTERNAL_NAMES = ['internal', 'internal time', 'non-billable', 'nonbillable', 'non billable', 'admin', 'overhead'];
@@ -2186,7 +2194,7 @@ function renderGantt() {
         </div>
         <div class="gantt-track">
           <div class="gantt-monthgrid" style="grid-template-columns: repeat(${n}, 1fr);">${bgCells}</div>
-          <div class="gantt-bar" style="left:${left}%; width:${width}%; background:${color};">${escapeHtml(p.name) || ''}</div>
+          <div class="gantt-bar" style="left:${left}%; width:${width}%; background:${color}; color:${textOn(color)};">${escapeHtml(p.name) || ''}</div>
         </div>
       </div>`;
   }).join('');
