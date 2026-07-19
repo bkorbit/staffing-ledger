@@ -106,6 +106,10 @@ td.sel-col input, th.sel-col input { width: auto; margin: 0; cursor: pointer; }
 .fc-name { font-family: var(--font-display); font-weight: 600; font-size: 12px; }
 .fc-basis { font-family: var(--font-mono); font-size: 9px; color: var(--slate); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
 .fc-dim { opacity: 0.75; }
+.fc-rev-input { width: 90px; border: 1px solid transparent; border-radius: 4px; padding: 3px 5px; font-family: var(--font-mono); font-size: 12px; background: transparent; color: var(--ink); font-weight: 700; }
+.fc-rev-input:hover { border-color: var(--line); background: var(--paper-raised); }
+.fc-rev-input:focus { outline: none; border-color: var(--brand); background: var(--paper-raised); }
+.fc-payroll { font-family: var(--font-mono); font-size: 10px; color: var(--slate); padding: 8px 0 0; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 @media (max-width: 860px) { .fc-row { grid-template-columns: 1fr 1fr; row-gap: 2px; } }
 
 table { width: 100%; border-collapse: collapse; background: var(--paper-raised); border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
@@ -521,7 +525,8 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
           <th class="num-col">Actual</th>
           <th class="num-col">Forecasted</th>
           <th class="num-col">Total gross revenue</th>
-          <th class="num-col">Labor cost</th>
+          <th class="num-col">Labor · projects</th>
+          <th class="num-col">Labor · total payroll</th>
           <th class="num-col">Profit after labor</th>
           <th>Confirmed</th>
         </tr></thead>
@@ -1930,6 +1935,21 @@ function monthProjectCost(pid, mk, useActuals) {
     return sum + (st ? hrs * st.hourlyCost : 0);
   }, 0);
 }
+function staffMonthHours(sid, mk, useActuals) {
+  const store = useActuals ? state.actuals : state.assignments;
+  return Object.entries(store[mk] || {}).reduce((sum, [key, hrs]) => sum + (key.startsWith(sid + '__') ? hrs : 0), 0);
+}
+/* True payroll for a month: salaried people cost their fixed monthly share
+   (workday capacity x derived rate) no matter what they log; hourly people
+   cost their logged hours (or planned assignments for months with no imports). */
+function monthTotalPayroll(mk) {
+  const hasAct = Object.keys(state.actuals[mk] || {}).length > 0;
+  return state.staff.reduce((sum, s) => {
+    if (!staffActiveInMonth(s, mk)) return sum;
+    if (empType(s) === 'fulltime') return sum + monthlyCapacityFor(s, mk) * s.hourlyCost;
+    return sum + staffMonthHours(s.id, mk, hasAct) * s.hourlyCost;
+  }, 0);
+}
 function revenueByMonthSplit() {
   const set = new Set();
   state.projects.forEach(p => Object.keys(p.revenueOverrides || {}).forEach(mk => {
@@ -1948,20 +1968,28 @@ function revenueByMonthSplit() {
     state.projects.forEach(p => {
       const v = (p.revenueOverrides || {})[m] || 0;
       const isActual = !!(p.revenueActuals || {})[m];
-      // Cost basis per your rule: revenue confirmed actual -> use logged cost;
-      // otherwise assume the planned cost will be met for that project.
-      const cost = isActual ? monthProjectCost(p.id, m, true) : monthProjectCost(p.id, m, false);
+      // Cost basis: revenue confirmed actual -> logged cost, but if nothing has
+      // been logged for that project-month yet, fall back to planned so the
+      // labor doesn't silently disappear; unconfirmed -> planned cost.
+      const loggedCost = monthProjectCost(p.id, m, true);
+      const plannedCost = monthProjectCost(p.id, m, false);
+      const useLogged = isActual && loggedCost > 0;
+      const cost = useLogged ? loggedCost : plannedCost;
+      const basis = useLogged ? 'logged' : (isActual ? 'planned · no hours logged' : 'planned');
       if (v === 0 && cost === 0) return;
       if (v) { if (isActual) actual += v; else forecast += v; }
       labor += cost;
-      contributors.push({ pid: p.id, name: p.name || 'Untitled', amount: v, isActual, cost });
+      contributors.push({ pid: p.id, name: p.name || 'Untitled', amount: v, isActual, cost, basis });
     });
     // Internal (non-billable) labor: logged when the month has imports, else planned
     const internalCost = monthProjectCost(INTERNAL_ID, m, monthHasActuals);
     labor += internalCost;
     contributors.sort((a, b) => (b.amount - b.cost) - (a.amount - a.cost) || b.amount - a.amount);
     const total = actual + forecast;
-    return { mk: m, actual, forecast, labor, internalCost, internalBasis: monthHasActuals ? 'logged' : 'planned', profit: total - labor, contributors };
+    const payroll = monthTotalPayroll(m);
+    return { mk: m, actual, forecast, labor, payroll, unattributed: payroll - labor,
+      internalCost, internalBasis: monthHasActuals ? 'logged' : 'planned',
+      profit: total - labor, profitPayroll: total - payroll, contributors };
   });
 }
 
@@ -1971,7 +1999,7 @@ function renderForecast() {
   if (forecastChart) { try { forecastChart.destroy(); } catch (e) {} forecastChart = null; }
   const rows = revenueByMonthSplit();
   if (!rows) {
-    if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="empty-note">No revenue entered yet — add amounts on the Projects tab or import a project list.</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="empty-note">No revenue entered yet — add amounts on the Projects tab or import a project list.</td></tr>';
     return;
   }
 
@@ -1985,7 +2013,7 @@ function renderForecast() {
       const costOnly = r.contributors.filter(c => c.amount === 0);
       const unconfirmed = withRev.filter(c => !c.isActual).length;
       breakout = `
-      <tr class="fc-breakout"><td colspan="8">
+      <tr class="fc-breakout"><td colspan="9">
         <div class="fc-head">
           <span>${withRev.length} project${withRev.length === 1 ? '' : 's'} contributing revenue</span>
           ${unconfirmed > 0 ? `<button class="ghost" data-role="fc-mark-all" data-mk="${r.mk}">Mark all ${unconfirmed} as actual</button>` : '<span class="pmeta">all confirmed</span>'}
@@ -1993,13 +2021,14 @@ function renderForecast() {
         ${withRev.map(c => `
           <div class="fc-row">
             <div class="fc-name">${escapeHtml(c.name)}</div>
-            <div class="pb-num">${fmtMoney(c.amount)} rev</div>
-            <div class="pb-num">${fmtMoney(c.cost)} cost <span class="fc-basis">${c.isActual ? 'logged' : 'planned'}</span></div>
+            <div class="pb-num"><input type="text" inputmode="decimal" class="fc-rev-input" value="${c.amount ? '$' + Math.round(c.amount).toLocaleString() : ''}" placeholder="$0" data-role="fc-rev-month" data-pid="${c.pid}" data-mk="${r.mk}"> rev</div>
+            <div class="pb-num">${fmtMoney(c.cost)} cost <span class="fc-basis">${c.basis}</span></div>
             <div class="pb-num" style="color:${c.amount - c.cost >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(c.amount - c.cost)} net</div>
             <label class="rev-act"><input type="checkbox" data-role="fc-rev-actual" data-pid="${c.pid}" data-mk="${r.mk}" ${c.isActual ? 'checked' : ''}> actual</label>
           </div>`).join('')}
         ${costOnly.length ? `<div class="fc-row fc-dim"><div class="fc-name">Projects with labor but no revenue this month (${costOnly.map(c => escapeHtml(c.name)).join(', ')})</div><div class="pb-num"></div><div class="pb-num">${fmtMoney(costOnly.reduce((s, c) => s + c.cost, 0))} cost</div><div class="pb-num"></div><div></div></div>` : ''}
         ${r.internalCost ? `<div class="fc-row fc-dim"><div class="fc-name" style="color:var(--internal);">Internal (non-billable)</div><div class="pb-num"></div><div class="pb-num">${fmtMoney(r.internalCost)} cost <span class="fc-basis">${r.internalBasis}</span></div><div class="pb-num"></div><div></div></div>` : ''}
+        <div class="fc-payroll">Total payroll ${fmtMoney(r.payroll)} = project-attributed ${fmtMoney(r.labor)} ${r.unattributed >= 0 ? '+' : '−'} ${fmtMoney(Math.abs(r.unattributed))} unattributed <span class="fc-basis" title="Salaried people cost their fixed monthly share whether or not every hour lands on a project; hourly people cost logged hours (planned for future months).">hourly × rate + fixed salaries</span></div>
       </td></tr>`;
     }
     return `
@@ -2010,7 +2039,8 @@ function renderForecast() {
       <td class="computed-cell" style="color:#19a789;">${r.forecast ? fmtMoney(r.forecast) : '—'}</td>
       <td class="computed-cell" style="font-weight:700;">${fmtMoney(total)}</td>
       <td class="computed-cell">${r.labor ? fmtMoney(r.labor) : '—'}</td>
-      <td class="computed-cell" style="color:${r.profit >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(r.profit)}</td>
+      <td class="computed-cell">${r.payroll ? fmtMoney(r.payroll) : '—'}${r.payroll ? `<div class="computed-sub" title="Payroll not accounted for by project hours (salaried under-logging, unassigned time)">${r.unattributed >= 0 ? '+' : '−'}${fmtMoney(Math.abs(r.unattributed))} unattributed</div>` : ''}</td>
+      <td class="computed-cell" style="color:${r.profit >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(r.profit)}<div class="computed-sub" style="color:${r.profitPayroll >= 0 ? 'var(--teal)' : 'var(--rust)'};">${fmtMoney(r.profitPayroll)} after payroll</div></td>
       <td class="computed-sub">${total !== 0 ? pct + '% confirmed' : ''}</td>
     </tr>${breakout}`;
   }).join('');
@@ -2024,7 +2054,8 @@ function renderForecast() {
       datasets: [
         { label: 'Actual', data: rows.map(r => Math.round(r.actual)), backgroundColor: '#0a493c', stack: 'rev' },
         { label: 'Forecasted', data: rows.map(r => Math.round(r.forecast)), backgroundColor: '#3bc9ac', stack: 'rev' },
-        { label: 'Profit after labor', data: rows.map(r => Math.round(r.profit)), backgroundColor: rows.map(r => r.profit >= 0 ? '#7a9d54' : '#B5482A'), stack: 'profit', isProfit: true }
+        { label: 'Profit after labor', data: rows.map(r => Math.round(r.profit)), backgroundColor: rows.map(r => r.profit >= 0 ? '#7a9d54' : '#B5482A'), stack: 'profit', isProfit: true },
+        { type: 'line', label: 'Profit after total payroll', data: rows.map(r => Math.round(r.profitPayroll)), borderColor: '#23272b', backgroundColor: '#23272b', borderDash: [6, 4], fill: false, tension: 0, pointRadius: 2, stack: 'payline', isPayLine: true }
       ]
     },
     options: (() => {
@@ -2039,6 +2070,7 @@ function renderForecast() {
           // revenue stack: total label on its top segment; profit bar labels itself
           display: ctx => {
             const ds = ctx.chart.data.datasets[ctx.datasetIndex];
+            if (ds.isPayLine) return false;
             if (ds.isProfit) return true;
             const revSets = ctx.chart.data.datasets.filter(d => d.stack === 'rev');
             return ds === revSets[revSets.length - 1];
@@ -3105,7 +3137,7 @@ function render() {
    jump around mid-edit. */
 const TYPED_ROLES = new Set(['staff-name','staff-dept','staff-cost','staff-cap','staff-internal',
   'project-name','project-revenue-month','assignment','demand-hours',
-  'pm-name','pm-dept','pm-cost','pm-cap','pj-rev-month']);
+  'pm-name','pm-dept','pm-cost','pm-cap','pj-rev-month','fc-rev-month']);
 let typedFieldDirty = false;
 
 document.addEventListener('input', (e) => {
@@ -3141,6 +3173,7 @@ document.addEventListener('input', (e) => {
     else if (role === 'pm-start') updateStaffField(personEditId, 'startMonth', t.value);
     else if (role === 'pm-end') updateStaffField(personEditId, 'endMonth', t.value);
     else if (role === 'pj-rev-month') setRevenueOverride(projectEditId, t.dataset.mk, t.value);
+    else if (role === 'fc-rev-month') setRevenueOverride(t.dataset.pid, t.dataset.mk, t.value);
     else if (role === 'pj-start') { setFlightDate(projectEditId, 'start', t.value); rebuildProjectModalMonths(); }
     else if (role === 'pj-end') { setFlightDate(projectEditId, 'end', t.value); rebuildProjectModalMonths(); }
   } finally {
