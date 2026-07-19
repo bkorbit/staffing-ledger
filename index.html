@@ -118,6 +118,8 @@ input.numfield { font-family: var(--font-mono); text-align: right; }
 .computed-sub { font-family: var(--font-mono); font-size: 10px; color: var(--slate); white-space: nowrap; }
 input.rev-input { min-width: 90px; flex: 1; }
 .rev-cell { display: flex; align-items: center; gap: 2px; }
+.rev-act { font-family: var(--font-mono); font-size: 9px; color: var(--slate); display: inline-flex; align-items: center; gap: 3px; margin-top: 3px; cursor: pointer; }
+.rev-act input { width: auto; margin: 0; }
 #tab-team table { table-layout: fixed; }
 #tab-team th.col-name { width: 13%; }
 #tab-team th.col-dept { width: 8%; }
@@ -460,6 +462,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
   <div class="tab-bar" id="tab-bar">
     <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
     <button class="tab-btn" data-tab="plan">Planner</button>
+    <button class="tab-btn" data-tab="forecast">Forecast</button>
     <button class="tab-btn" data-tab="team">Team <span class="tab-count" id="count-team"></span></button>
     <button class="tab-btn" data-tab="projects">Projects <span class="tab-count" id="count-projects"></span></button>
   </div>
@@ -484,6 +487,29 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
         <input type="text" id="demand-search" placeholder="Search project…">
       </div>
       <div id="demand-list"></div>
+    </section>
+  </div>
+
+  <div class="tab-section" id="tab-forecast">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Revenue forecast</h2>
+        <span style="font-family:var(--font-mono); font-size:11px; color:var(--slate);">dark = confirmed actual · light = forecasted · mark months as actual on the Projects tab or in a project's ✎ editor</span>
+      </div>
+      <div class="chart-card" style="margin-bottom:16px;">
+        <h4>Gross revenue month over month</h4>
+        <div class="chart-wrap" style="height:300px;"><canvas id="chart-forecast"></canvas></div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Month</th>
+          <th class="num-col">Actual</th>
+          <th class="num-col">Forecasted</th>
+          <th class="num-col">Total gross revenue</th>
+          <th>Confirmed</th>
+        </tr></thead>
+        <tbody id="forecast-tbody"></tbody>
+      </table>
     </section>
   </div>
 
@@ -749,6 +775,7 @@ function normalizeState(raw) {
   if (!s.demand) s.demand = {};
   (s.projects || []).forEach(p => {
     if (!p.revenueOverrides) p.revenueOverrides = {};
+    if (!p.revenueActuals) p.revenueActuals = {};   // {month: true} — revenue confirmed actual (default: forecasted)
     // Migrate legacy "default monthly revenue" into explicit per-month amounts
     // (using the previously displayed prorated values), then retire the default.
     if (p.monthlyRevenue > 0) {
@@ -892,6 +919,7 @@ function rebuildProjectModalMonths() {
         <input type="text" inputmode="decimal" data-role="pj-rev-month" data-mk="${mk}"
           value="${hasValue ? o : ''}" placeholder="$0"
           title="${hasValue ? 'Revenue entered for this month' : 'No revenue entered — counts as $0'}">
+        <label class="rev-act" title="Check when confirmed actual; unchecked = forecasted"><input type="checkbox" data-role="pj-rev-actual" data-mk="${mk}" ${(p.revenueActuals || {})[mk] ? 'checked' : ''}> actual</label>
       </div>`;
   }).join('');
 }
@@ -1864,6 +1892,91 @@ function flightLineHtml(p) {
     <div class="d-meta" style="margin-top:2px;">flight profit: <span style="color:${f.planProfit >= 0 ? 'var(--teal)' : 'var(--rust)'}">${fmtMoney(f.planProfit)} plan</span>${f.actH > 0 ? ' · <span style="color:' + (f.actProfit >= 0 ? 'var(--teal)' : 'var(--rust)') + '">' + fmtMoney(f.actProfit) + ' act</span> (' + fmtHrs(f.actH) + 'h)' : ''}</div>`;
 }
 
+/* ===== Forecast tab ===== */
+let forecastChart = null;
+
+function revenueByMonthSplit() {
+  const set = new Set();
+  state.projects.forEach(p => Object.keys(p.revenueOverrides || {}).forEach(mk => {
+    if ((p.revenueOverrides[mk] || 0) !== 0) set.add(mk);
+  }));
+  if (!set.size) return null;
+  const sorted = [...set].sort();
+  const months = [];
+  let mk = sorted[0], guard = 0;
+  while (mk <= sorted[sorted.length - 1] && guard < 36) { months.push(mk); mk = shiftMonth(mk, 1); guard++; }
+  const capped = months.length > 18 ? months.slice(-18) : months;
+  return capped.map(m => {
+    let actual = 0, forecast = 0;
+    state.projects.forEach(p => {
+      const v = (p.revenueOverrides || {})[m] || 0;
+      if (!v) return;
+      if ((p.revenueActuals || {})[m]) actual += v;
+      else forecast += v;
+    });
+    return { mk: m, actual, forecast };
+  });
+}
+
+function renderForecast() {
+  const tbody = document.getElementById('forecast-tbody');
+  const el = document.getElementById('chart-forecast');
+  if (forecastChart) { try { forecastChart.destroy(); } catch (e) {} forecastChart = null; }
+  const rows = revenueByMonthSplit();
+  if (!rows) {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="empty-note">No revenue entered yet — add amounts on the Projects tab or import a project list.</td></tr>';
+    return;
+  }
+
+  if (tbody) tbody.innerHTML = rows.map(r => {
+    const total = r.actual + r.forecast;
+    const pct = total !== 0 ? Math.round((r.actual / total) * 100) : 0;
+    return `
+    <tr ${r.mk === currentMonth ? 'style="background:var(--mint);"' : ''}>
+      <td style="font-family:var(--font-display); font-weight:600;">${monthLabel(r.mk)}</td>
+      <td class="computed-cell" style="color:var(--brand); font-weight:700;">${r.actual ? fmtMoney(r.actual) : '—'}</td>
+      <td class="computed-cell" style="color:#19a789;">${r.forecast ? fmtMoney(r.forecast) : '—'}</td>
+      <td class="computed-cell" style="font-weight:700;">${fmtMoney(total)}</td>
+      <td class="computed-sub">${total !== 0 ? pct + '% confirmed' : ''}</td>
+    </tr>`;
+  }).join('');
+
+  if (!el || !window.Chart) return;
+  forecastChart = new Chart(el, {
+    type: 'bar',
+    plugins: window.ChartDataLabels ? [window.ChartDataLabels] : [],
+    data: {
+      labels: rows.map(r => monthShort(r.mk)),
+      datasets: [
+        { label: 'Actual', data: rows.map(r => Math.round(r.actual)), backgroundColor: '#0a493c', stack: 'rev' },
+        { label: 'Forecasted', data: rows.map(r => Math.round(r.forecast)), backgroundColor: '#3bc9ac', stack: 'rev' }
+      ]
+    },
+    options: (() => {
+      const o = chartOpts();
+      o.scales.x.stacked = true;
+      o.scales.y.stacked = true;
+      o.scales.y.ticks.callback = v => (v < 0 ? '-' : '') + '$' + Math.abs(v).toLocaleString();
+      o.plugins = {
+        legend: { labels: { font: chartFont(), color: '#67706d', boxWidth: 12 } },
+        tooltip: { callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ' + (ctx.parsed.y < 0 ? '-' : '') + '$' + Math.abs(ctx.parsed.y).toLocaleString() } },
+        datalabels: {
+          display: ctx => ctx.datasetIndex === ctx.chart.data.datasets.length - 1,
+          anchor: 'end', align: 'top', offset: 2, clip: false,
+          font: { family: "'DM Mono', monospace", size: 9, weight: '700' },
+          color: '#0a493c',
+          formatter: (v, ctx) => {
+            const i = ctx.dataIndex;
+            const total = ctx.chart.data.datasets.reduce((sum, ds) => sum + (ds.data[i] || 0), 0);
+            return total !== 0 ? '$' + Math.round(total / 1000) + 'k' : '';
+          }
+        }
+      };
+      return o;
+    })()
+  });
+}
+
 function renderDashboard() {
   document.getElementById('dash-month').textContent = periodLabel();
   const el = document.getElementById('dashboard-container');
@@ -2464,7 +2577,7 @@ function renderProjectTable() {
       <td>
         ${isRange()
           ? `<div class="computed-cell" style="font-weight:700;">${fmtMoney(rev)}</div><div class="computed-sub">period total · edit in single-month view</div>`
-          : `<div class="rev-cell"><input type="text" inputmode="decimal" class="numfield rev-input" value="${rev ? '$' + Math.round(rev).toLocaleString() : ''}" placeholder="$0" data-role="project-revenue-month" data-id="${p.id}"><button class="edit-btn" data-role="edit-project" data-id="${p.id}" title="Edit revenue by month & flight dates">✎</button></div>`}
+          : `<div class="rev-cell"><input type="text" inputmode="decimal" class="numfield rev-input" value="${rev ? '$' + Math.round(rev).toLocaleString() : ''}" placeholder="$0" data-role="project-revenue-month" data-id="${p.id}"><button class="edit-btn" data-role="edit-project" data-id="${p.id}" title="Edit revenue by month & flight dates">✎</button></div><label class="rev-act" title="Check when this month's revenue is confirmed actual; unchecked = forecasted"><input type="checkbox" data-role="rev-actual" data-id="${p.id}" ${(p.revenueActuals || {})[currentMonth] ? 'checked' : ''}> actual</label>`}
       </td>
       <td class="computed-cell">
         ${hasAct
@@ -2869,6 +2982,7 @@ function render() {
   setTab(ui.tab);
   renderSummary();
   renderDashboard();
+  renderForecast();
   renderStaffTable();
   renderProjectTable();
   renderDemand();
@@ -2948,8 +3062,19 @@ document.addEventListener('focusout', (e) => {
   }
 });
 
+function toggleRevenueActual(pid, mk, on) {
+  const p = state.projects.find(x => x.id === pid);
+  if (!p) return;
+  if (!p.revenueActuals) p.revenueActuals = {};
+  if (on) p.revenueActuals[mk] = true;
+  else delete p.revenueActuals[mk];
+  scheduleSave(); render();
+}
+
 document.addEventListener('change', (e) => {
   const t = e.target;
+  if (t.dataset && t.dataset.role === 'rev-actual') { toggleRevenueActual(t.dataset.id, currentMonth, t.checked); return; }
+  if (t.dataset && t.dataset.role === 'pj-rev-actual') { toggleRevenueActual(projectEditId, t.dataset.mk, t.checked); rebuildProjectModalMonths(); return; }
   if (t.id === 'import-type') { if (importHeaders) buildMappingUI(); return; }
   if (t.id === 'team-dept-filter') { ui.teamDept = t.value; render(); return; }
   if (t.id === 'team-show-ended') { ui.teamShowEnded = t.checked; render(); return; }
