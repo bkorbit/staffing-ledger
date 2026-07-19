@@ -167,7 +167,11 @@ input.rev-input { min-width: 110px; }
 .dash-section { margin-bottom: 30px; }
 .dash-section h3 { font-family: var(--font-display); font-size: 15px; margin: 0 0 10px; font-weight: 600; color: var(--brand); }
 .dash-card { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
-.dash-row { display: grid; grid-template-columns: 200px 1fr 210px 130px; gap: 14px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.dash-row { display: grid; grid-template-columns: 230px 1fr 210px 150px; gap: 18px; align-items: center; padding: 16px; border-bottom: 1px solid var(--line); }
+.dash-row.at-risk { box-shadow: inset 0 0 0 2px #d1453b; }
+.dash-row .d-name { margin-bottom: 4px; }
+.dash-row .d-meta { margin-top: 4px; line-height: 1.55; }
+.d-profit { font-family: var(--font-mono); font-size: 20px; font-weight: 700; margin-bottom: 4px; }
 .dash-row:last-child { border-bottom: none; }
 .dash-row .d-name { font-family: var(--font-display); font-size: 13px; font-weight: 600; }
 .dash-row .d-meta { font-family: var(--font-mono); font-size: 10px; color: var(--slate); margin-top: 2px; }
@@ -175,8 +179,8 @@ input.rev-input { min-width: 110px; }
 .pv-line { display: grid; grid-template-columns: 42px 1fr 76px; gap: 8px; align-items: center; font-family: var(--font-mono); font-size: 10px; color: var(--slate); }
 .pv-track { position: relative; height: 10px; background: #dedede; border-radius: 2px; overflow: hidden; }
 .pv-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 2px; }
-.pv-plan { background: var(--brand-2); }
-.pv-act { background: var(--accent); }
+.pv-plan { background: #0a493c; }
+.pv-act { background: #3bc9ac; }
 .pv-act.over { background: var(--rust); }
 .d-numbers { font-family: var(--font-mono); font-size: 11px; line-height: 1.6; }
 .d-flag { justify-self: end; text-align: right; }
@@ -449,6 +453,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
       <div class="filter-bar">
         <input type="text" id="team-search" placeholder="Search name…">
         <select id="team-dept-filter"><option value="">All departments</option></select>
+        <label title="Flight end dates aren't always correct — this lets you assign to accounts whose flight has technically ended"><input type="checkbox" id="team-show-ended"> include ended flights in assign list</label>
       </div>
       <table>
         <thead>
@@ -476,6 +481,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
         <h2>Projects</h2>
         <div class="actions"><button class="primary" id="add-project-btn">+ Add project</button></div>
       </div>
+      <div class="chart-card" style="margin-bottom:14px;"><h4>Profit margin by project — profit ÷ gross revenue (actuals where available)</h4><div class="chart-wrap"><canvas id="chart-margin"></canvas></div></div>
       <div class="filter-bar">
         <input type="text" id="proj-search" placeholder="Search project…">
         <label><input type="checkbox" id="proj-active-only"> active this month only</label>
@@ -485,7 +491,8 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
           <tr id="proj-head">
             <th class="sortable" data-sort="name">Project <span class="sort-ind" data-ind="name"></span></th>
             <th class="num-col sortable" data-sort="revenue">Revenue (this month) <span class="sort-ind" data-ind="revenue"></span></th>
-            <th class="num-col sortable" data-sort="hoursAssigned">Hrs assigned <span class="sort-ind" data-ind="hoursAssigned"></span></th>
+            <th class="num-col sortable" data-sort="hoursActual">Hours (act / plan) <span class="sort-ind" data-ind="hoursActual"></span></th>
+            <th class="num-col sortable" data-sort="netProfit">Net profit <span class="sort-ind" data-ind="netProfit"></span></th>
             <th class="num-col sortable" data-sort="profitPerHour">Profit / hr <span class="sort-ind" data-ind="profitPerHour"></span></th>
             <th class="date-col sortable" data-sort="startMonth">Flight start <span class="sort-ind" data-ind="startMonth"></span></th>
             <th class="date-col sortable" data-sort="endMonth">Flight end <span class="sort-ind" data-ind="endMonth"></span></th>
@@ -551,6 +558,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
         <span id="assign-remaining" style="color:var(--slate);"></span>
       </div>
       <div class="modal-conversion" id="assign-conversion"></div>
+      <input type="text" id="assign-search" placeholder="Search team members…" style="border:1px solid var(--line); border-radius:4px; padding:7px 10px; font-family:var(--font-mono); font-size:12px; background:var(--paper-raised); margin-bottom:10px;">
       <div id="assign-candidates"></div>
     </div>
   </div>
@@ -588,7 +596,8 @@ let ui = {
   teamSearch: '', teamDept: '', teamSort: {key: null, dir: 1},
   projSearch: '', projActiveOnly: false, projSort: {key: null, dir: 1},
   expanded: {},     // `${projectId}__${dept}` -> true
-  teamExpanded: {}  // staffId -> true
+  teamExpanded: {}, // staffId -> true
+  teamShowEnded: false  // staffId -> true
 };
 
 let currentMonth = monthKey(new Date());
@@ -1103,20 +1112,34 @@ function staffUtilizationPct(s) {
   return (staffTotalHours(s.id, false) / cap) * 100;
 }
 
-function copyFromPreviousMonth(force) {
+function projectHasDataInMonth(mk, pid) {
+  const a = state.assignments[mk] || {};
+  if (Object.keys(a).some(k => k.endsWith('__' + pid))) return true;
+  const d = (state.demand[mk] || {})[pid];
+  return !!(d && Object.keys(d).length);
+}
+function copyFromPreviousMonth() {
   const prev = shiftMonth(currentMonth, -1);
-  const prevA = state.assignments[prev];
-  const prevD = state.demand[prev];
-  if ((!prevA || Object.keys(prevA).length === 0) && (!prevD || Object.keys(prevD).length === 0)) {
-    toast('No plan or department demand found in ' + monthLabel(prev) + '.');
-    return;
-  }
-  const cur = monthAssignments();
-  if (Object.keys(cur).length > 0 && !force) return 'needs-confirm';
-  state.assignments[currentMonth] = Object.assign({}, prevA || {});
-  state.demand[currentMonth] = JSON.parse(JSON.stringify(prevD || {}));
+  const prevA = state.assignments[prev] || {};
+  const prevD = state.demand[prev] || {};
+  const pids = new Set();
+  Object.keys(prevA).forEach(k => pids.add(k.split('__')[1]));
+  Object.keys(prevD).forEach(pid => pids.add(pid));
+  if (!pids.size) { toast('No plan or department demand found in ' + monthLabel(prev) + '.'); return; }
+  const curA = monthAssignments();
+  const curD = monthDemand();
+  let copied = 0;
+  const skippedList = [];
+  pids.forEach(pid => {
+    if (projectHasDataInMonth(currentMonth, pid)) { skippedList.push(pid); return; }
+    Object.entries(prevA).forEach(([k, v]) => { if (k.endsWith('__' + pid)) curA[k] = v; });
+    if (prevD[pid]) curD[pid] = JSON.parse(JSON.stringify(prevD[pid]));
+    copied++;
+  });
   scheduleSave(); render();
-  toast('Copied ' + monthLabel(prev) + "'s plan into " + monthLabel(currentMonth) + '.');
+  const nameOf = pid => pid === INTERNAL_ID ? 'Internal' : ((state.projects.find(p => p.id === pid) || {}).name || 'Unknown');
+  toast('Copied ' + copied + ' project' + (copied === 1 ? '' : 's') + ' from ' + monthLabel(prev) + '.' +
+    (skippedList.length ? '\nLeft untouched (already have data): ' + skippedList.map(nameOf).join(', ') : ''), 9000);
 }
 
 /* ============ UNIT CONVERSION ============ */
@@ -1152,6 +1175,7 @@ function openAssignModal(projectId, dept) {
   document.getElementById('assign-hours').value = remaining > 0 ? Math.round(remaining / viewMonths().length) : '';
   document.getElementById('assign-unit').value = 'month';
   document.getElementById('assign-remaining').textContent = remaining > 0 ? '(' + fmtHrs(remaining) + 'h remaining in period)' : (need > 0 ? '(demand filled — extra hours will overfill)' : '');
+  document.getElementById('assign-search').value = '';
   renderCandidates();
   document.getElementById('assign-modal').classList.add('open');
 }
@@ -1184,7 +1208,12 @@ function renderCandidates() {
   const dl = dept.toLowerCase();
   const perMonth = res.perMonth;
 
-  const sorted = [...state.staff].sort((a, b) => {
+  const q = (document.getElementById('assign-search').value || '').trim().toLowerCase();
+  const eligible = state.staff
+    .filter(st => staffActiveMonths(st) > 0)   // past their end date -> not shown
+    .filter(st => !q || (st.name || '').toLowerCase().includes(q) || deptLabelOf(st).toLowerCase().includes(q));
+  if (!eligible.length) { el.innerHTML = '<div class="no-candidates">' + (q ? 'No team members match "' + escapeHtml(q) + '".' : 'No team members are active in this period.') + '</div>'; return; }
+  const sorted = [...eligible].sort((a, b) => {
     const am = deptLabelOf(a).toLowerCase() === dl ? 0 : 1;
     const bm = deptLabelOf(b).toLowerCase() === dl ? 0 : 1;
     if (am !== bm) return am - bm;
@@ -1397,9 +1426,9 @@ function runProjectImport() {
     const mk = cMonth >= 0 ? parseDateToMonth(r[cMonth]) : null;
     if (mk) {
       if (isNaN(rev)) { skipped++; return; }
-      c.months[mk] = rev;
+      c.months[mk] = (c.months[mk] || 0) + rev;   // duplicate rows for the same customer+month are summed
     } else if (!isNaN(rev)) {
-      c.flatRev = rev;
+      c.flatRev = (c.flatRev || 0) + rev;         // duplicate flat rows for the same customer are summed
     }
   });
 
@@ -1615,12 +1644,16 @@ function renderDashboard() {
     const act = projectStatus(p, true);
     const hasAct = showActual && act.hours > 0;
     const idx = state.projects.indexOf(p);
-    let flag;
-    if (!hasAct) flag = `<div class="stamp ${plan.cls}">${plan.label}${plan.margin !== null ? ' ' + Math.round(plan.margin) + '%' : ''}</div>`;
-    else flag = `<div class="stamp ${act.cls}">${act.label}${act.margin !== null ? ' ' + Math.round(act.margin) + '%' : ''}</div>
+    const atRiskRow = hasAct
+      ? (act.margin !== null && act.margin < 0) || act.hours > plan.hours * 1.1
+      : (plan.margin !== null && plan.margin < 0);
+    const shownProfit = hasAct ? act.profit : plan.profit;
+    let flag = `<div class="d-profit" style="color:${shownProfit >= 0 ? 'var(--teal)' : 'var(--rust)'}">${fmtMoney(shownProfit)}</div>`;
+    if (!hasAct) flag += `<div class="stamp ${plan.cls}">${plan.label}${plan.margin !== null ? ' ' + Math.round(plan.margin) + '%' : ''}</div>`;
+    else flag += `<div class="stamp ${act.cls}">${act.label}${act.margin !== null ? ' ' + Math.round(act.margin) + '%' : ''}</div>
       ${plan.hours > 0 ? `<div class="d-meta" style="margin-top:4px;">${deltaHtml(plan.hours, act.hours, false)} hrs vs plan</div>` : ''}`;
     return `
-      <div class="dash-row">
+      <div class="dash-row${atRiskRow ? ' at-risk' : ''}">
         <div>
           <div class="d-name" style="color:${PROJECT_COLORS[idx % PROJECT_COLORS.length]}">${escapeHtml(p.name) || 'Untitled'}</div>
           <div class="d-meta">${fmtMoney(getRevenue(p))} rev${isRange() ? ' (period)' : ''}</div>
@@ -1709,7 +1742,7 @@ function monthLaborCost(store, mk) {
   }, 0);
 }
 
-function chartFont() { return { family: "'JetBrains Mono', monospace", size: 10 }; }
+function chartFont() { return { family: "'DM Mono', monospace", size: 10 }; }
 function chartOpts(extra) {
   return Object.assign({
     responsive: true, maintainAspectRatio: false,
@@ -1730,7 +1763,7 @@ function buildDashCharts(projs, deptData, showActual) {
     dashCharts.push(new Chart(deptEl, {
       type: 'bar',
       data: {
-        labels: deptData.map(d => d.dept),
+        labels: deptData.map(d => d.dept + ' — cap ' + Math.round(d.capacity) + 'h'),
         datasets: [
           { label: 'Capacity', data: deptData.map(d => Math.round(d.capacity)), backgroundColor: '#d2d2d2' },
           { label: 'Plan', data: deptData.map(d => Math.round(d.plan)), backgroundColor: '#0a493c' },
@@ -1757,7 +1790,7 @@ function buildDashCharts(projs, deptData, showActual) {
         datasets: [
           { label: 'Revenue', data: rev, borderColor: '#0a493c', backgroundColor: '#0a493c', tension: 0.25 },
           { label: 'Planned cost', data: planC, borderColor: '#67706d', backgroundColor: '#67706d', borderDash: [5, 4], tension: 0.25 },
-          { label: 'Actual cost', data: actC, borderColor: '#B5482A', backgroundColor: '#B5482A', tension: 0.25 }
+          { label: 'Actual cost', data: actC, borderColor: '#d1453b', backgroundColor: '#d1453b', tension: 0.25 }
         ]
       },
       options: chartOpts()
@@ -1867,7 +1900,13 @@ function sortedFilteredProjects() {
     const computed = {
       revenue: p => getRevenue(p),
       hoursAssigned: p => projectHours(p.id, false),
-      profitPerHour: p => { const v = projectStatus(p, false).profitPerHour; return v === null ? -Infinity : v; }
+      hoursActual: p => projectHours(p.id, true) || projectHours(p.id, false),
+      netProfit: p => { const a = projectStatus(p, true); return a.hours > 0 ? a.profit : projectStatus(p, false).profit; },
+      profitPerHour: p => {
+        const a = projectStatus(p, true);
+        const v = a.hours > 0 ? a.profitPerHour : projectStatus(p, false).profitPerHour;
+        return v === null ? -Infinity : v;
+      }
     };
     list.sort((a, b) => {
       const av = computed[k] ? computed[k](a) : a[k];
@@ -1944,31 +1983,41 @@ function renderStaffTable() {
     let breakout = '';
     if (expanded) {
       const projs = activeProjects();
-      const assignedProjs = projs.filter(p => getAssignment(s.id, p.id) > 0);
-      const unassignedProjs = projs.filter(p => getAssignment(s.id, p.id) <= 0);
+      const pool = ui.teamShowEnded ? state.projects : projs;   // toggle lets you reach ended flights
+      const nVm = viewMonths().length;
+      const assignedProjs = pool.filter(p => getAssignment(s.id, p.id) > 0);
+      const unassignedProjs = pool.filter(p => getAssignment(s.id, p.id) <= 0);
       const rows = assignedProjs.map(p => {
         const hrs = getAssignment(s.id, p.id);
         const act = getActual(s.id, p.id);
         const idx = state.projects.indexOf(p);
         const st = projectStatus(p, false);
+        const rev = getRevenue(p);
+        const projPlanH = projectHours(p.id, false);
+        const projActH = projectHours(p.id, true);
+        const planContrib = projPlanH > 0 ? rev * (hrs / projPlanH) - hrs * s.hourlyCost : -hrs * s.hourlyCost;
+        const actContrib = projActH > 0 ? rev * (act / projActH) - act * s.hourlyCost : null;
         return `
           <div class="tm-row">
             <div>
               <div class="tm-name" style="color:${PROJECT_COLORS[idx % PROJECT_COLORS.length]}">${escapeHtml(p.name) || 'Untitled'}</div>
-              <div class="tm-meta">${fmtMoney(getRevenue(p))} rev · ${st.margin === null ? 'no revenue' : Math.round(st.margin) + '% margin'}</div>
+              <div class="tm-meta">${fmtMoney(rev)} rev · ${st.margin === null ? 'no revenue' : Math.round(st.margin) + '% margin'}</div>
+              <div class="tm-meta">their profit: <span style="color:${planContrib >= 0 ? 'var(--teal)' : 'var(--rust)'}">${fmtMoney(planContrib)}</span> plan${actContrib !== null && showActual && act > 0 ? ' · <span style="color:' + (actContrib >= 0 ? 'var(--teal)' : 'var(--rust)') + '">' + fmtMoney(actContrib) + '</span> act' : ''}</div>
             </div>
             <div><input type="text" inputmode="decimal" class="numfield" ${hourInputAttrs(uniformOver(mk => assignFor(mk, s.id, p.id)))} data-role="assignment" data-staff="${s.id}" data-project="${p.id}"> <span class="tm-meta">hrs/mo${isRange() ? ' · ' + fmtHrs(hrs) + 'h total' : ''}</span></div>
             <div class="tm-meta">${fmtMoney(hrs * s.hourlyCost)} cost</div>
-            <div class="tm-meta">${showActual && act ? 'act ' + fmtHrs(act) + 'h ' + deltaHtml(hrs, act, false) : ''}</div>
-            <div></div>
+            <div class="tm-meta">${showActual && act ? 'logged ' + fmtHrs(act) + 'h ' + deltaHtml(hrs, act, false) : ''}</div>
+            <div>${showActual ? pvPairHtml(hrs, act, 'h', true).replace('>plan<', '>asgn<').replace('>act<', '>log<') : ''}</div>
           </div>`;
       }).join('');
+      const suggFor = pid => { const a = getActual(s.id, pid); return a > 0 ? Math.round((a / nVm) * 10) / 10 : 0; };
+      const firstSugg = unassignedProjs.length ? suggFor(unassignedProjs[0].id) : 0;
       const addForm = unassignedProjs.length ? `
         <div class="tm-add">
-          <select id="tm-proj-${s.id}">
-            ${unassignedProjs.map(p => `<option value="${p.id}">${escapeHtml(p.name) || 'Untitled'}</option>`).join('')}
+          <select id="tm-proj-${s.id}" data-role="tm-proj-select" data-id="${s.id}">
+            ${unassignedProjs.map(p => { const sg = suggFor(p.id); return `<option value="${p.id}">${escapeHtml(p.name) || 'Untitled'}${sg > 0 ? ' · logged ' + fmtHrs(sg) + 'h/mo' : ''}${projectActiveInMonth(p, currentMonth) ? '' : ' (flight ended)'}</option>`; }).join('')}
           </select>
-          <input type="text" inputmode="decimal" class="numfield" placeholder="Hours" id="tm-hrs-${s.id}">
+          <input type="text" inputmode="decimal" class="numfield" placeholder="Hours" value="${firstSugg > 0 ? firstSugg : ''}" title="Pre-filled with their logged hours on this account" id="tm-hrs-${s.id}">
           <select id="tm-unit-${s.id}">
             <option value="month">hrs / month</option>
             <option value="week">hrs / week</option>
@@ -2023,11 +2072,11 @@ function renderProjectTable() {
   const tbody = document.getElementById('project-tbody');
   const list = sortedFilteredProjects();
   if (state.projects.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="8" class="empty-note">No projects yet — add a project or import your tracking data.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-note">No projects yet — add a project or import your tracking data.</td></tr>`;
     return;
   }
   if (list.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="8" class="empty-note">No projects match the current filters.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-note">No projects match the current filters.</td></tr>`;
     return;
   }
   tbody.innerHTML = list.map(p => {
@@ -2036,8 +2085,12 @@ function renderProjectTable() {
     const act = projectStatus(p, true);
     const rev = getRevenue(p);
     const overridden = hasOverride(p);
-    const pphTxt = plan.profitPerHour === null ? '—' : fmtMoney2(plan.profitPerHour);
-    const pphColor = plan.profitPerHour === null ? 'var(--slate)' : (plan.profitPerHour >= 0 ? 'var(--teal)' : 'var(--rust)');
+    const hasAct = act.hours > 0;
+    const primary = hasAct ? act : plan;                 // actuals lead when they exist
+    const netProfit = primary.profit;
+    const pph = primary.profitPerHour;
+    const pphTxt = pph === null ? '—' : fmtMoney2(pph);
+    const pphColor = pph === null ? 'var(--slate)' : (pph >= 0 ? 'var(--teal)' : 'var(--rust)');
     return `
     <tr style="${active ? '' : 'opacity:0.55;'}">
       <td><input type="text" value="${escapeAttr(p.name)}" placeholder="Project name" data-role="project-name" data-id="${p.id}"></td>
@@ -2047,12 +2100,17 @@ function renderProjectTable() {
           : `<input type="text" inputmode="decimal" class="numfield rev-input" value="${'$' + Math.round(rev).toLocaleString()}" data-role="project-revenue-month" data-id="${p.id}"><div class="computed-sub">default ${fmtMoney(p.monthlyRevenue || 0)}${overridden ? ' · differs this month' : ''}</div>`}
       </td>
       <td class="computed-cell">
-        ${fmtHrs(plan.hours)}h
-        ${act.hours > 0 ? `<div class="computed-sub">act ${fmtHrs(act.hours)}h</div>` : ''}
+        ${hasAct
+          ? `<span style="font-weight:700;">${fmtHrs(act.hours)}h</span> <span class="computed-sub">actual ${plan.hours > 0 ? deltaHtml(plan.hours, act.hours, false) : ''}</span><div class="computed-sub">plan ${fmtHrs(plan.hours)}h</div>`
+          : `${fmtHrs(plan.hours)}h <span class="computed-sub">plan · no actuals</span>`}
+      </td>
+      <td class="computed-cell" style="color:${netProfit >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">
+        ${fmtMoney(netProfit)}
+        <div class="computed-sub">${hasAct ? 'actual · plan ' + fmtMoney(plan.profit) : 'plan'}</div>
       </td>
       <td class="computed-cell" style="color:${pphColor}; font-weight:700;">
-        ${pphTxt}${plan.profitPerHour === null ? '' : '/hr'}
-        ${act.hours > 0 && act.profitPerHour !== null ? `<div class="computed-sub">act ${fmtMoney2(act.profitPerHour)}/hr</div>` : ''}
+        ${pphTxt}${pph === null ? '' : '/hr'}
+        <div class="computed-sub">${hasAct ? 'actual' : 'plan'}</div>
       </td>
       <td><input type="month" value="${p.startMonth || ''}" data-role="project-start" data-id="${p.id}"></td>
       <td><input type="month" value="${p.endMonth || ''}" data-role="project-end" data-id="${p.id}"></td>
@@ -2060,6 +2118,77 @@ function renderProjectTable() {
       <td class="remove-col"><button class="remove-btn" data-role="remove-project" data-id="${p.id}">×</button></td>
     </tr>`;
   }).join('');
+  buildMarginChart();
+}
+
+let marginChart = null;
+function buildMarginChart() {
+  const el = document.getElementById('chart-margin');
+  if (!el || !window.Chart) return;
+  if (marginChart) { try { marginChart.destroy(); } catch (e) {} marginChart = null; }
+  const rows = activeProjects()
+    .map(p => {
+      const act = projectStatus(p, true);
+      const st = act.hours > 0 ? act : projectStatus(p, false);
+      return { name: p.name || 'Untitled', margin: st.margin, basis: act.hours > 0 ? 'act' : 'plan' };
+    })
+    .filter(r => r.margin !== null)
+    .sort((a, b) => b.margin - a.margin);
+  if (!rows.length) return;
+  marginChart = new Chart(el, {
+    type: 'bar',
+    data: {
+      labels: rows.map(r => r.name + (r.basis === 'plan' ? ' (plan)' : '')),
+      datasets: [{
+        label: 'Margin %',
+        data: rows.map(r => Math.round(r.margin)),
+        backgroundColor: rows.map(r => r.margin < 0 ? '#d1453b' : r.margin < 15 ? '#fabf4d' : '#0a493c')
+      }]
+    },
+    options: Object.assign(chartOpts(), { indexAxis: 'y', plugins: { legend: { display: false } } })
+  });
+}
+
+/* Historical average actual hours/month by department on a project:
+   looks back up to 6 months before the view, uses the most recent 3 months
+   that have any imported actuals at all. */
+function histDeptActuals(pid, dept) {
+  const startMk = viewMonths()[0];
+  const samples = [];
+  for (let i = 1; i <= 6 && samples.length < 3; i++) {
+    const mk = shiftMonth(startMk, -i);
+    if (!Object.keys(state.actuals[mk] || {}).length) continue;   // no import for that month
+    samples.push(staffInDept(dept).reduce((s, st) => s + actualFor(mk, st.id, pid), 0));
+  }
+  if (!samples.length) return null;
+  return samples.reduce((a, b) => a + b, 0) / samples.length;
+}
+function deptAvgRate(dept) {
+  const m = staffInDept(dept);
+  if (!m.length) return 0;
+  return m.reduce((s, x) => s + x.hourlyCost, 0) / m.length;
+}
+/* Suggested demand per dept (hrs/month), from historical actuals, scaled down
+   if the combined cost would push the project below a 15% margin. */
+function demandSuggestions(pid) {
+  const project = state.projects.find(x => x.id === pid);
+  if (!project) return {map: {}, scaled: false};
+  const deptList = allDepartments();
+  if (state.staff.some(st => !normDept(st.department))) deptList.push(NO_DEPT);
+  const cands = [];
+  deptList.forEach(d => {
+    const h = histDeptActuals(pid, d);
+    if (h && h > 0.5) cands.push({dept: d, perMonth: h});
+  });
+  if (!cands.length) return {map: {}, scaled: false};
+  const n = viewMonths().length;
+  const rev = getRevenue(project);
+  const cost = cands.reduce((s, c) => s + c.perMonth * n * (deptAvgRate(c.dept) || 0), 0);
+  let scale = 1, scaled = false;
+  if (rev > 0 && cost > rev * 0.85) { scale = (rev * 0.85) / cost; scaled = true; }
+  const map = {};
+  cands.forEach(c => map[c.dept] = Math.round(c.perMonth * scale * 10) / 10);
+  return {map, scaled};
 }
 
 function renderDemand() {
@@ -2073,9 +2202,11 @@ function renderDemand() {
   const showActual = hasActualsThisMonth();
 
   el.innerHTML = projs.map((p, i) => {
-    const depts = demandDeptsForProject(p.id);
+    const sugg = demandSuggestions(p.id);
+    const depts = [...new Set([...demandDeptsForProject(p.id), ...Object.keys(sugg.map)])].sort();
     const st = projectStatus(p, false);
     const totalNeed = depts.reduce((a, d) => a + getDemand(p.id, d), 0);
+    const nVm = viewMonths().length;
 
     const rowsHtml = depts.map(dept => {
       const need = getDemand(p.id, dept);
@@ -2112,7 +2243,20 @@ function renderDemand() {
           <div class="dept-input"><input type="text" list="dept-datalist" value="${escapeAttr(dept)}" data-role="demand-dept" data-project="${p.id}" data-dept="${escapeAttr(dept)}" ${need === 0 ? 'readonly' : ''}></div>
           <input type="text" inputmode="decimal" class="numfield" ${hourInputAttrs(uniformOver(mk => demandFor(mk, p.id, dept)))} data-role="demand-hours" data-project="${p.id}" data-dept="${escapeAttr(dept)}">
           <div><div class="fill-track"><div class="fill-bar" style="width:${pct}%; background:${over ? 'var(--rust)' : 'var(--accent)'};"></div></div></div>
-          <div class="fill-label ${fl}">${fmtHrs(assigned)}${need > 0 ? ' / ' + fmtHrs(need) : ''}h · ${ft}</div>
+          <div class="fill-label ${fl}">${fmtHrs(assigned)}${need > 0 ? ' / ' + fmtHrs(need) : ''}h · ${ft}
+            ${(() => {
+              const hist = histDeptActuals(p.id, dept);
+              const sg = sugg.map[dept];
+              if (!hist && !sg) return '';
+              let line = '<div class="p-meta" style="margin-top:2px;">';
+              if (hist) line += 'hist ' + fmtHrs(hist) + 'h/mo actual';
+              if (sg && Math.abs(sg * nVm - need) > 0.5) {
+                line += (hist ? ' · ' : '') + 'suggest ' + fmtHrs(sg) + 'h/mo' + (sugg.scaled ? ' (scaled for 15% margin)' : '') +
+                  ' <button class="ghost" style="padding:1px 7px; font-size:9px;" data-role="apply-suggest" data-project="' + p.id + '" data-dept="' + escapeAttr(dept) + '" data-hours="' + sg + '">apply</button>';
+              }
+              return line + '</div>';
+            })()}
+          </div>
           <button class="assign" data-role="open-assign" data-project="${p.id}" data-dept="${escapeAttr(dept)}">Assign</button>
           <button class="remove-btn" data-role="remove-demand" data-project="${p.id}" data-dept="${escapeAttr(dept)}" ${need === 0 ? 'disabled title="This line exists because people are assigned — remove their hours to clear it"' : ''}>×</button>
         </div>${personRows}`;
@@ -2281,6 +2425,7 @@ document.addEventListener('input', (e) => {
   if (t.id === 'team-search') { ui.teamSearch = t.value; render(); return; }
   if (t.id === 'proj-search') { ui.projSearch = t.value; render(); return; }
   if (t.id === 'assign-hours') { renderCandidates(); return; }
+  if (t.id === 'assign-search') { renderCandidates(); return; }
 
   const role = t.dataset.role;
   if (!role) return;
@@ -2320,6 +2465,16 @@ document.addEventListener('change', (e) => {
   const t = e.target;
   if (t.id === 'import-type') { if (importHeaders) buildMappingUI(); return; }
   if (t.id === 'team-dept-filter') { ui.teamDept = t.value; render(); return; }
+  if (t.id === 'team-show-ended') { ui.teamShowEnded = t.checked; render(); return; }
+  if (t.dataset.role === 'tm-proj-select') {
+    // pre-suggest this person's logged hours on the chosen account
+    const sid = t.dataset.id;
+    const act = getActual(sid, t.value);
+    const perMo = act > 0 ? Math.round((act / viewMonths().length) * 10) / 10 : 0;
+    const hrsInput = document.getElementById('tm-hrs-' + sid);
+    if (hrsInput) hrsInput.value = perMo > 0 ? perMo : '';
+    return;
+  }
   if (t.id === 'proj-active-only') { ui.projActiveOnly = t.checked; render(); return; }
   if (t.id === 'assign-unit') { renderCandidates(); return; }
   if (t.dataset.role === 'demand-dept') {
@@ -2342,6 +2497,10 @@ document.addEventListener('click', (e) => {
   else if (role === 'team-toggle') {
     ui.teamExpanded[t.dataset.id] = !ui.teamExpanded[t.dataset.id];
     render();
+  }
+  else if (role === 'apply-suggest') {
+    setDemand(t.dataset.project, t.dataset.dept, parseFloat(t.dataset.hours) || 0);
+    toast('Demand set to the suggested ' + t.dataset.hours + ' hrs/month for ' + t.dataset.dept + '.');
   }
   else if (role === 'team-add-assign') {
     const sid = t.dataset.id;
@@ -2446,7 +2605,7 @@ document.getElementById('preset-next3').addEventListener('click', () => {
 
 document.getElementById('tab-bar').addEventListener('click', (e) => {
   const btn = e.target.closest('.tab-btn');
-  if (btn) setTab(btn.dataset.tab);
+  if (btn) { setTab(btn.dataset.tab); render(); }
 });
 
 document.getElementById('add-staff-btn').addEventListener('click', addStaff);
@@ -2454,12 +2613,9 @@ document.getElementById('add-project-btn').addEventListener('click', addProject)
 document.getElementById('prev-month').addEventListener('click', () => { currentMonth = shiftMonth(currentMonth, -1); render(); });
 document.getElementById('next-month').addEventListener('click', () => { currentMonth = shiftMonth(currentMonth, 1); render(); });
 document.getElementById('today-btn').addEventListener('click', () => { currentMonth = monthKey(new Date()); render(); });
-document.getElementById('copy-prev-btn').addEventListener('click', (e) => {
+document.getElementById('copy-prev-btn').addEventListener('click', () => {
   if (isRange()) { toast('Switch to single-month view to copy a plan between months.'); return; }
-  const result = copyFromPreviousMonth(false);
-  if (result === 'needs-confirm') {
-    armToConfirm(e.target, 'copy-prev', 'Overwrite this month\'s plan?', () => copyFromPreviousMonth(true));
-  }
+  copyFromPreviousMonth();
 });
 document.getElementById('open-import-btn').addEventListener('click', () => {
   document.getElementById('import-panel').classList.toggle('open');
