@@ -21,7 +21,9 @@ const INTERNAL_ID = '__internal__';
 const INTERNAL_NAMES = ['internal', 'internal time', 'non-billable', 'nonbillable', 'non billable', 'admin', 'overhead',
   'pto', 'sick', 'sick day', 'vacation', 'holiday', 'company holiday', 'unpaid time off'];
 const INTERNAL_JOBCODE_TYPES = new Set(['pto', 'paid_break', 'unpaid_break', 'unpaid_time_off']);
-const MONTHS_BACK = 2; // sync current month + 2 previous
+// QuickBooks Time owns all actuals from this date forward: every sync pulls the
+// full window and replaces those months, so QBT corrections/deletions flow through.
+const SYNC_FROM = '2026-04-01';
 
 if (!QBTIME_TOKEN) fail('Missing QBTIME_TOKEN secret.');
 if (!SERVICE_KEY) fail('Missing SUPABASE_SERVICE_ROLE_KEY secret.');
@@ -140,8 +142,7 @@ let GROUP_NAMES = {};
 async function main() {
   GROUP_NAMES = await fetchGroups();
   const now = new Date();
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - MONTHS_BACK, 1));
-  const startDate = isoDate(start);
+  const startDate = SYNC_FROM;
   const endDate = isoDate(now);
   console.log(`Pulling QuickBooks Time timesheets ${startDate} → ${endDate}…`);
 
@@ -214,7 +215,13 @@ async function main() {
       : (projByName[customer.toLowerCase()] || {}).id;
     return staff && pid ? staff.id + '__' + pid : null;
   };
-  Object.keys(state.actualsW).forEach(wk => { if (monthsSynced.includes(wk.slice(0, 7))) delete state.actualsW[wk]; });
+  const monthsSet = new Set(monthsSynced);
+  const weekOverlapsSynced = wk => {
+    const [y, m, d] = wk.split('-').map(Number);
+    const sunday = new Date(Date.UTC(y, m - 1, d + 6));
+    return monthsSet.has(wk.slice(0, 7)) || monthsSet.has(sunday.toISOString().slice(0, 7));
+  };
+  Object.keys(state.actualsW).forEach(wk => { if (weekOverlapsSynced(wk)) delete state.actualsW[wk]; });
   for (const wk of Object.keys(aggW)) {
     const weekActuals = {};
     for (const { person, customer, hours } of Object.values(aggW[wk])) {
