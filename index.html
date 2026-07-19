@@ -108,6 +108,8 @@ input.numfield { font-family: var(--font-mono); text-align: right; }
 .computed-cell { font-family: var(--font-mono); font-size: 12px; }
 .computed-sub { font-family: var(--font-mono); font-size: 10px; color: var(--slate); white-space: nowrap; }
 input.rev-input { min-width: 110px; }
+select.type-select { font-family: var(--font-mono); font-size: 11px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--ink); padding: 4px 2px; width: auto; cursor: pointer; }
+select.type-select:hover { border-color: var(--line); }
 
 .mini-track { position: relative; width: 100%; max-width: 140px; height: 10px; background: #dedede; border-radius: 2px; overflow: hidden; margin-top: 3px; }
 .mini-bar { position: absolute; top: 0; bottom: 0; left: 0; background: var(--accent); }
@@ -426,7 +428,8 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
           <tr id="team-head">
             <th class="sortable" data-sort="name">Name <span class="sort-ind" data-ind="name"></span></th>
             <th class="dept-col sortable" data-sort="department">Department <span class="sort-ind" data-ind="department"></span></th>
-            <th class="num-col sortable" data-sort="hourlyCost">Hourly cost ($) <span class="sort-ind" data-ind="hourlyCost"></span></th>
+            <th class="num-col sortable" data-sort="employmentType">Type <span class="sort-ind" data-ind="employmentType"></span></th>
+            <th class="num-col sortable" data-sort="hourlyCost">Cost ($) <span class="sort-ind" data-ind="hourlyCost"></span></th>
             <th class="num-col sortable" data-sort="weeklyCapacity">Weekly cap <span class="sort-ind" data-ind="weeklyCapacity"></span></th>
             <th class="num-col">Monthly cap</th>
             <th class="num-col sortable" data-sort="internalHrs">Internal hrs <span class="sort-ind" data-ind="internalHrs"></span></th>
@@ -557,6 +560,17 @@ function fmtMoney2(n) { const sign = n < 0 ? '-' : ''; return sign + '$' + Math.
 function fmtHrs(n) { return (Math.round(n * 10) / 10).toString(); }
 function normDept(d) { return String(d || '').trim(); }
 function deptLabelOf(s) { const d = normDept(s.department); return d || NO_DEPT; }
+function empType(s) { return s.employmentType === 'hourly' ? 'hourly' : 'fulltime'; }
+function recomputeSalariedRate(s) {
+  if (empType(s) !== 'fulltime') return;
+  const annualHours = (s.weeklyCapacity || 0) * 52;
+  s.hourlyCost = annualHours > 0 ? Math.round(((s.annualCost || 0) / annualHours) * 100) / 100 : 0;
+}
+function backfillAnnual(s) {
+  if (empType(s) === 'fulltime' && (s.annualCost === undefined || s.annualCost === null)) {
+    s.annualCost = Math.round((s.hourlyCost || 0) * (s.weeklyCapacity || 0) * 52);
+  }
+}
 
 let toastTimer = null;
 function toast(msg, ms) {
@@ -598,6 +612,7 @@ function normalizeState(raw) {
   if (!s.actuals) s.actuals = {};
   if (!s.demand) s.demand = {};
   (s.projects || []).forEach(p => { if (!p.revenueOverrides) p.revenueOverrides = {}; });
+  (s.staff || []).forEach(backfillAnnual);
   return s;
 }
 
@@ -725,8 +740,8 @@ function seedExample() {
   const p1 = uid(), p2 = uid();
   const start = shiftMonth(currentMonth, -1), end = shiftMonth(currentMonth, 3);
   state.staff = [
-    {id: s1, name: 'Sample: A. Rivera', department: 'Design', hourlyCost: 65, weeklyCapacity: 40},
-    {id: s2, name: 'Sample: J. Okafor', department: 'Engineering', hourlyCost: 55, weeklyCapacity: 40}
+    {id: s1, name: 'Sample: A. Rivera', department: 'Design', employmentType: 'fulltime', annualCost: 135200, hourlyCost: 65, weeklyCapacity: 40},
+    {id: s2, name: 'Sample: J. Okafor', department: 'Engineering', employmentType: 'hourly', hourlyCost: 55, weeklyCapacity: 40}
   ];
   state.projects = [
     {id: p1, name: 'Sample: Acme Rebrand', monthlyRevenue: 18000, revenueOverrides: {}, startMonth: start, endMonth: end},
@@ -855,7 +870,7 @@ function allDepartments() {
   return [...set].sort();
 }
 
-function addStaff() { state.staff.push({id: uid(), name: '', department: '', hourlyCost: 0, weeklyCapacity: 40}); scheduleSave(); render(); }
+function addStaff() { state.staff.push({id: uid(), name: '', department: '', employmentType: 'fulltime', annualCost: 0, hourlyCost: 0, weeklyCapacity: 40}); scheduleSave(); render(); }
 function addProject() { state.projects.push({id: uid(), name: '', monthlyRevenue: 0, revenueOverrides: {}, startMonth: '', endMonth: ''}); scheduleSave(); render(); }
 
 function removeStaff(id) {
@@ -873,7 +888,23 @@ function removeProject(id) {
 function updateStaffField(id, field, value) {
   const s = state.staff.find(s => s.id === id);
   if (!s) return;
-  s[field] = (field === 'name' || field === 'department') ? value : (parseFloat(value) || 0);
+  s[field] = (field === 'name' || field === 'department' || field === 'employmentType') ? value : (parseFloat(value) || 0);
+  if (field === 'weeklyCapacity') recomputeSalariedRate(s); // salary is fixed; rate follows capacity
+  scheduleSave(); render();
+}
+function updateStaffCost(id, raw) {
+  const s = state.staff.find(x => x.id === id);
+  if (!s) return;
+  const v = parseFloat(String(raw).replace(/[^0-9.\-]/g, '')) || 0;
+  if (empType(s) === 'fulltime') { s.annualCost = v; recomputeSalariedRate(s); }
+  else s.hourlyCost = v;
+  scheduleSave(); render();
+}
+function setStaffType(id, type) {
+  const s = state.staff.find(x => x.id === id);
+  if (!s) return;
+  s.employmentType = type;
+  if (type === 'fulltime') { backfillAnnual(s); recomputeSalariedRate(s); }
   scheduleSave(); render();
 }
 function updateProjectField(id, field, value) {
@@ -1345,7 +1376,7 @@ function runImport() {
 
     let person = staffByName[personName.toLowerCase()];
     if (!person) {
-      person = {id: uid(), name: personName, department: '', hourlyCost: 0, weeklyCapacity: 40};
+      person = {id: uid(), name: personName, department: '', employmentType: 'fulltime', annualCost: 0, hourlyCost: 0, weeklyCapacity: 40};
       state.staff.push(person);
       staffByName[personName.toLowerCase()] = person;
       newStaff.push(personName);
@@ -1559,11 +1590,21 @@ function renderDashboard() {
   `;
 }
 
+function summaryActualLabor() {
+  // Actual labor for the overview bar: salaried (full-time) staff cost their
+  // full period capacity (pro-rated annual cost) regardless of logged hours;
+  // hourly staff cost exactly what they logged.
+  return state.staff.reduce((sum, s) => {
+    const hrs = empType(s) === 'fulltime' ? periodCapacity(s) : staffTotalHours(s.id, true);
+    return sum + hrs * s.hourlyCost;
+  }, 0);
+}
+
 function renderSummary() {
   const projs = activeProjects();
   const totalRevenue = projs.reduce((s, p) => s + getRevenue(p), 0);
   const plannedCost = projs.reduce((s, p) => s + projectCost(p.id, false), 0) + internalCost(false);
-  const actualCost = projs.reduce((s, p) => s + projectCost(p.id, true), 0) + internalCost(true);
+  const actualCost = summaryActualLabor();
   const plannedNet = totalRevenue - plannedCost;
   const actualNet = totalRevenue - actualCost;
   const showActual = hasActualsThisMonth();
@@ -1573,7 +1614,7 @@ function renderSummary() {
   document.getElementById('summary-strip').innerHTML = `
     <div class="summary-cell"><div class="summary-label">Revenue${isRange() ? ' (period)' : ''}</div><div class="summary-value">${fmtMoney(totalRevenue)}</div></div>
     <div class="summary-cell"><div class="summary-label">Planned labor</div><div class="summary-value">${fmtMoney(plannedCost)}</div></div>
-    <div class="summary-cell"><div class="summary-label">Actual labor</div><div class="summary-value ${showActual ? '' : 'muted'}">${showActual ? fmtMoney(actualCost) : '—'}</div></div>
+    <div class="summary-cell"><div class="summary-label">Actual labor${state.staff.some(s => empType(s) === 'fulltime') ? ' · salaried at full cost' : ''}</div><div class="summary-value ${showActual ? '' : 'muted'}">${showActual ? fmtMoney(actualCost) : '—'}</div></div>
     <div class="summary-cell"><div class="summary-label">Planned net</div><div class="summary-value ${plannedNet >= 0 ? 'pos' : 'neg'}">${fmtMoney(plannedNet)}</div></div>
     <div class="summary-cell"><div class="summary-label">Actual net</div><div class="summary-value ${showActual ? (actualNet >= 0 ? 'pos' : 'neg') : 'muted'}">${showActual ? fmtMoney(actualNet) : '—'}</div></div>
     <div class="summary-cell"><div class="summary-label">Capacity flags (plan)</div>
@@ -1645,11 +1686,11 @@ function renderStaffTable() {
   const tbody = document.getElementById('staff-tbody');
   const list = sortedFilteredStaff();
   if (state.staff.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="10" class="empty-note">No one on the roster yet — add a person or import your tracking data.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" class="empty-note">No one on the roster yet — add a person or import your tracking data.</td></tr>`;
     return;
   }
   if (list.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="10" class="empty-note">No people match the current filters.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" class="empty-note">No people match the current filters.</td></tr>`;
     return;
   }
   const showActual = hasActualsThisMonth();
@@ -1731,7 +1772,7 @@ function renderStaffTable() {
           <button class="assign" data-role="team-add-assign" data-id="${s.id}">Assign to project</button>
         </div>` : `<div class="tm-empty">Assigned to every active project this month.</div>`;
       breakout = `
-        <tr class="team-breakout"><td colspan="10">
+        <tr class="team-breakout"><td colspan="11">
           ${rows || '<div class="tm-empty">No project assignments this month.</div>'}
           ${intHrs > 0 ? `<div class="tm-row"><div><div class="tm-name" style="color:var(--internal)">Internal (non-billable)</div></div><div class="tm-meta">${fmtHrs(intHrs)} hrs</div><div class="tm-meta">${fmtMoney(intHrs * s.hourlyCost)} cost</div><div class="tm-meta">${showActual && intAct ? 'act ' + fmtHrs(intAct) + 'h' : ''}</div><div></div></div>` : ''}
           ${addForm}
@@ -1742,7 +1783,14 @@ function renderStaffTable() {
     <tr>
       <td><div class="name-cell"><button class="expand-btn" data-role="team-toggle" data-id="${s.id}">${expanded ? '▾' : '▸'}</button><input type="text" value="${escapeAttr(s.name)}" placeholder="Name" data-role="staff-name" data-id="${s.id}"></div></td>
       <td><input type="text" list="dept-datalist" value="${escapeAttr(s.department || '')}" placeholder="e.g. Design" data-role="staff-dept" data-id="${s.id}"></td>
-      <td><input type="text" inputmode="decimal" class="numfield" value="${s.hourlyCost}" data-role="staff-cost" data-id="${s.id}"></td>
+      <td><select class="type-select" data-role="staff-type" data-id="${s.id}">
+        <option value="fulltime" ${empType(s) === 'fulltime' ? 'selected' : ''}>Full-time</option>
+        <option value="hourly" ${empType(s) === 'hourly' ? 'selected' : ''}>Hourly</option>
+      </select></td>
+      <td>
+        <input type="text" inputmode="decimal" class="numfield" value="${empType(s) === 'fulltime' ? (s.annualCost || 0) : s.hourlyCost}" data-role="staff-cost" data-id="${s.id}">
+        <div class="computed-sub">${empType(s) === 'fulltime' ? '/yr ≈ ' + fmtMoney2(s.hourlyCost) + '/hr' : '/hr'}</div>
+      </td>
       <td><input type="text" inputmode="decimal" class="numfield" value="${s.weeklyCapacity}" data-role="staff-cap" data-id="${s.id}"></td>
       <td class="cap-readout">${fmtHrs(monthlyCapacity(s.weeklyCapacity))} hrs${isRange() ? '/mo' : ''}</td>
       <td>
@@ -2031,8 +2079,9 @@ document.addEventListener('input', (e) => {
   try {
     if (role === 'staff-name') updateStaffField(t.dataset.id, 'name', t.value);
     else if (role === 'staff-dept') updateStaffField(t.dataset.id, 'department', t.value);
-    else if (role === 'staff-cost') updateStaffField(t.dataset.id, 'hourlyCost', t.value);
+    else if (role === 'staff-cost') updateStaffCost(t.dataset.id, t.value);
     else if (role === 'staff-cap') updateStaffField(t.dataset.id, 'weeklyCapacity', t.value);
+    else if (role === 'staff-type') setStaffType(t.dataset.id, t.value);
     else if (role === 'staff-internal') setAssignment(t.dataset.id, INTERNAL_ID, parseFloat(t.value) || 0);
     else if (role === 'project-name') updateProjectField(t.dataset.id, 'name', t.value);
     else if (role === 'project-revenue-month') setRevenueThisMonth(t.dataset.id, t.value);
