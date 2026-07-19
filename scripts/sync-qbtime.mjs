@@ -18,7 +18,7 @@ const WORKSPACE_ID = 'default';
 
 const QB_BASE = 'https://rest.tsheets.com/api/v1';
 const INTERNAL_ID = '__internal__';
-const INTERNAL_NAMES = ['internal', 'internal time', 'non-billable', 'nonbillable', 'non billable', 'admin', 'overhead',
+const INTERNAL_NAMES = ['emg', 'internal', 'internal time', 'non-billable', 'nonbillable', 'non billable', 'admin', 'overhead',
   'pto', 'sick', 'sick day', 'vacation', 'holiday', 'company holiday', 'unpaid time off'];
 const INTERNAL_JOBCODE_TYPES = new Set(['pto', 'paid_break', 'unpaid_break', 'unpaid_time_off']);
 // QuickBooks Time owns all actuals from this date forward: every sync pulls the
