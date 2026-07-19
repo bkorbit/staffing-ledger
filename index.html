@@ -147,6 +147,13 @@ input.rev-input { min-width: 110px; }
 .name-cell { display: flex; align-items: center; gap: 4px; }
 .name-cell input { flex: 1; }
 .team-breakout td { background: #f5f5f5; padding: 6px 12px 12px; }
+.proj-breakout td { background: #f5f5f5; padding: 10px 16px 14px; }
+.pb-row { display: grid; grid-template-columns: 280px 190px 150px 1fr; gap: 12px; align-items: center; padding: 5px 0 5px 26px; border-bottom: 1px dashed #e3e3e3; }
+.pb-row:last-of-type { border-bottom: none; }
+.pb-name { font-family: var(--font-display); font-size: 12px; font-weight: 600; }
+.pb-num { font-family: var(--font-mono); font-size: 11px; color: var(--slate); }
+.pb-num strong { color: var(--ink); font-size: 12px; }
+.pb-empty, .pb-note { font-family: var(--font-mono); font-size: 11px; color: var(--slate); padding: 6px 0 2px 26px; }
 .tm-row { display: grid; grid-template-columns: 240px 130px 110px 110px 1fr; gap: 10px; align-items: center; padding: 4px 0 4px 26px; border-bottom: 1px dashed #e3e3e3; }
 .tm-row:last-of-type { border-bottom: none; }
 .tm-row .tm-name { font-family: var(--font-display); font-size: 12px; font-weight: 600; }
@@ -599,7 +606,8 @@ let ui = {
   expanded: {},     // `${projectId}__${dept}` -> true
   teamExpanded: {}, // staffId -> true
   teamShowEnded: false,
-  dashProjSearch: '', dashProjFilter: 'all'  // staffId -> true
+  dashProjSearch: '', dashProjFilter: 'all',
+  projExpanded: {}   // projectId -> true  // staffId -> true
 };
 
 let currentMonth = monthKey(new Date());
@@ -675,6 +683,7 @@ function setTab(tab) {
 function normalizeState(raw) {
   const s = Object.assign({staff: [], projects: [], assignments: {}, actuals: {}, demand: {}}, raw || {});
   if (!s.actuals) s.actuals = {};
+  if (!s.actualsW) s.actualsW = {};   // weekly actuals: {'YYYY-MM-DD' (Monday): {'staffId__projectId': hours}}
   if (!s.demand) s.demand = {};
   (s.projects || []).forEach(p => { if (!p.revenueOverrides) p.revenueOverrides = {}; });
   (s.staff || []).forEach(backfillAnnual);
@@ -1471,6 +1480,31 @@ function runProjectImport() {
   toast(msg, 10000);
 }
 
+function parseDateFull(raw) {
+  if (raw == null) return null;
+  const str = String(raw).trim();
+  if (!str) return null;
+  let m = str.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+  if (m) return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  m = str.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/);
+  if (m) {
+    let mo = +m[1], dd = +m[2];
+    if (mo > 12 && dd <= 12) { const t = mo; mo = dd; dd = t; }
+    return new Date(Date.UTC(+m[3], mo - 1, dd));
+  }
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+}
+function weekStartKey(dUtc) {   // -> 'YYYY-MM-DD' of that week's Monday
+  const d = new Date(dUtc.getTime());
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+function weekLabel(wk) {
+  const [y, m, dd] = wk.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, dd)).toLocaleDateString('en-US', {month: 'short', day: 'numeric', timeZone: 'UTC'});
+}
+
 function runImport() {
   if (importType() === 'projects') { runProjectImport(); return; }
   const cPerson = +document.getElementById('map-person').value;
@@ -1487,6 +1521,7 @@ function runImport() {
   let imported = 0, skipped = 0;
   const newStaff = [], newProjects = [], monthsTouched = new Set();
   const agg = {};
+  const aggW = {};
 
   importRows.forEach(r => {
     const personName = String(r[cPerson] == null ? '' : r[cPerson]).trim();
@@ -1524,6 +1559,12 @@ function runImport() {
     if (!agg[mk]) agg[mk] = {};
     const key = person.id + '__' + projectId;
     agg[mk][key] = (agg[mk][key] || 0) + hours;
+    const fd = parseDateFull(r[cDate]);
+    if (fd) {
+      const wk = weekStartKey(fd);
+      if (!aggW[wk]) aggW[wk] = {};
+      aggW[wk][key] = (aggW[wk][key] || 0) + hours;
+    }
     monthsTouched.add(mk);
     imported++;
   });
@@ -1532,6 +1573,16 @@ function runImport() {
     if (!state.actuals[mk]) state.actuals[mk] = {};
     Object.entries(entries).forEach(([key, hrs]) => {
       state.actuals[mk][key] = Math.round(hrs * 100) / 100;
+    });
+  });
+
+  // Weekly: imported months own their weeks — clear then rewrite so re-imports don't double-count
+  if (!state.actualsW) state.actualsW = {};
+  Object.keys(state.actualsW).forEach(wk => { if (monthsTouched.has(wk.slice(0, 7))) delete state.actualsW[wk]; });
+  Object.entries(aggW).forEach(([wk, entries]) => {
+    state.actualsW[wk] = {};
+    Object.entries(entries).forEach(([key, hrs]) => {
+      state.actualsW[wk][key] = Math.round(hrs * 100) / 100;
     });
   });
 
@@ -2121,9 +2172,36 @@ function renderProjectTable() {
     const pph = primary.profitPerHour;
     const pphTxt = pph === null ? '—' : fmtMoney2(pph);
     const pphColor = pph === null ? 'var(--slate)' : (pph >= 0 ? 'var(--teal)' : 'var(--rust)');
+    const expanded = !!ui.projExpanded[p.id];
+    let breakout = '';
+    if (expanded) {
+      const nVm = viewMonths().length;
+      const contributors = state.staff
+        .map(st => ({ st, logged: getActual(st.id, p.id), assigned: getAssignment(st.id, p.id) }))
+        .filter(c => c.logged > 0 || c.assigned > 0)
+        .sort((a, b) => (b.logged || b.assigned) - (a.logged || a.assigned));
+      const rowsHtml = contributors.map(c => `
+        <div class="pb-row">
+          <div><span class="pb-name">${escapeHtml(c.st.name) || 'Unnamed'}</span>${c.st.department ? ` <span class="lg-dept">${escapeHtml(c.st.department)}</span>` : ''}</div>
+          <div class="pb-num"><strong>${fmtHrs(c.logged)}h</strong> logged${c.assigned > 0 ? ' ' + deltaHtml(c.assigned, c.logged, false) : ''}</div>
+          <div class="pb-num">${fmtHrs(c.assigned)}h assigned</div>
+          <div class="pb-num">${fmtMoney((c.logged || c.assigned) * c.st.hourlyCost)} cost</div>
+        </div>`).join('');
+      const hasAnyActuals = contributors.some(c => c.logged > 0);
+      breakout = `
+        <tr class="proj-breakout"><td colspan="9">
+          ${rowsHtml || '<div class="pb-empty">No one has logged or been assigned hours on this project in this period.</div>'}
+          ${hasAnyActuals ? `
+            <div class="chart-card" style="margin-top:12px;">
+              <h4>Contributor hours over time — ${escapeHtml(p.name) || 'Untitled'}</h4>
+              <div class="chart-wrap" style="height:220px;"><canvas id="chart-proj-${p.id}" data-granularity=""></canvas></div>
+              <div class="pb-note" id="chart-note-${p.id}"></div>
+            </div>` : ''}
+        </td></tr>`;
+    }
     return `
     <tr style="${active ? '' : 'opacity:0.55;'}">
-      <td><input type="text" value="${escapeAttr(p.name)}" placeholder="Project name" data-role="project-name" data-id="${p.id}"></td>
+      <td><div class="name-cell"><button class="expand-btn" data-role="proj-toggle" data-id="${p.id}">${expanded ? '▾' : '▸'}</button><input type="text" value="${escapeAttr(p.name)}" placeholder="Project name" data-role="project-name" data-id="${p.id}"></div></td>
       <td>
         ${isRange()
           ? `<div class="computed-cell" style="font-weight:700;">${fmtMoney(rev)}</div><div class="computed-sub">period total · edit in single-month view</div>`
@@ -2146,9 +2224,78 @@ function renderProjectTable() {
       <td><input type="month" value="${p.endMonth || ''}" data-role="project-end" data-id="${p.id}"></td>
       <td>${active ? '<span style="color:var(--teal); font-size:11px;">active</span>' : '<span class="inactive-tag">not this month</span>'}</td>
       <td class="remove-col"><button class="remove-btn" data-role="remove-project" data-id="${p.id}">×</button></td>
-    </tr>`;
+    </tr>${breakout}`;
   }).join('');
   buildMarginChart();
+  buildProjCharts();
+}
+
+let projCharts = [];
+const LINE_COLORS = ['#0a493c', '#19a789', '#fabf4d', '#2e6e56', '#d1453b', '#57cb96', '#48a278', '#67706d'];
+
+function buildProjCharts() {
+  projCharts.forEach(c => { try { c.destroy(); } catch (e) {} });
+  projCharts = [];
+  if (!window.Chart) return;
+  Object.keys(ui.projExpanded).filter(pid => ui.projExpanded[pid]).forEach(pid => {
+    const el = document.getElementById('chart-proj-' + pid);
+    if (!el) return;
+    const aw = state.actualsW || {};
+    const weekly = Object.keys(aw).some(wk => Object.keys(aw[wk]).some(k => k.endsWith('__' + pid)));
+
+    // window ends at the last day of the last month in view
+    const vm = viewMonths();
+    const [ey, em] = vm[vm.length - 1].split('-').map(Number);
+    const endDate = new Date(Date.UTC(ey, em, 0));
+
+    let labels = [], keys = [], valueAt;
+    if (weekly) {
+      const lastWk = weekStartKey(endDate);
+      for (let i = 11; i >= 0; i--) {
+        const [y, m, d] = lastWk.split('-').map(Number);
+        const w = new Date(Date.UTC(y, m - 1, d));
+        w.setUTCDate(w.getUTCDate() - 7 * i);
+        keys.push(w.toISOString().slice(0, 10));
+      }
+      labels = keys.map(weekLabel);
+      valueAt = (sid, k) => (aw[k] || {})[sid + '__' + pid] || 0;
+    } else {
+      let mk = vm[vm.length - 1];
+      const mks = [];
+      for (let i = 0; i < 6; i++) { mks.unshift(mk); mk = shiftMonth(mk, -1); }
+      keys = mks;
+      labels = keys.map(monthShort);
+      valueAt = (sid, k) => actualFor(k, sid, pid);
+    }
+
+    const contributors = state.staff
+      .map(st => ({ st, total: keys.reduce((sum, k) => sum + valueAt(st.id, k), 0) }))
+      .filter(c => c.total > 0)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 8);
+    if (!contributors.length) return;
+
+    const note = document.getElementById('chart-note-' + pid);
+    if (note) note.textContent = weekly
+      ? 'hours logged per week (last 12 weeks)'
+      : 'hours logged per month — weekly detail appears once hours are imported with dates going forward';
+
+    projCharts.push(new Chart(el, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: contributors.map((c, i) => ({
+          label: c.st.name || 'Unnamed',
+          data: keys.map(k => Math.round(valueAt(c.st.id, k) * 10) / 10),
+          borderColor: LINE_COLORS[i % LINE_COLORS.length],
+          backgroundColor: LINE_COLORS[i % LINE_COLORS.length],
+          tension: 0.25,
+          pointRadius: 2.5
+        }))
+      },
+      options: Object.assign(chartOpts(), { plugins: { legend: { labels: { font: chartFont(), color: '#67706d', boxWidth: 12 } }, datalabels: { display: false } } })
+    }));
+  });
 }
 
 let marginChart = null;
@@ -2528,6 +2675,10 @@ document.addEventListener('click', (e) => {
   else if (role === 'edit-staff') openPersonModal(t.dataset.id);
   else if (role === 'team-toggle') {
     ui.teamExpanded[t.dataset.id] = !ui.teamExpanded[t.dataset.id];
+    render();
+  }
+  else if (role === 'proj-toggle') {
+    ui.projExpanded[t.dataset.id] = !ui.projExpanded[t.dataset.id];
     render();
   }
   else if (role === 'apply-suggest') {

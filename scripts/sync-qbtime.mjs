@@ -27,6 +27,12 @@ if (!SERVICE_KEY) fail('Missing SUPABASE_SERVICE_ROLE_KEY secret.');
 function fail(msg) { console.error('✖ ' + msg); process.exit(1); }
 function uid() { return Math.random().toString(36).slice(2, 10); }
 function monthKeyOf(dateStr) { return dateStr.slice(0, 7); } // 'YYYY-MM-DD' -> 'YYYY-MM'
+function weekKeyOf(dateStr) { // 'YYYY-MM-DD' -> that week's Monday 'YYYY-MM-DD'
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() - ((dt.getUTCDay() + 6) % 7));
+  return dt.toISOString().slice(0, 10);
+}
 function isoDate(d) { return d.toISOString().slice(0, 10); }
 
 // ---------- QuickBooks Time ----------
@@ -68,7 +74,7 @@ async function pullTimesheets(startDate, endDate) {
       const customer = rootJobcodeName(ts.jobcode_id, jobcodes);
       const hours = (ts.duration || 0) / 3600;
       if (!person || !customer || hours <= 0 || !ts.date) continue;
-      entries.push({ person, customer, month: monthKeyOf(ts.date), hours });
+      entries.push({ person, customer, month: monthKeyOf(ts.date), week: weekKeyOf(ts.date), hours });
     }
     if (!data.more) break;
     page++;
@@ -115,19 +121,24 @@ async function main() {
   const entries = await pullTimesheets(startDate, endDate);
   console.log(`Fetched ${entries.length} timesheet entries.`);
 
-  // Aggregate: month -> personName|customer -> hours
+  // Aggregate: month -> personName|customer -> hours (and the same by week)
   const agg = {};
+  const aggW = {};
   for (const e of entries) {
     const key = e.person.toLowerCase() + '|' + e.customer.toLowerCase();
     if (!agg[e.month]) agg[e.month] = {};
     if (!agg[e.month][key]) agg[e.month][key] = { person: e.person, customer: e.customer, hours: 0 };
     agg[e.month][key].hours += e.hours;
+    if (!aggW[e.week]) aggW[e.week] = {};
+    if (!aggW[e.week][key]) aggW[e.week][key] = { person: e.person, customer: e.customer, hours: 0 };
+    aggW[e.week][key].hours += e.hours;
   }
 
   const existing = await loadLedger();
   const rowExists = existing !== null;
   const state = Object.assign({ staff: [], projects: [], assignments: {}, actuals: {}, demand: {} }, existing || {});
   if (!state.actuals) state.actuals = {};
+  if (!state.actualsW) state.actualsW = {};
 
   const staffByName = {};
   state.staff.forEach(s => staffByName[(s.name || '').trim().toLowerCase()] = s);
@@ -164,6 +175,24 @@ async function main() {
       monthActuals[k] = Math.round(((monthActuals[k] || 0) + hours) * 100) / 100;
     }
     state.actuals[mk] = monthActuals;
+  }
+
+  // Weekly actuals: synced months own their weeks — clear then rewrite
+  const resolveKey = (person, customer) => {
+    const staff = staffByName[person.toLowerCase()];
+    const pid = INTERNAL_NAMES.includes(customer.toLowerCase()) ? INTERNAL_ID
+      : (projByName[customer.toLowerCase()] || {}).id;
+    return staff && pid ? staff.id + '__' + pid : null;
+  };
+  Object.keys(state.actualsW).forEach(wk => { if (monthsSynced.includes(wk.slice(0, 7))) delete state.actualsW[wk]; });
+  for (const wk of Object.keys(aggW)) {
+    const weekActuals = {};
+    for (const { person, customer, hours } of Object.values(aggW[wk])) {
+      const k = resolveKey(person, customer);
+      if (!k) continue;
+      weekActuals[k] = Math.round(((weekActuals[k] || 0) + hours) * 100) / 100;
+    }
+    if (Object.keys(weekActuals).length) state.actualsW[wk] = weekActuals;
   }
 
   await saveLedger(state, rowExists);
