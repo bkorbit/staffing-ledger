@@ -61,8 +61,26 @@ function rootJobcodeName(id, jobcodes) {
   return String(jc.name || '').trim();
 }
 
+async function fetchGroups() {
+  const map = {}; // group_id -> group name
+  let page = 1;
+  try {
+    for (;;) {
+      const data = await qbFetch('/groups', { page });
+      const groups = Object.values((data.results || {}).groups || {});
+      for (const g of groups) map[g.id] = String(g.name || '').trim();
+      if (!data.more) break;
+      page++;
+      if (page > 20) break;
+    }
+  } catch (e) {
+    console.log('  (groups fetch failed — new people will be created without a department:', e.message + ')');
+  }
+  return map;
+}
+
 async function pullTimesheets(startDate, endDate) {
-  const entries = []; // {person, customer, month, hours}
+  const entries = []; // {person, customer, month, week, hours, dept}
   const users = {};
   const jobcodes = {};
   let page = 1;
@@ -76,10 +94,11 @@ async function pullTimesheets(startDate, endDate) {
     for (const ts of sheets) {
       const u = users[ts.user_id];
       const person = u ? `${u.first_name || ''} ${u.last_name || ''}`.trim() : '';
+      const dept = u && u.group_id ? (GROUP_NAMES[u.group_id] || '') : '';
       const customer = rootJobcodeName(ts.jobcode_id, jobcodes);
       const hours = (ts.duration || 0) / 3600;
       if (!person || !customer || hours <= 0 || !ts.date) continue;
-      entries.push({ person, customer, month: monthKeyOf(ts.date), week: weekKeyOf(ts.date), hours });
+      entries.push({ person, customer, month: monthKeyOf(ts.date), week: weekKeyOf(ts.date), hours, dept });
     }
     if (!data.more) break;
     page++;
@@ -116,7 +135,10 @@ async function saveLedger(state, rowExists) {
 
 // ---------- Sync ----------
 
+let GROUP_NAMES = {};
+
 async function main() {
+  GROUP_NAMES = await fetchGroups();
   const now = new Date();
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - MONTHS_BACK, 1));
   const startDate = isoDate(start);
@@ -132,8 +154,9 @@ async function main() {
   for (const e of entries) {
     const key = e.person.toLowerCase() + '|' + e.customer.toLowerCase();
     if (!agg[e.month]) agg[e.month] = {};
-    if (!agg[e.month][key]) agg[e.month][key] = { person: e.person, customer: e.customer, hours: 0 };
+    if (!agg[e.month][key]) agg[e.month][key] = { person: e.person, customer: e.customer, dept: e.dept || '', hours: 0 };
     agg[e.month][key].hours += e.hours;
+    if (e.dept && !agg[e.month][key].dept) agg[e.month][key].dept = e.dept;
     if (!aggW[e.week]) aggW[e.week] = {};
     if (!aggW[e.week][key]) aggW[e.week][key] = { person: e.person, customer: e.customer, hours: 0 };
     aggW[e.week][key].hours += e.hours;
@@ -155,13 +178,15 @@ async function main() {
 
   for (const mk of monthsSynced) {
     const monthActuals = {}; // full-month replace: QB Time is the source of truth for these months
-    for (const { person, customer, hours } of Object.values(agg[mk])) {
+    for (const { person, customer, dept, hours } of Object.values(agg[mk])) {
       let staff = staffByName[person.toLowerCase()];
       if (!staff) {
-        staff = { id: uid(), name: person, department: '', employmentType: 'fulltime', annualCost: 0, hourlyCost: 0, weeklyCapacity: 40 };
+        staff = { id: uid(), name: person, department: dept || '', employmentType: 'fulltime', annualCost: 0, hourlyCost: 0, weeklyCapacity: 40 };
         state.staff.push(staff);
         staffByName[person.toLowerCase()] = staff;
-        newStaff.push(person);
+        newStaff.push(person + (dept ? ' (' + dept + ')' : ''));
+      } else if (!staff.department && dept) {
+        staff.department = dept;   // backfill blanks only — never overwrite a department you set
       }
       let projectId;
       if (INTERNAL_NAMES.includes(customer.toLowerCase())) {

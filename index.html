@@ -2277,23 +2277,44 @@ function buildProjCharts() {
 
     const note = document.getElementById('chart-note-' + pid);
     if (note) note.textContent = weekly
-      ? 'hours logged per week (last 12 weeks)'
-      : 'hours logged per month — weekly detail appears once hours are imported with dates going forward';
+      ? 'stacked hours per week (last 12 weeks) — number above each week is the team total'
+      : 'stacked hours per month — weekly detail appears once hours are imported with dates going forward';
 
     projCharts.push(new Chart(el, {
       type: 'line',
+      plugins: window.ChartDataLabels ? [window.ChartDataLabels] : [],
       data: {
         labels,
         datasets: contributors.map((c, i) => ({
           label: c.st.name || 'Unnamed',
           data: keys.map(k => Math.round(valueAt(c.st.id, k) * 10) / 10),
           borderColor: LINE_COLORS[i % LINE_COLORS.length],
-          backgroundColor: LINE_COLORS[i % LINE_COLORS.length],
+          backgroundColor: LINE_COLORS[i % LINE_COLORS.length] + '59',   // ~35% alpha fill
+          fill: true,
           tension: 0.25,
-          pointRadius: 2.5
+          pointRadius: 1.5
         }))
       },
-      options: Object.assign(chartOpts(), { plugins: { legend: { labels: { font: chartFont(), color: '#67706d', boxWidth: 12 } }, datalabels: { display: false } } })
+      options: (() => {
+        const o = chartOpts();
+        o.scales.y.stacked = true;
+        o.plugins = {
+          legend: { labels: { font: chartFont(), color: '#67706d', boxWidth: 12 } },
+          datalabels: {
+            // one label per column: the total, drawn on the topmost dataset of the stack
+            display: ctx => ctx.datasetIndex === ctx.chart.data.datasets.length - 1,
+            anchor: 'end', align: 'top', offset: 2, clip: false,
+            font: { family: "'DM Mono', monospace", size: 9, weight: '700' },
+            color: '#0a493c',
+            formatter: (v, ctx) => {
+              const i = ctx.dataIndex;
+              const total = ctx.chart.data.datasets.reduce((sum, ds) => sum + (ds.data[i] || 0), 0);
+              return total > 0 ? Math.round(total * 10) / 10 + 'h' : '';
+            }
+          }
+        };
+        return o;
+      })()
     }));
   });
 }
