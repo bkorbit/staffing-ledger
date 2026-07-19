@@ -3347,8 +3347,6 @@ document.addEventListener('input', (e) => {
     else if (role === 'project-name') updateProjectField(t.dataset.id, 'name', t.value);
     else if (role === 'project-revenue-month') setRevenueThisMonth(t.dataset.id, t.value);
     else if (role === 'project-start') updateProjectField(t.dataset.id, 'startMonth', t.value);
-    else if (role === 'flight-start') setFlightDate(t.dataset.id, 'start', t.value);
-    else if (role === 'flight-end') setFlightDate(t.dataset.id, 'end', t.value);
     else if (role === 'project-end') updateProjectField(t.dataset.id, 'endMonth', t.value);
     else if (role === 'assignment') setAssignment(t.dataset.staff, t.dataset.project, parseFloat(t.value) || 0);
     else if (role === 'demand-hours') setDemand(t.dataset.project, t.dataset.dept, parseFloat(t.value) || 0);
@@ -3357,8 +3355,6 @@ document.addEventListener('input', (e) => {
     else if (role === 'pm-cost') { updateStaffCost(personEditId, t.value); refreshPersonCostUI(true); }
     else if (role === 'pm-cap') { updateStaffField(personEditId, 'weeklyCapacity', t.value); refreshPersonCostUI(true); }
     else if (role === 'pm-type') { setStaffType(personEditId, t.value); refreshPersonCostUI(false); }
-    else if (role === 'pm-start') updateStaffField(personEditId, 'startMonth', t.value);
-    else if (role === 'pm-end') updateStaffField(personEditId, 'endMonth', t.value);
     else if (role === 'pj-rev-month') setRevenueOverride(projectEditId, t.dataset.mk, t.value);
     else if (role === 'fc-rev-month') setRevenueOverride(t.dataset.pid, t.dataset.mk, t.value);
     else if (role && role.startsWith('bl-') && role !== 'bl-mode' && role !== 'bl-remove') {
@@ -3378,8 +3374,6 @@ document.addEventListener('input', (e) => {
         scheduleSave(); render();
       }
     }
-    else if (role === 'pj-start') { setFlightDate(projectEditId, 'start', t.value); rebuildProjectModalMonths(); }
-    else if (role === 'pj-end') { setFlightDate(projectEditId, 'end', t.value); rebuildProjectModalMonths(); }
   } finally {
     if (typed) suppressRender = false;
   }
@@ -3649,6 +3643,13 @@ document.getElementById('project-modal').addEventListener('click', (e) => {
 // after leaving the default-revenue field, refresh month placeholders
 document.addEventListener('change', (e) => {
   if (e.target && e.target.dataset && e.target.dataset.role === 'pj-rev-month') rebuildProjectModalMonths();
+  const dRole = e.target && e.target.dataset ? e.target.dataset.role : null;
+  if (dRole === 'flight-start') { setFlightDate(e.target.dataset.id, 'start', e.target.value); return; }
+  if (dRole === 'flight-end') { setFlightDate(e.target.dataset.id, 'end', e.target.value); return; }
+  if (dRole === 'pj-start') { setFlightDate(projectEditId, 'start', e.target.value); rebuildBillingSection(); rebuildProjectModalMonths(); return; }
+  if (dRole === 'pj-end') { setFlightDate(projectEditId, 'end', e.target.value); rebuildBillingSection(); rebuildProjectModalMonths(); return; }
+  if (dRole === 'pm-start') { updateStaffField(personEditId, 'startMonth', e.target.value); return; }
+  if (dRole === 'pm-end') { updateStaffField(personEditId, 'endMonth', e.target.value); return; }
   if (e.target && e.target.dataset && e.target.dataset.role === 'bl-mode') {
     const p = state.projects.find(x => x.id === projectEditId);
     const line = p && p.billing && p.billing.lines[+e.target.dataset.line];
