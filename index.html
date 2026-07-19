@@ -231,6 +231,9 @@ input.rev-input { min-width: 110px; }
 .demand-add input.numfield { font-family: var(--font-mono); font-size: 12px; width: 90px; }
 .demand-add select { font-family: var(--font-mono); font-size: 11px; }
 .demand-add .hint { font-family: var(--font-mono); font-size: 10px; color: var(--slate); }
+.flight-edit { font-family: var(--font-mono); font-size: 11px; color: var(--slate); margin-top: 6px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.flight-edit input[type="date"] { font-family: var(--font-mono); font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; background: var(--paper-raised); color: var(--ink); }
+.flight-edit input[type="date"]:focus { outline: none; border-color: var(--brand); }
 
 /* Assign modal */
 .modal-overlay { position: fixed; inset: 0; background: rgba(32,36,46,0.45); display: none; align-items: flex-start; justify-content: center; z-index: 50; padding: 40px 16px; overflow-y: auto; }
@@ -906,7 +909,10 @@ function actualFor(mk, sid, pid) { return (state.actuals[mk] || {})[sid + '__' +
 function demandFor(mk, pid, dept) { return ((state.demand[mk] || {})[pid] || {})[dept] || 0; }
 function revenueFor(p, mk) {
   const o = p.revenueOverrides || {};
-  return (o[mk] !== undefined) ? o[mk] : (p.monthlyRevenue || 0);
+  if (o[mk] !== undefined) return o[mk];   // explicit per-month amounts are never prorated
+  const flat = p.monthlyRevenue || 0;
+  const cov = monthCoverage(p, mk);
+  return cov >= 1 ? flat : flat * cov;     // partial first/last month -> prorated share
 }
 
 /* aggregated over the view period */
@@ -969,6 +975,33 @@ function activeProjects() {
     vm.some(mk => Object.keys(state.actuals[mk] || {}).some(k => k.endsWith('__' + p.id)))
   );
 }
+function lastDayOf(mk) {
+  const [y, m] = mk.split('-').map(Number);
+  return mk + '-' + String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0');
+}
+function fmtDate(dstr) {
+  const [y, m, d] = dstr.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', {month: 'short', day: 'numeric', timeZone: 'UTC'}) + ' ' + String(y).slice(2);
+}
+/* Fraction of a month the campaign covers: 1 for full months, day-prorated
+   when startDate/endDate fall inside the month, 0 outside the flight. */
+function monthCoverage(p, mk) {
+  if (!projectActiveInMonth(p, mk)) return 0;
+  const [y, m] = mk.split('-').map(Number);
+  const dim = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  let from = 1, to = dim;
+  if (p.startDate && p.startDate.slice(0, 7) === mk) from = +p.startDate.slice(8, 10);
+  if (p.endDate && p.endDate.slice(0, 7) === mk) to = +p.endDate.slice(8, 10);
+  if (to < from) return 0;
+  return (to - from + 1) / dim;
+}
+function flightLabel(p) {
+  if (!p.startMonth || !p.endMonth) return '';
+  if (p.startDate || p.endDate) {
+    return fmtDate(p.startDate || p.startMonth + '-01') + '–' + fmtDate(p.endDate || lastDayOf(p.endMonth));
+  }
+  return monthShort(p.startMonth) + '–' + monthShort(p.endMonth);
+}
 function monthsOfFlight(p) {
   if (!p.startMonth || !p.endMonth || p.endMonth < p.startMonth) return null;
   const arr = [];
@@ -1026,6 +1059,23 @@ function updateProjectField(id, field, value) {
   if (!p) return;
   if (field === 'name' || field === 'startMonth' || field === 'endMonth') p[field] = value;
   else p[field] = parseFloat(value) || 0;
+  if (field === 'startMonth') p.startDate = '';   // month-level edit = whole months again
+  if (field === 'endMonth') p.endDate = '';
+  scheduleSave(); render();
+}
+function setFlightDate(id, side, value) {
+  const p = state.projects.find(p => p.id === id);
+  if (!p) return;
+  if (side === 'start') {
+    p.startDate = value || '';
+    if (value) p.startMonth = value.slice(0, 7);
+  } else {
+    p.endDate = value || '';
+    if (value) p.endMonth = value.slice(0, 7);
+  }
+  const s = p.startDate || (p.startMonth ? p.startMonth + '-01' : '');
+  const e = p.endDate || (p.endMonth ? lastDayOf(p.endMonth) : '');
+  if (s && e && e < s) toast('Heads up: the flight end date is before the start date — fix one of them.', 6000);
   scheduleSave(); render();
 }
 function setRevenueThisMonth(id, value) {
@@ -1179,10 +1229,18 @@ function resolveUnits(hrs, unit, project) {
   }
   if (unit === 'flight') {
     const flight = monthsOfFlight(project);
-    if (!flight) return {error: 'This project needs both a flight start and end month before you can spread hours across the flight. Set them on the Projects tab.'};
-    const perMonth = hrs / flight.length;
-    return {perMonth, months: flight,
-      describe: fmtHrs(hrs) + ' hrs over ' + flight.length + '-month flight ≈ ' + fmtHrs(perMonth) + ' hrs/month (' + monthShort(flight[0]) + '–' + monthShort(flight[flight.length-1]) + ')'};
+    if (!flight) return {error: 'This project needs a flight start and end before you can spread hours across it. Set the dates right here in the project header.'};
+    const covs = flight.map(mk => monthCoverage(project, mk));
+    const totalCov = covs.reduce((a, b) => a + b, 0);
+    if (totalCov <= 0) return {error: 'The flight dates leave no covered days — check the start and end dates.'};
+    const monthsMap = {};
+    flight.forEach((mk, i) => {
+      const share = hrs * (covs[i] / totalCov);
+      if (share > 0.049) monthsMap[mk] = Math.round(share * 10) / 10;
+    });
+    const partial = covs.some(c => c > 0 && c < 0.999);
+    return {monthsMap,
+      describe: fmtHrs(hrs) + ' hrs over the flight (' + flightLabel(project) + ')' + (partial ? ', prorated for partial months' : ' ≈ ' + fmtHrs(hrs / flight.length) + ' hrs/month')};
   }
   const vm = viewMonths();
   return {perMonth: hrs, months: vm, describe: vm.length > 1 ? fmtHrs(hrs) + ' hrs/month across ' + vm.length + ' months' : ''};
@@ -2507,7 +2565,20 @@ function renderDemand() {
         <div class="demand-project-head">
           <div>
             <span class="pname" style="color:${PROJECT_COLORS[i % PROJECT_COLORS.length]}">${escapeHtml(p.name) || 'Untitled'}</span>
-            <span class="pmeta"> · ${fmtMoney(getRevenue(p))} rev${isRange() ? ' (period)' : ' this month'}${hasOverride(p) ? ' · varies' : ''} · plan ${fmtMoney(st.cost)} cost · ${st.margin === null ? st.label : Math.round(st.margin) + '% margin'}${flight ? ' · flight ' + monthShort(p.startMonth) + '–' + monthShort(p.endMonth) : ''}</span>
+            <span class="pmeta"> · ${fmtMoney(getRevenue(p))} rev${isRange() ? ' (period)' : ' this month'}${hasOverride(p) ? ' · varies' : ''} · plan ${fmtMoney(st.cost)} cost · ${st.margin === null ? st.label : Math.round(st.margin) + '% margin'}</span>
+            <div class="flight-edit">
+              flight
+              <input type="date" data-role="flight-start" data-id="${p.id}" value="${p.startDate || (p.startMonth ? p.startMonth + '-01' : '')}">
+              →
+              <input type="date" data-role="flight-end" data-id="${p.id}" value="${p.endDate || (p.endMonth ? lastDayOf(p.endMonth) : '')}">
+              ${(() => {
+                if (!flight) return '<span class="pmeta">set both dates to plan the whole flight</span>';
+                const covs = flight.map(mk => monthCoverage(p, mk));
+                const totalCov = covs.reduce((a, b) => a + b, 0);
+                const partial = covs.some(c => c > 0 && c < 0.999);
+                return '<span class="pmeta">' + (partial ? fmtHrs(Math.round(totalCov * 10) / 10) + ' months of coverage over ' : '') + flight.length + ' month' + (flight.length === 1 ? '' : 's') + '</span>';
+              })()}
+            </div>
           </div>
           <div class="pmeta">${fmtHrs(totalNeed)}h planned demand</div>
         </div>
@@ -2523,7 +2594,7 @@ function renderDemand() {
             <option value="flight">hrs, entire flight</option>
           </select>
           <button class="assign" data-role="add-demand" data-project="${p.id}">+ Add demand</button>
-          <span class="hint">weekly ≈ ×${WEEKS_PER_MONTH.toFixed(2)}/month · flight spreads evenly across ${flight ? flight.length + ' months' : 'the flight (needs start & end dates)'}</span>
+          <span class="hint">weekly ≈ ×${WEEKS_PER_MONTH.toFixed(2)}/month · flight spreads across ${flight ? flight.length + ' months, prorated for partial months' : 'the flight (set the dates above)'}</span>
         </div>
       </div>`;
   }).join('');
@@ -2679,6 +2750,8 @@ document.addEventListener('input', (e) => {
     else if (role === 'project-name') updateProjectField(t.dataset.id, 'name', t.value);
     else if (role === 'project-revenue-month') setRevenueThisMonth(t.dataset.id, t.value);
     else if (role === 'project-start') updateProjectField(t.dataset.id, 'startMonth', t.value);
+    else if (role === 'flight-start') setFlightDate(t.dataset.id, 'start', t.value);
+    else if (role === 'flight-end') setFlightDate(t.dataset.id, 'end', t.value);
     else if (role === 'project-end') updateProjectField(t.dataset.id, 'endMonth', t.value);
     else if (role === 'assignment') setAssignment(t.dataset.staff, t.dataset.project, parseFloat(t.value) || 0);
     else if (role === 'demand-hours') setDemand(t.dataset.project, t.dataset.dept, parseFloat(t.value) || 0);
@@ -2791,14 +2864,18 @@ document.addEventListener('click', (e) => {
     if (hrs <= 0) { toast('Enter the number of hours (greater than 0).'); return; }
     const res = resolveUnits(hrs, unit, project);
     if (res.error) { toast(res.error); return; }
-    res.months.forEach(mk => {
-      const existing = ((state.demand[mk] || {})[pid] || {})[dept] || 0;
-      setDemandInMonth(mk, pid, dept, (res.months.length > 1 ? 0 : existing) + res.perMonth);
-    });
+    if (res.monthsMap) {
+      Object.entries(res.monthsMap).forEach(([mk, h]) => setDemandInMonth(mk, pid, dept, h));
+    } else {
+      res.months.forEach(mk => {
+        const existing = ((state.demand[mk] || {})[pid] || {})[dept] || 0;
+        setDemandInMonth(mk, pid, dept, (res.months.length > 1 ? 0 : existing) + res.perMonth);
+      });
+    }
     scheduleSave();
     render();
-    if (res.months.length > 1) toast('Set ' + fmtHrs(res.perMonth) + 'h/month of ' + dept + ' demand across the ' + res.months.length + '-month flight.');
-    else if (res.describe) toast(res.describe);
+    if (res.describe) toast(res.describe);
+    else if (res.months && res.months.length > 1) toast('Set ' + fmtHrs(res.perMonth) + 'h/month of ' + dept + ' demand across ' + res.months.length + ' months.');
   }
   else if (role === 'open-assign') openAssignModal(t.dataset.project, t.dataset.dept);
   else if (role === 'do-assign') doAssign(t.dataset.staff);
