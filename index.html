@@ -1675,6 +1675,15 @@ function renderDashboard() {
       <div class="dash-card">${deptRows || '<div class="empty-note">No team members yet.</div>'}</div>
     </div>
     <div class="dash-section">
+      <h3>People — profit</h3>
+      <div class="chart-card">
+        <h4>Attributed revenue vs labor cost per person${isRange() ? ' (period)' : ''}</h4>
+        ${showActual
+          ? '<div class="chart-wrap" style="height:280px;"><canvas id="chart-people"></canvas></div>'
+          : '<div class="dash-note">Needs logged hours — import hour tracking data for this period to see per-person profit.</div>'}
+      </div>
+    </div>
+    <div class="dash-section">
       <h3>Projects — plan vs actual</h3>
       <div class="dash-card">${projRows || '<div class="empty-note">No active projects this month.</div>'}</div>
     </div>
@@ -1726,6 +1735,25 @@ function buildDashCharts(projs, deptData, showActual) {
     }));
   }
 
+  const peopleEl = document.getElementById('chart-people');
+  if (peopleEl && showActual) {
+    const pd = personProfitData();
+    if (pd.length) {
+      dashCharts.push(new Chart(peopleEl, {
+        type: 'bar',
+        data: {
+          labels: pd.map(d => d.name),
+          datasets: [
+            { label: 'Revenue attributed', data: pd.map(d => Math.round(d.attributed)), backgroundColor: '#3bc9ac' },
+            { label: 'Labor cost', data: pd.map(d => Math.round(d.cost)), backgroundColor: '#9a9a94' },
+            { label: 'Profit', data: pd.map(d => Math.round(d.profit)), backgroundColor: pd.map(d => d.profit >= 0 ? '#0a493c' : '#B5482A') }
+          ]
+        },
+        options: chartOpts()
+      }));
+    }
+  }
+
   const trendEl = document.getElementById('chart-trend');
   if (trendEl) {
     const vm = viewMonths();
@@ -1759,6 +1787,23 @@ function summaryActualLabor() {
     const hrs = empType(s) === 'fulltime' ? periodCapacity(s) : staffTotalHours(s.id, true);
     return sum + hrs * s.hourlyCost;
   }, 0);
+}
+
+function personProfitData() {
+  const projs = activeProjects();
+  const revPerHour = {};
+  projs.forEach(p => {
+    const rev = getRevenue(p);
+    if (rev <= 0) return;
+    const hrs = projectHours(p.id, true); // logged hours on this project in period
+    if (hrs > 0) revPerHour[p.id] = rev / hrs;
+  });
+  return state.staff.map(s => {
+    const attributed = projs.reduce((sum, p) => sum + (revPerHour[p.id] ? getActual(s.id, p.id) * revPerHour[p.id] : 0), 0);
+    const logged = staffTotalHours(s.id, true);
+    const cost = empType(s) === 'fulltime' ? periodCapacity(s) * s.hourlyCost : logged * s.hourlyCost;
+    return { name: s.name || 'Unnamed', attributed, cost, profit: attributed - cost, logged };
+  }).filter(d => d.logged > 0 || d.cost > 0);
 }
 
 function renderSummary() {
