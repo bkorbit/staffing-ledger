@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QuickBooks Time authorization — EMG Staffing Assignments</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap');
+body { margin:0; font-family:'Montserrat',sans-serif; background:#ebebeb; color:#23272b; display:flex; align-items:center; justify-content:center; min-height:100vh; }
+.card { background:#fff; border:1px solid #d2d2d2; border-radius:8px; padding:32px; max-width:640px; width:92%; }
+h1 { font-size:20px; color:#0a493c; margin:0 0 8px; }
+p { font-size:13px; line-height:1.6; color:#67706d; }
+.code-box { font-family:'DM Mono',monospace; font-size:13px; background:#dcf4e9; border:1px solid #3bc9ac; border-radius:6px; padding:14px; word-break:break-all; margin:14px 0; }
+.err { background:#fbe7e4; border-color:#d1453b; }
+button { font-family:'DM Mono',monospace; font-size:12px; background:#0a493c; color:#fff; border:none; padding:9px 16px; border-radius:4px; cursor:pointer; }
+button:hover { background:#2e6e56; }
+.hint { font-size:11px; font-family:'DM Mono',monospace; color:#67706d; margin-top:14px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>QuickBooks Time authorization</h1>
+  <div id="content"></div>
+</div>
+<script>
+const params = new URLSearchParams(location.search);
+const code = params.get('code');
+const error = params.get('error');
+const el = document.getElementById('content');
+if (code) {
+  el.innerHTML = '<p>Authorization succeeded. This is your one-time authorization code — it expires in about 10 minutes and can only be used once:</p>' +
+    '<div class="code-box" id="code">' + code.replace(/[<>&"]/g, '') + '</div>' +
+    '<button onclick="navigator.clipboard.writeText(document.getElementById(\'code\').textContent).then(()=>this.textContent=\'Copied!\')">Copy code</button>' +
+    '<p class="hint">Next: exchange this code for an access token (see the setup instructions), then this page can be closed. The code is not stored anywhere.</p>';
+} else if (error) {
+  el.innerHTML = '<p>Authorization was not completed:</p><div class="code-box err">' + error.replace(/[<>&"]/g, '') + '</div><p class="hint">Close this tab and start the authorization link again.</p>';
+} else {
+  el.innerHTML = '<p>This page receives the redirect from QuickBooks Time during API authorization. Nothing to see right now — start from the authorization link in the setup instructions.</p>';
+}
+</script>
+</body>
+</html>
