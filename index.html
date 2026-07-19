@@ -183,7 +183,6 @@ input.rev-input { min-width: 110px; }
 .pv-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 2px; }
 .pv-plan { background: #0a493c; }
 .pv-act { background: #3bc9ac; }
-.pv-act.over { background: var(--rust); }
 .d-numbers { font-family: var(--font-mono); font-size: 11px; line-height: 1.6; }
 .d-flag { justify-self: end; text-align: right; }
 .dash-note { font-family: var(--font-mono); font-size: 11px; color: var(--slate); padding: 10px 2px; }
@@ -1616,7 +1615,7 @@ function renderDashboard() {
   const actNet = totalRevenue - actCost;
   const atRisk = projs.filter(p => {
     const a = projectStatus(p, true), pl = projectStatus(p, false);
-    return (showActual && a.hours > 0) ? (a.margin !== null && a.margin < 0) || a.hours > pl.hours * 1.1 : (pl.margin !== null && pl.margin < 0);
+    return (showActual && a.hours > 0) ? a.profit < -0.5 || a.hours > pl.hours * 1.1 : pl.profit < -0.5;
   }).length;
 
   const kpis = `
@@ -1650,7 +1649,7 @@ function renderDashboard() {
     const hasAct = showActual && act.hours > 0;
     const idx = state.projects.indexOf(p);
     const basis = hasAct ? act : plan;
-    const lossRisk = basis.margin !== null && basis.margin < 0;                       // losing money -> red
+    const lossRisk = basis.profit < -0.5;                                             // losing money (incl. $0-revenue campaigns with cost) -> red
     const scopeRisk = !lossRisk && hasAct && plan.hours > 0 && act.hours > plan.hours * 1.1;  // scope drift -> gold
     if (dq && !(p.name || '').toLowerCase().includes(dq)) return '';
     if (ui.dashProjFilter === 'risk' && !lossRisk && !scopeRisk) return '';
