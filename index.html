@@ -116,7 +116,8 @@ input.numfield { font-family: var(--font-mono); text-align: right; }
 .inactive-tag { font-family: var(--font-mono); font-size: 9px; color: var(--slate); border: 1px solid var(--line); border-radius: 3px; padding: 1px 5px; }
 .computed-cell { font-family: var(--font-mono); font-size: 12px; }
 .computed-sub { font-family: var(--font-mono); font-size: 10px; color: var(--slate); white-space: nowrap; }
-input.rev-input { min-width: 110px; }
+input.rev-input { min-width: 90px; flex: 1; }
+.rev-cell { display: flex; align-items: center; gap: 2px; }
 #tab-team table { table-layout: fixed; }
 #tab-team th.col-name { width: 13%; }
 #tab-team th.col-dept { width: 8%; }
@@ -598,7 +599,6 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
       <div class="pm-grid" style="margin-bottom:16px;">
         <label>Flight start<input type="date" data-role="pj-start" id="pj-start"></label>
         <label>Flight end<input type="date" data-role="pj-end" id="pj-end"></label>
-        <label class="pm-full">Default monthly revenue ($)<input type="text" inputmode="decimal" data-role="pj-default" id="pj-default"><span class="pm-hint">used for any month without its own amount · partial months prorate automatically</span></label>
       </div>
       <div class="pj-months-label">REVENUE PER MONTH</div>
       <div id="pj-months" class="pj-months"></div>
@@ -747,7 +747,30 @@ function normalizeState(raw) {
   if (!s.actuals) s.actuals = {};
   if (!s.actualsW) s.actualsW = {};   // weekly actuals: {'YYYY-MM-DD' (Monday): {'staffId__projectId': hours}}
   if (!s.demand) s.demand = {};
-  (s.projects || []).forEach(p => { if (!p.revenueOverrides) p.revenueOverrides = {}; });
+  (s.projects || []).forEach(p => {
+    if (!p.revenueOverrides) p.revenueOverrides = {};
+    // Migrate legacy "default monthly revenue" into explicit per-month amounts
+    // (using the previously displayed prorated values), then retire the default.
+    if (p.monthlyRevenue > 0) {
+      const flight = monthsOfFlight(p);
+      let months = flight;
+      if (!months) {
+        months = [];
+        let mk = '2026-04';
+        const nowMk = monthKey(new Date());
+        let g = 0;
+        while (mk <= nowMk && g < 24) { months.push(mk); mk = shiftMonth(mk, 1); g++; }
+      }
+      months.forEach(mk => {
+        if (p.revenueOverrides[mk] === undefined) {
+          const cov = monthCoverage(p, mk);
+          const v = Math.round((p.monthlyRevenue || 0) * (flight ? cov : 1));
+          if (v > 0) p.revenueOverrides[mk] = v;
+        }
+      });
+      p.monthlyRevenue = 0;
+    }
+  });
   (s.staff || []).forEach(backfillAnnual);
   return s;
 }
@@ -861,15 +884,14 @@ function rebuildProjectModalMonths() {
   if (!months.length) { el.innerHTML = '<div class="pj-empty">Set flight start and end dates to lay out the months.</div>'; return; }
   el.innerHTML = months.map(mk => {
     const o = (p.revenueOverrides || {})[mk];
-    const overridden = o !== undefined;
+    const hasValue = o !== undefined;
     const cov = monthCoverage(p, mk);
-    const effDefault = Math.round((p.monthlyRevenue || 0) * cov);
     return `
-      <div class="pj-month ${overridden ? 'overridden' : ''}">
+      <div class="pj-month ${hasValue ? 'overridden' : ''}">
         <div class="mlabel"><span>${monthShort(mk)}</span><span>${cov > 0 && cov < 0.999 ? Math.round(cov * 100) + '% of mo' : ''}</span></div>
         <input type="text" inputmode="decimal" data-role="pj-rev-month" data-mk="${mk}"
-          value="${overridden ? o : ''}" placeholder="${'$' + effDefault.toLocaleString()}"
-          title="${overridden ? 'Custom amount for this month — clear to fall back to the default' : 'Using default' + (cov < 0.999 ? ' (prorated)' : '')}">
+          value="${hasValue ? o : ''}" placeholder="$0"
+          title="${hasValue ? 'Revenue entered for this month' : 'No revenue entered — counts as $0'}">
       </div>`;
   }).join('');
 }
@@ -880,7 +902,6 @@ function openProjectModal(id) {
   document.getElementById('project-modal-title').textContent = p.name || 'Untitled project';
   document.getElementById('pj-start').value = p.startDate || (p.startMonth ? p.startMonth + '-01' : '');
   document.getElementById('pj-end').value = p.endDate || (p.endMonth ? lastDayOf(p.endMonth) : '');
-  document.getElementById('pj-default').value = p.monthlyRevenue || 0;
   rebuildProjectModalMonths();
   document.getElementById('project-modal').classList.add('open');
 }
@@ -1016,11 +1037,8 @@ function assignFor(mk, sid, pid) { return (state.assignments[mk] || {})[sid + '_
 function actualFor(mk, sid, pid) { return (state.actuals[mk] || {})[sid + '__' + pid] || 0; }
 function demandFor(mk, pid, dept) { return ((state.demand[mk] || {})[pid] || {})[dept] || 0; }
 function revenueFor(p, mk) {
-  const o = p.revenueOverrides || {};
-  if (o[mk] !== undefined) return o[mk];   // explicit per-month amounts are never prorated
-  const flat = p.monthlyRevenue || 0;
-  const cov = monthCoverage(p, mk);
-  return cov >= 1 ? flat : flat * cov;     // partial first/last month -> prorated share
+  // Explicit-only: a month has revenue only if an amount was entered/imported for it.
+  return (p.revenueOverrides || {})[mk] || 0;
 }
 
 /* aggregated over the view period */
@@ -1505,7 +1523,7 @@ function handleFileChosen(file) {
 }
 
 const HOURS_NOTE = 'Hours are imported as <strong>actuals</strong>, grouped by month from the date column. Names are matched to existing people and projects (case-insensitive); anything new is created automatically. Project names like "Internal", "Non-billable", "Admin", or "Overhead" go to internal hours. Hourly costs aren\'t in tracking exports — fill those in on the Team tab after importing.';
-const PROJECTS_NOTE = 'Two row shapes work, and you can mix them: <strong>one row per project</strong> (Project, Revenue, Flight start, Flight end) for flat monthly revenue, or <strong>one row per project-month</strong> (Project, Month, Revenue) to capture fluctuating revenue. With monthly rows, the flight start/end are inferred from the first and last month listed (unless given explicitly), the most common revenue becomes the project default, and months that differ become overrides. Existing projects are matched by name and updated; new names are created.';
+const PROJECTS_NOTE = 'Two row shapes work, and you can mix them: <strong>one row per project</strong> (Project, Revenue, Flight start, Flight end) for flat monthly revenue, or <strong>one row per project-month</strong> (Project, Month, Revenue) to capture fluctuating revenue. With monthly rows, the flight start/end are inferred from the first and last month listed (unless given explicitly), and every amount is stored against its exact month — nothing is inferred for months not in the file. Flat rows are written to each month of the flight and therefore require start/end dates. Existing projects are matched by name and updated; new names are created.';
 
 function importType() { return document.getElementById('import-type').value; }
 
@@ -1632,31 +1650,36 @@ function runProjectImport() {
     }
   });
 
-  const created = [], updated = [];
+  const created = [], updated = [], flatSkipped = [];
   Object.values(collect).forEach(c => {
     const mks = Object.keys(c.months).sort();
     let start = c.start, end = c.end;
-    let def = c.flatRev !== null ? c.flatRev : 0;
-    const overrides = {};
+    const amounts = {};   // explicit month -> revenue; nothing is inferred
+    mks.forEach(mk => { amounts[mk] = c.months[mk]; });
     if (mks.length) {
       if (!start) start = mks[0];
       if (!end) end = mks[mks.length - 1];
-      const freq = {};
-      mks.forEach(mk => { const v = c.months[mk]; freq[v] = (freq[v] || 0) + 1; });
-      def = +Object.entries(freq).sort((a, b) => b[1] - a[1])[0][0];
-      mks.forEach(mk => { if (c.months[mk] !== def) overrides[mk] = c.months[mk]; });
+    }
+    if (c.flatRev !== null && !mks.length) {
+      // A flat amount needs flight dates to know which months it belongs to
+      if (start && end) {
+        let mk = start, g = 0;
+        while (mk <= end && g < 36) { if (amounts[mk] === undefined) amounts[mk] = c.flatRev; mk = shiftMonth(mk, 1); g++; }
+      } else {
+        flatSkipped.push(c.name);
+        return;
+      }
     }
     let p = byName[c.name.toLowerCase()];
     if (p) {
-      p.monthlyRevenue = def;
       if (!p.revenueOverrides) p.revenueOverrides = {};
-      mks.forEach(mk => { if (p.revenueOverrides[mk] !== undefined && c.months[mk] === def) delete p.revenueOverrides[mk]; });
-      Object.assign(p.revenueOverrides, overrides);
+      Object.assign(p.revenueOverrides, amounts);   // imported months replace those months only
+      p.monthlyRevenue = 0;
       if (start) p.startMonth = start;
       if (end) p.endMonth = end;
       updated.push(c.name);
     } else {
-      state.projects.push({id: uid(), name: c.name, monthlyRevenue: def, revenueOverrides: overrides, startMonth: start || '', endMonth: end || ''});
+      state.projects.push({id: uid(), name: c.name, monthlyRevenue: 0, revenueOverrides: amounts, startMonth: start || '', endMonth: end || ''});
       created.push(c.name);
     }
   });
@@ -1666,6 +1689,7 @@ function runProjectImport() {
   render();
   let msg = `Projects import: ${created.length} created, ${updated.length} updated${skipped ? ', ' + skipped + ' rows skipped' : ''}.`;
   if (created.length) msg += `\nNew: ${created.join(', ')}`;
+  if (flatSkipped.length) msg += `\nSkipped (flat revenue but no flight dates — add Month or Start/End columns): ${flatSkipped.join(', ')}`;
   toast(msg, 10000);
 }
 
@@ -2401,7 +2425,6 @@ function renderProjectTable() {
     const plan = projectStatus(p, false);
     const act = projectStatus(p, true);
     const rev = getRevenue(p);
-    const overridden = hasOverride(p);
     const hasAct = act.hours > 0;
     const primary = hasAct ? act : plan;                 // actuals lead when they exist
     const netProfit = primary.profit;
@@ -2441,7 +2464,7 @@ function renderProjectTable() {
       <td>
         ${isRange()
           ? `<div class="computed-cell" style="font-weight:700;">${fmtMoney(rev)}</div><div class="computed-sub">period total · edit in single-month view</div>`
-          : `<input type="text" inputmode="decimal" class="numfield rev-input" value="${'$' + Math.round(rev).toLocaleString()}" data-role="project-revenue-month" data-id="${p.id}"><button class="edit-btn" data-role="edit-project" data-id="${p.id}" title="Edit revenue by month & flight dates">✎</button><div class="computed-sub">default ${fmtMoney(p.monthlyRevenue || 0)}${overridden ? ' · differs this month' : ''}</div>`}
+          : `<div class="rev-cell"><input type="text" inputmode="decimal" class="numfield rev-input" value="${rev ? '$' + Math.round(rev).toLocaleString() : ''}" placeholder="$0" data-role="project-revenue-month" data-id="${p.id}"><button class="edit-btn" data-role="edit-project" data-id="${p.id}" title="Edit revenue by month & flight dates">✎</button></div>`}
       </td>
       <td class="computed-cell">
         ${hasAct
@@ -2775,7 +2798,7 @@ function renderDemand() {
         <div class="demand-project-head">
           <div>
             <span class="pname" style="color:${PROJECT_COLORS[i % PROJECT_COLORS.length]}">${escapeHtml(p.name) || 'Untitled'}</span>
-            <span class="pmeta"> · ${fmtMoney(getRevenue(p))} rev${isRange() ? ' (period)' : ' this month'}${hasOverride(p) ? ' · varies' : ''} · plan ${fmtMoney(st.cost)} cost · ${st.margin === null ? st.label : Math.round(st.margin) + '% margin'}</span>
+            <span class="pmeta"> · ${fmtMoney(getRevenue(p))} rev${isRange() ? ' (period)' : ' this month'} · plan ${fmtMoney(st.cost)} cost · ${st.margin === null ? st.label : Math.round(st.margin) + '% margin'}</span>
           </div>
           <div class="head-right">
             <span class="flight-inline" title="Campaign flight dates — synced with the Projects tab. Partial months prorate revenue and flight-spread hours.">
@@ -2874,7 +2897,7 @@ function render() {
    jump around mid-edit. */
 const TYPED_ROLES = new Set(['staff-name','staff-dept','staff-cost','staff-cap','staff-internal',
   'project-name','project-revenue-month','assignment','demand-hours',
-  'pm-name','pm-dept','pm-cost','pm-cap','pj-default','pj-rev-month']);
+  'pm-name','pm-dept','pm-cost','pm-cap','pj-rev-month']);
 let typedFieldDirty = false;
 
 document.addEventListener('input', (e) => {
@@ -2909,7 +2932,6 @@ document.addEventListener('input', (e) => {
     else if (role === 'pm-type') { setStaffType(personEditId, t.value); refreshPersonCostUI(false); }
     else if (role === 'pm-start') updateStaffField(personEditId, 'startMonth', t.value);
     else if (role === 'pm-end') updateStaffField(personEditId, 'endMonth', t.value);
-    else if (role === 'pj-default') updateProjectField(projectEditId, 'monthlyRevenue', String(t.value).replace(/[^0-9.\-]/g, ''));
     else if (role === 'pj-rev-month') setRevenueOverride(projectEditId, t.dataset.mk, t.value);
     else if (role === 'pj-start') { setFlightDate(projectEditId, 'start', t.value); rebuildProjectModalMonths(); }
     else if (role === 'pj-end') { setFlightDate(projectEditId, 'end', t.value); rebuildProjectModalMonths(); }
@@ -3112,7 +3134,7 @@ document.getElementById('project-modal').addEventListener('click', (e) => {
 });
 // after leaving the default-revenue field, refresh month placeholders
 document.addEventListener('change', (e) => {
-  if (e.target && e.target.dataset && (e.target.dataset.role === 'pj-default' || e.target.dataset.role === 'pj-rev-month')) rebuildProjectModalMonths();
+  if (e.target && e.target.dataset && e.target.dataset.role === 'pj-rev-month') rebuildProjectModalMonths();
 });
 document.getElementById('person-modal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('person-modal')) closePersonModal();
