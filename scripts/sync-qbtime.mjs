@@ -24,6 +24,8 @@ const INTERNAL_NAMES = ['emg', 'internal', 'internal time', 'non-billable', 'non
 // Not-working time: PTO/sick/holiday — reduces capacity in the tool
 const TIMEOFF_NAMES = ['pto', 'sick', 'sick day', 'vacation', 'holiday', 'company holiday', 'unpaid time off', 'time off'];
 const TIMEOFF_JOBCODE_TYPES = new Set(['pto', 'paid_break', 'unpaid_break', 'unpaid_time_off']);
+// People to never import from QuickBooks Time (case-insensitive, full name match)
+const EXCLUDED_PEOPLE = new Set(['hannah hoffman']);
 // QuickBooks Time owns all actuals from this date forward: every sync pulls the
 // full window and replaces those months, so QBT corrections/deletions flow through.
 const SYNC_FROM = '2026-04-01';
@@ -103,6 +105,7 @@ async function pullTimesheets(startDate, endDate) {
       const customer = rootJobcodeName(ts.jobcode_id, jobcodes);
       const hours = (ts.duration || 0) / 3600;
       if (!person || !customer || hours <= 0 || !ts.date) continue;
+      if (EXCLUDED_PEOPLE.has(person.toLowerCase())) continue;   // blocked user — never imported
       entries.push({ person, customer, month: monthKeyOf(ts.date), week: weekKeyOf(ts.date), hours, dept });
     }
     if (!data.more) break;
