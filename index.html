@@ -2436,7 +2436,7 @@ function renderDashboard() {
     ${kpis}
     <div class="chart-grid">
       <div class="chart-card"><h4>Department hours — capacity / plan / actual</h4><div class="chart-wrap"><canvas id="chart-dept"></canvas></div></div>
-      <div class="chart-card"><h4>6-month trend — revenue &amp; labor cost</h4><div class="chart-wrap"><canvas id="chart-trend"></canvas></div></div>
+      <div class="chart-card"><h4>Trend — revenue &amp; labor cost</h4><div class="chart-wrap"><canvas id="chart-trend"></canvas></div></div>
       <div class="chart-card"><h4>Logged hours — client vs internal vs time off</h4><div class="chart-wrap"><canvas id="chart-split"></canvas></div></div>
       <div class="chart-card"><h4>Hours logged by week — by project</h4><div class="chart-wrap" id="chart-weekly-wrap"><canvas id="chart-weekly"></canvas></div></div>
     </div>
@@ -2577,12 +2577,23 @@ function buildDashCharts(projs, deptData, showActual) {
       if (wrap) wrap.innerHTML = '<div class="empty-note">Appears once weekly hours exist — the nightly QuickBooks sync writes them.</div>';
     } else {
       const vm = viewMonths();
-      const [ey, em] = vm[vm.length - 1].split('-').map(Number);
-      const lastWk = weekStartKey(new Date(Date.UTC(ey, em, 0)));
+      const monthly = vm.length > 5;   // long selections aggregate by month, covering the whole period
       const addW = (wk, n) => { const [y, m, d] = wk.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + 7 * n)).toISOString().slice(0, 10); };
-      const weeks = [];
-      for (let i = 11; i >= 0; i--) weeks.push(addW(lastWk, -i));
-      const sumFor = (pid, wk) => Object.entries(aw[wk] || {}).reduce((s, [k, v]) => s + (k.endsWith('__' + pid) ? v : 0), 0);
+      let weeks;   // bucket keys: week Mondays, or month keys when monthly
+      if (monthly) {
+        weeks = vm.slice();
+      } else {
+        const [sy, sm] = vm[0].split('-').map(Number);
+        const [ey, em] = vm[vm.length - 1].split('-').map(Number);
+        const firstWk = weekStartKey(new Date(Date.UTC(sy, sm - 1, 1)));
+        const lastWk = weekStartKey(new Date(Date.UTC(ey, em, 0)));
+        weeks = [];
+        let w = firstWk, guard = 0;
+        while (w <= lastWk && guard < 30) { weeks.push(w); w = addW(w, 1); guard++; }
+      }
+      const sumFor = monthly
+        ? (pid, mk) => Object.entries(state.actuals[mk] || {}).reduce((s, [k, v]) => s + (k.endsWith('__' + pid) ? v : 0), 0)
+        : (pid, wk) => Object.entries(aw[wk] || {}).reduce((s, [k, v]) => s + (k.endsWith('__' + pid) ? v : 0), 0);
       const totals = state.projects.map(p => ({ p, total: weeks.reduce((s, wk) => s + sumFor(p.id, wk), 0) })).filter(x => x.total > 0).sort((a, b) => b.total - a.total);
       const top = totals.slice(0, 7);
       const rest = totals.slice(7);
@@ -2600,7 +2611,7 @@ function buildDashCharts(projs, deptData, showActual) {
         dashCharts.push(new Chart(weeklyEl, {
           type: 'bar',
           plugins: window.ChartDataLabels ? [window.ChartDataLabels] : [],
-          data: { labels: weeks.map(weekLabel), datasets },
+          data: { labels: weeks.map(k => monthly ? monthShort(k) : weekLabel(k)), datasets },
           options: (() => {
             const o = chartOpts();
             o.scales.x.stacked = true;
@@ -2630,8 +2641,10 @@ function buildDashCharts(projs, deptData, showActual) {
   if (trendEl) {
     const vm = viewMonths();
     const end = vm[vm.length - 1];
-    const months = [];
-    for (let i = 5; i >= 0; i--) months.push(shiftMonth(end, -i));
+    // trend spans the selected period; short selections (1-2 months) get 6 months of context
+    let months;
+    if (vm.length >= 3) months = vm;
+    else { months = []; for (let i = 5; i >= 0; i--) months.push(shiftMonth(end, -i)); }
     const rev = months.map(mk => Math.round(state.projects.filter(p => projectActiveInMonth(p, mk)).reduce((s, p) => s + revenueFor(p, mk), 0)));
     const planC = months.map(mk => Math.round(monthLaborCost(state.assignments, mk)));
     const actC = months.map(mk => Math.round(monthLaborCost(state.actuals, mk)));
