@@ -165,7 +165,9 @@ input.rev-input { min-width: 90px; flex: 1; }
 @media (max-width: 640px) { .pm-grid { grid-template-columns: 1fr; } }
 .pj-months-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; color: var(--slate); margin-bottom: 8px; }
 .pj-months { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
-#project-modal .modal-body { max-height: 78vh; overflow-y: auto; }
+#project-modal .modal-body { max-height: 85vh; overflow-y: auto; }
+.pj-computed[data-role] { cursor: pointer; }
+.pj-cbadge { font-size: 8px; color: var(--slate); border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; vertical-align: middle; }
 .bl-line { border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; margin-bottom: 10px; background: var(--paper-raised); }
 .bl-line .bl-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
 .bl-line label { font-size: 12px; }
@@ -684,7 +686,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 </div>
 
 <div class="modal-overlay" id="project-modal">
-  <div class="modal" style="max-width:960px; width:94vw;">
+  <div class="modal" style="max-width:1120px; width:96vw;">
     <div class="modal-head">
       <div>
         <h3 id="project-modal-title">Project</h3>
@@ -1080,21 +1082,21 @@ function rebuildProjectModalMonths() {
   const el = document.getElementById('pj-months');
   if (!p || !el) return;
   const lbl = document.getElementById('pj-months-label');
-  if (lbl) lbl.textContent = billingActive(p) ? 'GROSS PROFIT PER MONTH — computed from billing lines' : 'GROSS PROFIT PER MONTH';
+  if (lbl) lbl.textContent = billingActive(p) ? 'GROSS PROFIT PER MONTH — computed from billing lines; type any month to override (overrides always win)' : 'GROSS PROFIT PER MONTH';
   const months = billingActive(p) ? (monthsOfFlight(p) || [...billingMonths(p)].sort()) : (monthsOfFlight(p) || viewMonths());
   if (!months.length) { el.innerHTML = '<div class="pj-empty">Set flight start and end dates to lay out the months.</div>'; return; }
   el.innerHTML = months.map(mk => {
-    const computed = billingGP(p, mk);
     const o = (p.revenueOverrides || {})[mk];
     const hasValue = o !== undefined;
+    const computedOnly = isComputedMonth(p, mk);   // billing fills this month, no manual override
     const cov = monthCoverage(p, mk);
-    const body = computed !== null
-      ? `<div class="pj-computed" title="${escapeAttr(billingBreakdown(p, mk))}">${fmtMoney(computed)}</div>`
+    const body = computedOnly
+      ? `<div class="pj-computed" title="${escapeAttr(billingBreakdown(p, mk))} · click to override" data-role="pj-rev-computed" data-mk="${mk}">${fmtMoney(billingGP(p, mk))} <span class="pj-cbadge">auto</span></div>`
       : `<input type="text" inputmode="decimal" data-role="pj-rev-month" data-mk="${mk}"
-          value="${hasValue ? o : ''}" placeholder="$0"
-          title="${hasValue ? 'Revenue entered for this month' : 'No revenue entered — counts as $0'}">`;
+          value="${hasValue ? o : ''}" placeholder="${billingActive(p) && billingMonths(p).has(mk) ? '$' + Math.round(billingGP(p, mk)).toLocaleString() + ' auto' : '$0'}"
+          title="${hasValue ? 'Manual amount — overrides billing' : 'Empty = ' + (billingActive(p) && billingMonths(p).has(mk) ? 'use billing line' : 'counts as $0')}">`;
     return `
-      <div class="pj-month ${computed !== null || hasValue ? 'overridden' : ''}">
+      <div class="pj-month ${computedOnly || hasValue ? 'overridden' : ''}">
         <div class="mlabel"><span>${monthShort(mk)}</span><span>${cov > 0 && cov < 0.999 ? Math.round(cov * 100) + '% of mo' : ''}</span></div>
         ${body}
         <label class="rev-act" title="Check when confirmed actual; unchecked = forecasted"><input type="checkbox" data-role="pj-rev-actual" data-mk="${mk}" ${(p.revenueActuals || {})[mk] ? 'checked' : ''}> actual</label>
@@ -1302,18 +1304,19 @@ function billingMonths(p) {
 const BILLING_TYPES = { retainer: 'Retainer', search: 'Paid Search', social: 'Paid Social', programmatic: 'Programmatic', hourly: 'Hourly' };
 
 function revenueFor(p, mk) {
-  // A month's revenue comes from billing lines only when those lines actually
-  // cover that month (see billingMonths). For any month a manual/actual amount
-  // was entered, that entered amount is preserved and wins — adding a billing
-  // line never wipes hand-entered or actual-marked revenue for other months.
+  // Manual entry always wins. A hand-entered amount for a month (whether or not
+  // it's marked actual) is authoritative and is NEVER overwritten by billing
+  // lines — adding or editing billing lines can only FILL months that have no
+  // manual amount. This keeps historical/actual data intact when a project
+  // later switches to computed billing.
   const manual = (p.revenueOverrides || {})[mk];
-  if (billingActive(p) && billingMonths(p).has(mk)) {
-    // If this specific month was hand-marked actual, trust the entered amount
-    // over the computed one (actuals are ground truth); else use the computed value.
-    if ((p.revenueActuals || {})[mk] && manual !== undefined) return manual;
-    return billingGP(p, mk);
-  }
-  return manual || 0;
+  if (manual !== undefined) return manual;
+  if (billingActive(p) && billingMonths(p).has(mk)) return billingGP(p, mk);
+  return 0;
+}
+// Is this month's revenue coming from a billing line (i.e. no manual amount overrides it)?
+function isComputedMonth(p, mk) {
+  return (p.revenueOverrides || {})[mk] === undefined && billingActive(p) && billingMonths(p).has(mk);
 }
 
 /* aggregated over the view period */
@@ -3133,15 +3136,15 @@ function renderProjectTable() {
         ? (monthsOfFlight(p) || [...billingMonths(p)].sort())
         : (monthsOfFlight(p) || viewMonths());
       const revGrid = revMonths.length ? revMonths.map(mk => {
-        const computed = billingGP(p, mk);
         const o = (p.revenueOverrides || {})[mk];
         const hasValue = o !== undefined;
         const isAct = (p.revenueActuals || {})[mk];
-        const body = computed !== null
-          ? `<div class="pj-computed" title="${escapeAttr(billingBreakdown(p, mk))}">${fmtMoney(computed)}</div>`
-          : `<input type="text" inputmode="decimal" data-role="pb-rev-month" data-id="${p.id}" data-mk="${mk}" value="${hasValue ? o : ''}" placeholder="$0">`;
+        const computedOnly = isComputedMonth(p, mk);
+        const body = computedOnly
+          ? `<div class="pj-computed" title="${escapeAttr(billingBreakdown(p, mk))} · click to override" data-role="pb-rev-computed" data-id="${p.id}" data-mk="${mk}">${fmtMoney(billingGP(p, mk))} <span class="pj-cbadge">auto</span></div>`
+          : `<input type="text" inputmode="decimal" data-role="pb-rev-month" data-id="${p.id}" data-mk="${mk}" value="${hasValue ? o : ''}" placeholder="${billingActive(p) && billingMonths(p).has(mk) ? '$' + Math.round(billingGP(p, mk)).toLocaleString() + ' auto' : '$0'}">`;
         return `
-          <div class="pj-month ${hasValue || computed !== null ? 'overridden' : ''}${mk === currentMonth ? ' pj-now' : ''}">
+          <div class="pj-month ${hasValue || computedOnly ? 'overridden' : ''}${mk === currentMonth ? ' pj-now' : ''}">
             <div class="mlabel"><span>${monthShort(mk)}</span><span>${mk === currentMonth ? 'now' : ''}</span></div>
             ${body}
             <label class="rev-act" title="Check when confirmed actual; unchecked = forecasted"><input type="checkbox" data-role="pb-rev-actual" data-id="${p.id}" data-mk="${mk}" ${isAct ? 'checked' : ''}> actual</label>
@@ -3761,6 +3764,14 @@ document.addEventListener('click', (e) => {
   else if (role === 'team-toggle') {
     ui.teamExpanded[t.dataset.id] = !ui.teamExpanded[t.dataset.id];
     render();
+  }
+  else if (role === 'pj-rev-computed') {
+    const pr = state.projects.find(x => x.id === projectEditId);
+    if (pr) { setRevenueOverride(projectEditId, t.dataset.mk, String(Math.round(billingGP(pr, t.dataset.mk)))); rebuildProjectModalMonths(); }
+  }
+  else if (role === 'pb-rev-computed') {
+    const pr = state.projects.find(x => x.id === t.dataset.id);
+    if (pr) { setRevenueOverride(t.dataset.id, t.dataset.mk, String(Math.round(billingGP(pr, t.dataset.mk)))); render(); }
   }
   else if (role === 'proj-toggle') {
     ui.projExpanded[t.dataset.id] = !ui.projExpanded[t.dataset.id];
