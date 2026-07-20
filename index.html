@@ -164,7 +164,12 @@ input.rev-input { min-width: 90px; flex: 1; }
 .pm-hint { display: block; font-family: var(--font-mono); font-size: 10px; color: var(--slate); margin-top: 4px; text-transform: none; letter-spacing: 0; }
 @media (max-width: 640px) { .pm-grid { grid-template-columns: 1fr; } }
 .pj-months-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; color: var(--slate); margin-bottom: 8px; }
-.pj-months { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+.pj-months { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+#project-modal .modal-body { max-height: 78vh; overflow-y: auto; }
+.bl-line { border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; margin-bottom: 10px; background: var(--paper-raised); }
+.bl-line .bl-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+.bl-line label { font-size: 12px; }
+.bl-line input { padding: 7px 9px; }
 .pj-month { border: 1px solid var(--line); border-radius: 5px; padding: 8px; background: var(--paper-raised); }
 .pj-month.overridden { border-color: var(--brand-3); }
 .pj-month .mlabel { font-family: var(--font-mono); font-size: 10px; color: var(--slate); margin-bottom: 4px; display: flex; justify-content: space-between; }
@@ -679,7 +684,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 </div>
 
 <div class="modal-overlay" id="project-modal">
-  <div class="modal" style="max-width:620px;">
+  <div class="modal" style="max-width:960px; width:94vw;">
     <div class="modal-head">
       <div>
         <h3 id="project-modal-title">Project</h3>
@@ -1297,11 +1302,18 @@ function billingMonths(p) {
 const BILLING_TYPES = { retainer: 'Retainer', search: 'Paid Search', social: 'Paid Social', programmatic: 'Programmatic', hourly: 'Hourly' };
 
 function revenueFor(p, mk) {
-  // Billing lines compute live and win; otherwise a month has revenue only if
-  // an amount was entered/imported for it.
-  const b = billingGP(p, mk);
-  if (b !== null) return b;
-  return (p.revenueOverrides || {})[mk] || 0;
+  // A month's revenue comes from billing lines only when those lines actually
+  // cover that month (see billingMonths). For any month a manual/actual amount
+  // was entered, that entered amount is preserved and wins — adding a billing
+  // line never wipes hand-entered or actual-marked revenue for other months.
+  const manual = (p.revenueOverrides || {})[mk];
+  if (billingActive(p) && billingMonths(p).has(mk)) {
+    // If this specific month was hand-marked actual, trust the entered amount
+    // over the computed one (actuals are ground truth); else use the computed value.
+    if ((p.revenueActuals || {})[mk] && manual !== undefined) return manual;
+    return billingGP(p, mk);
+  }
+  return manual || 0;
 }
 
 /* aggregated over the view period */
