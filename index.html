@@ -113,6 +113,8 @@ td.sel-col input, th.sel-col input { width: auto; margin: 0; cursor: pointer; }
 .fc-rev-input { width: 90px; border: 1px solid transparent; border-radius: 4px; padding: 3px 5px; font-family: var(--font-mono); font-size: 12px; background: transparent; color: var(--ink); font-weight: 700; }
 .fc-rev-input:hover { border-color: var(--line); background: var(--paper-raised); }
 .fc-rev-input:focus { outline: none; border-color: var(--brand); background: var(--paper-raised); }
+.fc-row.fc-billed { cursor: pointer; }
+.fc-row.fc-billed:hover { background: var(--mint); border-radius: 4px; }
 .fc-payroll { font-family: var(--font-mono); font-size: 10px; color: var(--slate); padding: 8px 0 0; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 @media (max-width: 860px) { .fc-row { grid-template-columns: 1fr 1fr; row-gap: 2px; } }
 
@@ -195,6 +197,9 @@ input.rev-input { min-width: 90px; flex: 1; }
 .bl-add { display: flex; gap: 8px; align-items: center; font-family: var(--font-mono); font-size: 11px; }
 .bl-add select { border: 1px solid var(--line); border-radius: 4px; padding: 5px 7px; font-family: var(--font-mono); font-size: 11px; background: var(--paper-raised); }
 .bl-chip { font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--brand); border: 1px solid var(--brand-3); border-radius: 3px; padding: 0 4px; margin-left: 4px; }
+.proj-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 2px; margin-top: 4px; padding-left: 26px; }
+.proj-tags .bl-chip { margin-left: 0; }
+.proj-depts { font-family: var(--font-mono); font-size: 9px; color: var(--slate); }
 .pj-month .pj-computed { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--ink); padding: 4px 0; }
 
 .mini-track.split { display: flex; overflow: hidden; }
@@ -1041,7 +1046,12 @@ function blMonthInputs(p, line, li) {
   const flight = monthsOfFlight(p);
   if (!flight) return '<div class="pj-empty">Set flight start and end dates above to lay out monthly inputs.</div>';
   const t = line.type;
-  return '<div class="bl-months">' + flight.map(mk => {
+  // Months already confirmed actual are locked to their entered amount and not
+  // re-planned here — editing the schedule shouldn't disturb a closed month.
+  const planMonths = flight.filter(mk => !(p.revenueActuals || {})[mk]);
+  const skipped = flight.length - planMonths.length;
+  if (!planMonths.length) return '<div class="pj-empty">All flight months are marked actual — nothing left to schedule.</div>';
+  return '<div class="bl-months">' + planMonths.map(mk => {
     let inner = '';
     if (t === 'search' || t === 'social' || t === 'programmatic') {
       inner += `<input type="text" inputmode="decimal" placeholder="budget $" value="${(line.budgets || {})[mk] || ''}" data-role="bl-budget" data-line="${li}" data-mk="${mk}" title="Billed media budget for ${monthShort(mk)}">`;
@@ -1054,7 +1064,7 @@ function blMonthInputs(p, line, li) {
       inner += `<input type="text" inputmode="decimal" placeholder="hours" value="${(line.hoursByMonth || {})[mk] || ''}" data-role="bl-mhours" data-line="${li}" data-mk="${mk}">`;
     }
     return `<div class="bl-m"><div class="bl-mk">${monthShort(mk)}</div>${inner}<div class="bl-gp">${fmtMoney(lineGP(p, line, mk))}</div></div>`;
-  }).join('') + '</div>';
+  }).join('') + '</div>' + (skipped ? `<div class="pm-hint" style="margin:6px 0 0;">${skipped} month${skipped === 1 ? '' : 's'} hidden — already marked actual (edit in the grid below)</div>` : '');
 }
 
 function rebuildBillingSection() {
@@ -1556,6 +1566,16 @@ function removeDemand(projectId, dept) {
     if (d[projectId]) delete d[projectId][dept];
   });
   scheduleSave(); render();
+}
+function projectAssignedDepts(pid) {
+  const set = new Set();
+  state.staff.forEach(s => {
+    if (getAssignment(s.id, pid) > 0 || getActual(s.id, pid) > 0) {
+      const d = normDept(s.department);
+      if (d) set.add(d);
+    }
+  });
+  return [...set].sort();
 }
 function staffInDept(dept) {
   if (dept === NO_DEPT) return state.staff.filter(s => !normDept(s.department));
@@ -2298,7 +2318,7 @@ function renderForecast() {
           <div class="fc-col" data-role="fc-sort" data-key="status">Status${ind('status')}</div>
         </div>
         ${withRev.map(c => `
-          <div class="fc-row">
+          <div class="fc-row${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? ' fc-billed' : ''; })()}"${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? ` data-role="fc-open-project" data-id="${c.pid}" title="Billing-scheduled — click to edit the campaign schedule"` : ''; })()}>
             <div class="fc-name">${escapeHtml(c.name)}<button class="edit-btn" data-role="edit-project" data-id="${c.pid}" title="Edit billing & months">✎</button>${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? pp.billing.lines.map(l => `<span class="bl-chip">${BILLING_TYPES[l.type]}</span>`).join('') : ''; })()}${c.amount === 0 && c.inFlight ? '<span class="fc-basis"> · in flight</span>' : ''}</div>
             <div class="pb-num">${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? `<span style="font-weight:700;" title="${escapeAttr(billingBreakdown(pp, r.mk))}">${fmtMoney(c.amount)}</span>` : `<input type="text" inputmode="decimal" class="fc-rev-input" value="${c.amount ? '$' + Math.round(c.amount).toLocaleString() : ''}" placeholder="$0" data-role="fc-rev-month" data-pid="${c.pid}" data-mk="${r.mk}">`; })()} rev</div>
             <div class="pb-num">${fmtMoney(c.cost)} cost <span class="fc-basis">${c.basis}</span></div>
@@ -3186,7 +3206,14 @@ function renderProjectTable() {
     return `
     <tr style="${active ? '' : 'opacity:0.55;'}">
       <td class="sel-col"><input type="checkbox" data-role="proj-select" data-id="${p.id}" ${ui.projSelected[p.id] ? 'checked' : ''}></td>
-      <td><div class="name-cell"><button class="expand-btn" data-role="proj-toggle" data-id="${p.id}">${expanded ? '▾' : '▸'}</button><input type="text" value="${escapeAttr(p.name)}" placeholder="Project name" data-role="project-name" data-id="${p.id}"></div></td>
+      <td><div class="name-cell"><button class="expand-btn" data-role="proj-toggle" data-id="${p.id}">${expanded ? '▾' : '▸'}</button><input type="text" value="${escapeAttr(p.name)}" placeholder="Project name" data-role="project-name" data-id="${p.id}"></div>
+        ${(() => {
+          const chips = billingActive(p) ? p.billing.lines.map(l => `<span class="bl-chip">${BILLING_TYPES[l.type]}</span>`).join('') : '';
+          const depts = projectAssignedDepts(p.id);
+          const deptLine = depts.length ? `<span class="proj-depts">${depts.map(d => escapeHtml(d)).join(' · ')}</span>` : '';
+          return (chips || deptLine) ? `<div class="proj-tags">${chips}${deptLine}</div>` : '';
+        })()}
+      </td>
       <td>
         ${isRange()
           ? `<div class="computed-cell" style="font-weight:700;">${fmtMoney(rev)}</div><div class="computed-sub">period total · edit in single-month view</div>`
@@ -3751,7 +3778,15 @@ document.addEventListener('change', (e) => {
 
 document.addEventListener('click', (e) => {
   const t = e.target;
-  const role = t.dataset.role;
+  let role = t.dataset.role;
+  // Clicking anywhere inside a billed forecast row (but not its inner ✎ button) opens the editor
+  if (!role || (role !== 'edit-project')) {
+    const fcRow = t.closest && t.closest('.fc-row.fc-billed');
+    if (fcRow && !t.closest('[data-role="edit-project"]') && role !== 'edit-project') {
+      openProjectModal(fcRow.dataset.id);
+      return;
+    }
+  }
   if (role === 'remove-staff') removeStaff(t.dataset.id);
   else if (role === 'remove-project') removeProject(t.dataset.id);
   else if (role === 'remove-demand') removeDemand(t.dataset.project, t.dataset.dept);
