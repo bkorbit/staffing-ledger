@@ -857,6 +857,25 @@ function normalizeState(raw) {
   (s.projects || []).forEach(p => {
     if (!p.revenueOverrides) p.revenueOverrides = {};
     if (!p.revenueActuals) p.revenueActuals = {};   // {month: true} — revenue confirmed actual (default: forecasted)
+    // Repair orphaned revenue keyed as YYYY-MM-DD (from older flight-date formats) -> YYYY-MM
+    if (p.revenueOverrides) {
+      Object.keys(p.revenueOverrides).forEach(k => {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(k)) {
+          const mk = k.slice(0, 7);
+          if (p.revenueOverrides[mk] === undefined) p.revenueOverrides[mk] = p.revenueOverrides[k];
+          delete p.revenueOverrides[k];
+        }
+      });
+    }
+    if (p.revenueActuals) {
+      Object.keys(p.revenueActuals).forEach(k => {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(k)) {
+          const mk = k.slice(0, 7);
+          p.revenueActuals[mk] = p.revenueActuals[k];
+          delete p.revenueActuals[k];
+        }
+      });
+    }
     // Migrate legacy "default monthly revenue" into explicit per-month amounts
     // (using the previously displayed prorated values), then retire the default.
     if (p.monthlyRevenue > 0) {
