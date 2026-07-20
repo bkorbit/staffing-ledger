@@ -563,7 +563,16 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
         <button class="ghost" id="fc-range-clear">All months</button>
       </div>
       <div class="chart-card" style="margin-bottom:16px;">
-        <h4>Gross revenue month over month · second bar = profit after labor</h4>
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+          <h4 style="margin:0;">Gross revenue month over month · line = expected profit</h4>
+          <button class="ghost" id="fc-costs-toggle" style="display:none;">Fixed costs ▸</button>
+        </div>
+        <div id="fc-costs-panel" style="display:none; border:1px solid var(--line); border-radius:6px; padding:12px 14px; margin:10px 0 4px; background:var(--paper-raised);">
+          <div style="font-family:var(--font-mono); font-size:10px; color:var(--slate); margin-bottom:8px;">Monthly fixed costs — operational cost, non-hour-tracked labor, etc. Applied to every month and subtracted from the expected-profit line only. Doesn't change per-project economics.</div>
+          <div id="fc-costs-list"></div>
+          <button class="ghost" id="fc-cost-add" style="margin-top:8px;">+ Add fixed cost</button>
+          <div id="fc-costs-total" style="font-family:var(--font-mono); font-size:11px; font-weight:700; color:var(--brand); margin-top:8px;"></div>
+        </div>
         <div class="chart-wrap" style="height:300px;"><canvas id="chart-forecast"></canvas></div>
       </div>
       <table>
@@ -781,7 +790,7 @@ let ui = {
   teamExpanded: {}, // staffId -> true
   teamShowEnded: false,
   teamClientOnly: false,
-  dashProjSearch: '', dashProjFilter: 'all',
+  dashProjSearch: '', dashProjFilter: 'all', fcCostsOpen: false,
   projExpanded: {}   // projectId -> true  // staffId -> true
 };
 
@@ -858,7 +867,8 @@ function setTab(tab) {
 function normalizeState(raw) {
   const s = Object.assign({staff: [], projects: [], assignments: {}, actuals: {}, demand: {}}, raw || {});
   if (!s.actuals) s.actuals = {};
-  if (!s.actualsW) s.actualsW = {};   // weekly actuals: {'YYYY-MM-DD' (Monday): {'staffId__projectId': hours}}
+  if (!s.actualsW) s.actualsW = {};
+  if (!s.fixedCosts) s.fixedCosts = [];   // [{id, label, amount}] monthly operating costs applied to the forecast profit line   // weekly actuals: {'YYYY-MM-DD' (Monday): {'staffId__projectId': hours}}
   if (!s.demand) s.demand = {};
   (s.projects || []).forEach(p => {
     if (!p.revenueOverrides) p.revenueOverrides = {};
@@ -2256,13 +2266,37 @@ function revenueByMonthSplit() {
     contributors.sort((a, b) => (b.amount - b.cost) - (a.amount - a.cost) || b.amount - a.amount);
     const total = actual + forecast;
     const payroll = monthTotalPayroll(m);
-    return { mk: m, actual, forecast, labor, payroll, unattributed: payroll - labor,
+    const fixed = (state.fixedCosts || []).reduce((sum, c) => sum + (c.amount || 0), 0);
+    return { mk: m, actual, forecast, labor, payroll, unattributed: payroll - labor, fixed,
       internalCost, internalBasis: monthHasActuals ? 'logged' : 'planned',
-      profit: total - labor, profitPayroll: total - payroll, contributors };
+      profit: total - labor, profitPayroll: total - payroll, expectedProfit: total - payroll - fixed, contributors };
   });
 }
 
+function renderFixedCostsMenu() {
+  const toggle = document.getElementById('fc-costs-toggle');
+  const panel = document.getElementById('fc-costs-panel');
+  const list = document.getElementById('fc-costs-list');
+  if (!toggle || !panel || !list) return;
+  // Restricted (non-segmented) users never see the fixed-costs controls
+  if (!canSeeSalaries) { toggle.style.display = 'none'; panel.style.display = 'none'; return; }
+  toggle.style.display = '';
+  const open = !!ui.fcCostsOpen;
+  toggle.textContent = 'Fixed costs ' + (open ? '▾' : '▸');
+  panel.style.display = open ? '' : 'none';
+  const costs = state.fixedCosts || [];
+  list.innerHTML = costs.length ? costs.map((c, i) => `
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">
+      <input type="text" placeholder="e.g. Operational cost" value="${escapeAttr(c.label || '')}" data-role="fc-cost-label" data-i="${i}" style="flex:1; border:1px solid var(--line); border-radius:4px; padding:6px 8px; font-family:var(--font-mono); font-size:11px;">
+      <input type="text" inputmode="decimal" placeholder="$ / month" value="${c.amount ? '$' + Math.round(c.amount).toLocaleString() : ''}" data-role="fc-cost-amount" data-i="${i}" style="width:120px; border:1px solid var(--line); border-radius:4px; padding:6px 8px; font-family:var(--font-mono); font-size:11px; text-align:right;">
+      <button class="remove-btn" data-role="fc-cost-remove" data-i="${i}">×</button>
+    </div>`).join('') : '<div style="font-family:var(--font-mono); font-size:10px; color:var(--slate);">No fixed costs yet.</div>';
+  const total = costs.reduce((s, c) => s + (c.amount || 0), 0);
+  document.getElementById('fc-costs-total').textContent = total ? 'Total fixed cost: ' + fmtMoney(total) + ' / month' : '';
+}
+
 function renderForecast() {
+  renderFixedCostsMenu();
   const tbody = document.getElementById('forecast-tbody');
   const el = document.getElementById('chart-forecast');
   if (forecastChart) { try { forecastChart.destroy(); } catch (e) {} forecastChart = null; }
@@ -2339,7 +2373,7 @@ function renderForecast() {
       <td class="computed-cell" style="font-weight:700;">${fmtMoney(total)}</td>
       <td class="computed-cell">${r.labor ? fmtMoney(r.labor) : '—'}</td>
       <td class="computed-cell">${r.payroll ? fmtMoney(r.payroll) : '—'}${r.payroll ? `<div class="computed-sub" title="Payroll not accounted for by project hours (salaried under-logging, unassigned time)">${r.unattributed >= 0 ? '+' : '−'}${fmtMoney(Math.abs(r.unattributed))} unattributed</div>` : ''}</td>
-      <td class="computed-cell" style="color:${r.profit >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(r.profit)}<div class="computed-sub" style="color:${r.profitPayroll >= 0 ? 'var(--teal)' : 'var(--rust)'};">${fmtMoney(r.profitPayroll)} after payroll</div></td>
+      <td class="computed-cell" style="color:${r.profit >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(r.profit)}<div class="computed-sub" style="color:${r.expectedProfit >= 0 ? 'var(--teal)' : 'var(--rust)'};">${fmtMoney(r.expectedProfit)} expected${r.fixed ? ' (incl. ' + fmtMoney(r.fixed) + ' fixed)' : ''}</div></td>
       <td class="computed-sub">${total !== 0 ? pct + '% confirmed' : ''}</td>
     </tr>${breakout}`;
   }).join('');
@@ -2354,7 +2388,7 @@ function renderForecast() {
         { label: 'Actual', data: rows.map(r => Math.round(r.actual)), backgroundColor: '#0a493c', stack: 'rev' },
         { label: 'Forecasted', data: rows.map(r => Math.round(r.forecast)), backgroundColor: '#3bc9ac', stack: 'rev' },
         { label: 'Profit after labor', data: rows.map(r => Math.round(r.profit)), backgroundColor: rows.map(r => r.profit >= 0 ? '#7a9d54' : '#B5482A'), stack: 'profit', isProfit: true },
-        { type: 'line', label: 'Profit after total payroll', data: rows.map(r => Math.round(r.profitPayroll)), borderColor: '#fabf4d', backgroundColor: '#fabf4d', borderWidth: 2.5, borderDash: [6, 4], fill: false, tension: 0, pointRadius: 2.5, order: -1, stack: 'payline', isPayLine: true }
+        { type: 'line', label: 'Expected profit', data: rows.map(r => Math.round(r.expectedProfit)), borderColor: '#fabf4d', backgroundColor: '#fabf4d', borderWidth: 2.5, borderDash: [6, 4], fill: false, tension: 0, pointRadius: 2.5, order: -1, stack: 'payline', isPayLine: true }
       ]
     },
     options: (() => {
@@ -3660,6 +3694,8 @@ document.addEventListener('input', (e) => {
   if (t.id === 'assign-hours') { renderCandidates(); return; }
   if (t.id === 'assign-search') { renderCandidates(); return; }
   if (t.id === 'dash-proj-search') { ui.dashProjSearch = t.value; render(); return; }
+  if (t.dataset && t.dataset.role === 'fc-cost-label') { const c = (state.fixedCosts || [])[+t.dataset.i]; if (c) { c.label = t.value; scheduleSave(); } return; }
+  if (t.dataset && t.dataset.role === 'fc-cost-amount') { const c = (state.fixedCosts || [])[+t.dataset.i]; if (c) { c.amount = parseFloat(String(t.value).replace(/[^0-9.\-]/g, '')) || 0; scheduleSave(); renderForecast(); } return; }
   if (t.id === 'demand-search') { ui.demandSearch = t.value; render(); return; }
 
   const role = t.dataset.role;
@@ -3826,6 +3862,7 @@ document.addEventListener('click', (e) => {
     const pr = state.projects.find(x => x.id === t.dataset.id);
     if (pr) { setRevenueOverride(t.dataset.id, t.dataset.mk, String(Math.round(billingGP(pr, t.dataset.mk)))); render(); }
   }
+  else if (role === 'fc-cost-remove') { state.fixedCosts.splice(+t.dataset.i, 1); scheduleSave(); render(); }
   else if (role === 'proj-toggle') {
     ui.projExpanded[t.dataset.id] = !ui.projExpanded[t.dataset.id];
     render();
@@ -4024,6 +4061,15 @@ document.getElementById('person-modal').addEventListener('click', (e) => {
 document.getElementById('assign-modal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('assign-modal')) closeAssignModal();
 });
+document.getElementById('fc-costs-toggle').addEventListener('click', () => { ui.fcCostsOpen = !ui.fcCostsOpen; renderFixedCostsMenu(); });
+document.getElementById('fc-cost-add').addEventListener('click', () => {
+  if (!canSeeSalaries) return;
+  if (!state.fixedCosts) state.fixedCosts = [];
+  state.fixedCosts.push({ id: uid(), label: '', amount: 0 });
+  ui.fcCostsOpen = true;
+  scheduleSave(); renderFixedCostsMenu();
+});
+
 document.getElementById('reset-btn').addEventListener('click', (e) => {
   armToConfirm(e.target, 'reset-all', 'Click again to erase everything', async () => {
     state = {staff: [], projects: [], assignments: {}, actuals: {}, demand: {}};
