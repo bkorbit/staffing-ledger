@@ -590,7 +590,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
             <th class="sortable" data-sort="utilization">Utilization (plan) <span class="sort-ind" data-ind="utilization"></span></th>
             <th class="sortable" data-sort="loggedHrs">Logged vs assigned <span class="sort-ind" data-ind="loggedHrs"></span></th>
             <th class="sortable" data-sort="loggedUtil">Logged vs capacity <span class="sort-ind" data-ind="loggedUtil"></span></th>
-            <th class="col-profit sortable" data-sort="profit">Profit (period) <span class="sort-ind" data-ind="profit"></span></th>
+            <th class="col-profit sortable" data-sort="profit" data-salary-col>Profit (period) <span class="sort-ind" data-ind="profit"></span></th>
             <th class="edit-col"></th>
             <th class="remove-col"></th>
           </tr>
@@ -955,6 +955,17 @@ function subscribeRealtime() {
 
 /* ===== Person edit modal ===== */
 let personEditId = null;
+// Salary visibility: driven by Supabase user metadata. A user whose
+// app_metadata.role or user_metadata.role is 'restricted' (or hide_salaries: true)
+// cannot see per-person profit or the salary field. Everyone else sees everything.
+let canSeeSalaries = true;
+function computeSalaryAccess(session) {
+  const u = (session && session.user) || {};
+  const am = u.app_metadata || {}, um = u.user_metadata || {};
+  const role = String(am.role || um.role || '').toLowerCase();
+  const restricted = role === 'restricted' || role === 'viewer' || am.hide_salaries === true || um.hide_salaries === true;
+  canSeeSalaries = !restricted;
+}
 function personBeingEdited() { return state.staff.find(x => x.id === personEditId); }
 function refreshPersonCostUI(keepValue) {
   const s = personBeingEdited();
@@ -976,6 +987,9 @@ function openPersonModal(id) {
   document.getElementById('pm-start').value = s.startMonth || '';
   document.getElementById('pm-end').value = s.endMonth || '';
   refreshPersonCostUI(false);
+  const costLabel = document.getElementById('pm-cost').closest('label');
+  if (costLabel) costLabel.style.display = canSeeSalaries ? '' : 'none';
+  document.getElementById('pm-type').closest('label').style.display = canSeeSalaries ? '' : 'none';
   document.getElementById('person-modal').classList.add('open');
 }
 function closePersonModal() {
@@ -1112,7 +1126,8 @@ async function enterApp(session) {
   document.getElementById('auth-overlay').style.display = 'none';
   document.getElementById('app-root').style.display = '';
   const email = session && session.user ? session.user.email : '';
-  document.getElementById('user-chip').textContent = email;
+  computeSalaryAccess(session);
+  document.getElementById('user-chip').textContent = email + (canSeeSalaries ? '' : ' · salaries hidden');
   await loadState();
   subscribeRealtime();
 }
@@ -2810,6 +2825,7 @@ function renderStaffTable() {
   document.getElementById('dept-datalist').innerHTML = depts.map(d => `<option value="${escapeAttr(d)}">`).join('');
   document.querySelectorAll('#team-head .sort-ind').forEach(el => el.textContent = sortIndicator(ui.teamSort, el.dataset.ind));
 
+  document.querySelectorAll('[data-salary-col]').forEach(el => { el.style.display = canSeeSalaries ? '' : 'none'; });
   const tbody = document.getElementById('staff-tbody');
   const list = sortedFilteredStaff();
   if (state.staff.length === 0) {
@@ -2896,10 +2912,10 @@ function renderStaffTable() {
             <div>
               <div class="tm-name" style="color:${PROJECT_COLORS[idx % PROJECT_COLORS.length]}">${escapeHtml(p.name) || 'Untitled'}</div>
               <div class="tm-meta">${fmtMoney(rev)} rev · ${st.margin === null ? st.label : Math.round(st.margin) + '% margin'}</div>
-              <div class="tm-meta">their profit: <span style="color:${planContrib >= 0 ? 'var(--teal)' : 'var(--rust)'}">${fmtMoney(planContrib)}</span> plan${actContrib !== null && showActual && act > 0 ? ' · <span style="color:' + (actContrib >= 0 ? 'var(--teal)' : 'var(--rust)') + '">' + fmtMoney(actContrib) + '</span> act' : ''}</div>
+              ${canSeeSalaries ? `<div class="tm-meta">their profit: <span style="color:${planContrib >= 0 ? 'var(--teal)' : 'var(--rust)'}">${fmtMoney(planContrib)}</span> plan${actContrib !== null && showActual && act > 0 ? ' · <span style="color:' + (actContrib >= 0 ? 'var(--teal)' : 'var(--rust)') + '">' + fmtMoney(actContrib) + '</span> act' : ''}</div>` : ''}
             </div>
             <div><input type="text" inputmode="decimal" class="numfield" ${hourInputAttrs(uniformOver(mk => assignFor(mk, s.id, p.id)))} data-role="assignment" data-staff="${s.id}" data-project="${p.id}"> <span class="tm-meta">hrs/mo${isRange() ? ' · ' + fmtHrs(hrs) + 'h total' : ''}</span></div>
-            <div class="tm-meta">${fmtMoney(hrs * s.hourlyCost)} cost</div>
+            <div class="tm-meta">${canSeeSalaries ? fmtMoney(hrs * s.hourlyCost) + ' cost' : ''}</div>
             <div class="tm-meta">${showActual && act ? 'logged ' + fmtHrs(act) + 'h ' + deltaHtml(hrs, act, false) : ''}</div>
             <div>${showActual ? pvPairHtml(hrs, act, 'h', true).replace('>plan<', '>asgn<').replace('>act<', '>log<') : ''}</div>
           </div>`;
@@ -2969,7 +2985,8 @@ function renderStaffTable() {
       </td>
       <td>${loggedCell}</td>
       <td>${loggedCapCell}</td>
-      <td>${(() => {
+      <td data-salary-col>${(() => {
+        if (!canSeeSalaries) return '<span class="computed-sub" title="Hidden for your access level">—</span>';
         if (!actEco) return '<span class="computed-sub">needs logged hours</span>';
         const e = actEco[s.id];
         if (e.hours <= 0 && e.cost <= 0) return '<span class="computed-sub">—</span>';
@@ -2980,6 +2997,7 @@ function renderStaffTable() {
       <td class="remove-col"><button class="remove-btn" data-role="remove-staff" data-id="${s.id}">×</button></td>
     </tr>${breakout}`;
   }).join('');
+  document.querySelectorAll('#staff-tbody [data-salary-col]').forEach(el => { el.style.display = canSeeSalaries ? '' : 'none'; });
 }
 
 function renderProjectTable() {
