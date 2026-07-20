@@ -200,6 +200,10 @@ input.rev-input { min-width: 90px; flex: 1; }
 .proj-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 2px; margin-top: 4px; padding-left: 26px; }
 .proj-tags .bl-chip { margin-left: 0; }
 .proj-depts { font-family: var(--font-mono); font-size: 9px; color: var(--slate); }
+.fc-cost-months { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px; }
+.fc-cm { display: flex; flex-direction: column; gap: 2px; }
+.fc-cm-lbl { font-family: var(--font-mono); font-size: 9px; color: var(--slate); }
+.fc-cm input { border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; font-family: var(--font-mono); font-size: 10px; text-align: right; width: 100%; box-sizing: border-box; }
 .pj-month .pj-computed { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--ink); padding: 4px 0; }
 
 .mini-track.split { display: flex; overflow: hidden; }
@@ -868,7 +872,12 @@ function normalizeState(raw) {
   const s = Object.assign({staff: [], projects: [], assignments: {}, actuals: {}, demand: {}}, raw || {});
   if (!s.actuals) s.actuals = {};
   if (!s.actualsW) s.actualsW = {};
-  if (!s.fixedCosts) s.fixedCosts = [];   // [{id, label, amount}] monthly operating costs applied to the forecast profit line   // weekly actuals: {'YYYY-MM-DD' (Monday): {'staffId__projectId': hours}}
+  if (!s.fixedCosts) s.fixedCosts = [];   // [{id, label, default, amounts:{mk:val}}] monthly operating costs applied to the forecast expected-profit line
+  (s.fixedCosts || []).forEach(c => {
+    if (!c.amounts) c.amounts = {};
+    if (c.default === undefined) c.default = c.amount || 0;   // migrate old flat 'amount' to the default
+    delete c.amount;
+  });
   if (!s.demand) s.demand = {};
   (s.projects || []).forEach(p => {
     if (!p.revenueOverrides) p.revenueOverrides = {};
@@ -2197,6 +2206,7 @@ function flightLineHtml(p) {
 
 /* ===== Forecast tab ===== */
 let forecastChart = null;
+let lastForecastMonths = [];
 
 function monthProjectCost(pid, mk, useActuals) {
   // Build keys from known ids (same as actualFor/assignFor) instead of parsing
@@ -2210,6 +2220,14 @@ function staffMonthHours(sid, mk, useActuals) {
   state.projects.forEach(p => { sum += bucket[sid + '__' + p.id] || 0; });
   return sum;
 }
+function fixedCostFor(c, mk) {
+  const v = (c.amounts || {})[mk];
+  return v !== undefined ? v : (c.default || 0);
+}
+function fixedCostsTotal(mk) {
+  return (state.fixedCosts || []).reduce((sum, c) => sum + fixedCostFor(c, mk), 0);
+}
+
 /* True payroll for a month: salaried people cost their fixed monthly share
    (workday capacity x derived rate) no matter what they log; hourly people
    cost their logged hours (or planned assignments for months with no imports). */
@@ -2266,7 +2284,7 @@ function revenueByMonthSplit() {
     contributors.sort((a, b) => (b.amount - b.cost) - (a.amount - a.cost) || b.amount - a.amount);
     const total = actual + forecast;
     const payroll = monthTotalPayroll(m);
-    const fixed = (state.fixedCosts || []).reduce((sum, c) => sum + (c.amount || 0), 0);
+    const fixed = fixedCostsTotal(m);
     return { mk: m, actual, forecast, labor, payroll, unattributed: payroll - labor, fixed,
       internalCost, internalBasis: monthHasActuals ? 'logged' : 'planned',
       profit: total - labor, profitPayroll: total - payroll, expectedProfit: total - payroll - fixed, contributors };
@@ -2284,15 +2302,35 @@ function renderFixedCostsMenu() {
   const open = !!ui.fcCostsOpen;
   toggle.textContent = 'Fixed costs ' + (open ? '▾' : '▸');
   panel.style.display = open ? '' : 'none';
+  // Don't rebuild the inputs while the user is typing inside the menu (would drop focus);
+  // visibility above still applies every pass.
+  if (document.activeElement && list.contains(document.activeElement)) return;
   const costs = state.fixedCosts || [];
+  // Months to show = current forecast window (falls back to a sensible span)
+  const fcMonths = (typeof lastForecastMonths !== 'undefined' && lastForecastMonths && lastForecastMonths.length)
+    ? lastForecastMonths
+    : (() => { const out = []; let mk = ui.fcFrom || shiftMonth(currentMonth, -2); const end = ui.fcTo || shiftMonth(currentMonth, 6); let g = 0; while (mk <= end && g < 24) { out.push(mk); mk = shiftMonth(mk, 1); g++; } return out; })();
   list.innerHTML = costs.length ? costs.map((c, i) => `
-    <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">
-      <input type="text" placeholder="e.g. Operational cost" value="${escapeAttr(c.label || '')}" data-role="fc-cost-label" data-i="${i}" style="flex:1; border:1px solid var(--line); border-radius:4px; padding:6px 8px; font-family:var(--font-mono); font-size:11px;">
-      <input type="text" inputmode="decimal" placeholder="$ / month" value="${c.amount ? '$' + Math.round(c.amount).toLocaleString() : ''}" data-role="fc-cost-amount" data-i="${i}" style="width:120px; border:1px solid var(--line); border-radius:4px; padding:6px 8px; font-family:var(--font-mono); font-size:11px; text-align:right;">
-      <button class="remove-btn" data-role="fc-cost-remove" data-i="${i}">×</button>
+    <div style="border:1px solid var(--line); border-radius:5px; padding:8px 10px; margin-bottom:8px;">
+      <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">
+        <input type="text" placeholder="e.g. Operational cost" value="${escapeAttr(c.label || '')}" data-role="fc-cost-label" data-i="${i}" style="flex:1; border:1px solid var(--line); border-radius:4px; padding:6px 8px; font-family:var(--font-mono); font-size:11px;">
+        <label style="font-family:var(--font-mono); font-size:10px; color:var(--slate); display:flex; align-items:center; gap:5px;">default $/mo
+          <input type="text" inputmode="decimal" placeholder="$0" value="${c.default ? '$' + Math.round(c.default).toLocaleString() : ''}" data-role="fc-cost-default" data-i="${i}" style="width:100px; border:1px solid var(--line); border-radius:4px; padding:6px 8px; font-family:var(--font-mono); font-size:11px; text-align:right;">
+        </label>
+        <button class="remove-btn" data-role="fc-cost-remove" data-i="${i}">×</button>
+      </div>
+      <div class="fc-cost-months">
+        ${fcMonths.map(mk => { const ov = (c.amounts || {})[mk]; return `
+          <div class="fc-cm">
+            <span class="fc-cm-lbl">${monthShort(mk)}</span>
+            <input type="text" inputmode="decimal" placeholder="${c.default ? '$' + Math.round(c.default).toLocaleString() : '$0'}" value="${ov !== undefined ? '$' + Math.round(ov).toLocaleString() : ''}" data-role="fc-cost-month" data-i="${i}" data-mk="${mk}" title="${ov !== undefined ? 'Set for ' + monthShort(mk) : 'Using default'}">
+          </div>`; }).join('')}
+      </div>
     </div>`).join('') : '<div style="font-family:var(--font-mono); font-size:10px; color:var(--slate);">No fixed costs yet.</div>';
-  const total = costs.reduce((s, c) => s + (c.amount || 0), 0);
-  document.getElementById('fc-costs-total').textContent = total ? 'Total fixed cost: ' + fmtMoney(total) + ' / month' : '';
+  // total across the shown months
+  const perMonthTotals = fcMonths.map(mk => fixedCostsTotal(mk));
+  const avg = perMonthTotals.length ? perMonthTotals.reduce((a, b) => a + b, 0) / perMonthTotals.length : 0;
+  document.getElementById('fc-costs-total').textContent = costs.length ? 'Fixed cost this window: ' + fmtMoney(perMonthTotals.reduce((a, b) => a + b, 0)) + ' total · ' + fmtMoney(avg) + '/mo avg' : '';
 }
 
 function renderForecast() {
@@ -2379,6 +2417,8 @@ function renderForecast() {
   }).join('');
 
   if (!el || !window.Chart) return;
+  lastForecastMonths = rows.map(r => r.mk);
+  renderFixedCostsMenu();   // now that the month window is known, align the cost grid to it
   forecastChart = new Chart(el, {
     type: 'bar',
     plugins: window.ChartDataLabels ? [window.ChartDataLabels] : [],
@@ -3695,7 +3735,18 @@ document.addEventListener('input', (e) => {
   if (t.id === 'assign-search') { renderCandidates(); return; }
   if (t.id === 'dash-proj-search') { ui.dashProjSearch = t.value; render(); return; }
   if (t.dataset && t.dataset.role === 'fc-cost-label') { const c = (state.fixedCosts || [])[+t.dataset.i]; if (c) { c.label = t.value; scheduleSave(); } return; }
-  if (t.dataset && t.dataset.role === 'fc-cost-amount') { const c = (state.fixedCosts || [])[+t.dataset.i]; if (c) { c.amount = parseFloat(String(t.value).replace(/[^0-9.\-]/g, '')) || 0; scheduleSave(); renderForecast(); } return; }
+  if (t.dataset && t.dataset.role === 'fc-cost-default') { const c = (state.fixedCosts || [])[+t.dataset.i]; if (c) { c.default = parseFloat(String(t.value).replace(/[^0-9.\-]/g, '')) || 0; scheduleSave(); renderForecast(); } return; }
+  if (t.dataset && t.dataset.role === 'fc-cost-month') {
+    const c = (state.fixedCosts || [])[+t.dataset.i];
+    if (c) {
+      if (!c.amounts) c.amounts = {};
+      const raw = String(t.value).replace(/[^0-9.\-]/g, '');
+      if (raw === '') delete c.amounts[t.dataset.mk];   // empty -> fall back to default
+      else c.amounts[t.dataset.mk] = parseFloat(raw) || 0;
+      scheduleSave(); renderForecast();
+    }
+    return;
+  }
   if (t.id === 'demand-search') { ui.demandSearch = t.value; render(); return; }
 
   const role = t.dataset.role;
@@ -4065,7 +4116,7 @@ document.getElementById('fc-costs-toggle').addEventListener('click', () => { ui.
 document.getElementById('fc-cost-add').addEventListener('click', () => {
   if (!canSeeSalaries) return;
   if (!state.fixedCosts) state.fixedCosts = [];
-  state.fixedCosts.push({ id: uid(), label: '', amount: 0 });
+  state.fixedCosts.push({ id: uid(), label: '', default: 0, amounts: {} });
   ui.fcCostsOpen = true;
   scheduleSave(); renderFixedCostsMenu();
 });
