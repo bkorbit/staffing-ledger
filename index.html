@@ -2175,6 +2175,10 @@ function revenueByMonthSplit() {
     else Object.keys(p.revenueOverrides || {}).forEach(mk => {
       if ((p.revenueOverrides[mk] || 0) !== 0) set.add(mk);
     });
+    // A project with flight dates occupies those months even at $0 revenue,
+    // so it stays visible and can be edited back up from the forecast/projects view.
+    const flight = monthsOfFlight(p);
+    if (flight) flight.forEach(mk => set.add(mk));
   });
   if (!set.size) return null;
   const sorted = [...set].sort();
@@ -2197,10 +2201,11 @@ function revenueByMonthSplit() {
       const useLogged = isActual && loggedCost > 0;
       const cost = useLogged ? loggedCost : plannedCost;
       const basis = useLogged ? 'logged' : (isActual ? 'planned · no hours logged' : 'planned');
-      if (v === 0 && cost === 0) return;
+      const inFlight = projectActiveInMonth(p, m) && (p.startMonth || p.endMonth);
+      if (v === 0 && cost === 0 && !inFlight) return;   // truly nothing here — skip; but keep active flights
       if (v) { if (isActual) actual += v; else forecast += v; }
       labor += cost;
-      contributors.push({ pid: p.id, name: p.name || 'Untitled', amount: v, isActual, cost, basis });
+      contributors.push({ pid: p.id, name: p.name || 'Untitled', amount: v, isActual, cost, basis, inFlight });
     });
     // Internal (non-billable) labor: logged when the month has imports, else planned
     const internalCost = monthProjectCost(INTERNAL_ID, m, monthHasActuals);
