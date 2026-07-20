@@ -2439,7 +2439,7 @@ function renderForecast() {
           </div>`).join('')}
         ${costOnly.length ? `<div class="fc-row fc-dim"><div class="fc-name">Projects with labor but no revenue this month (${costOnly.map(c => escapeHtml(c.name)).join(', ')})</div><div class="pb-num"></div><div class="pb-num">${fmtMoney(costOnly.reduce((s, c) => s + c.cost, 0))} cost</div><div class="pb-num"></div><div></div></div>` : ''}
         ${r.internalCost ? `<div class="fc-row fc-dim"><div class="fc-name" style="color:var(--internal);">Internal (non-billable)</div><div class="pb-num"></div><div class="pb-num">${fmtMoney(r.internalCost)} cost <span class="fc-basis">${r.internalBasis}</span></div><div class="pb-num"></div><div></div></div>` : ''}
-        <div class="fc-payroll">Total payroll ${fmtMoney(r.payroll)} = project-attributed ${fmtMoney(r.labor)} ${r.unattributed >= 0 ? '+' : '−'} ${fmtMoney(Math.abs(r.unattributed))} unattributed <span class="fc-basis" title="Salaried people cost their fixed monthly share whether or not every hour lands on a project; hourly people cost logged hours (planned for future months).">hourly × rate + fixed salaries</span></div>
+        <div class="fc-payroll">Labor ${fmtMoney(r.payroll)}${r.fixed ? ' · fixed costs ' + fmtMoney(r.fixed) : ''} <span class="fc-basis" title="Salaried staff cost their full monthly salary; hourly staff cost logged hours × rate (planned hours for future months). Expected profit subtracts the fixed-cost inputs on top of that.">salaried = full salary · hourly = hours × rate</span></div>
       </td></tr>`;
     }
     return `
@@ -2451,7 +2451,7 @@ function renderForecast() {
       <td class="computed-cell" style="font-weight:700;">${fmtMoney(total)}</td>
       <td class="computed-cell">${r.labor ? fmtMoney(r.labor) : '—'}</td>
       <td class="computed-cell">${r.payroll ? fmtMoney(r.payroll) : '—'}${r.payroll ? `<div class="computed-sub" title="Payroll not accounted for by project hours (salaried under-logging, unassigned time)">${r.unattributed >= 0 ? '+' : '−'}${fmtMoney(Math.abs(r.unattributed))} unattributed</div>` : ''}</td>
-      <td class="computed-cell" style="color:${r.profit >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(r.profit)}<div class="computed-sub" style="color:${r.expectedProfit >= 0 ? 'var(--teal)' : 'var(--rust)'};">${fmtMoney(r.expectedProfit)} expected${r.fixed ? ' (incl. ' + fmtMoney(r.fixed) + ' fixed)' : ''}</div></td>
+      <td class="computed-cell" style="color:${r.profitPayroll >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(r.profitPayroll)}<div class="computed-sub" style="color:${r.expectedProfit >= 0 ? 'var(--teal)' : 'var(--rust)'};">${fmtMoney(r.expectedProfit)} expected${r.fixed ? ' (incl. ' + fmtMoney(r.fixed) + ' fixed)' : ''}</div></td>
       <td class="computed-sub">${total !== 0 ? pct + '% confirmed' : ''}</td>
     </tr>${breakout}`;
   }).join('');
@@ -2466,7 +2466,7 @@ function renderForecast() {
       datasets: [
         { label: 'Actual', data: rows.map(r => Math.round(r.actual)), backgroundColor: '#0a493c', stack: 'rev' },
         { label: 'Forecasted', data: rows.map(r => Math.round(r.forecast)), backgroundColor: '#3bc9ac', stack: 'rev' },
-        { label: 'Profit after labor', data: rows.map(r => Math.round(r.profit)), backgroundColor: rows.map(r => r.profit >= 0 ? '#7a9d54' : '#B5482A'), stack: 'profit', isProfit: true },
+        { label: 'Profit after labor', data: rows.map(r => Math.round(r.profitPayroll)), backgroundColor: rows.map(r => r.profitPayroll >= 0 ? '#7a9d54' : '#B5482A'), stack: 'profit', isProfit: true },
         { type: 'line', label: 'Expected profit', data: rows.map(r => Math.round(r.expectedProfit)), borderColor: '#fabf4d', backgroundColor: '#fabf4d', borderWidth: 2.5, borderDash: [6, 4], fill: false, tension: 0, pointRadius: 2.5, order: -1, stack: 'payline', isPayLine: true }
       ]
     },
