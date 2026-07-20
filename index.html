@@ -2434,6 +2434,7 @@ function renderDashboard() {
       <div class="chart-card"><h4>Department hours — capacity / plan / actual</h4><div class="chart-wrap"><canvas id="chart-dept"></canvas></div></div>
       <div class="chart-card"><h4>6-month trend — revenue &amp; labor cost</h4><div class="chart-wrap"><canvas id="chart-trend"></canvas></div></div>
       <div class="chart-card"><h4>Logged hours — client vs internal vs time off</h4><div class="chart-wrap"><canvas id="chart-split"></canvas></div></div>
+      <div class="chart-card"><h4>Hours logged by week — by project</h4><div class="chart-wrap" id="chart-weekly-wrap"><canvas id="chart-weekly"></canvas></div></div>
     </div>
     <div class="dash-section">
       <h3>Departments</h3>
@@ -2556,6 +2557,64 @@ function buildDashCharts(projs, deptData, showActual) {
           }
         }
       }));
+    }
+  }
+
+  const weeklyEl = document.getElementById('chart-weekly');
+  if (weeklyEl && showActual) {
+    const aw = state.actualsW || {};
+    const awWeeks = Object.keys(aw).sort();
+    if (!awWeeks.length) {
+      const wrap = document.getElementById('chart-weekly-wrap');
+      if (wrap) wrap.innerHTML = '<div class="empty-note">Appears once weekly hours exist — the nightly QuickBooks sync writes them.</div>';
+    } else {
+      const vm = viewMonths();
+      const [ey, em] = vm[vm.length - 1].split('-').map(Number);
+      const lastWk = weekStartKey(new Date(Date.UTC(ey, em, 0)));
+      const addW = (wk, n) => { const [y, m, d] = wk.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + 7 * n)).toISOString().slice(0, 10); };
+      const weeks = [];
+      for (let i = 11; i >= 0; i--) weeks.push(addW(lastWk, -i));
+      const sumFor = (pid, wk) => Object.entries(aw[wk] || {}).reduce((s, [k, v]) => s + (k.endsWith('__' + pid) ? v : 0), 0);
+      const totals = state.projects.map(p => ({ p, total: weeks.reduce((s, wk) => s + sumFor(p.id, wk), 0) })).filter(x => x.total > 0).sort((a, b) => b.total - a.total);
+      const top = totals.slice(0, 7);
+      const rest = totals.slice(7);
+      const datasets = top.map((x, i) => ({
+        label: x.p.name || 'Untitled',
+        data: weeks.map(wk => Math.round(sumFor(x.p.id, wk) * 10) / 10),
+        backgroundColor: LINE_COLORS[i % LINE_COLORS.length], stack: 'wk'
+      }));
+      if (rest.length) datasets.push({ label: 'Other projects', data: weeks.map(wk => Math.round(rest.reduce((s, x) => s + sumFor(x.p.id, wk), 0) * 10) / 10), backgroundColor: '#9aa5a1', stack: 'wk' });
+      const intData = weeks.map(wk => Math.round(sumFor(INTERNAL_ID, wk) * 10) / 10);
+      if (intData.some(v => v > 0)) datasets.push({ label: 'Internal (EMG)', data: intData, backgroundColor: '#67706d', stack: 'wk' });
+      const offData = weeks.map(wk => Math.round(sumFor(TIMEOFF_ID, wk) * 10) / 10);
+      if (offData.some(v => v > 0)) datasets.push({ label: 'Time off', data: offData, backgroundColor: '#fabf4d', stack: 'wk' });
+      if (datasets.length) {
+        dashCharts.push(new Chart(weeklyEl, {
+          type: 'bar',
+          plugins: window.ChartDataLabels ? [window.ChartDataLabels] : [],
+          data: { labels: weeks.map(weekLabel), datasets },
+          options: (() => {
+            const o = chartOpts();
+            o.scales.x.stacked = true;
+            o.scales.y.stacked = true;
+            o.plugins = {
+              legend: { labels: { font: chartFont(), color: '#67706d', boxWidth: 12 } },
+              tooltip: { callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ' + fmtHrs(ctx.parsed.y) + 'h' } },
+              datalabels: {
+                display: ctx => ctx.datasetIndex === ctx.chart.data.datasets.length - 1,
+                anchor: 'end', align: 'top', offset: 2, clip: false,
+                font: { family: "'DM Mono', monospace", size: 9, weight: '700' }, color: '#0a493c',
+                formatter: (v, ctx) => {
+                  const i = ctx.dataIndex;
+                  const total = ctx.chart.data.datasets.reduce((sum, ds) => sum + (ds.data[i] || 0), 0);
+                  return total > 0 ? Math.round(total) + 'h' : '';
+                }
+              }
+            };
+            return o;
+          })()
+        }));
+      }
     }
   }
 
