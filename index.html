@@ -204,6 +204,7 @@ input.rev-input { min-width: 90px; flex: 1; }
 .fc-cm { display: flex; flex-direction: column; gap: 2px; }
 .fc-cm-lbl { font-family: var(--font-mono); font-size: 9px; color: var(--slate); }
 .fc-cm input { border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; font-family: var(--font-mono); font-size: 10px; text-align: right; width: 100%; box-sizing: border-box; }
+.fc-year-lbl { font-family: var(--font-mono); font-size: 9px; font-weight: 700; color: var(--brand); margin: 8px 0 4px; letter-spacing: 0.05em; }
 .pj-month .pj-computed { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--ink); padding: 4px 0; }
 
 .mini-track.split { display: flex; overflow: hidden; }
@@ -2227,6 +2228,25 @@ function fixedCostFor(c, mk) {
 function fixedCostsTotal(mk) {
   return (state.fixedCosts || []).reduce((sum, c) => sum + fixedCostFor(c, mk), 0);
 }
+/* Months shown in the fixed-cost editor. Independent of the chart window so
+   costs can be planned even for months with no revenue (incl. next year).
+   Span: earliest of (revenue months, entered cost months, 2 months back) →
+   latest of (revenue months, entered cost months, end of NEXT year). */
+function fixedCostGridMonths() {
+  const keys = [];
+  state.projects.forEach(p => Object.keys(p.revenueOverrides || {}).forEach(mk => keys.push(mk)));
+  (state.fixedCosts || []).forEach(c => Object.keys(c.amounts || {}).forEach(mk => keys.push(mk)));
+  const now = currentMonth;
+  keys.push(shiftMonth(now, -2));
+  const nextYearEnd = (Number(now.slice(0, 4)) + 1) + '-12';
+  keys.push(nextYearEnd);
+  const start = keys.reduce((a, b) => a < b ? a : b);
+  const end = keys.reduce((a, b) => a > b ? a : b);
+  const out = [];
+  let mk = start, g = 0;
+  while (mk <= end && g < 60) { out.push(mk); mk = shiftMonth(mk, 1); g++; }
+  return out;
+}
 
 /* True payroll for a month: salaried people cost their fixed monthly share
    (workday capacity x derived rate) no matter what they log; hourly people
@@ -2251,6 +2271,11 @@ function revenueByMonthSplit() {
     const flight = monthsOfFlight(p);
     if (flight) flight.forEach(mk => set.add(mk));
   });
+  // Months that have a fixed-cost entry should appear on the forecast even with
+  // no revenue, so a future/next-year cost shows its impact on expected profit.
+  (state.fixedCosts || []).forEach(c => Object.keys(c.amounts || {}).forEach(mk => {
+    if ((c.amounts[mk] || 0) !== 0) set.add(mk);
+  }));
   if (!set.size) return null;
   const sorted = [...set].sort();
   const months = [];
@@ -2307,9 +2332,7 @@ function renderFixedCostsMenu() {
   if (document.activeElement && list.contains(document.activeElement)) return;
   const costs = state.fixedCosts || [];
   // Months to show = current forecast window (falls back to a sensible span)
-  const fcMonths = (typeof lastForecastMonths !== 'undefined' && lastForecastMonths && lastForecastMonths.length)
-    ? lastForecastMonths
-    : (() => { const out = []; let mk = ui.fcFrom || shiftMonth(currentMonth, -2); const end = ui.fcTo || shiftMonth(currentMonth, 6); let g = 0; while (mk <= end && g < 24) { out.push(mk); mk = shiftMonth(mk, 1); g++; } return out; })();
+  const fcMonths = fixedCostGridMonths();
   list.innerHTML = costs.length ? costs.map((c, i) => `
     <div style="border:1px solid var(--line); border-radius:5px; padding:8px 10px; margin-bottom:8px;">
       <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">
@@ -2319,13 +2342,19 @@ function renderFixedCostsMenu() {
         </label>
         <button class="remove-btn" data-role="fc-cost-remove" data-i="${i}">×</button>
       </div>
-      <div class="fc-cost-months">
-        ${fcMonths.map(mk => { const ov = (c.amounts || {})[mk]; return `
-          <div class="fc-cm">
-            <span class="fc-cm-lbl">${monthShort(mk)}</span>
-            <input type="text" inputmode="decimal" placeholder="${c.default ? '$' + Math.round(c.default).toLocaleString() : '$0'}" value="${ov !== undefined ? '$' + Math.round(ov).toLocaleString() : ''}" data-role="fc-cost-month" data-i="${i}" data-mk="${mk}" title="${ov !== undefined ? 'Set for ' + monthShort(mk) : 'Using default'}">
-          </div>`; }).join('')}
-      </div>
+      ${(() => {
+        const byYear = {};
+        fcMonths.forEach(mk => { (byYear[mk.slice(0, 4)] = byYear[mk.slice(0, 4)] || []).push(mk); });
+        return Object.keys(byYear).sort().map(yr => `
+          <div class="fc-year-lbl">${yr}</div>
+          <div class="fc-cost-months">
+            ${byYear[yr].map(mk => { const ov = (c.amounts || {})[mk]; return `
+              <div class="fc-cm">
+                <span class="fc-cm-lbl">${monthShort(mk)}</span>
+                <input type="text" inputmode="decimal" placeholder="${c.default ? '$' + Math.round(c.default).toLocaleString() : '$0'}" value="${ov !== undefined ? '$' + Math.round(ov).toLocaleString() : ''}" data-role="fc-cost-month" data-i="${i}" data-mk="${mk}" title="${ov !== undefined ? 'Set for ' + monthShort(mk) : 'Using default'}">
+              </div>`; }).join('')}
+          </div>`).join('');
+      })()}
     </div>`).join('') : '<div style="font-family:var(--font-mono); font-size:10px; color:var(--slate);">No fixed costs yet.</div>';
   // total across the shown months
   const perMonthTotals = fcMonths.map(mk => fixedCostsTotal(mk));
@@ -2418,7 +2447,6 @@ function renderForecast() {
 
   if (!el || !window.Chart) return;
   lastForecastMonths = rows.map(r => r.mk);
-  renderFixedCostsMenu();   // now that the month window is known, align the cost grid to it
   forecastChart = new Chart(el, {
     type: 'bar',
     plugins: window.ChartDataLabels ? [window.ChartDataLabels] : [],
