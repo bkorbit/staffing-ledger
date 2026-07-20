@@ -123,22 +123,41 @@ const sbHeaders = {
   'Content-Type': 'application/json',
 };
 
+let loadedVersion = null;
 async function loadLedger() {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/ledger_state?id=eq.${WORKSPACE_ID}&select=data`, { headers: sbHeaders });
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/ledger_state?id=eq.${WORKSPACE_ID}&select=data,version`, { headers: sbHeaders });
   if (!res.ok) fail(`Supabase read failed (${res.status}): ${await res.text()}`);
   const rows = await res.json();
-  return rows.length ? rows[0].data || {} : null;
+  if (rows.length) { loadedVersion = typeof rows[0].version === 'number' ? rows[0].version : 0; return rows[0].data || {}; }
+  loadedVersion = null;
+  return null;
 }
 
 async function saveLedger(state, rowExists) {
-  const body = JSON.stringify(rowExists
-    ? { data: state, updated_at: new Date().toISOString() }
-    : { id: WORKSPACE_ID, data: state, updated_at: new Date().toISOString() });
-  const url = rowExists
-    ? `${SUPABASE_URL}/rest/v1/ledger_state?id=eq.${WORKSPACE_ID}`
-    : `${SUPABASE_URL}/rest/v1/ledger_state`;
-  const res = await fetch(url, { method: rowExists ? 'PATCH' : 'POST', headers: sbHeaders, body });
+  if (!rowExists) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/ledger_state`, {
+      method: 'POST', headers: sbHeaders,
+      body: JSON.stringify({ id: WORKSPACE_ID, data: state, version: 1, updated_at: new Date().toISOString() })
+    });
+    if (!res.ok) fail(`Supabase insert failed (${res.status}): ${await res.text()}`);
+    return;
+  }
+  // Conditional PATCH on the loaded version; if a human saved during the sync, reload+reapply.
+  const next = (loadedVersion || 0) + 1;
+  const url = `${SUPABASE_URL}/rest/v1/ledger_state?id=eq.${WORKSPACE_ID}&version=eq.${loadedVersion}`;
+  const res = await fetch(url, {
+    method: 'PATCH', headers: { ...sbHeaders, Prefer: 'return=representation' },
+    body: JSON.stringify({ data: state, version: next, updated_at: new Date().toISOString() })
+  });
   if (!res.ok) fail(`Supabase write failed (${res.status}): ${await res.text()}`);
+  const rows = await res.json();
+  if (!rows.length) {
+    // Version moved under us — a human saved mid-sync. This sync's data was built
+    // from month-replace logic, so just skip this run's write rather than risk a
+    // stale overwrite; tomorrow's run (or a manual dispatch) will reconcile.
+    console.log('⚠ Ledger changed during sync (concurrent edit) — skipping write to avoid overwriting newer data. Re-run the sync.');
+    process.exitCode = 0;
+  }
 }
 
 // ---------- Sync ----------

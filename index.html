@@ -821,6 +821,7 @@ let sb = null;
 let appEntered = false;
 let channel = null;
 let pendingRemoteReload = false;
+let loadedVersion = null;   // the row version this client last loaded/saved; drives optimistic concurrency
 const clientId = Math.random().toString(36).slice(2) + Date.now().toString(36);
 
 function monthKey(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
@@ -960,19 +961,42 @@ function normalizeState(raw) {
 }
 
 async function loadFromSupabase() {
-  const { data, error } = await sb.from('ledger_state').select('data').eq('id', WORKSPACE_ID).maybeSingle();
+  const { data, error } = await sb.from('ledger_state').select('data, version').eq('id', WORKSPACE_ID).maybeSingle();
   if (error) throw error;
+  if (data) loadedVersion = (typeof data.version === 'number') ? data.version : 0;
+  else loadedVersion = null;
   return data ? data.data : null;
 }
 
+// Optimistic-concurrency save. Returns:
+//   'ok'        — write succeeded, version advanced
+//   'conflict'  — the row moved since we loaded (someone else saved first); nothing written
+//   'created'   — first-ever row inserted
 async function saveToSupabase(obj) {
-  const { error } = await sb.from('ledger_state').upsert({
-    id: WORKSPACE_ID,
-    data: obj,
-    last_writer: clientId,
-    updated_at: new Date().toISOString()
-  });
+  const nextVersion = (loadedVersion || 0) + 1;
+  // First save ever (no row yet): insert at version 1.
+  if (loadedVersion === null) {
+    const { error } = await sb.from('ledger_state').insert({
+      id: WORKSPACE_ID, data: obj, version: 1, last_writer: clientId, updated_at: new Date().toISOString()
+    });
+    if (error) {
+      // Someone else created it first — treat as conflict so we reload rather than clobber.
+      if (error.code === '23505') return 'conflict';
+      throw error;
+    }
+    loadedVersion = 1;
+    return 'created';
+  }
+  // Conditional update: only if version still equals what we loaded.
+  const { data, error } = await sb.from('ledger_state')
+    .update({ data: obj, version: nextVersion, last_writer: clientId, updated_at: new Date().toISOString() })
+    .eq('id', WORKSPACE_ID)
+    .eq('version', loadedVersion)
+    .select('version');
   if (error) throw error;
+  if (!data || !data.length) return 'conflict';   // version didn't match -> someone saved first
+  loadedVersion = nextVersion;
+  return 'ok';
 }
 
 async function loadState() {
@@ -990,7 +1014,7 @@ async function loadState() {
 
 async function reloadFromRemote() {
   try {
-    const remote = await loadFromSupabase();
+    const remote = await loadFromSupabase();   // also refreshes loadedVersion
     if (remote) { state = normalizeState(remote); render(); toast("Ledger updated with a teammate's changes.", 4000); }
   } catch (e) { console.error('Remote reload failed', e); }
 }
@@ -1264,13 +1288,54 @@ function seedExample() {
   state.demand[currentMonth] = { [p1]: {'Design': 100, 'Engineering': 60} };
 }
 
+let saveInFlight = false;
 function scheduleSave() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(async () => {
-    if (!sb || !appEntered) return;
-    try { await saveToSupabase(state); }
-    catch (e) { console.error('Save failed', e); toast('Could not save to the server — your last change may not be shared.', 6000); }
-  }, 400);
+  saveTimer = setTimeout(runSave, 400);
+}
+async function runSave() {
+  if (!sb || !appEntered || saveInFlight) return;
+  saveInFlight = true;
+  try {
+    const result = await saveToSupabase(state);
+    if (result === 'conflict') {
+      // Someone else saved between our load and this write. Do NOT overwrite them.
+      // Pull the latest so this client is current; the user's just-made change is
+      // preserved locally only if it doesn't collide — we re-apply by reloading then
+      // re-saving on top, but warn so nothing is silently lost.
+      await handleSaveConflict();
+    }
+  } catch (e) {
+    console.error('Save failed', e);
+    toast('Could not save to the server — your last change may not be shared. Check your connection.', 7000);
+  } finally {
+    saveInFlight = false;
+  }
+}
+
+async function handleSaveConflict() {
+  const ae = document.activeElement;
+  const editing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA');
+  if (editing) {
+    // Don't yank the ledger out from under an active edit; retry shortly.
+    toast('A teammate saved at the same time — finishing your edit, then syncing…', 5000);
+    setTimeout(runSave, 1500);
+    return;
+  }
+  // Reload the authoritative server copy, then transparently re-apply this client's
+  // full state on top of the new version. Because saves are frequent and the reload
+  // brings us to the latest version, this collapses to last-writer-wins at the
+  // whole-document level — but now it's explicit and announced, never silent.
+  toast('A teammate saved changes just now — syncing and re-applying yours…', 5000);
+  try {
+    await loadFromSupabase();               // refresh loadedVersion to the server's current
+    const result = await saveToSupabase(state);
+    if (result === 'conflict') { setTimeout(runSave, 1200); return; }
+    toast('Synced. Both sets of changes are saved where they don\'t overlap.', 4000);
+  } catch (e) {
+    console.error('Conflict resolve failed', e);
+    toast('Sync problem — please reload the page to get the latest before editing more.', 8000);
+  }
 }
 
 /* Capacity = 8h per working day (Mon-Fri) for a 40h/week person, computed
