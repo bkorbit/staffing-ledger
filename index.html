@@ -2518,9 +2518,10 @@ function buildDashCharts(projs, deptData, showActual) {
               color: '#23272b',
               formatter: (v, ctx) => {
                 if (v <= 0) return '';
-                if (ctx.dataset.stack === 'plan') {
-                  // stacked plan bar: label only the topmost non-empty segment, with the stack total
-                  const dsets = ctx.chart.data.datasets.filter(d => d.stack === 'plan');
+                const stk = ctx.dataset.stack;
+                const dsets = ctx.chart.data.datasets.filter(d => d.stack === stk);
+                if (dsets.length > 1) {
+                  // stacked bar: one label per column — the stack total on its topmost non-empty segment
                   const topWithData = [...dsets].reverse().find(d => (d.data[ctx.dataIndex] || 0) > 0);
                   if (ctx.dataset !== topWithData) return '';
                   const tot = dsets.reduce((s, d) => s + (d.data[ctx.dataIndex] || 0), 0);
