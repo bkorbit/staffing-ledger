@@ -2396,6 +2396,10 @@ function renderDashboard() {
       dept,
       members,
       capacity: members.reduce((s, m) => s + effectiveCapacity(m), 0),
+      capRaw: members.reduce((s, m) => s + periodCapacity(m), 0),
+      actClient: members.reduce((s, m) => s + staffProjectHours(m.id, true), 0),
+      actInt: members.reduce((s, m) => s + getActual(m.id, INTERNAL_ID), 0),
+      actOff: members.reduce((s, m) => s + timeOffLogged(m.id), 0),
       plan: members.reduce((s, m) => s + staffTotalHours(m.id, false), 0),
       act: members.reduce((s, m) => s + staffTotalHours(m.id, true), 0),
       internal: members.reduce((s, m) => s + getAssignment(m.id, INTERNAL_ID), 0),
@@ -2494,10 +2498,14 @@ function buildDashCharts(projs, deptData, showActual) {
       data: {
         labels: deptData.map(d => d.dept),
         datasets: [
-          { label: 'Capacity', data: deptData.map(d => Math.round(d.capacity)), backgroundColor: '#d2d2d2', stack: 'cap' },
-          { label: 'Plan (projects)', data: deptData.map(d => Math.round(d.plan - d.internal)), backgroundColor: '#0a493c', stack: 'plan' },
-          { label: 'Internal', data: deptData.map(d => Math.round(d.internal)), backgroundColor: '#fabf4d', stack: 'plan' },
-          ...(showActual ? [{ label: 'Actual', data: deptData.map(d => Math.round(d.act)), backgroundColor: '#3bc9ac', stack: 'act' }] : [])
+          { label: 'Capacity', data: deptData.map(d => Math.round(d.capRaw)), backgroundColor: '#d2d2d2', stack: 'cap' },
+          { label: 'Plan · client', data: deptData.map(d => Math.round(d.plan - d.internal)), backgroundColor: '#0a493c', stack: 'plan' },
+          { label: 'Plan · internal', data: deptData.map(d => Math.round(d.internal)), backgroundColor: '#67706d', stack: 'plan' },
+          ...(showActual ? [
+            { label: 'Actual · client', data: deptData.map(d => Math.round(d.actClient)), backgroundColor: '#3bc9ac', stack: 'act' },
+            { label: 'Actual · internal', data: deptData.map(d => Math.round(d.actInt)), backgroundColor: '#67706d', stack: 'act' },
+            { label: 'Actual · time off', data: deptData.map(d => Math.round(d.actOff)), backgroundColor: '#fabf4d', stack: 'act' }
+          ] : [])
         ]
       },
       options: (() => {
