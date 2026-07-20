@@ -253,6 +253,9 @@ input.rev-input { min-width: 90px; flex: 1; }
 .d-flag { justify-self: end; text-align: right; }
 .dash-note { font-family: var(--font-mono); font-size: 11px; color: var(--slate); padding: 10px 2px; }
 .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+.pie-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; height: 100%; }
+.pie-cell { display: flex; flex-direction: column; min-width: 0; }
+.pie-title { font-family: var(--font-mono); font-size: 10px; color: var(--slate); text-align: center; margin-bottom: 4px; }
 .chart-grid > .chart-card { min-width: 0; }   /* grid items default to min-width:auto, which stops tracks from shrinking below the canvas */
 .chart-card { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; padding: 14px; min-width: 0; }
 .chart-card h4 { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); margin: 0 0 10px; font-weight: 500; }
@@ -2437,7 +2440,12 @@ function renderDashboard() {
     <div class="chart-grid">
       <div class="chart-card"><h4>Department hours — capacity / plan / actual</h4><div class="chart-wrap"><canvas id="chart-dept"></canvas></div></div>
       <div class="chart-card"><h4>Trend — revenue &amp; labor cost</h4><div class="chart-wrap"><canvas id="chart-trend"></canvas></div></div>
-      <div class="chart-card"><h4>Logged hours — client vs internal vs time off</h4><div class="chart-wrap"><canvas id="chart-split"></canvas></div></div>
+      <div class="chart-card"><h4>Time allocation — client vs internal vs time off</h4>
+        <div class="pie-pair">
+          <div class="pie-cell"><div class="pie-title">Of hours logged</div><div class="chart-wrap"><canvas id="chart-split"></canvas></div></div>
+          <div class="pie-cell"><div class="pie-title">Of total capacity</div><div class="chart-wrap"><canvas id="chart-split-cap"></canvas></div></div>
+        </div>
+      </div>
       <div class="chart-card"><h4>Hours logged by week — by project</h4><div class="chart-wrap" id="chart-weekly-wrap"><canvas id="chart-weekly"></canvas></div></div>
     </div>
     <div class="dash-section">
@@ -2539,34 +2547,39 @@ function buildDashCharts(projs, deptData, showActual) {
     }));
   }
 
-  const splitEl = document.getElementById('chart-split');
-  if (splitEl && showActual) {
+  if (showActual) {
     const client = state.staff.reduce((sum, st) => sum + staffProjectHours(st.id, true), 0);
     const internal = internalHoursTotal(true);
     const off = timeOffTotal();
-    const totalH = client + internal + off;
-    if (totalH > 0) {
-      dashCharts.push(new Chart(splitEl, {
+    const capTotal = state.staff.reduce((sum, st) => sum + periodCapacity(st), 0);
+    const loggedTotal = client + internal + off;
+
+    const makePie = (elId, labels, data, colors, denom) => {
+      const el = document.getElementById(elId);
+      if (!el || denom <= 0) return;
+      dashCharts.push(new Chart(el, {
         type: 'doughnut',
         plugins: window.ChartDataLabels ? [window.ChartDataLabels] : [],
-        data: {
-          labels: ['Client', 'Internal (EMG)', 'Time off'],
-          datasets: [{ data: [Math.round(client), Math.round(internal), Math.round(off)], backgroundColor: ['#0a493c', '#3bc9ac', '#fabf4d'], borderWidth: 2, borderColor: '#ffffff' }]
-        },
+        data: { labels, datasets: [{ data: data.map(v => Math.round(v)), backgroundColor: colors, borderWidth: 2, borderColor: '#ffffff' }] },
         options: {
           responsive: true, maintainAspectRatio: false,
           plugins: {
-            legend: { position: 'bottom', labels: { font: chartFont(), color: '#67706d', boxWidth: 12 } },
-            tooltip: { callbacks: { label: ctx => ' ' + ctx.label + ': ' + fmtHrs(ctx.parsed) + 'h (' + Math.round(ctx.parsed / totalH * 100) + '%)' } },
+            legend: { position: 'bottom', labels: { font: chartFont(), color: '#67706d', boxWidth: 10, padding: 6 } },
+            tooltip: { callbacks: { label: ctx => ' ' + ctx.label + ': ' + fmtHrs(ctx.parsed) + 'h (' + Math.round(ctx.parsed / denom * 100) + '%)' } },
             datalabels: {
               font: { family: "'DM Mono', monospace", size: 10, weight: '700' },
-              color: ctx => ctx.dataIndex === 0 ? '#ffffff' : '#0a493c',
-              formatter: v => totalH > 0 && v / totalH >= 0.04 ? Math.round(v / totalH * 100) + '%' : ''
+              color: ctx => ['#0a493c', '#9aa5a1'].includes(ctx.dataset.backgroundColor[ctx.dataIndex]) ? '#ffffff' : '#0a493c',
+              formatter: v => denom > 0 && v / denom >= 0.04 ? Math.round(v / denom * 100) + '%' : ''
             }
           }
         }
       }));
-    }
+    };
+
+    // Left: share of hours logged.  Right: same three plus unused capacity, over total capacity.
+    makePie('chart-split', ['Client', 'Internal (EMG)', 'Time off'], [client, internal, off], ['#0a493c', '#3bc9ac', '#fabf4d'], loggedTotal);
+    const unused = Math.max(capTotal - loggedTotal, 0);
+    makePie('chart-split-cap', ['Client', 'Internal (EMG)', 'Time off', 'Unused capacity'], [client, internal, off, unused], ['#0a493c', '#3bc9ac', '#fabf4d', '#9aa5a1'], capTotal);
   }
 
   const weeklyEl = document.getElementById('chart-weekly');
