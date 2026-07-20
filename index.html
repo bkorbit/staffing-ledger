@@ -239,6 +239,16 @@ input.rev-input { min-width: 90px; flex: 1; }
 .tm-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 0 0 26px; }
 .tm-add select, .tm-add input { border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; background: var(--paper); width: auto; font-family: var(--font-mono); font-size: 11px; }
 .tm-add input.numfield { width: 80px; }
+.tm-combo { position: relative; min-width: 260px; }
+.tm-combo-input { width: 100%; box-sizing: border-box; border: 1px solid var(--line); border-radius: 4px; padding: 6px 9px; font-family: var(--font-mono); font-size: 11px; background: var(--paper-raised); }
+.tm-combo-input:focus { outline: none; border-color: var(--brand); }
+.tm-combo-list { position: absolute; z-index: 30; top: calc(100% + 2px); left: 0; right: 0; background: #fff; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,0.12); max-height: 240px; overflow-y: auto; }
+.tm-combo-opt { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 10px; cursor: pointer; border-bottom: 1px solid var(--line); }
+.tm-combo-opt:last-child { border-bottom: none; }
+.tm-combo-opt:hover { background: var(--mint); }
+.tm-opt-name { font-family: var(--font-display); font-size: 12px; font-weight: 600; color: var(--ink); }
+.tm-opt-meta { font-family: var(--font-mono); font-size: 9px; color: var(--slate); white-space: nowrap; }
+.tm-combo-none { padding: 8px 10px; font-family: var(--font-mono); font-size: 10px; color: var(--slate); }
 .tm-empty { font-family: var(--font-mono); font-size: 11px; color: var(--slate); padding: 6px 0 2px 26px; }
 
 /* Dashboard */
@@ -791,6 +801,7 @@ let ui = {
   forecastExpanded: {},   // month -> true
   fcSort: {key: 'net', dir: -1},   // breakout column sort (shared across months)
   fcFrom: '', fcTo: '',            // forecast month range filter
+  tmPick: {},                      // staffId -> {q, pid} for the assignment typeahead
   expanded: {},     // `${projectId}__${dept}` -> true
   teamExpanded: {}, // staffId -> true
   teamShowEnded: false,
@@ -3146,18 +3157,34 @@ function renderStaffTable() {
       }).join('');
       const suggFor = pid => { const a = getActual(s.id, pid); return a > 0 ? Math.round((a / nVm) * 10) / 10 : 0; };
       const firstSugg = unassignedProjs.length ? suggFor(unassignedProjs[0].id) : 0;
+      const pick = ui.tmPick[s.id] || {};
+      const q = (pick.q || '').toLowerCase();
+      const chosen = pick.pid ? unassignedProjs.find(p => p.id === pick.pid) : null;
+      const matches = unassignedProjs
+        .filter(p => !q || (p.name || '').toLowerCase().includes(q))
+        .slice(0, 8);
       const addForm = unassignedProjs.length ? `
         <div class="tm-add">
-          <select id="tm-proj-${s.id}" data-role="tm-proj-select" data-id="${s.id}">
-            ${unassignedProjs.map(p => { const sg = suggFor(p.id); return `<option value="${p.id}">${escapeHtml(p.name) || 'Untitled'}${sg > 0 ? ' · logged ' + fmtHrs(sg) + 'h/mo' : ''}${projectActiveInMonth(p, currentMonth) ? '' : ' (flight ended)'}</option>`; }).join('')}
-          </select>
-          <input type="text" inputmode="decimal" class="numfield" placeholder="Hours" value="${firstSugg > 0 ? firstSugg : ''}" title="Pre-filled with their logged hours on this account" id="tm-hrs-${s.id}">
+          <div class="tm-combo" data-id="${s.id}">
+            <input type="text" class="tm-combo-input" id="tm-proj-q-${s.id}" data-role="tm-combo-input" data-id="${s.id}"
+              placeholder="Search account to assign…" autocomplete="off"
+              value="${chosen ? escapeAttr(chosen.name || 'Untitled') : escapeAttr(pick.q || '')}">
+            ${!chosen ? `<div class="tm-combo-list">
+              ${matches.length ? matches.map(p => { const sg = suggFor(p.id); return `
+                <div class="tm-combo-opt" data-role="tm-combo-pick" data-id="${s.id}" data-pid="${p.id}">
+                  <span class="tm-opt-name">${escapeHtml(p.name) || 'Untitled'}</span>
+                  <span class="tm-opt-meta">${sg > 0 ? 'logged ' + fmtHrs(sg) + 'h/mo' : ''}${projectActiveInMonth(p, currentMonth) ? '' : ' · flight ended'}</span>
+                </div>`; }).join('') : `<div class="tm-combo-none">No matching accounts</div>`}
+            </div>` : ''}
+          </div>
+          <input type="text" inputmode="decimal" class="numfield" placeholder="Hours" value="${chosen ? (suggFor(chosen.id) > 0 ? suggFor(chosen.id) : '') : ''}" title="Pre-filled with their logged hours on this account" id="tm-hrs-${s.id}">
           <select id="tm-unit-${s.id}">
             <option value="month">hrs / month</option>
             <option value="week">hrs / week</option>
             <option value="flight">hrs, entire flight</option>
           </select>
-          <button class="assign" data-role="team-add-assign" data-id="${s.id}">Assign to project</button>
+          <button class="assign" data-role="team-add-assign" data-id="${s.id}" ${chosen ? '' : 'disabled'}>Assign${chosen ? ' to ' + escapeHtml((chosen.name || 'project').slice(0, 20)) : ''}</button>
+          ${chosen ? `<button class="ghost" data-role="tm-combo-clear" data-id="${s.id}">change</button>` : ''}
         </div>` : `<div class="tm-empty">Assigned to every active project this month.</div>`;
       const loggedOnly = state.projects
         .filter(p => getAssignment(s.id, p.id) <= 0 && getActual(s.id, p.id) > 0)
@@ -3873,13 +3900,9 @@ document.addEventListener('change', (e) => {
   if (t.id === 'team-show-ended') { ui.teamShowEnded = t.checked; render(); return; }
   if (t.id === 'team-client-only') { ui.teamClientOnly = t.checked; render(); return; }
   if (t.id === 'dash-proj-filter') { ui.dashProjFilter = t.value; render(); return; }
-  if (t.dataset.role === 'tm-proj-select') {
-    // pre-suggest this person's logged hours on the chosen account
-    const sid = t.dataset.id;
-    const act = getActual(sid, t.value);
-    const perMo = act > 0 ? Math.round((act / viewMonths().length) * 10) / 10 : 0;
-    const hrsInput = document.getElementById('tm-hrs-' + sid);
-    if (hrsInput) hrsInput.value = perMo > 0 ? perMo : '';
+  if (t.dataset.role === 'tm-combo-input') {
+    ui.tmPick[t.dataset.id] = { q: t.value, pid: '' };   // typing clears any prior selection, shows matches
+    render();   // render() preserves focus + caret via inputKey (stable data-role/data-id on this input)
     return;
   }
   if (t.id === 'proj-active-only') { ui.projActiveOnly = t.checked; render(); return; }
@@ -3950,12 +3973,25 @@ document.addEventListener('click', (e) => {
     setDemand(t.dataset.project, t.dataset.dept, parseFloat(t.dataset.hours) || 0);
     toast('Demand set to the suggested ' + t.dataset.hours + ' hrs/month for ' + t.dataset.dept + '.');
   }
+  else if (role === 'tm-combo-pick') {
+    ui.tmPick[t.dataset.id] = { q: '', pid: t.dataset.pid };
+    renderStaffTable();
+    const hrs = document.getElementById('tm-hrs-' + t.dataset.id);
+    if (hrs) hrs.focus();
+    return;
+  }
+  else if (role === 'tm-combo-clear') {
+    ui.tmPick[t.dataset.id] = { q: '', pid: '' };
+    renderStaffTable();
+    const inp = document.getElementById('tm-proj-q-' + t.dataset.id);
+    if (inp) inp.focus();
+    return;
+  }
   else if (role === 'team-add-assign') {
     const sid = t.dataset.id;
-    const projSel = document.getElementById('tm-proj-' + sid);
     const hrsInput = document.getElementById('tm-hrs-' + sid);
     const unitSel = document.getElementById('tm-unit-' + sid);
-    const pid = projSel ? projSel.value : '';
+    const pid = (ui.tmPick[sid] || {}).pid || '';
     const hrs = parseFloat(hrsInput ? hrsInput.value : '') || 0;
     const unit = unitSel ? unitSel.value : 'month';
     const project = state.projects.find(p => p.id === pid);
@@ -3970,6 +4006,7 @@ document.addEventListener('click', (e) => {
       addToAssignmentInMonth(mk, sid, pid, res.perMonth);
       if (ensureDemandCovers(mk, pid, dept)) demandRaised = true;
     });
+    ui.tmPick[sid] = { q: '', pid: '' };
     scheduleSave();
     render();
     const who = (person || {}).name || 'Person';
