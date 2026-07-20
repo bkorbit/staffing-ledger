@@ -254,6 +254,8 @@ input.rev-input { min-width: 90px; flex: 1; }
 .dash-note { font-family: var(--font-mono); font-size: 11px; color: var(--slate); padding: 10px 2px; }
 .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
 .pie-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; height: 100%; }
+.pie-trio { grid-template-columns: 1fr 1fr 1fr; }
+@media (max-width: 620px) { .pie-trio { grid-template-columns: 1fr; } }
 .pie-cell { display: flex; flex-direction: column; min-width: 0; }
 .pie-title { font-family: var(--font-mono); font-size: 10px; color: var(--slate); text-align: center; margin-bottom: 4px; }
 .chart-grid > .chart-card { min-width: 0; }   /* grid items default to min-width:auto, which stops tracks from shrinking below the canvas */
@@ -2456,9 +2458,10 @@ function renderDashboard() {
       <div class="chart-card"><h4>Department hours — capacity / plan / actual</h4><div class="chart-wrap"><canvas id="chart-dept"></canvas></div></div>
       <div class="chart-card"><h4>Trend — revenue &amp; labor cost</h4><div class="chart-wrap"><canvas id="chart-trend"></canvas></div></div>
       <div class="chart-card"><h4>Time allocation — client vs internal vs time off</h4>
-        <div class="pie-pair">
+        <div class="pie-pair pie-trio">
           <div class="pie-cell"><div class="pie-title">Of hours logged</div><div class="chart-wrap"><canvas id="chart-split"></canvas></div></div>
           <div class="pie-cell"><div class="pie-title">Of total capacity</div><div class="chart-wrap"><canvas id="chart-split-cap"></canvas></div></div>
+          <div class="pie-cell"><div class="pie-title">Capacity used</div><div class="chart-wrap"><canvas id="chart-cap-util"></canvas></div></div>
         </div>
       </div>
       <div class="chart-card"><h4>Hours logged by week — by project</h4><div class="chart-wrap" id="chart-weekly-wrap"><canvas id="chart-weekly"></canvas></div></div>
@@ -2595,6 +2598,45 @@ function buildDashCharts(projs, deptData, showActual) {
     makePie('chart-split', ['Client', 'Internal (EMG)', 'Time off'], [client, internal, off], ['#0a493c', '#3bc9ac', '#fabf4d'], loggedTotal);
     const unused = Math.max(capTotal - loggedTotal, 0);
     makePie('chart-split-cap', ['Client', 'Internal (EMG)', 'Time off', 'Unused capacity'], [client, internal, off, unused], ['#0a493c', '#3bc9ac', '#fabf4d', '#9aa5a1'], capTotal);
+
+    // Third pie: how the tank is being used — scheduled (planned) and used (logged)
+    // both measured against total capacity. Uses a nested ring: scheduled outer, used inner.
+    const scheduled = state.staff.reduce((sum, st) => sum + staffTotalHours(st.id, false), 0);
+    const used = loggedTotal;
+    const capUtilEl = document.getElementById('chart-cap-util');
+    if (capUtilEl && capTotal > 0) {
+      const slackSched = Math.max(capTotal - scheduled, 0);
+      const slackUsed = Math.max(capTotal - used, 0);
+      dashCharts.push(new Chart(capUtilEl, {
+        type: 'doughnut',
+        plugins: window.ChartDataLabels ? [window.ChartDataLabels] : [],
+        data: {
+          labels: ['Scheduled', 'Unscheduled', 'Used', 'Unused'],
+          datasets: [
+            { label: 'Scheduled', data: [Math.round(scheduled), Math.round(slackSched)], backgroundColor: ['#0a493c', '#e4e4e4'], borderWidth: 2, borderColor: '#fff', weight: 1 },
+            { label: 'Used', data: [Math.round(used), Math.round(slackUsed)], backgroundColor: ['#3bc9ac', '#f0f0f0'], borderWidth: 2, borderColor: '#fff', weight: 0.7 }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, cutout: '35%',
+          plugins: {
+            legend: { position: 'bottom', labels: { font: chartFont(), color: '#67706d', boxWidth: 10, padding: 6,
+              filter: item => item.text === 'Scheduled' || item.text === 'Used' } },
+            tooltip: { callbacks: { label: ctx => {
+              const isSlack = ctx.dataIndex === 1;
+              const ring = ctx.datasetIndex === 0 ? 'Scheduled' : 'Used';
+              if (isSlack) return ' Remaining: ' + fmtHrs(ctx.parsed) + 'h';
+              return ' ' + ring + ': ' + fmtHrs(ctx.parsed) + 'h (' + Math.round(ctx.parsed / capTotal * 100) + '% of ' + fmtHrs(capTotal) + 'h)';
+            } } },
+            datalabels: {
+              font: { family: "'DM Mono', monospace", size: 10, weight: '700' },
+              color: '#ffffff',
+              formatter: (v, ctx) => ctx.dataIndex === 0 && v / capTotal >= 0.08 ? Math.round(v / capTotal * 100) + '%' : ''
+            }
+          }
+        }
+      }));
+    }
   }
 
   const weeklyEl = document.getElementById('chart-weekly');
