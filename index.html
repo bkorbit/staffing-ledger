@@ -2620,8 +2620,25 @@ function buildDashCharts(projs, deptData, showActual) {
         options: {
           responsive: true, maintainAspectRatio: false, cutout: '35%',
           plugins: {
-            legend: { position: 'bottom', labels: { font: chartFont(), color: '#67706d', boxWidth: 10, padding: 6,
-              filter: item => item.text === 'Scheduled' || item.text === 'Used' } },
+            legend: {
+              position: 'bottom',
+              labels: {
+                font: chartFont(), color: '#67706d', boxWidth: 10, padding: 6,
+                // one legend entry per ring (dataset), not per slice
+                generateLabels: chart => chart.data.datasets.map((ds, i) => ({
+                  text: ds.label,
+                  fillStyle: ds.backgroundColor[0],
+                  strokeStyle: ds.backgroundColor[0],
+                  hidden: !chart.isDatasetVisible(i),
+                  datasetIndex: i
+                }))
+              },
+              onClick: (e, item, legend) => {
+                const ci = legend.chart;
+                ci.setDatasetVisibility(item.datasetIndex, !ci.isDatasetVisible(item.datasetIndex));
+                ci.update();
+              }
+            },
             tooltip: { callbacks: { label: ctx => {
               const isSlack = ctx.dataIndex === 1;
               const ring = ctx.datasetIndex === 0 ? 'Scheduled' : 'Used';
