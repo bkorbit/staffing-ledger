@@ -1727,17 +1727,17 @@ function renderCandidates() {
       <div class="candidate ${match ? 'dept-match' : ''}">
         <div>
           <div class="c-name">${escapeHtml(s.name) || 'Unnamed'}</div>
-          <div class="c-meta">${escapeHtml(deptLabelOf(s))} · ${fmtMoney(s.hourlyCost)}/hr</div>
+          <div class="c-meta">${escapeHtml(deptLabelOf(s))}${canSeeSalaries ? ' · ' + fmtMoney(s.hourlyCost) + '/hr' : ''}</div>
         </div>
         <div class="c-capacity ${overBy > 0.01 ? 'over' : 'ok'}">
           ${fmtHrs(Math.max(open,0))}h open
           ${overBy > 0.01 ? `<br>⚠ over by ${fmtHrs(overBy)}h` : ''}
         </div>
-        <div class="c-impact">
+        ${canSeeSalaries ? `<div class="c-impact">
           +${fmtMoney(addedCost)} cost<br>
           profit ${fmtMoney(before.profit)} <span class="impact-arrow">→</span> <span class="${afterProfit >= 0 ? 'impact-good' : 'impact-bad'}">${fmtMoney(afterProfit)}</span><br>
           margin ${beforeMarginTxt} <span class="impact-arrow">→</span> <span class="${marginCls}">${afterMarginTxt}</span>
-        </div>
+        </div>` : '<div class="c-impact"><span class="impact-arrow">cost impact hidden</span></div>'}
         <button class="assign" data-role="do-assign" data-staff="${s.id}" ${hrs > 0 ? '' : 'disabled'}>Assign</button>
       </div>`;
   }).join('');
@@ -3012,7 +3012,7 @@ function renderStaffTable() {
             <div>${pvPairHtml(0, act, 'h', true).replace('>plan<', '>asgn<').replace('>act<', '>log<')}</div>
           </div>`;
       }).join('');
-      const intRow = (intHrs > 0 || (showActual && intAct > 0)) ? `<div class="tm-row"><div><div class="tm-name" style="color:var(--internal)">Internal (non-billable)</div>${intHrs <= 0 ? '<div class="tm-meta">logged only — no internal hours planned</div>' : ''}</div><div class="tm-meta">${intHrs > 0 ? fmtHrs(intHrs) + ' hrs' : '—'}</div><div class="tm-meta">${fmtMoney((intHrs || intAct) * s.hourlyCost)} cost</div><div class="tm-meta">${showActual && intAct ? 'logged ' + fmtHrs(intAct) + 'h' : ''}</div><div>${showActual && intAct ? pvPairHtml(intHrs, intAct, 'h', true).replace('>plan<', '>asgn<').replace('>act<', '>log<') : ''}</div></div>` : '';
+      const intRow = (intHrs > 0 || (showActual && intAct > 0)) ? `<div class="tm-row"><div><div class="tm-name" style="color:var(--internal)">Internal (non-billable)</div>${intHrs <= 0 ? '<div class="tm-meta">logged only — no internal hours planned</div>' : ''}</div><div class="tm-meta">${intHrs > 0 ? fmtHrs(intHrs) + ' hrs' : '—'}</div><div class="tm-meta">${canSeeSalaries ? fmtMoney((intHrs || intAct) * s.hourlyCost) + ' cost' : ''}</div><div class="tm-meta">${showActual && intAct ? 'logged ' + fmtHrs(intAct) + 'h' : ''}</div><div>${showActual && intAct ? pvPairHtml(intHrs, intAct, 'h', true).replace('>plan<', '>asgn<').replace('>act<', '>log<') : ''}</div></div>` : '';
       breakout = `
         <tr class="team-breakout"><td colspan="10">
           ${rows || '<div class="tm-empty">No project assignments this month.</div>'}
