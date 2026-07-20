@@ -3106,7 +3106,7 @@ function renderProjectTable() {
           <div><span class="pb-name">${escapeHtml(c.st.name) || 'Unnamed'}</span>${c.st.department ? ` <span class="lg-dept">${escapeHtml(c.st.department)}</span>` : ''}</div>
           <div class="pb-num"><strong>${fmtHrs(c.logged)}h</strong> logged${c.assigned > 0 ? ' ' + deltaHtml(c.assigned, c.logged, false) : ''}</div>
           <div class="pb-num">${fmtHrs(c.assigned)}h assigned</div>
-          <div class="pb-num">${fmtMoney((c.logged || c.assigned) * c.st.hourlyCost)} cost</div>
+          <div class="pb-num">${canSeeSalaries ? fmtMoney((c.logged || c.assigned) * c.st.hourlyCost) + ' cost' : ''}</div>
         </div>`).join('');
       const hasAnyActuals = contributors.some(c => c.logged > 0);
       const revMonths = billingActive(p)
