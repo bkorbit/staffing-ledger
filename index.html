@@ -141,6 +141,11 @@ input.rev-input { min-width: 90px; flex: 1; }
 .rev-cell { display: flex; align-items: center; gap: 2px; }
 .rev-act { font-family: var(--font-mono); font-size: 9px; color: var(--slate); display: inline-flex; align-items: center; gap: 3px; margin-top: 3px; cursor: pointer; }
 .rev-act input { width: auto; margin: 0; }
+.seg-track { height: 5px; background: #e4e4e4; border-radius: 3px; display: flex; overflow: hidden; margin-top: 4px; }
+.seg { height: 100%; }
+.seg-client { background: #3bc9ac; }
+.seg-int { background: #0a493c; }
+.seg-off { background: #fabf4d; }
 #tab-team table { table-layout: fixed; }
 #tab-team th.col-name { width: 13%; }
 #tab-team th.col-dept { width: 8%; }
@@ -570,6 +575,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
         <input type="text" id="team-search" placeholder="Search name…">
         <select id="team-dept-filter"><option value="">All departments</option></select>
         <label title="Flight end dates aren't always correct — this lets you assign to accounts whose flight has technically ended"><input type="checkbox" id="team-show-ended"> include ended flights in assign list</label>
+        <label title="Hide internal and time-off segments in the logged bars"><input type="checkbox" id="team-client-only"> client hours only</label>
       </div>
       <table>
         <thead>
@@ -730,6 +736,7 @@ const LIGHT_COLORS = new Set(['#fabf4d', '#57cb96', '#3bc9ac', '#dcf4e9']);
 function textOn(color) { return LIGHT_COLORS.has(color) ? '#0a493c' : '#ffffff'; }
 const STORAGE_KEY = 'staffing-ledger-state-v2';
 const INTERNAL_ID = '__internal__';
+const TIMEOFF_ID = '__timeoff__';   // PTO / sick / holiday: reduces capacity when logged, never counts as work
 const INTERNAL_NAMES = ['emg', 'internal', 'internal time', 'non-billable', 'nonbillable', 'non billable', 'admin', 'overhead'];
 const NO_DEPT = '(no department)';
 const WEEKS_PER_MONTH = 52 / 12;
@@ -755,6 +762,7 @@ let ui = {
   expanded: {},     // `${projectId}__${dept}` -> true
   teamExpanded: {}, // staffId -> true
   teamShowEnded: false,
+  teamClientOnly: false,
   dashProjSearch: '', dashProjFilter: 'all',
   projExpanded: {}   // projectId -> true  // staffId -> true
 };
@@ -1513,6 +1521,8 @@ function projectHours(projectId, useActuals) { return state.staff.reduce((sum, s
 function projectCost(projectId, useActuals) { return state.staff.reduce((sum, s) => sum + (useActuals ? getActual(s.id, projectId) : getAssignment(s.id, projectId)) * s.hourlyCost, 0); }
 function internalCost(useActuals) { return state.staff.reduce((sum, s) => sum + (useActuals ? getActual(s.id, INTERNAL_ID) : getAssignment(s.id, INTERNAL_ID)) * s.hourlyCost, 0); }
 function internalHoursTotal(useActuals) { return state.staff.reduce((sum, s) => sum + (useActuals ? getActual(s.id, INTERNAL_ID) : getAssignment(s.id, INTERNAL_ID)), 0); }
+function timeOffLogged(sid) { return getActual(sid, TIMEOFF_ID); }
+function timeOffTotal() { return state.staff.reduce((sum, s) => sum + timeOffLogged(s.id), 0); }
 
 function projectStatus(project, useActuals) {
   const cost = projectCost(project.id, useActuals);
@@ -1546,8 +1556,9 @@ function staffActiveMonths(s) { return viewMonths().filter(mk => staffActiveInMo
 function periodCapacity(s) {
   return viewMonths().filter(mk => staffActiveInMonth(s, mk)).reduce((sum, mk) => sum + monthlyCapacityFor(s, mk), 0);
 }
-/* Internal hours consume capacity: what's left for project work. */
-function availableCapacity(s) { return Math.max(periodCapacity(s) - getAssignment(s.id, INTERNAL_ID), 0); }
+/* Internal hours consume capacity; logged time off (PTO/sick/holiday) reduces it. */
+function availableCapacity(s) { return Math.max(periodCapacity(s) - getAssignment(s.id, INTERNAL_ID) - timeOffLogged(s.id), 0); }
+function effectiveCapacity(s) { return Math.max(periodCapacity(s) - timeOffLogged(s.id), 0); }
 function staffProjectHours(sid, useActuals) {
   return staffTotalHours(sid, useActuals) - (useActuals ? getActual(sid, INTERNAL_ID) : getAssignment(sid, INTERNAL_ID));
 }
@@ -2260,7 +2271,7 @@ function renderForecast() {
         { label: 'Actual', data: rows.map(r => Math.round(r.actual)), backgroundColor: '#0a493c', stack: 'rev' },
         { label: 'Forecasted', data: rows.map(r => Math.round(r.forecast)), backgroundColor: '#3bc9ac', stack: 'rev' },
         { label: 'Profit after labor', data: rows.map(r => Math.round(r.profit)), backgroundColor: rows.map(r => r.profit >= 0 ? '#7a9d54' : '#B5482A'), stack: 'profit', isProfit: true },
-        { type: 'line', label: 'Profit after total payroll', data: rows.map(r => Math.round(r.profitPayroll)), borderColor: '#23272b', backgroundColor: '#23272b', borderDash: [6, 4], fill: false, tension: 0, pointRadius: 2, stack: 'payline', isPayLine: true }
+        { type: 'line', label: 'Profit after total payroll', data: rows.map(r => Math.round(r.profitPayroll)), borderColor: '#fabf4d', backgroundColor: '#fabf4d', borderWidth: 2.5, borderDash: [6, 4], fill: false, tension: 0, pointRadius: 2.5, order: -1, stack: 'payline', isPayLine: true }
       ]
     },
     options: (() => {
@@ -2384,7 +2395,7 @@ function renderDashboard() {
     return {
       dept,
       members,
-      capacity: members.reduce((s, m) => s + periodCapacity(m), 0),
+      capacity: members.reduce((s, m) => s + effectiveCapacity(m), 0),
       plan: members.reduce((s, m) => s + staffTotalHours(m.id, false), 0),
       act: members.reduce((s, m) => s + staffTotalHours(m.id, true), 0),
       internal: members.reduce((s, m) => s + getAssignment(m.id, INTERNAL_ID), 0),
@@ -2422,6 +2433,7 @@ function renderDashboard() {
     <div class="chart-grid">
       <div class="chart-card"><h4>Department hours — capacity / plan / actual</h4><div class="chart-wrap"><canvas id="chart-dept"></canvas></div></div>
       <div class="chart-card"><h4>6-month trend — revenue &amp; labor cost</h4><div class="chart-wrap"><canvas id="chart-trend"></canvas></div></div>
+      <div class="chart-card"><h4>Logged hours — client vs internal vs time off</h4><div class="chart-wrap"><canvas id="chart-split"></canvas></div></div>
     </div>
     <div class="dash-section">
       <h3>Departments</h3>
@@ -2517,6 +2529,36 @@ function buildDashCharts(projs, deptData, showActual) {
     }));
   }
 
+  const splitEl = document.getElementById('chart-split');
+  if (splitEl && showActual) {
+    const client = state.staff.reduce((sum, st) => sum + staffProjectHours(st.id, true), 0);
+    const internal = internalHoursTotal(true);
+    const off = timeOffTotal();
+    const totalH = client + internal + off;
+    if (totalH > 0) {
+      dashCharts.push(new Chart(splitEl, {
+        type: 'doughnut',
+        plugins: window.ChartDataLabels ? [window.ChartDataLabels] : [],
+        data: {
+          labels: ['Client', 'Internal (EMG)', 'Time off'],
+          datasets: [{ data: [Math.round(client), Math.round(internal), Math.round(off)], backgroundColor: ['#0a493c', '#3bc9ac', '#fabf4d'], borderWidth: 2, borderColor: '#ffffff' }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { font: chartFont(), color: '#67706d', boxWidth: 12 } },
+            tooltip: { callbacks: { label: ctx => ' ' + ctx.label + ': ' + fmtHrs(ctx.parsed) + 'h (' + Math.round(ctx.parsed / totalH * 100) + '%)' } },
+            datalabels: {
+              font: { family: "'DM Mono', monospace", size: 10, weight: '700' },
+              color: ctx => ctx.dataIndex === 0 ? '#ffffff' : '#0a493c',
+              formatter: v => totalH > 0 && v / totalH >= 0.04 ? Math.round(v / totalH * 100) + '%' : ''
+            }
+          }
+        }
+      }));
+    }
+  }
+
   const trendEl = document.getElementById('chart-trend');
   if (trendEl) {
     const vm = viewMonths();
@@ -2586,7 +2628,7 @@ function renderSummary() {
   const actualNet = totalRevenue - actualCost;
   const plannedHrs = projs.reduce((s, p) => s + projectHours(p.id, false), 0) + internalHoursTotal(false);
   const actualHrs = projs.reduce((s, p) => s + projectHours(p.id, true), 0) + internalHoursTotal(true);
-  const capTotal = state.staff.reduce((sum, st) => sum + periodCapacity(st), 0);
+  const capTotal = state.staff.reduce((sum, st) => sum + effectiveCapacity(st), 0);
   const showActual = hasActualsThisMonth();
   const overCount = state.staff.filter(s => staffProjectHours(s.id, false) > availableCapacity(s) + 0.01).length;
   const underCount = state.staff.filter(s => staffProjectHours(s.id, false) < availableCapacity(s) * 0.9).length;
@@ -2725,10 +2767,16 @@ function renderStaffTable() {
     } else if (logged <= 0) {
       loggedCapCell = '<span class="computed-sub">—</span>';
     } else {
+      const offAct = timeOffLogged(s.id);
+      const rawCap = periodCapacity(s);
+      const segPct = h => rawCap > 0 ? Math.min((h / rawCap) * 100, 100) : 0;
+      const segs = ui.teamClientOnly
+        ? `<div class="seg seg-client" style="width:${segPct(loggedProj)}%" title="client ${fmtHrs(loggedProj)}h"></div>`
+        : `<div class="seg seg-client" style="width:${segPct(loggedProj)}%" title="client ${fmtHrs(loggedProj)}h"></div><div class="seg seg-int" style="width:${segPct(intAct)}%" title="internal ${fmtHrs(intAct)}h"></div><div class="seg seg-off" style="width:${segPct(offAct)}%" title="time off ${fmtHrs(offAct)}h"></div>`;
       loggedCapCell = `
         <span class="util-pct ${capCls}">${Math.round(capPct)}%</span>
-        <span class="computed-sub"> · ${fmtHrs(loggedProj)} / ${fmtHrs(avail)}h avail${intAct > 0 ? ' · ' + fmtHrs(intAct) + 'h int logged' : ''}</span>
-        <div class="mini-track"><div class="mini-bar ${capOver ? 'over' : ''}" style="width:${Math.min(capPct, 100)}%;"></div></div>`;
+        <span class="computed-sub"> · ${fmtHrs(loggedProj)}h client${ui.teamClientOnly ? '' : (intAct > 0 ? ' · ' + fmtHrs(intAct) + 'h int' : '') + (offAct > 0 ? ' · ' + fmtHrs(offAct) + 'h off' : '')} / ${fmtHrs(avail)}h avail</span>
+        <div class="seg-track">${segs}</div>`;
     }
     const expanded = !!ui.teamExpanded[s.id];
 
@@ -2890,9 +2938,29 @@ function renderProjectTable() {
           <div class="pb-num">${fmtMoney((c.logged || c.assigned) * c.st.hourlyCost)} cost</div>
         </div>`).join('');
       const hasAnyActuals = contributors.some(c => c.logged > 0);
+      const revMonths = billingActive(p)
+        ? (monthsOfFlight(p) || [...billingMonths(p)].sort())
+        : (monthsOfFlight(p) || viewMonths());
+      const revGrid = revMonths.length ? revMonths.map(mk => {
+        const computed = billingGP(p, mk);
+        const o = (p.revenueOverrides || {})[mk];
+        const hasValue = o !== undefined;
+        const isAct = (p.revenueActuals || {})[mk];
+        const body = computed !== null
+          ? `<div class="pj-computed" title="${escapeAttr(billingBreakdown(p, mk))}">${fmtMoney(computed)}</div>`
+          : `<input type="text" inputmode="decimal" data-role="pb-rev-month" data-id="${p.id}" data-mk="${mk}" value="${hasValue ? o : ''}" placeholder="$0">`;
+        return `
+          <div class="pj-month ${hasValue || computed !== null ? 'overridden' : ''}${mk === currentMonth ? ' pj-now' : ''}">
+            <div class="mlabel"><span>${monthShort(mk)}</span><span>${mk === currentMonth ? 'now' : ''}</span></div>
+            ${body}
+            <label class="rev-act" title="Check when confirmed actual; unchecked = forecasted"><input type="checkbox" data-role="pb-rev-actual" data-id="${p.id}" data-mk="${mk}" ${isAct ? 'checked' : ''}> actual</label>
+          </div>`;
+      }).join('') : '<div class="pb-empty">Set flight dates (✎) to lay out the months.</div>';
       breakout = `
         <tr class="proj-breakout"><td colspan="10">
           ${rowsHtml || '<div class="pb-empty">No one has logged or been assigned hours on this project in this period.</div>'}
+          <div class="pj-months-label" style="margin-top:14px;">GROSS PROFIT BY MONTH${billingActive(p) ? ' — computed from billing lines (edit in ✎)' : ' — forecast until checked actual'}</div>
+          <div class="pj-months">${revGrid}</div>
           ${hasAnyActuals ? `
             <div class="chart-card" style="margin-top:12px;">
               <h4>Contributor hours over time — ${escapeHtml(p.name) || 'Untitled'}</h4>
@@ -3342,7 +3410,7 @@ function render() {
    jump around mid-edit. */
 const TYPED_ROLES = new Set(['staff-name','staff-dept','staff-cost','staff-cap','staff-internal',
   'project-name','project-revenue-month','assignment','demand-hours',
-  'pm-name','pm-dept','pm-cost','pm-cap','pj-rev-month','fc-rev-month',
+  'pm-name','pm-dept','pm-cost','pm-cap','pj-rev-month','fc-rev-month','pb-rev-month',
   'bl-amount','bl-fee','bl-rate','bl-margin','bl-hours','bl-budget','bl-mmargin','bl-mhours','bl-label']);
 let typedFieldDirty = false;
 
@@ -3375,6 +3443,7 @@ document.addEventListener('input', (e) => {
     else if (role === 'pm-cap') { updateStaffField(personEditId, 'weeklyCapacity', t.value); refreshPersonCostUI(true); }
     else if (role === 'pm-type') { setStaffType(personEditId, t.value); refreshPersonCostUI(false); }
     else if (role === 'pj-rev-month') setRevenueOverride(projectEditId, t.dataset.mk, t.value);
+    else if (role === 'pb-rev-month') setRevenueOverride(t.dataset.id, t.dataset.mk, t.value);
     else if (role === 'fc-rev-month') setRevenueOverride(t.dataset.pid, t.dataset.mk, t.value);
     else if (role && role.startsWith('bl-') && role !== 'bl-mode' && role !== 'bl-remove') {
       const p = state.projects.find(x => x.id === projectEditId);
@@ -3444,9 +3513,11 @@ document.addEventListener('change', (e) => {
     render(); return;
   }
   if (t.dataset && t.dataset.role === 'pj-rev-actual') { toggleRevenueActual(projectEditId, t.dataset.mk, t.checked); rebuildProjectModalMonths(); return; }
+  if (t.dataset && t.dataset.role === 'pb-rev-actual') { toggleRevenueActual(t.dataset.id, t.dataset.mk, t.checked); return; }
   if (t.id === 'import-type') { if (importHeaders) buildMappingUI(); return; }
   if (t.id === 'team-dept-filter') { ui.teamDept = t.value; render(); return; }
   if (t.id === 'team-show-ended') { ui.teamShowEnded = t.checked; render(); return; }
+  if (t.id === 'team-client-only') { ui.teamClientOnly = t.checked; render(); return; }
   if (t.id === 'dash-proj-filter') { ui.dashProjFilter = t.value; render(); return; }
   if (t.dataset.role === 'tm-proj-select') {
     // pre-suggest this person's logged hours on the chosen account

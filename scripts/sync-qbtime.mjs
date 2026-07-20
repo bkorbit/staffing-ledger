@@ -59,7 +59,7 @@ function rootJobcodeName(id, jobcodes) {
     guard++;
   }
   if (!jc) return '';
-  if (INTERNAL_JOBCODE_TYPES.has(String(jc.type || '').toLowerCase())) return 'Internal';
+  if (TIMEOFF_JOBCODE_TYPES.has(String(jc.type || '').toLowerCase())) return 'Time off';
   return String(jc.name || '').trim();
 }
 
@@ -190,7 +190,9 @@ async function main() {
         staff.department = dept;   // backfill blanks only — never overwrite a department you set
       }
       let projectId;
-      if (INTERNAL_NAMES.includes(customer.toLowerCase())) {
+      if (TIMEOFF_NAMES.includes(customer.toLowerCase())) {
+        projectId = TIMEOFF_ID;
+      } else if (INTERNAL_NAMES.includes(customer.toLowerCase())) {
         projectId = INTERNAL_ID;
       } else {
         let proj = projByName[customer.toLowerCase()];
@@ -211,8 +213,10 @@ async function main() {
   // Weekly actuals: synced months own their weeks — clear then rewrite
   const resolveKey = (person, customer) => {
     const staff = staffByName[person.toLowerCase()];
-    const pid = INTERNAL_NAMES.includes(customer.toLowerCase()) ? INTERNAL_ID
-      : (projByName[customer.toLowerCase()] || {}).id;
+    const c = customer.toLowerCase();
+    const pid = TIMEOFF_NAMES.includes(c) ? TIMEOFF_ID
+      : INTERNAL_NAMES.includes(c) ? INTERNAL_ID
+      : (projByName[c] || {}).id;
     return staff && pid ? staff.id + '__' + pid : null;
   };
   const monthsSet = new Set(monthsSynced);
