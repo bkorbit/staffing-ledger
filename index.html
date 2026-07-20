@@ -3208,10 +3208,8 @@ function renderProjectTable() {
       <td class="sel-col"><input type="checkbox" data-role="proj-select" data-id="${p.id}" ${ui.projSelected[p.id] ? 'checked' : ''}></td>
       <td><div class="name-cell"><button class="expand-btn" data-role="proj-toggle" data-id="${p.id}">${expanded ? '▾' : '▸'}</button><input type="text" value="${escapeAttr(p.name)}" placeholder="Project name" data-role="project-name" data-id="${p.id}"></div>
         ${(() => {
-          const chips = billingActive(p) ? p.billing.lines.map(l => `<span class="bl-chip">${BILLING_TYPES[l.type]}</span>`).join('') : '';
           const depts = projectAssignedDepts(p.id);
-          const deptLine = depts.length ? `<span class="proj-depts">${depts.map(d => escapeHtml(d)).join(' · ')}</span>` : '';
-          return (chips || deptLine) ? `<div class="proj-tags">${chips}${deptLine}</div>` : '';
+          return depts.length ? `<div class="proj-tags"><span class="proj-depts">${depts.map(d => escapeHtml(d)).join(' · ')}</span></div>` : '';
         })()}
       </td>
       <td>
