@@ -18,9 +18,12 @@ const WORKSPACE_ID = 'default';
 
 const QB_BASE = 'https://rest.tsheets.com/api/v1';
 const INTERNAL_ID = '__internal__';
-const INTERNAL_NAMES = ['emg', 'internal', 'internal time', 'non-billable', 'nonbillable', 'non billable', 'admin', 'overhead',
-  'pto', 'sick', 'sick day', 'vacation', 'holiday', 'company holiday', 'unpaid time off'];
-const INTERNAL_JOBCODE_TYPES = new Set(['pto', 'paid_break', 'unpaid_break', 'unpaid_time_off']);
+const TIMEOFF_ID = '__timeoff__';
+// EMG-internal work: consumes time but is real work
+const INTERNAL_NAMES = ['emg', 'internal', 'internal time', 'non-billable', 'nonbillable', 'non billable', 'admin', 'overhead'];
+// Not-working time: PTO/sick/holiday — reduces capacity in the tool
+const TIMEOFF_NAMES = ['pto', 'sick', 'sick day', 'vacation', 'holiday', 'company holiday', 'unpaid time off', 'time off'];
+const TIMEOFF_JOBCODE_TYPES = new Set(['pto', 'paid_break', 'unpaid_break', 'unpaid_time_off']);
 // QuickBooks Time owns all actuals from this date forward: every sync pulls the
 // full window and replaces those months, so QBT corrections/deletions flow through.
 const SYNC_FROM = '2026-04-01';
