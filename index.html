@@ -2244,8 +2244,11 @@ function renderForecast() {
     const expanded = !!ui.forecastExpanded[r.mk];
     let breakout = '';
     if (expanded) {
-      const withRev = r.contributors.filter(c => c.amount !== 0);
-      const costOnly = r.contributors.filter(c => c.amount === 0);
+      // Editable rows: anything with revenue, plus any in-flight project (so a $0
+      // flight month can be typed back up). Only projects with labor cost but no
+      // revenue and no flight collapse into the summary line.
+      const withRev = r.contributors.filter(c => c.amount !== 0 || c.inFlight);
+      const costOnly = r.contributors.filter(c => c.amount === 0 && !c.inFlight);
       const unconfirmed = withRev.filter(c => !c.isActual).length;
       const sk = ui.fcSort.key, sd = ui.fcSort.dir;
       const sortVal = c => sk === 'name' ? (c.name || '').toLowerCase()
@@ -2273,7 +2276,7 @@ function renderForecast() {
         </div>
         ${withRev.map(c => `
           <div class="fc-row">
-            <div class="fc-name">${escapeHtml(c.name)}<button class="edit-btn" data-role="edit-project" data-id="${c.pid}" title="Edit billing & months">✎</button>${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? pp.billing.lines.map(l => `<span class="bl-chip">${BILLING_TYPES[l.type]}</span>`).join('') : ''; })()}</div>
+            <div class="fc-name">${escapeHtml(c.name)}<button class="edit-btn" data-role="edit-project" data-id="${c.pid}" title="Edit billing & months">✎</button>${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? pp.billing.lines.map(l => `<span class="bl-chip">${BILLING_TYPES[l.type]}</span>`).join('') : ''; })()}${c.amount === 0 && c.inFlight ? '<span class="fc-basis"> · in flight</span>' : ''}</div>
             <div class="pb-num">${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? `<span style="font-weight:700;" title="${escapeAttr(billingBreakdown(pp, r.mk))}">${fmtMoney(c.amount)}</span>` : `<input type="text" inputmode="decimal" class="fc-rev-input" value="${c.amount ? '$' + Math.round(c.amount).toLocaleString() : ''}" placeholder="$0" data-role="fc-rev-month" data-pid="${c.pid}" data-mk="${r.mk}">`; })()} rev</div>
             <div class="pb-num">${fmtMoney(c.cost)} cost <span class="fc-basis">${c.basis}</span></div>
             <div class="pb-num" style="color:${c.amount - c.cost >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(c.amount - c.cost)} net</div>
