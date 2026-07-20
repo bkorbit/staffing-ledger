@@ -242,7 +242,8 @@ input.rev-input { min-width: 90px; flex: 1; }
 .tm-combo { position: relative; min-width: 260px; }
 .tm-combo-input { width: 100%; box-sizing: border-box; border: 1px solid var(--line); border-radius: 4px; padding: 6px 9px; font-family: var(--font-mono); font-size: 11px; background: var(--paper-raised); }
 .tm-combo-input:focus { outline: none; border-color: var(--brand); }
-.tm-combo-list { position: absolute; z-index: 30; top: calc(100% + 2px); left: 0; right: 0; background: #fff; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,0.12); max-height: 240px; overflow-y: auto; }
+.tm-combo-list { display: none; position: absolute; z-index: 30; top: calc(100% + 2px); left: 0; right: 0; background: #fff; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,0.12); max-height: 240px; overflow-y: auto; }
+.tm-combo:focus-within .tm-combo-list, .tm-combo-list.has-q { display: block; }
 .tm-combo-opt { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 10px; cursor: pointer; border-bottom: 1px solid var(--line); }
 .tm-combo-opt:last-child { border-bottom: none; }
 .tm-combo-opt:hover { background: var(--mint); }
@@ -3169,7 +3170,7 @@ function renderStaffTable() {
             <input type="text" class="tm-combo-input" id="tm-proj-q-${s.id}" data-role="tm-combo-input" data-id="${s.id}"
               placeholder="Search account to assign…" autocomplete="off"
               value="${chosen ? escapeAttr(chosen.name || 'Untitled') : escapeAttr(pick.q || '')}">
-            ${!chosen ? `<div class="tm-combo-list">
+            ${!chosen ? `<div class="tm-combo-list${pick.q ? ' has-q' : ''}">
               ${matches.length ? matches.map(p => { const sg = suggFor(p.id); return `
                 <div class="tm-combo-opt" data-role="tm-combo-pick" data-id="${s.id}" data-pid="${p.id}">
                   <span class="tm-opt-name">${escapeHtml(p.name) || 'Untitled'}</span>
