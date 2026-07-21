@@ -119,6 +119,7 @@ td.sel-col input, th.sel-col input { width: auto; margin: 0; cursor: pointer; }
 @media (max-width: 860px) { .fc-row { grid-template-columns: 1fr 1fr; row-gap: 2px; } }
 
 table { width: 100%; border-collapse: collapse; background: var(--paper-raised); border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+#team-table, #team-table tbody, #team-table tr, #team-table td { overflow: visible; }
 th { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
 th.sortable { cursor: pointer; user-select: none; }
 th.sortable:hover { color: var(--ink); }
@@ -242,7 +243,8 @@ input.rev-input { min-width: 90px; flex: 1; }
 .tm-combo { position: relative; min-width: 260px; }
 .tm-combo-input { width: 100%; box-sizing: border-box; border: 1px solid var(--line); border-radius: 4px; padding: 6px 9px; font-family: var(--font-mono); font-size: 11px; background: var(--paper-raised); }
 .tm-combo-input:focus { outline: none; border-color: var(--brand); }
-.tm-combo-list { display: none; position: absolute; z-index: 30; top: calc(100% + 2px); left: 0; right: 0; background: #fff; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,0.12); max-height: 240px; overflow-y: auto; }
+.tm-combo-list { display: none; position: absolute; z-index: 60; top: calc(100% + 2px); left: 0; right: 0; background: #fff; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,0.12); max-height: 240px; overflow-y: auto; }
+.tm-combo.drop-up .tm-combo-list { top: auto; bottom: calc(100% + 2px); }
 .tm-combo:focus-within .tm-combo-list, .tm-combo-list.has-q { display: block; }
 .tm-combo-opt { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 10px; cursor: pointer; border-bottom: 1px solid var(--line); }
 .tm-combo-opt:last-child { border-bottom: none; }
@@ -620,7 +622,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
         <label title="Flight end dates aren't always correct — this lets you assign to accounts whose flight has technically ended"><input type="checkbox" id="team-show-ended"> include ended flights in assign list</label>
         <label title="Hide internal and time-off segments in the logged bars"><input type="checkbox" id="team-client-only"> client hours only</label>
       </div>
-      <table>
+      <table id="team-table">
         <thead>
           <tr id="team-head">
             <th class="col-name sortable" data-sort="name">Name <span class="sort-ind" data-ind="name"></span></th>
@@ -1753,7 +1755,7 @@ function copyFromPreviousMonth() {
   const prevA = state.assignments[prev] || {};
   const prevD = state.demand[prev] || {};
   const pids = new Set();
-  Object.keys(prevA).forEach(k => pids.add(k.split('__')[1]));
+  Object.keys(prevA).forEach(k => { const i = k.indexOf('__'); if (i >= 0) pids.add(k.slice(i + 2)); });  // project id = everything after the first '__' (keeps INTERNAL_ID's own underscores intact)
   Object.keys(prevD).forEach(pid => pids.add(pid));
   if (!pids.size) { toast('No plan or department demand found in ' + monthLabel(prev) + '.'); return; }
   const curA = monthAssignments();
@@ -3849,6 +3851,18 @@ const TYPED_ROLES = new Set(['staff-name','staff-dept','staff-cost','staff-cap',
   'pm-name','pm-dept','pm-cost','pm-cap','pj-rev-month','fc-rev-month','pb-rev-month',
   'bl-amount','bl-fee','bl-rate','bl-margin','bl-hours','bl-budget','bl-mmargin','bl-mhours','bl-label']);
 let typedFieldDirty = false;
+
+// Decide whether the assignment dropdown opens up or down based on room below,
+// so the last rows in the team list don't render their list off-screen/behind the table.
+document.addEventListener('focusin', (e) => {
+  const inp = e.target.closest && e.target.closest('.tm-combo-input');
+  if (!inp) return;
+  const combo = inp.closest('.tm-combo');
+  if (!combo) return;
+  const r = inp.getBoundingClientRect();
+  const roomBelow = window.innerHeight - r.bottom;
+  combo.classList.toggle('drop-up', roomBelow < 260);   // 240px list + margin
+}, true);
 
 document.addEventListener('input', (e) => {
   const t = e.target;
