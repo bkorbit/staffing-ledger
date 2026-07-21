@@ -211,6 +211,7 @@ input.rev-input { min-width: 90px; flex: 1; }
 .mini-track.split { display: flex; overflow: hidden; }
 .mini-track.split .seg-onplan { background: var(--accent); height: 100%; }
 .mini-track.split .seg-offplan { background: var(--rust); height: 100%; }
+.mini-track.split .seg-pto { background: repeating-linear-gradient(45deg, #b9c2be, #b9c2be 3px, #d7ddda 3px, #d7ddda 6px); height: 100%; }
 .offplan-note { font-family: var(--font-mono); font-size: 9px; color: var(--rust); margin-left: 4px; white-space: nowrap; }
 .mini-track.split .seg { height: 100%; flex-shrink: 0; }
 .mini-track.split .seg-int { background: repeating-linear-gradient(45deg, var(--gold), var(--gold) 3px, #e3aa32 3px, #e3aa32 6px); }
@@ -3295,6 +3296,7 @@ function renderStaffTable() {
     const intHrsEarly = getAssignment(s.id, INTERNAL_ID);
     const avail = availableCapacity(s);
     const projHrs = staffProjectHours(s.id, false);
+    const pto = timeOffLogged(s.id);
     const total = staffTotalHours(s.id, false);
     const pct = staffUtilizationPct(s);
     const over = pct > 100.1;
@@ -3456,8 +3458,20 @@ function renderStaffTable() {
         ${cap <= 0
           ? `<span class="computed-sub">not active this period</span>${total > 0 ? `<div class="util-pct over">${fmtHrs(total)}h assigned!</div>` : ''}`
           : `<span class="util-pct ${pctCls}">${Math.round(pct)}%</span>
-        <span class="computed-sub"> · ${fmtHrs(projHrs)} / ${fmtHrs(avail)}h avail${intHrsEarly > 0 ? ' · ' + fmtHrs(intHrsEarly) + 'h int' : ''}</span>
-        <div class="mini-track split">${intHrsEarly > 0 ? `<div class="seg seg-int" style="width:${Math.min((intHrsEarly / cap) * 100, 100)}%;" title="${fmtHrs(intHrsEarly)}h internal"></div>` : ''}<div class="seg seg-proj ${over ? 'over' : ''}" style="width:${Math.min((projHrs / cap) * 100, Math.max(100 - (intHrsEarly / cap) * 100, 0))}%;" title="${fmtHrs(projHrs)}h project work"></div></div>`}
+        <span class="computed-sub"> · ${fmtHrs(projHrs)} / ${fmtHrs(avail)}h avail${intHrsEarly > 0 ? ' · ' + fmtHrs(intHrsEarly) + 'h int' : ''}${pto > 0 ? ' · ' + fmtHrs(pto) + 'h PTO' : ''}</span>
+        <div class="mini-track split">${(() => {
+          // Segments as a share of full capacity: project work, internal, then PTO.
+          // The remaining space is genuinely free capacity. PTO is shown (not hidden)
+          // so a not-full bar is self-explanatory rather than mysterious.
+          const w = h => cap > 0 ? Math.max(Math.min((h / cap) * 100, 100), 0) : 0;
+          const projW = Math.min(w(projHrs), 100);
+          const intW = Math.min(w(intHrsEarly), Math.max(100 - projW, 0));
+          const ptoW = Math.min(w(pto), Math.max(100 - projW - intW, 0));
+          return `${over ? `<div class="seg seg-proj over" style="width:100%;" title="${fmtHrs(projHrs)}h project work — over available"></div>`
+            : `<div class="seg seg-proj" style="width:${projW}%;" title="${fmtHrs(projHrs)}h project work"></div>`
+              + (intHrsEarly > 0 ? `<div class="seg seg-int" style="width:${intW}%;" title="${fmtHrs(intHrsEarly)}h internal"></div>` : '')
+              + (pto > 0 ? `<div class="seg seg-pto" style="width:${ptoW}%;" title="${fmtHrs(pto)}h time off (reduces available capacity)"></div>` : '')}`;
+        })()}</div>`}
       </td>
       <td>${loggedCell}</td>
       <td>${loggedCapCell}</td>
