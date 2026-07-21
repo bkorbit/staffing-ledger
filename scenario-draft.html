@@ -436,28 +436,54 @@ function renderResults(){
   html+='<div class="card"><h2>Deployment plan — who staffs each kept account</h2>';
   html+='<div class="note" style="margin-bottom:10px;">For each kept account: current staffing, and any gap to fill from people freed by the cancellations (same department). Existing assignments are left in place — only gaps are proposed.</div>';
   const laid=new Set(R.laidOffIds);
-  // freed pool: people who lose hours because their accounts were cut (and weren\'t laid off), by dept
-  const freedByDept={};
-  STATE.staff.forEach(s=>{
-    if(laid.has(s.id)) return;
-    let freedHrs=0; R.cutSet.forEach(pid=>{ freedHrs+=personProjectHours(s.id,pid,R.decideMk); });
-    if(freedHrs>0){ const d=normDept(s.department); (freedByDept[d]=freedByDept[d]||[]).push({s,freedHrs}); }
+  const cutSet=new Set(R.cutSet);
+  // Spare-capacity pool per department, computed AFTER the decision: for each retained
+  // person, spare = (capacity − internal) − hours still on kept accounts. Hours freed by
+  // cancelled accounts are automatically part of spare. Salaried listed first (their
+  // salary is already paid — filling them costs nothing extra), then existing hourly.
+  const poolByDept={};
+  STATE.staff.forEach(st=>{
+    if(laid.has(st.id) || !staffActiveInMonth(st,R.decideMk)) return;
+    const cap=monthlyCapacityFor(st,R.decideMk);
+    const internal=personInternalHours(st.id,R.decideMk);
+    let keptHrs=0; STATE.projects.forEach(p=>{ if(!cutSet.has(p.id)) keptHrs+=personProjectHours(st.id,p.id,R.decideMk); });
+    const spare=Math.max(cap-internal-keptHrs,0);
+    if(spare>0.5){ const d=normDept(st.department); (poolByDept[d]=poolByDept[d]||[]).push({st, spare, type:empType(st)}); }
   });
-  D.accounts.filter(a=>!R.cutSet.includes(a.id)).sort((a,b)=>b.gp-a.gp).forEach(a=>{
-    const roster=STATE.staff.map(s=>({s,hrs:personProjectHours(s.id,a.id,R.decideMk)})).filter(x=>x.hrs>0);
-    const anyLaidOff=roster.some(x=>laid.has(x.s.id));
+  Object.values(poolByDept).forEach(pool=>pool.sort((a,b)=>{
+    if(a.type!==b.type) return a.type==='fulltime'?-1:1;   // salaried first — sunk cost
+    return b.spare-a.spare;                                 // then most spare capacity
+  }));
+
+  D.accounts.filter(a=>!cutSet.has(a.id)).sort((a,b)=>b.gp-a.gp).forEach(a=>{
+    const roster=STATE.staff.map(st=>({st,hrs:personProjectHours(st.id,a.id,R.decideMk)})).filter(x=>x.hrs>0);
+    const anyLaidOff=roster.some(x=>laid.has(x.st.id));
     html+=`<div class="deptblock"><h4>${esc(a.name)} <span class="muted" style="font-size:11px;">· ${esc(a.dept)} · ${fmtMoney(a.gp)} GP · ${fmtH(a.hours)}h</span></h4>`;
     html+='<table><thead><tr><th>Person</th><th class="num">Hours now</th><th>After changes</th></tr></thead><tbody>';
     roster.forEach(x=>{
-      const gone=laid.has(x.s.id);
-      html+=`<tr class="${gone?'cut':''}"><td>${esc(x.s.name||'Unnamed')}</td><td class="num">${fmtH(x.hrs)}h</td><td>${gone?'<span class="chip layoff">laid off — needs backfill</span>':'unchanged'}</td></tr>`;
+      const gone=laid.has(x.st.id);
+      html+=`<tr class="${gone?'cut':''}"><td>${esc(x.st.name||'Unnamed')}</td><td class="num">${fmtH(x.hrs)}h</td><td>${gone?'<span class="chip layoff">laid off — needs backfill</span>':'unchanged'}</td></tr>`;
     });
-    // if someone on this account was laid off, propose backfill from freed pool in same dept
+    // Allocate the laid-off hours to NAMED people from the same-department spare pool,
+    // depleting it as we go so nobody is double-booked across accounts. Priority:
+    // salaried with spare (free to fill), then existing hourly, then new hourly @ rate.
     if(anyLaidOff){
-      const gap=roster.filter(x=>laid.has(x.s.id)).reduce((sum,x)=>sum+x.hrs,0);
-      const pool=(freedByDept[normDept({department:a.dept}.department)]||freedByDept[a.dept]||[]);
-      const cand=pool[0];
-      html+=`<tr><td class="muted">↳ backfill ${fmtH(gap)}h</td><td class="num"></td><td>${cand?('move '+esc(cand.s.name)+' (freed capacity)'):'<span class="chip hourly">hire hourly @ $'+R.params.hourlyRate+'</span>'}</td></tr>`;
+      let gap=roster.filter(x=>laid.has(x.st.id)).reduce((sum,x)=>sum+x.hrs,0);
+      const pool=poolByDept[a.dept]||[];
+      const allocations=[];
+      for(const cand of pool){
+        if(gap<=0.5) break;
+        if(cand.spare<=0.5) continue;
+        const take=Math.min(cand.spare,gap);
+        allocations.push({name:cand.st.name||'Unnamed', hrs:take, type:cand.type});
+        cand.spare-=take; gap-=take;
+      }
+      allocations.forEach(al=>{
+        html+=`<tr><td class="muted">↳ move ${esc(al.name)}</td><td class="num">+${fmtH(al.hrs)}h</td><td>${al.type==='fulltime'?'salaried spare capacity — no added cost':'existing hourly — ' + fmtH(al.hrs) + 'h added cost'}</td></tr>`;
+      });
+      if(gap>0.5){
+        html+=`<tr><td class="muted">↳ hire hourly</td><td class="num">+${fmtH(gap)}h</td><td><span class="chip hourly">no same-dept spare left — ${fmtH(gap)}h @ $${R.params.hourlyRate} (${fmtMoney(gap*R.params.hourlyRate)}/mo)</span></td></tr>`;
+      }
     }
     html+='</tbody></table></div>';
   });
