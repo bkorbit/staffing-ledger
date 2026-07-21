@@ -91,6 +91,7 @@ tr.kept-marginal{ background:#fdf3dc; }
         <label class="param" id="wrap-overhead" style="display:none;">Monthly overhead $<input type="number" id="p-overhead" value="0"></label>
         <label class="param">New-hourly rate $<input type="number" id="p-hourly" value="45"></label>
         <label class="param">Forward months<input type="number" id="p-months" value="6"></label>
+        <label class="param">Changes effective<input type="month" id="p-effective"></label>
       </div>
       <button class="run" id="run">Run scenario</button>
     </div>
@@ -149,8 +150,9 @@ function runScenario(){
   const nMonths=Math.max(1,Math.min(18,+document.getElementById('p-months').value||6));
 
   const P={util,downsize,pphFloor,outlierRule,targetMargin,overhead,hourlyRate};
-  // Changes take effect the FOLLOWING month (decide now, act Aug 1).
-  const decideMk=shiftMonth(monthKey(new Date()),1);
+  // Changes take effect on the chosen month (defaults to next month).
+  const effEl=document.getElementById('p-effective');
+  const decideMk=(effEl && /^\d{4}-\d{2}$/.test(effEl.value)) ? effEl.value : shiftMonth(monthKey(new Date()),1);
   const months=[]; for(let i=0;i<nMonths;i++) months.push(shiftMonth(decideMk,i));
   const confidence=computeConfidence(months);
 
@@ -513,7 +515,19 @@ document.getElementById('obj-toggle').onclick=(e)=>{
   document.getElementById('wrap-overhead').style.display=objective==='overhead'?'':'none';
   if(lastRun) renderResults();
 };
-document.getElementById('run').onclick=()=>{ if(!STATE){alert('Still loading the ledger…');return;} runScenario(); };
+document.getElementById('p-effective').value=shiftMonth(monthKey(new Date()),1);
+document.getElementById('run').onclick=async()=>{
+  // Re-fetch the ledger fresh on every run so edits made in the main tool are picked up
+  // without reloading this page.
+  const btn=document.getElementById('run'); btn.textContent='Loading latest data…'; btn.disabled=true;
+  try{
+    const {data,error}=await sb.from('ledger_state').select('data').eq('id',WORKSPACE_ID).maybeSingle();
+    if(!error&&data){ STATE=data.data; ['staff','projects','assignments','actuals','demand'].forEach(k=>{ if(!STATE[k]) STATE[k]=(k==='staff'||k==='projects')?[]:{}; }); }
+  }catch(e){ console.error('refresh failed, running on previous snapshot', e); }
+  btn.textContent='Run scenario'; btn.disabled=false;
+  if(!STATE){alert('Could not load the ledger.');return;}
+  runScenario();
+};
 boot();
 </script>
 </body>
