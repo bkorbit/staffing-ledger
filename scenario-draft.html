@@ -148,13 +148,24 @@ function runScenario(){
   const hourlyRate=+document.getElementById('p-hourly').value||45;
   const nMonths=Math.max(1,Math.min(18,+document.getElementById('p-months').value||6));
 
-  const startMk=monthKey(new Date());
-  const months=[]; for(let i=0;i<nMonths;i++) months.push(shiftMonth(startMk,i));
-
+  const P={util,downsize,pphFloor,outlierRule,targetMargin,overhead,hourlyRate};
+  // Changes take effect the FOLLOWING month (decide now, act Aug 1).
+  const decideMk=shiftMonth(monthKey(new Date()),1);
+  const months=[]; for(let i=0;i<nMonths;i++) months.push(shiftMonth(decideMk,i));
   const confidence=computeConfidence(months);
-  const perMonth=months.map(mk=>optimizeMonth(mk,{util,downsize,pphFloor,outlierRule,targetMargin,overhead,hourlyRate},confidence));
-  lastRun={months,perMonth,confidence,params:{util,downsize,pphFloor,outlierRule,targetMargin,overhead,hourlyRate}};
-  if(!activeMonth||!months.includes(activeMonth)) activeMonth=months[0];
+
+  // Solve the decision ONCE on the decision month.
+  const decision=optimizeMonth(decideMk,P,confidence);
+
+  // Project that SAME frozen decision across every forward month (no re-optimizing),
+  // so we see the true impact of acting now — including months where a cut collides
+  // with an account that starts later.
+  const cutSet=new Set(decision.cutIds);
+  const laidOffIds=new Set();
+  decision.final.staffPlan.forEach(d=>d.laidOff.forEach(pp=>laidOffIds.add(pp.id)));
+  const trajectory=months.map(mk=>projectDecision(mk,cutSet,laidOffIds,P,decideMk));
+
+  lastRun={decideMk,months,decision,trajectory,cutSet:[...cutSet],laidOffIds:[...laidOffIds],confidence,params:P};
   renderResults();
 }
 
@@ -200,6 +211,30 @@ function computeConfidence(forwardMonths){
   return out;
 }
 function past3Label(mks){ return mks.map(mk=>{ const [y,m]=mk.split('-'); return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m-1]; }).join(', '); }
+
+// Apply a fixed decision (which accounts cut, which people laid off) to month mk.
+function projectDecision(mk, cutSet, laidOffIds, P, decideMk){
+  const activeAccts=STATE.projects.filter(p=>projectActiveInMonth(p,mk));
+  let gpKept=0, gpLostToCuts=0;
+  const newlyStarted=[];
+  activeAccts.forEach(p=>{
+    const gp=revenueFor(p,mk);
+    if(cutSet.has(p.id)){ gpLostToCuts+=gp; return; }
+    gpKept+=gp;
+    // account that begins after the decision month = new work the layoff plan didn't size for
+    if(p.startMonth && p.startMonth>decideMk) newlyStarted.push({name:p.name||'Untitled', gp, dept:dominantDept(p.id,mk)});
+  });
+  // labor after layoffs: salaried still employed + hourly on kept accounts
+  let labor=0;
+  STATE.staff.forEach(s=>{
+    if(!staffActiveInMonth(s,mk)) return;
+    if(laidOffIds.has(s.id)) return; // gone as of decision
+    if(empType(s)==='fulltime'){ labor+=monthlyCapacityFor(s,mk)*s.hourlyCost; }
+    else { let hrs=0; STATE.projects.forEach(p=>{ if(!cutSet.has(p.id)) hrs+=personProjectHours(s.id,p.id,mk); }); labor+=hrs*s.hourlyCost; }
+  });
+  const execProfit=gpKept-labor;
+  return {mk, gpKept, gpLostToCuts, labor, execProfit, execMargin: gpKept>0?execProfit/gpKept:0, newlyStarted};
+}
 
 // Gross profit attributed to a person = sum over accounts of (their hours on it /
 // total hours on it) * account GP, for the given month and keep-set.
@@ -344,81 +379,108 @@ function dominantDept(pid,mk){
 // ---------- rendering ----------
 function renderResults(){
   const R=lastRun; if(!R){document.getElementById('results').innerHTML='';return;}
-  const md=R.perMonth.find(m=>m.mk===activeMonth)||R.perMonth[0];
-  const b=md.baseline, f=md.final;
+  const D=R.decision, f=D.final, b=D.baseline;
+  const conf=R.confidence||{};
   const laborSaved=b.laborCost-f.laborCost, gpLost=b.gp-f.gp;
   const healthy=laborSaved>gpLost;
-
   let html='';
-  html+='<div class="month-tabs">'+R.months.map(mk=>`<button class="mtab ${mk===activeMonth?'active':''}" data-mk="${mk}">${mk}</button>`).join('')+'</div>';
 
-  html+='<div class="card"><h2>Outcome — '+activeMonth+' · '+objLabel()+'</h2>';
+  // ---- headline: one decision, effective the decision month ----
+  html+='<div class="card"><h2>Proposed changes — effective '+R.decideMk+' · '+objLabel()+'</h2>';
   html+='<div class="kpis">';
-  html+=kpi('Accounts kept', md.keptIds.length+' / '+md.accounts.length, md.cutIds.length+' cut');
-  html+=kpi('Monthly labor', fmtMoney(f.laborCost), (laborSaved>=0?'−':'+')+fmtMoney(Math.abs(laborSaved))+' vs now', laborSaved>=0?'pos':'neg');
-  html+=kpi('Gross profit', fmtMoney(f.gp), (gpLost>0?'−':'+')+fmtMoney(Math.abs(gpLost))+' vs now', gpLost<=0?'pos':'neg');
+  html+=kpi('Accounts', (D.accounts.length-R.cutSet.length)+' kept · '+R.cutSet.length+' cut', 'of '+D.accounts.length);
+  html+=kpi('Layoffs', R.laidOffIds.length+' salaried', 'lowest coverage first');
+  html+=kpi('Monthly labor', fmtMoney(f.laborCost), (laborSaved>=0?'−':'+')+fmtMoney(Math.abs(laborSaved))+'/mo', laborSaved>=0?'pos':'neg');
+  html+=kpi('Gross profit', fmtMoney(f.gp), (gpLost>0?'−':'+')+fmtMoney(Math.abs(gpLost))+'/mo', gpLost<=0?'pos':'neg');
   html+=kpi('Execution profit', fmtMoney(f.execProfit), Math.round(f.execMargin*100)+'% margin', f.execProfit>=0?'pos':'neg');
-  if(objective==='overhead') html+=kpi('After overhead', fmtMoney(f.overheadCovered), 'covers '+fmtMoney(R.params.overhead), f.overheadCovered>=0?'pos':'neg');
-  html+=kpi('Cut test', healthy?'PASSES':'FAILS', 'labor saved '+(healthy?'>':'≤')+' revenue lost', healthy?'pos':'neg');
+  if(objective==='overhead') html+=kpi('After overhead', fmtMoney(f.execProfit-R.params.overhead), 'covers '+fmtMoney(R.params.overhead), (f.execProfit-R.params.overhead)>=0?'pos':'neg');
+  html+=kpi('Cut test', healthy?'PASSES':'FAILS', 'labor saved '+(healthy?'>':'≤')+' GP lost', healthy?'pos':'neg');
   html+='</div>';
   // confidence summary
-  const conf=R.confidence||{};
-  const activeIds=md.accounts.map(a=>a.id);
+  const activeIds=D.accounts.map(a=>a.id);
   const low=activeIds.filter(id=>(conf[id]||{}).level==='low').length;
-  const med=activeIds.filter(id=>(conf[id]||{}).level==='med').length;
   const noFc=activeIds.filter(id=>(conf[id]||{}).noForecast).length;
   const avgScore=activeIds.length? Math.round(activeIds.reduce((s,id)=>s+((conf[id]||{score:1}).score),0)/activeIds.length*100):100;
   html+=`<div class="note" style="background:${avgScore>=85?'var(--mint)':avgScore>=60?'#fdf3dc':'#fbe7e4'}; border-radius:6px; padding:10px 12px; color:var(--ink);">
-    <strong>Run confidence: ${avgScore}%</strong> — ${low} account${low===1?'':'s'} low-confidence, ${med} medium, ${noFc} missing a forward forecast.
-    ${(md.review&&md.review.length)? md.review.length+' account'+(md.review.length===1?'':'s')+' held for review (not auto-cut) because the decision would rest on missing data.' : 'No accounts held for review.'}
-    Past = trailing 3 months (need logged hours + revenue) · current month exempt · future = through flight end (need assignments + forecast).
-  </div>`;
-  html+='<div class="note">The cut test is the honest guardrail: a scenario only helps if the forward labor you eliminate (salaried layoffs + dropped hourly) exceeds the gross profit you give up. Hourly reductions lower cost but salaried layoffs are the real forward savings.</div>';
+    <strong>Run confidence ${avgScore}%</strong> — ${low} low-confidence, ${noFc} missing a forward forecast${(D.review&&D.review.length)?', '+D.review.length+' held for review (not auto-cut on missing data)':''}. Decision solved on ${R.decideMk} and held constant across the window below.</div>`;
   html+='</div>';
 
-  // accounts
-  html+='<div class="card"><h2>Accounts</h2><table><thead><tr><th>Account</th><th>Dept</th><th class="num">Gross profit</th><th class="num">Hours</th><th class="num">Profit / hr</th><th>Decision</th></tr></thead><tbody>';
-  [...md.accounts].sort((a,b)=>b.pph-a.pph).forEach(a=>{
-    const cut=md.cutIds.includes(a.id);
-    const marginal=!cut && a.pph<R.params.pphFloor;
+  // ---- trajectory strip: the whole forward picture at a glance ----
+  html+='<div class="card"><h2>Forward picture — the same decision, month by month</h2>';
+  html+='<table><thead><tr><th>Month</th><th class="num">Gross profit</th><th class="num">Labor</th><th class="num">Execution profit</th><th class="num">Margin</th><th>Notes</th></tr></thead><tbody>';
+  R.trajectory.forEach(t=>{
+    const notes = t.newlyStarted.length ? '<span class="chip under">'+t.newlyStarted.length+' new account'+(t.newlyStarted.length===1?'':'s')+' start</span> '+t.newlyStarted.map(n=>esc(n.name)).join(', ') : '';
+    html+=`<tr><td>${t.mk}</td><td class="num">${fmtMoney(t.gpKept)}</td><td class="num">${fmtMoney(t.labor)}</td><td class="num ${t.execProfit>=0?'pos':'neg'}">${fmtMoney(t.execProfit)}</td><td class="num">${Math.round(t.execMargin*100)}%</td><td class="note" style="padding:7px 9px;">${notes}</td></tr>`;
+  });
+  // totals
+  const tot=R.trajectory.reduce((a,t)=>({gp:a.gp+t.gpKept,lab:a.lab+t.labor,ep:a.ep+t.execProfit}),{gp:0,lab:0,ep:0});
+  html+=`<tr style="border-top:2px solid var(--brand);"><td style="font-weight:700;">Window total</td><td class="num" style="font-weight:700;">${fmtMoney(tot.gp)}</td><td class="num" style="font-weight:700;">${fmtMoney(tot.lab)}</td><td class="num ${tot.ep>=0?'pos':'neg'}" style="font-weight:700;">${fmtMoney(tot.ep)}</td><td class="num">${tot.gp>0?Math.round(tot.ep/tot.gp*100):0}%</td><td></td></tr>`;
+  html+='</tbody></table><div class="note">Watch the Notes column: where a new account starts after the decision, the frozen layoff plan didn\'t size for it — that\'s where you may need to keep or rehire capacity.</div></div>';
+
+  // ---- accounts: keep/cut ----
+  html+='<div class="card"><h2>Accounts — keep / cancel</h2><table><thead><tr><th>Account</th><th>Dept</th><th class="num">Gross profit</th><th class="num">Hours</th><th class="num">Profit / hr</th><th>Decision</th></tr></thead><tbody>';
+  [...D.accounts].sort((a,b)=>b.pph-a.pph).forEach(a=>{
+    const cut=R.cutSet.includes(a.id);
     const c=(conf[a.id]||{level:'high',reasons:[]});
-    const inReview=(md.review||[]).includes(a.id);
+    const inReview=(D.review||[]).includes(a.id);
     const dot=c.level==='high'?'#0a493c':c.level==='med'?'#fabf4d':'#d1453b';
     const confChip=`<span class="chip" style="background:${dot};color:#fff;" title="${esc((c.reasons||[]).join(' · ')||'complete data')}">${Math.round((c.score||1)*100)}%</span>`;
-    let decision = cut?'Cancel' : inReview?'<span class="chip under">review — thin data</span>' : 'Keep';
-    html+=`<tr class="${cut?'cut':(marginal?'kept-marginal':'')}"><td>${esc(a.name)}${confChip}${cut?'<span class="chip cut">cut</span>':(marginal&&!inReview?'<span class="chip under">below floor</span>':'')}</td><td class="muted">${esc(a.dept)}</td><td class="num">${fmtMoney(a.gp)}</td><td class="num">${fmtH(a.hours)}h</td><td class="num ${a.pph<R.params.pphFloor?'neg':'pos'}">${a.pph===Infinity?'—':fmtMoney(a.pph)}</td><td>${decision}</td></tr>`;
-    if((c.reasons||[]).length) html+=`<tr><td colspan="6" class="note" style="padding-top:0;">↳ ${esc(a.name)}: ${esc(c.reasons.join(' · '))}</td></tr>`;
+    const decision=cut?'Cancel':inReview?'<span class="chip under">review — thin data</span>':'Keep';
+    html+=`<tr class="${cut?'cut':''}"><td>${esc(a.name)}${confChip}${cut?'<span class="chip cut">cut</span>':''}</td><td class="muted">${esc(a.dept)}</td><td class="num">${fmtMoney(a.gp)}</td><td class="num">${fmtH(a.hours)}h</td><td class="num ${a.pph<R.params.pphFloor?'neg':'pos'}">${a.pph===Infinity?'—':fmtMoney(a.pph)}</td><td>${decision}</td></tr>`;
   });
   html+='</tbody></table></div>';
 
-  // staffing by dept
-  html+='<div class="card"><h2>Staffing plan</h2>';
+  // ---- per-account deployment plan (kept accounts: who's on it now -> after) ----
+  html+='<div class="card"><h2>Deployment plan — who staffs each kept account</h2>';
+  html+='<div class="note" style="margin-bottom:10px;">For each kept account: current staffing, and any gap to fill from people freed by the cancellations (same department). Existing assignments are left in place — only gaps are proposed.</div>';
+  const laid=new Set(R.laidOffIds);
+  // freed pool: people who lose hours because their accounts were cut (and weren\'t laid off), by dept
+  const freedByDept={};
+  STATE.staff.forEach(s=>{
+    if(laid.has(s.id)) return;
+    let freedHrs=0; R.cutSet.forEach(pid=>{ freedHrs+=personProjectHours(s.id,pid,R.decideMk); });
+    if(freedHrs>0){ const d=normDept(s.department); (freedByDept[d]=freedByDept[d]||[]).push({s,freedHrs}); }
+  });
+  D.accounts.filter(a=>!R.cutSet.includes(a.id)).sort((a,b)=>b.gp-a.gp).forEach(a=>{
+    const roster=STATE.staff.map(s=>({s,hrs:personProjectHours(s.id,a.id,R.decideMk)})).filter(x=>x.hrs>0);
+    const anyLaidOff=roster.some(x=>laid.has(x.s.id));
+    html+=`<div class="deptblock"><h4>${esc(a.name)} <span class="muted" style="font-size:11px;">· ${esc(a.dept)} · ${fmtMoney(a.gp)} GP · ${fmtH(a.hours)}h</span></h4>`;
+    html+='<table><thead><tr><th>Person</th><th class="num">Hours now</th><th>After changes</th></tr></thead><tbody>';
+    roster.forEach(x=>{
+      const gone=laid.has(x.s.id);
+      html+=`<tr class="${gone?'cut':''}"><td>${esc(x.s.name||'Unnamed')}</td><td class="num">${fmtH(x.hrs)}h</td><td>${gone?'<span class="chip layoff">laid off — needs backfill</span>':'unchanged'}</td></tr>`;
+    });
+    // if someone on this account was laid off, propose backfill from freed pool in same dept
+    if(anyLaidOff){
+      const gap=roster.filter(x=>laid.has(x.s.id)).reduce((sum,x)=>sum+x.hrs,0);
+      const pool=(freedByDept[normDept({department:a.dept}.department)]||freedByDept[a.dept]||[]);
+      const cand=pool[0];
+      html+=`<tr><td class="muted">↳ backfill ${fmtH(gap)}h</td><td class="num"></td><td>${cand?('move '+esc(cand.s.name)+' (freed capacity)'):'<span class="chip hourly">hire hourly @ $'+R.params.hourlyRate+'</span>'}</td></tr>`;
+    }
+    html+='</tbody></table></div>';
+  });
+  html+='</div>';
+
+  // ---- staffing plan (per-person coverage + layoff) ----
+  html+='<div class="card"><h2>Staffing plan — retain / lay off</h2>';
+  const covChip=(c)=>{ if(c===Infinity) return '<span class="muted">—</span>'; const cls=c>=2?'pos':c>=1?'':'neg'; return `<span class="${cls}" style="font-weight:700;">${c.toFixed(2)}×</span>`; };
   f.staffPlan.filter(d=>d.retained.length||d.laidOff.length||d.hourly.length).forEach(d=>{
     html+=`<div class="deptblock"><h4>${esc(d.dept)} <span class="muted" style="font-size:11px;">· ${fmtH(d.demand)}h demand · ${fmtH(d.coveredCap)}h covered${d.unmet>0?' · '+fmtH(d.unmet)+'h gap':''}</span></h4>`;
     html+='<table><thead><tr><th>Person</th><th>Type</th><th class="num">Monthly cost</th><th class="num">GP generated</th><th class="num">Coverage</th><th>Status</th></tr></thead><tbody>';
-    const covChip=(c)=>{ if(c===Infinity) return '<span class="muted">—</span>'; const cls=c>=2?'pos':c>=1?'':'neg'; return `<span class="${cls}" style="font-weight:700;">${c.toFixed(2)}×</span>`; };
     d.retained.forEach(p=>{
       const low=(p._util||0)<R.params.downsize;
       const under=(p._coverage!==undefined&&p._coverage<1);
       html+=`<tr><td>${esc(p.name)}${p.protected?'<span class="chip protected">protected</span>':''}${under&&!p.protected?'<span class="chip under">below 1× — review</span>':''}</td><td class="muted">${p.type}</td><td class="num">${p.type==='fulltime'?fmtMoney(p.salaryMonthly):p.rate+'/hr'}</td><td class="num">${p._gp!==undefined?fmtMoney(p._gp):'—'}</td><td class="num">${covChip(p._coverage!==undefined?p._coverage:Infinity)}</td><td>Retain${low&&p.type==='fulltime'&&!p.protected?' <span class="chip hourly">under '+Math.round(R.params.downsize*100)+'% → consider hourly</span>':''}</td></tr>`;
     });
     d.laidOff.forEach(p=>{
-      html+=`<tr class="cut"><td>${esc(p.name)}</td><td class="muted">${p.type}</td><td class="num">${fmtMoney(p.salaryMonthly)}</td><td class="num">${p._gp!==undefined?fmtMoney(p._gp):'—'}</td><td class="num">${covChip(p._coverage!==undefined?p._coverage:0)}</td><td><span class="chip layoff">lay off</span> <span class="muted" style="font-size:10px;">lowest coverage first</span></td></tr>`;
+      html+=`<tr class="cut"><td>${esc(p.name)}</td><td class="muted">${p.type}</td><td class="num">${fmtMoney(p.salaryMonthly)}</td><td class="num">${p._gp!==undefined?fmtMoney(p._gp):'—'}</td><td class="num">${covChip(p._coverage!==undefined?p._coverage:0)}</td><td><span class="chip layoff">lay off</span></td></tr>`;
     });
     if(d.unmet>0) html+=`<tr><td class="muted">+ hourly backfill</td><td class="muted">hourly</td><td class="num">${fmtMoney(d.newHourlyCost)}</td><td class="num">—</td><td class="num">—</td><td><span class="chip hourly">${fmtH(d.unmet)}h @ $${R.params.hourlyRate}</span></td></tr>`;
     html+='</tbody></table></div>';
   });
   html+='</div>';
 
-  // forward-window summary
-  html+='<div class="card"><h2>Across the forward window</h2><table><thead><tr><th>Month</th><th class="num">Kept</th><th class="num">Cut</th><th class="num">Gross profit</th><th class="num">Labor</th><th class="num">Exec profit</th><th class="num">Margin</th></tr></thead><tbody>';
-  R.perMonth.forEach(m=>{
-    html+=`<tr><td>${m.mk}</td><td class="num">${m.keptIds.length}</td><td class="num">${m.cutIds.length}</td><td class="num">${fmtMoney(m.final.gp)}</td><td class="num">${fmtMoney(m.final.laborCost)}</td><td class="num ${m.final.execProfit>=0?'pos':'neg'}">${fmtMoney(m.final.execProfit)}</td><td class="num">${Math.round(m.final.execMargin*100)}%</td></tr>`;
-  });
-  html+='</tbody></table><div class="note">Watch how the cut list shifts as future accounts start — a person cuttable now may be needed when a new account kicks in.</div></div>';
-
   document.getElementById('results').innerHTML=html;
-  document.querySelectorAll('.mtab').forEach(b=>b.onclick=()=>{activeMonth=b.dataset.mk; renderResults();});
 }
 function kpi(l,v,d,cls){ return `<div class="kpi"><div class="l">${l}</div><div class="v ${cls||''}">${v}</div><div class="d ${cls||''}">${d||''}</div></div>`; }
 function objLabel(){ return objective==='maximize'?'Maximize team profit':objective==='margin'?'Target margin':'Cover overhead'; }
