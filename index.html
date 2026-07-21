@@ -1816,24 +1816,38 @@ function copyFromPreviousMonth() {
   const prev = shiftMonth(currentMonth, -1);
   const prevA = state.assignments[prev] || {};
   const prevD = state.demand[prev] || {};
-  const pids = new Set();
-  Object.keys(prevA).forEach(k => { const i = k.indexOf('__'); if (i >= 0) pids.add(k.slice(i + 2)); });  // project id = everything after the first '__' (keeps INTERNAL_ID's own underscores intact)
-  Object.keys(prevD).forEach(pid => pids.add(pid));
-  if (!pids.size) { toast('No plan or department demand found in ' + monthLabel(prev) + '.'); return; }
+  if (!Object.keys(prevA).length && !Object.keys(prevD).length) { toast('No plan or department demand found in ' + monthLabel(prev) + '.'); return; }
   const curA = monthAssignments();
   const curD = monthDemand();
-  let copied = 0;
-  const skippedList = [];
-  pids.forEach(pid => {
-    if (projectHasDataInMonth(currentMonth, pid)) { skippedList.push(pid); return; }
-    Object.entries(prevA).forEach(([k, v]) => { if (k.endsWith('__' + pid)) curA[k] = v; });
-    if (prevD[pid]) curD[pid] = JSON.parse(JSON.stringify(prevD[pid]));
-    copied++;
+  let copiedAssign = 0, skippedAssign = 0;
+  // Backfill each individual assignment (person→project) only when that exact pairing
+  // has no hours yet this month. A project already having *some* data no longer blocks
+  // the rest of its assignments from being copied.
+  Object.entries(prevA).forEach(([k, v]) => {
+    if (!v) return;
+    if (curA[k]) { skippedAssign++; return; }   // this person already has hours on this project — leave it
+    curA[k] = v;
+    copiedAssign++;
+  });
+  // Department demand: fill per project+dept only where nothing is set yet this month.
+  let copiedDemand = 0;
+  Object.entries(prevD).forEach(([pid, depts]) => {
+    if (!depts || typeof depts !== 'object') return;
+    const target = curD[pid] || (curD[pid] = {});
+    Object.entries(depts).forEach(([dept, hrs]) => {
+      if (!hrs) return;
+      if (target[dept]) return;   // already have demand for this project+dept
+      target[dept] = hrs;
+      copiedDemand++;
+    });
   });
   scheduleSave(); render();
-  const nameOf = pid => pid === INTERNAL_ID ? 'Internal' : ((state.projects.find(p => p.id === pid) || {}).name || 'Unknown');
-  toast('Copied ' + copied + ' project' + (copied === 1 ? '' : 's') + ' from ' + monthLabel(prev) + '.' +
-    (skippedList.length ? '\nLeft untouched (already have data): ' + skippedList.map(nameOf).join(', ') : ''), 9000);
+  const parts = [];
+  if (copiedAssign) parts.push(copiedAssign + ' assignment' + (copiedAssign === 1 ? '' : 's'));
+  if (copiedDemand) parts.push(copiedDemand + ' demand entr' + (copiedDemand === 1 ? 'y' : 'ies'));
+  let msg = parts.length ? 'Copied ' + parts.join(' and ') + ' from ' + monthLabel(prev) + '.' : 'Nothing to copy — everything from ' + monthLabel(prev) + ' is already filled in this month.';
+  if (skippedAssign) msg += '\n' + skippedAssign + ' assignment' + (skippedAssign === 1 ? '' : 's') + ' left untouched (already had hours this month).';
+  toast(msg, 9000);
 }
 
 /* ============ UNIT CONVERSION ============ */
