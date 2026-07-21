@@ -1084,6 +1084,7 @@ function openPersonModal(id) {
   const costLabel = document.getElementById('pm-cost').closest('label');
   if (costLabel) costLabel.style.display = canSeeSalaries ? '' : 'none';
   document.getElementById('pm-type').closest('label').style.display = canSeeSalaries ? '' : 'none';
+  document.getElementById('pm-nolayoff').closest('label').style.display = canSeeSalaries ? '' : 'none';
   document.getElementById('person-modal').classList.add('open');
 }
 function closePersonModal() {
