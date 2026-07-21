@@ -73,7 +73,7 @@ tr.kept-marginal{ background:#fdf3dc; }
 
   <div id="app" style="display:none;">
     <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span></h1>
-    <div class="sub">Reads the live ledger. Changes nothing. Models which accounts to cancel and who to lay off to reach a sustainable execution-team margin. Every number is a proposal — apply judgment.</div>
+    <div class="sub">Reads the live ledger. Changes nothing. Target: how much is left after paying the execution team to deliver services. People are ranked by coverage — the gross profit their work generates versus their own cost; everyone should clear 1×, and we retain those who clear it by the most. Every number is a proposal — apply judgment.</div>
 
     <div class="card">
       <h2>Run parameters</h2>
@@ -201,6 +201,30 @@ function computeConfidence(forwardMonths){
 }
 function past3Label(mks){ return mks.map(mk=>{ const [y,m]=mk.split('-'); return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m-1]; }).join(', '); }
 
+// Gross profit attributed to a person = sum over accounts of (their hours on it /
+// total hours on it) * account GP, for the given month and keep-set.
+function personGP(sid, mk, kept){
+  let gp=0;
+  STATE.projects.forEach(p=>{ if(kept && !kept.has(p.id)) return;
+    const total=projectHours(p.id,mk); if(total<=0) return;
+    const mine=personProjectHours(sid,p.id,mk); if(mine<=0) return;
+    gp += revenueFor(p,mk) * (mine/total);
+  });
+  return gp;
+}
+// Their own monthly cost: salaried = salary, hourly = logged hours * rate.
+function personCost(pp, mk){
+  if(pp.type==='fulltime') return pp.salaryMonthly;
+  let hrs=0; STATE.projects.forEach(p=>{ hrs+=personProjectHours(pp.id,p.id,mk); });
+  return hrs*pp.rate;
+}
+// Coverage ratio = GP of their work / their cost. <1 means they don't cover themselves.
+function personCoverage(pp, mk, kept){
+  const cost=personCost(pp,mk);
+  if(cost<=0) return Infinity;
+  return personGP(pp.id,mk,kept)/cost;
+}
+
 function optimizeMonth(mk,P,confidence){
   // active accounts this month with GP>0 or in-flight
   const accounts=STATE.projects.filter(p=>projectActiveInMonth(p,mk)).map(p=>{
@@ -272,18 +296,21 @@ function evaluate(accounts, keptIds, people, cutIds, P, mk){
     // layoff candidates = highest salary first among unprotected salaried.
     const salaried=info.people.filter(p=>p.type==='fulltime');
     const hourly=info.people.filter(p=>p.type==='hourly');
-    // retain protected always; then retain enough salaried to cover demand at target util
+    // Coverage ratio per person = GP of their work / their cost. Everyone must
+    // cover themselves (>=1); we prefer to retain those who cover it many times over.
+    salaried.forEach(p=>{ p._coverage=personCoverage(p,mk,kept); p._gp=personGP(p.id,mk,kept); });
     const protectedPpl=salaried.filter(p=>p.protected);
-    const cuttable=salaried.filter(p=>!p.protected).sort((a,b)=> b.salaryMonthly-a.salaryMonthly); // highest salary first = first to consider cutting
+    // Retain protected first, then the highest-coverage people until demand is met.
+    // Layoff order is therefore LOWEST coverage first (least profit per dollar of their cost).
+    const cuttable=salaried.filter(p=>!p.protected);
+    const retainOrder=[...cuttable].sort((a,b)=> b._coverage-a._coverage); // keep highest coverage first
     let coveredCap=protectedPpl.reduce((s,p)=>s+p.avail,0);
     const retained=[...protectedPpl];
-    // add cuttable people (cheapest kept? no—retain lowest salary first so we cut highest salary)
-    const retainOrder=[...cuttable].sort((a,b)=> a.salaryMonthly-b.salaryMonthly); // keep cheapest first
     for(const p of retainOrder){
       if(coveredCap>=demand) break;
       retained.push(p); coveredCap+=p.avail;
     }
-    const laidOff=cuttable.filter(p=>!retained.includes(p));
+    const laidOff=cuttable.filter(p=>!retained.includes(p)).sort((a,b)=> a._coverage-b._coverage); // worst coverage listed first
     // hourly: keep those whose assigned hours are on kept accounts (their cost = assigned hours*rate)
     let hourlyCostDept=0;
     hourly.forEach(h=>{ let hrs=0; accounts.forEach(a=>{ if(kept.has(a.id)) hrs+=personProjectHours(h.id,a.id,mk); }); hourlyCostDept+=hrs*h.rate; });
@@ -368,15 +395,17 @@ function renderResults(){
   html+='<div class="card"><h2>Staffing plan</h2>';
   f.staffPlan.filter(d=>d.retained.length||d.laidOff.length||d.hourly.length).forEach(d=>{
     html+=`<div class="deptblock"><h4>${esc(d.dept)} <span class="muted" style="font-size:11px;">· ${fmtH(d.demand)}h demand · ${fmtH(d.coveredCap)}h covered${d.unmet>0?' · '+fmtH(d.unmet)+'h gap':''}</span></h4>`;
-    html+='<table><thead><tr><th>Person</th><th>Type</th><th class="num">Monthly cost</th><th>Status</th></tr></thead><tbody>';
+    html+='<table><thead><tr><th>Person</th><th>Type</th><th class="num">Monthly cost</th><th class="num">GP generated</th><th class="num">Coverage</th><th>Status</th></tr></thead><tbody>';
+    const covChip=(c)=>{ if(c===Infinity) return '<span class="muted">—</span>'; const cls=c>=2?'pos':c>=1?'':'neg'; return `<span class="${cls}" style="font-weight:700;">${c.toFixed(2)}×</span>`; };
     d.retained.forEach(p=>{
       const low=(p._util||0)<R.params.downsize;
-      html+=`<tr><td>${esc(p.name)}${p.protected?'<span class="chip protected">protected</span>':''}</td><td class="muted">${p.type}</td><td class="num">${p.type==='fulltime'?fmtMoney(p.salaryMonthly):p.rate+'/hr'}</td><td>Retain${low&&p.type==='fulltime'&&!p.protected?' <span class="chip hourly">under '+Math.round(R.params.downsize*100)+'% → consider hourly</span>':''}</td></tr>`;
+      const under=(p._coverage!==undefined&&p._coverage<1);
+      html+=`<tr><td>${esc(p.name)}${p.protected?'<span class="chip protected">protected</span>':''}${under&&!p.protected?'<span class="chip under">below 1× — review</span>':''}</td><td class="muted">${p.type}</td><td class="num">${p.type==='fulltime'?fmtMoney(p.salaryMonthly):p.rate+'/hr'}</td><td class="num">${p._gp!==undefined?fmtMoney(p._gp):'—'}</td><td class="num">${covChip(p._coverage!==undefined?p._coverage:Infinity)}</td><td>Retain${low&&p.type==='fulltime'&&!p.protected?' <span class="chip hourly">under '+Math.round(R.params.downsize*100)+'% → consider hourly</span>':''}</td></tr>`;
     });
     d.laidOff.forEach(p=>{
-      html+=`<tr class="cut"><td>${esc(p.name)}</td><td class="muted">${p.type}</td><td class="num">${fmtMoney(p.salaryMonthly)}</td><td><span class="chip layoff">lay off</span></td></tr>`;
+      html+=`<tr class="cut"><td>${esc(p.name)}</td><td class="muted">${p.type}</td><td class="num">${fmtMoney(p.salaryMonthly)}</td><td class="num">${p._gp!==undefined?fmtMoney(p._gp):'—'}</td><td class="num">${covChip(p._coverage!==undefined?p._coverage:0)}</td><td><span class="chip layoff">lay off</span> <span class="muted" style="font-size:10px;">lowest coverage first</span></td></tr>`;
     });
-    if(d.unmet>0) html+=`<tr><td class="muted">+ hourly backfill</td><td class="muted">hourly</td><td class="num">${fmtMoney(d.newHourlyCost)}</td><td><span class="chip hourly">${fmtH(d.unmet)}h @ $${R.params.hourlyRate}</span></td></tr>`;
+    if(d.unmet>0) html+=`<tr><td class="muted">+ hourly backfill</td><td class="muted">hourly</td><td class="num">${fmtMoney(d.newHourlyCost)}</td><td class="num">—</td><td class="num">—</td><td><span class="chip hourly">${fmtH(d.unmet)}h @ $${R.params.hourlyRate}</span></td></tr>`;
     html+='</tbody></table></div>';
   });
   html+='</div>';
