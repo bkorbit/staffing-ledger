@@ -208,6 +208,9 @@ input.rev-input { min-width: 90px; flex: 1; }
 .pj-month .pj-computed { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--ink); padding: 4px 0; }
 
 .mini-track.split { display: flex; overflow: hidden; }
+.mini-track.split .seg-onplan { background: var(--accent); height: 100%; }
+.mini-track.split .seg-offplan { background: var(--rust); height: 100%; }
+.offplan-note { font-family: var(--font-mono); font-size: 9px; color: var(--rust); margin-left: 4px; white-space: nowrap; }
 .mini-track.split .seg { height: 100%; flex-shrink: 0; }
 .mini-track.split .seg-int { background: repeating-linear-gradient(45deg, var(--gold), var(--gold) 3px, #e3aa32 3px, #e3aa32 6px); }
 .mini-track.split .seg-proj { background: var(--accent); }
@@ -1727,6 +1730,19 @@ function effectiveCapacity(s) { return Math.max(periodCapacity(s) - timeOffLogge
 function staffProjectHours(sid, useActuals) {
   return staffTotalHours(sid, useActuals) - (useActuals ? getActual(sid, INTERNAL_ID) : getAssignment(sid, INTERNAL_ID));
 }
+// Hours a person LOGGED on projects they were NOT assigned to (assignment == 0).
+// Returns {off, onPlan, projects:[{name, hrs}]} for the active view period.
+function staffOffPlanHours(sid) {
+  let off = 0, onPlan = 0; const projects = [];
+  activeProjects().forEach(p => {
+    const act = getActual(sid, p.id);
+    if (act <= 0) return;
+    const asg = getAssignment(sid, p.id);
+    if (asg <= 0) { off += act; projects.push({ name: p.name || 'Untitled', hrs: act }); }
+    else onPlan += act;
+  });
+  return { off, onPlan, projects };
+}
 function staffUtilizationPct(s) {
   const avail = availableCapacity(s);
   if (avail <= 0) return 0;
@@ -3154,10 +3170,21 @@ function renderStaffTable() {
     } else if (logged <= 0 && total <= 0) {
       loggedCell = '<span class="computed-sub">—</span>';
     } else {
+      const offPlan = staffOffPlanHours(s.id);
+      const denom = Math.max(total, logged) || 1;      // scale bar to the larger of assigned/logged
+      const onPlanPct = Math.min((offPlan.onPlan / denom) * 100, 100);
+      const offPlanPct = Math.min((offPlan.off / denom) * 100, 100 - onPlanPct);
+      const offNote = offPlan.off > 0
+        ? `<span class="offplan-note" title="Logged on accounts they aren't assigned to: ${offPlan.projects.map(x => escapeHtml(x.name) + ' ' + fmtHrs(x.hrs) + 'h').join(', ')}">⚠ ${fmtHrs(offPlan.off)}h off-plan</span>`
+        : '';
       loggedCell = `
         <span class="util-pct ${loggedOver ? 'over' : (total > 0 && logged >= total * 0.95 ? 'full' : 'under')}">${fmtHrs(logged)}h</span>
         <span class="computed-sub"> / ${fmtHrs(total)}h assigned${total > 0 ? ' ' : ''}</span>${total > 0 ? deltaHtml(total, logged, false) : ''}
-        <div class="mini-track"><div class="mini-bar ${loggedOver ? 'over' : ''}" style="width:${Math.min(loggedPct, 100)}%;"></div></div>`;
+        ${offNote}
+        <div class="mini-track split" title="teal = logged on assigned accounts · red = logged on accounts they aren't assigned to">
+          <div class="seg seg-onplan" style="width:${onPlanPct}%"></div>
+          <div class="seg seg-offplan" style="width:${offPlanPct}%"></div>
+        </div>`;
     }
     const loggedProj = staffProjectHours(s.id, true);
     const capPct = avail > 0 ? (loggedProj / avail) * 100 : 0;
