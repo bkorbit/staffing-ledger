@@ -1819,20 +1819,33 @@ function copyFromPreviousMonth() {
   if (!Object.keys(prevA).length && !Object.keys(prevD).length) { toast('No plan or department demand found in ' + monthLabel(prev) + '.'); return; }
   const curA = monthAssignments();
   const curD = monthDemand();
-  let copiedAssign = 0, skippedAssign = 0;
+  let copiedAssign = 0, skippedAssign = 0, skippedEnded = 0;
+  // Helper: is this project scheduled to be live in the current (target) month?
+  // Internal/time-off pseudo-projects are always considered live. A real project
+  // whose flight has ended (or not yet started) this month must NOT receive copied work.
+  const liveThisMonth = (pid) => {
+    if (pid === INTERNAL_ID || pid === TIMEOFF_ID) return true;
+    const p = state.projects.find(x => x.id === pid);
+    if (!p) return false;
+    return projectActiveInMonth(p, currentMonth);
+  };
   // Backfill each individual assignment (person→project) only when that exact pairing
-  // has no hours yet this month. A project already having *some* data no longer blocks
-  // the rest of its assignments from being copied.
+  // has no hours yet this month AND the project is live this month.
   Object.entries(prevA).forEach(([k, v]) => {
     if (!v) return;
+    const i = k.indexOf('__'); if (i < 0) return;
+    const pid = k.slice(i + 2);
+    if (!liveThisMonth(pid)) { skippedEnded++; return; }   // project not live this month — don't fabricate workload
     if (curA[k]) { skippedAssign++; return; }   // this person already has hours on this project — leave it
     curA[k] = v;
     copiedAssign++;
   });
-  // Department demand: fill per project+dept only where nothing is set yet this month.
+  // Department demand: fill per project+dept only where nothing is set yet this month,
+  // and only for projects live this month.
   let copiedDemand = 0;
   Object.entries(prevD).forEach(([pid, depts]) => {
     if (!depts || typeof depts !== 'object') return;
+    if (!liveThisMonth(pid)) return;
     const target = curD[pid] || (curD[pid] = {});
     Object.entries(depts).forEach(([dept, hrs]) => {
       if (!hrs) return;
@@ -1847,6 +1860,7 @@ function copyFromPreviousMonth() {
   if (copiedDemand) parts.push(copiedDemand + ' demand entr' + (copiedDemand === 1 ? 'y' : 'ies'));
   let msg = parts.length ? 'Copied ' + parts.join(' and ') + ' from ' + monthLabel(prev) + '.' : 'Nothing to copy — everything from ' + monthLabel(prev) + ' is already filled in this month.';
   if (skippedAssign) msg += '\n' + skippedAssign + ' assignment' + (skippedAssign === 1 ? '' : 's') + ' left untouched (already had hours this month).';
+  if (skippedEnded) msg += '\n' + skippedEnded + ' assignment' + (skippedEnded === 1 ? '' : 's') + ' skipped (project not live this month).';
   toast(msg, 9000);
 }
 
