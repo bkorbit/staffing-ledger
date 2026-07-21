@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scenario Planner (DRAFT) — EMG</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap');
+:root{ --brand:#0a493c; --brand-2:#2e6e56; --accent:#3bc9ac; --gold:#fabf4d; --rust:#d1453b; --mint:#dcf4e9;
+  --ink:#23272b; --slate:#67706d; --line:#d2d2d2; --paper:#ebebeb; --paper-raised:#fff;
+  --font-display:'Montserrat',sans-serif; --font-mono:'DM Mono',monospace; }
+*{box-sizing:border-box;}
+body{ margin:0; font-family:var(--font-display); background:var(--paper); color:var(--ink); font-size:13px; }
+.wrap{ max-width:1500px; margin:0 auto; padding:20px; }
+h1{ font-size:22px; color:var(--brand); margin:0; }
+.draft-tag{ display:inline-block; background:var(--gold); color:#000; font-family:var(--font-mono); font-size:10px; padding:2px 8px; border-radius:4px; margin-left:10px; vertical-align:middle; letter-spacing:0.05em; }
+.sub{ font-family:var(--font-mono); font-size:11px; color:var(--slate); margin:6px 0 18px; }
+.card{ background:var(--paper-raised); border:1px solid var(--line); border-radius:8px; padding:18px; margin-bottom:16px; }
+h2{ font-size:15px; color:var(--brand); margin:0 0 12px; }
+h3{ font-size:12px; font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.06em; color:var(--slate); margin:18px 0 8px; }
+label.param{ display:flex; flex-direction:column; gap:3px; font-family:var(--font-mono); font-size:10px; color:var(--slate); text-transform:uppercase; letter-spacing:0.04em; }
+label.param input, label.param select{ border:1px solid var(--line); border-radius:5px; padding:7px 9px; font-family:var(--font-mono); font-size:12px; background:var(--paper-raised); color:var(--ink); }
+.params{ display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; }
+.obj-toggle{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
+.obj-btn{ font-family:var(--font-mono); font-size:11px; padding:8px 14px; border:1px solid var(--line); border-radius:5px; background:var(--paper-raised); cursor:pointer; }
+.obj-btn.active{ background:var(--brand); color:#fff; border-color:var(--brand); }
+button.run{ font-family:var(--font-mono); font-size:13px; background:var(--brand); color:#fff; border:none; padding:11px 22px; border-radius:6px; cursor:pointer; margin-top:14px; }
+button.run:hover{ background:var(--brand-2); }
+.kpis{ display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:10px; margin:14px 0; }
+.kpi{ background:var(--paper-raised); border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:6px; padding:12px; }
+.kpi .l{ font-family:var(--font-mono); font-size:9px; text-transform:uppercase; letter-spacing:0.05em; color:var(--slate); }
+.kpi .v{ font-family:var(--font-mono); font-size:20px; font-weight:700; margin-top:3px; }
+.kpi .d{ font-family:var(--font-mono); font-size:10px; margin-top:3px; }
+.pos{ color:var(--brand); } .neg{ color:var(--rust); }
+table{ width:100%; border-collapse:collapse; margin-top:6px; }
+th,td{ text-align:left; padding:7px 9px; border-bottom:1px solid var(--line); font-size:12px; }
+th{ font-family:var(--font-mono); font-size:9px; text-transform:uppercase; letter-spacing:0.05em; color:var(--slate); cursor:default; }
+td.num,th.num{ text-align:right; font-family:var(--font-mono); }
+tr.cut{ background:#fbe7e4; }
+tr.cut td:first-child{ text-decoration:line-through; color:var(--slate); }
+tr.kept-marginal{ background:#fdf3dc; }
+.chip{ font-family:var(--font-mono); font-size:8px; text-transform:uppercase; padding:1px 5px; border-radius:3px; margin-left:5px; }
+.chip.cut{ background:var(--rust); color:#fff; } .chip.keep{ background:var(--mint); color:var(--brand); }
+.chip.layoff{ background:var(--rust); color:#fff; } .chip.hourly{ background:var(--gold); color:#000; } .chip.protected{ background:var(--brand); color:#fff; }
+.chip.under{ background:var(--gold); color:#000; }
+.toggle-cell{ cursor:pointer; user-select:none; }
+.util-bar{ height:5px; background:#e4e4e4; border-radius:3px; margin-top:3px; overflow:hidden; }
+.util-fill{ height:100%; background:var(--accent); }
+.util-fill.low{ background:var(--gold); } .util-fill.ok{ background:var(--brand); }
+.muted{ color:var(--slate); }
+.err{ background:#fbe7e4; border:1px solid var(--rust); color:var(--rust); padding:12px; border-radius:6px; font-family:var(--font-mono); font-size:12px; }
+.month-tabs{ display:flex; gap:4px; flex-wrap:wrap; margin-bottom:12px; }
+.mtab{ font-family:var(--font-mono); font-size:10px; padding:5px 10px; border:1px solid var(--line); border-radius:5px; background:var(--paper-raised); cursor:pointer; }
+.mtab.active{ background:var(--brand); color:#fff; border-color:var(--brand); }
+.note{ font-family:var(--font-mono); font-size:10px; color:var(--slate); margin-top:6px; line-height:1.6; }
+.deptblock{ border:1px solid var(--line); border-radius:6px; padding:12px; margin-bottom:10px; }
+.deptblock h4{ margin:0 0 8px; font-size:13px; color:var(--brand); }
+#login{ max-width:360px; margin:60px auto; }
+#login input{ width:100%; border:1px solid var(--line); border-radius:5px; padding:9px; margin:6px 0; font-family:var(--font-mono); }
+#login button{ width:100%; background:var(--brand); color:#fff; border:none; padding:10px; border-radius:5px; cursor:pointer; font-family:var(--font-mono); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="login" class="card" style="display:none;">
+    <h2>Sign in</h2>
+    <input type="email" id="email" placeholder="Email">
+    <input type="password" id="password" placeholder="Password">
+    <button id="signin">Sign in</button>
+    <div id="login-msg" class="note"></div>
+  </div>
+
+  <div id="app" style="display:none;">
+    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span></h1>
+    <div class="sub">Reads the live ledger. Changes nothing. Models which accounts to cancel and who to lay off to reach a sustainable execution-team margin. Every number is a proposal — apply judgment.</div>
+
+    <div class="card">
+      <h2>Run parameters</h2>
+      <div class="obj-toggle" id="obj-toggle">
+        <button class="obj-btn active" data-obj="maximize">Maximize team profit</button>
+        <button class="obj-btn" data-obj="margin">Hit target net margin %</button>
+        <button class="obj-btn" data-obj="overhead">Cover overhead $ + profit</button>
+      </div>
+      <div class="params">
+        <label class="param">Utilization target %<input type="number" id="p-util" value="80"></label>
+        <label class="param">FT→hourly trigger %<input type="number" id="p-downsize" value="50"></label>
+        <label class="param">Profit/hr floor $<input type="number" id="p-pph" value="150"></label>
+        <label class="param">Outlier rule<select id="p-outlier"><option value="avg1">Dept avg + ≤1 below</option><option value="all">Everyone must clear</option><option value="avg">Dept average only</option></select></label>
+        <label class="param" id="wrap-margin">Target net margin %<input type="number" id="p-margin" value="35"></label>
+        <label class="param" id="wrap-overhead" style="display:none;">Monthly overhead $<input type="number" id="p-overhead" value="0"></label>
+        <label class="param">New-hourly rate $<input type="number" id="p-hourly" value="45"></label>
+        <label class="param">Forward months<input type="number" id="p-months" value="6"></label>
+      </div>
+      <button class="run" id="run">Run scenario</button>
+    </div>
+
+    <div id="results"></div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://bdtzpeazcjgnsxodwzpz.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_cJRK4z_cAj1oVhVg8tpOkA_FZRwNPhI';
+const WORKSPACE_ID = 'default';
+const INTERNAL_ID = '__internal__', TIMEOFF_ID = '__timeoff__';
+let sb, STATE = null, objective = 'maximize', activeMonth = null, lastRun = null;
+
+// ---------- helpers mirrored from the app ----------
+function monthKey(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function shiftMonth(k,n){ const [y,m]=k.split('-').map(Number); return monthKey(new Date(y,m-1+n,1)); }
+function empType(s){ return s.employmentType==='hourly'?'hourly':'fulltime'; }
+function normDept(d){ return String(d||'').trim() || 'No department'; }
+function fmtMoney(n){ const neg=n<0; n=Math.abs(Math.round(n)); return (neg?'-':'')+'$'+n.toLocaleString(); }
+function fmtH(n){ return (Math.round(n*10)/10).toLocaleString(); }
+function weekdaysInMonth(mk){ const [y,m]=mk.split('-').map(Number); const dim=new Date(y,m,0).getDate(); let n=0; for(let d=1;d<=dim;d++){const dow=new Date(y,m-1,d).getDay(); if(dow>=1&&dow<=5)n++;} return n; }
+function monthlyCapacityFor(s,mk){ return weekdaysInMonth(mk)*((s.weeklyCapacity||0)/5); }
+function staffActiveInMonth(s,mk){ if(s.startMonth&&mk<s.startMonth)return false; if(s.endMonth&&mk>s.endMonth)return false; return true; }
+function projectActiveInMonth(p,mk){ if(p.startMonth&&mk<p.startMonth)return false; if(p.endMonth&&mk>p.endMonth)return false; return true; }
+function billingActive(p){ return !!(p.billing&&p.billing.lines&&p.billing.lines.length); }
+function monthsOfFlight(p){ if(!p.startMonth||!p.endMonth||p.endMonth<p.startMonth)return null; const a=[]; let mk=p.startMonth,g=0; while(mk<=p.endMonth&&g<60){a.push(mk); mk=shiftMonth(mk,1); g++;} return a; }
+function lineGP(p,l,mk){
+  if(l.type==='retainer') return l.amount||0;
+  if(l.type==='search'||l.type==='social'){ const b=(l.budgets||{})[mk]||0; return b*((l.feePct||0)/100); }
+  if(l.type==='programmatic'){ const b=(l.budgets||{})[mk]||0; const m=((l.margins||{})[mk]!==undefined?(l.margins||{})[mk]:(l.defaultMargin||0)); return b*((l.feePct||0)/100)+b*((m||0)/100); }
+  if(l.type==='hourly'){ const h=(l.hoursByMonth||{})[mk]!==undefined?(l.hoursByMonth[mk]):(l.mode==='monthly'?(l.hoursPerMonth||0):0); return (h||0)*(l.rate||0); }
+  return 0;
+}
+function billingMonths(p){ const set=new Set(); if(!billingActive(p))return set; const fl=monthsOfFlight(p)||[]; p.billing.lines.forEach(l=>{ if(l.type==='retainer'||(l.type==='hourly'&&l.mode!=='monthly')) fl.forEach(mk=>set.add(mk)); Object.keys(l.budgets||{}).forEach(mk=>{if(l.budgets[mk])set.add(mk);}); Object.keys(l.hoursByMonth||{}).forEach(mk=>{if(l.hoursByMonth[mk])set.add(mk);}); }); return set; }
+function billingGP(p,mk){ if(!billingActive(p))return null; return p.billing.lines.reduce((s,l)=>s+lineGP(p,l,mk),0); }
+function revenueFor(p,mk){ const man=(p.revenueOverrides||{})[mk]; if(man!==undefined)return man; if(billingActive(p)&&billingMonths(p).has(mk))return billingGP(p,mk); return 0; }
+function actualFor(mk,sid,pid){ return (STATE.actuals[mk]||{})[sid+'__'+pid]||0; }
+function assignFor(mk,sid,pid){ return (STATE.assignments[mk]||{})[sid+'__'+pid]||0; }
+// hours a person spends on a given project in a month: prefer actuals, fall back to plan
+function personProjectHours(sid,pid,mk){ const a=actualFor(mk,sid,pid); return a>0?a:assignFor(mk,sid,pid); }
+// total hours logged/planned on a project in a month across all staff
+function projectHours(pid,mk){ let sum=0; STATE.staff.forEach(s=>{ sum+=personProjectHours(s.id,pid,mk); }); return sum; }
+function personInternalHours(sid,mk){ return Math.max(actualFor(mk,sid,INTERNAL_ID), assignFor(mk,sid,INTERNAL_ID)); }
+
+// ---------- the optimizer ----------
+function runScenario(){
+  const util=(+document.getElementById('p-util').value||80)/100;
+  const downsize=(+document.getElementById('p-downsize').value||50)/100;
+  const pphFloor=+document.getElementById('p-pph').value||0;
+  const outlierRule=document.getElementById('p-outlier').value;
+  const targetMargin=(+document.getElementById('p-margin').value||0)/100;
+  const overhead=+document.getElementById('p-overhead').value||0;
+  const hourlyRate=+document.getElementById('p-hourly').value||45;
+  const nMonths=Math.max(1,Math.min(18,+document.getElementById('p-months').value||6));
+
+  const startMk=monthKey(new Date());
+  const months=[]; for(let i=0;i<nMonths;i++) months.push(shiftMonth(startMk,i));
+
+  const perMonth=months.map(mk=>optimizeMonth(mk,{util,downsize,pphFloor,outlierRule,targetMargin,overhead,hourlyRate}));
+  lastRun={months,perMonth,params:{util,downsize,pphFloor,outlierRule,targetMargin,overhead,hourlyRate}};
+  if(!activeMonth||!months.includes(activeMonth)) activeMonth=months[0];
+  renderResults();
+}
+
+function optimizeMonth(mk,P){
+  // active accounts this month with GP>0 or in-flight
+  const accounts=STATE.projects.filter(p=>projectActiveInMonth(p,mk)).map(p=>{
+    const gp=revenueFor(p,mk);
+    const hours=projectHours(p.id,mk);
+    const dept=dominantDept(p.id,mk);
+    return {p, id:p.id, name:p.name||'Untitled', gp, hours, dept, pph: hours>0?gp/hours:(gp>0?Infinity:0)};
+  }).filter(a=>a.gp!==0||a.hours>0);
+
+  // people active this month
+  const people=STATE.staff.filter(s=>staffActiveInMonth(s,mk)).map(s=>{
+    const cap=monthlyCapacityFor(s,mk);
+    const internal=personInternalHours(s.id,mk);
+    return {s, id:s.id, name:s.name||'Unnamed', dept:normDept(s.department), type:empType(s),
+      salaryMonthly: empType(s)==='fulltime'? cap*s.hourlyCost : 0, rate:s.hourlyCost,
+      cap, avail:Math.max(cap-internal,0), protected:!!s.layoffProtected };
+  });
+
+  // baseline (keep everything)
+  const baseline=evaluate(accounts, accounts.map(a=>a.id), people, [], P, mk);
+
+  // greedy cut: repeatedly drop the worst-profit/hr account if it improves the ratio
+  let keptIds=new Set(accounts.map(a=>a.id));
+  const cutIds=new Set();
+  let improved=true;
+  const ranked=[...accounts].sort((a,b)=> (a.pph)-(b.pph)); // worst first
+  while(improved){
+    improved=false;
+    for(const a of ranked){
+      if(!keptIds.has(a.id)) continue;
+      // try cutting this account
+      const trialKept=new Set(keptIds); trialKept.delete(a.id);
+      const before=evaluate(accounts,[...keptIds],people,[...cutIds],P,mk);
+      const after=evaluate(accounts,[...trialKept],people,[...cutIds,a.id],P,mk);
+      // cut is good if forward labor SAVED (eliminated salaries) exceeds GP lost,
+      // AND it doesn't violate the pph floor logic (only cut at-or-below floor unless it helps)
+      const laborSaved=before.laborCost-after.laborCost;
+      const gpLost=before.gp-after.gp;
+      const belowFloor=a.pph<P.pphFloor;
+      if(laborSaved>gpLost && (belowFloor || after.execMargin>before.execMargin)){
+        keptIds=trialKept; cutIds.add(a.id); improved=true;
+      }
+    }
+  }
+  const final=evaluate(accounts,[...keptIds],people,[...cutIds],P,mk);
+  return {mk, accounts, people, baseline, final, keptIds:[...keptIds], cutIds:[...cutIds]};
+}
+
+// evaluate a keep-set: size each dept's salaried headcount to retained workload,
+// decide layoffs (highest salary first among eligible), backfill sub-threshold gaps with hourly.
+function evaluate(accounts, keptIds, people, cutIds, P, mk){
+  const kept=new Set(keptIds);
+  const byDept={};
+  people.forEach(pp=>{ (byDept[pp.dept]=byDept[pp.dept]||{people:[],demand:0}).people.push(pp); });
+  // workload per dept = hours on kept accounts, attributed to the dept that owns them
+  accounts.forEach(a=>{ if(kept.has(a.id)){ const d=a.dept||'No department'; (byDept[d]=byDept[d]||{people:[],demand:0}).demand+=a.hours; } });
+
+  let laborCost=0, gp=0, staffPlan=[], newHourly=0;
+  accounts.forEach(a=>{ if(kept.has(a.id)) gp+=a.gp; });
+
+  Object.entries(byDept).forEach(([dept,info])=>{
+    const demand=info.demand;
+    // eligible people sorted for retention: protected first, then keep those needed;
+    // layoff candidates = highest salary first among unprotected salaried.
+    const salaried=info.people.filter(p=>p.type==='fulltime');
+    const hourly=info.people.filter(p=>p.type==='hourly');
+    // retain protected always; then retain enough salaried to cover demand at target util
+    const protectedPpl=salaried.filter(p=>p.protected);
+    const cuttable=salaried.filter(p=>!p.protected).sort((a,b)=> b.salaryMonthly-a.salaryMonthly); // highest salary first = first to consider cutting
+    let coveredCap=protectedPpl.reduce((s,p)=>s+p.avail,0);
+    const retained=[...protectedPpl];
+    // add cuttable people (cheapest kept? no—retain lowest salary first so we cut highest salary)
+    const retainOrder=[...cuttable].sort((a,b)=> a.salaryMonthly-b.salaryMonthly); // keep cheapest first
+    for(const p of retainOrder){
+      if(coveredCap>=demand) break;
+      retained.push(p); coveredCap+=p.avail;
+    }
+    const laidOff=cuttable.filter(p=>!retained.includes(p));
+    // hourly: keep those whose assigned hours are on kept accounts (their cost = assigned hours*rate)
+    let hourlyCostDept=0;
+    hourly.forEach(h=>{ let hrs=0; accounts.forEach(a=>{ if(kept.has(a.id)) hrs+=personProjectHours(h.id,a.id,mk); }); hourlyCostDept+=hrs*h.rate; });
+    // remaining unmet demand after retained salaried -> backfill hourly at P.hourlyRate
+    const unmet=Math.max(demand-coveredCap,0);
+    // downsize check: a retained salaried person below the downsize threshold flags FT->hourly
+    retained.forEach(p=>{
+      const u=p.avail>0? Math.min(demandShare(p,demand,coveredCap)/p.avail,1):0;
+      p._util=u;
+    });
+    newHourly+=unmet*P.hourlyRate;
+    const deptSalaryCost=retained.reduce((s,p)=>s+p.salaryMonthly,0);
+    laborCost+=deptSalaryCost+hourlyCostDept+unmet*P.hourlyRate;
+    staffPlan.push({dept, demand, retained, laidOff, hourly, unmet, coveredCap, hourlyCostDept, newHourlyCost:unmet*P.hourlyRate});
+  });
+
+  const execProfit=gp-laborCost;
+  const execMargin=gp>0? execProfit/gp : 0;
+  const overheadCovered=execProfit-P.overhead;
+  return {gp, laborCost, execProfit, execMargin, overheadCovered, staffPlan, newHourly};
+}
+function demandShare(p, demand, coveredCap){ return coveredCap>0? demand*(p.avail/coveredCap) : 0; }
+
+function dominantDept(pid,mk){
+  const tally={};
+  STATE.staff.forEach(s=>{ const h=personProjectHours(s.id,pid,mk); if(h>0){ const d=normDept(s.department); tally[d]=(tally[d]||0)+h; } });
+  let best=null,bv=-1; Object.entries(tally).forEach(([d,v])=>{ if(v>bv){bv=v;best=d;} });
+  return best||'No department';
+}
+
+// ---------- rendering ----------
+function renderResults(){
+  const R=lastRun; if(!R){document.getElementById('results').innerHTML='';return;}
+  const md=R.perMonth.find(m=>m.mk===activeMonth)||R.perMonth[0];
+  const b=md.baseline, f=md.final;
+  const laborSaved=b.laborCost-f.laborCost, gpLost=b.gp-f.gp;
+  const healthy=laborSaved>gpLost;
+
+  let html='';
+  html+='<div class="month-tabs">'+R.months.map(mk=>`<button class="mtab ${mk===activeMonth?'active':''}" data-mk="${mk}">${mk}</button>`).join('')+'</div>';
+
+  html+='<div class="card"><h2>Outcome — '+activeMonth+' · '+objLabel()+'</h2>';
+  html+='<div class="kpis">';
+  html+=kpi('Accounts kept', md.keptIds.length+' / '+md.accounts.length, md.cutIds.length+' cut');
+  html+=kpi('Monthly labor', fmtMoney(f.laborCost), (laborSaved>=0?'−':'+')+fmtMoney(Math.abs(laborSaved))+' vs now', laborSaved>=0?'pos':'neg');
+  html+=kpi('Gross profit', fmtMoney(f.gp), (gpLost>0?'−':'+')+fmtMoney(Math.abs(gpLost))+' vs now', gpLost<=0?'pos':'neg');
+  html+=kpi('Execution profit', fmtMoney(f.execProfit), Math.round(f.execMargin*100)+'% margin', f.execProfit>=0?'pos':'neg');
+  if(objective==='overhead') html+=kpi('After overhead', fmtMoney(f.overheadCovered), 'covers '+fmtMoney(R.params.overhead), f.overheadCovered>=0?'pos':'neg');
+  html+=kpi('Cut test', healthy?'PASSES':'FAILS', 'labor saved '+(healthy?'>':'≤')+' revenue lost', healthy?'pos':'neg');
+  html+='</div>';
+  html+='<div class="note">The cut test is the honest guardrail: a scenario only helps if the forward labor you eliminate (salaried layoffs + dropped hourly) exceeds the gross profit you give up. Hourly reductions lower cost but salaried layoffs are the real forward savings.</div>';
+  html+='</div>';
+
+  // accounts
+  html+='<div class="card"><h2>Accounts</h2><table><thead><tr><th>Account</th><th>Dept</th><th class="num">Gross profit</th><th class="num">Hours</th><th class="num">Profit / hr</th><th>Decision</th></tr></thead><tbody>';
+  [...md.accounts].sort((a,b)=>b.pph-a.pph).forEach(a=>{
+    const cut=md.cutIds.includes(a.id);
+    const marginal=!cut && a.pph<R.params.pphFloor;
+    html+=`<tr class="${cut?'cut':(marginal?'kept-marginal':'')}"><td>${esc(a.name)}${cut?'<span class="chip cut">cut</span>':(marginal?'<span class="chip under">below floor</span>':'')}</td><td class="muted">${esc(a.dept)}</td><td class="num">${fmtMoney(a.gp)}</td><td class="num">${fmtH(a.hours)}h</td><td class="num ${a.pph<R.params.pphFloor?'neg':'pos'}">${a.pph===Infinity?'—':fmtMoney(a.pph)}</td><td>${cut?'Cancel':'Keep'}</td></tr>`;
+  });
+  html+='</tbody></table></div>';
+
+  // staffing by dept
+  html+='<div class="card"><h2>Staffing plan</h2>';
+  f.staffPlan.filter(d=>d.retained.length||d.laidOff.length||d.hourly.length).forEach(d=>{
+    html+=`<div class="deptblock"><h4>${esc(d.dept)} <span class="muted" style="font-size:11px;">· ${fmtH(d.demand)}h demand · ${fmtH(d.coveredCap)}h covered${d.unmet>0?' · '+fmtH(d.unmet)+'h gap':''}</span></h4>`;
+    html+='<table><thead><tr><th>Person</th><th>Type</th><th class="num">Monthly cost</th><th>Status</th></tr></thead><tbody>';
+    d.retained.forEach(p=>{
+      const low=(p._util||0)<R.params.downsize;
+      html+=`<tr><td>${esc(p.name)}${p.protected?'<span class="chip protected">protected</span>':''}</td><td class="muted">${p.type}</td><td class="num">${p.type==='fulltime'?fmtMoney(p.salaryMonthly):p.rate+'/hr'}</td><td>Retain${low&&p.type==='fulltime'&&!p.protected?' <span class="chip hourly">under '+Math.round(R.params.downsize*100)+'% → consider hourly</span>':''}</td></tr>`;
+    });
+    d.laidOff.forEach(p=>{
+      html+=`<tr class="cut"><td>${esc(p.name)}</td><td class="muted">${p.type}</td><td class="num">${fmtMoney(p.salaryMonthly)}</td><td><span class="chip layoff">lay off</span></td></tr>`;
+    });
+    if(d.unmet>0) html+=`<tr><td class="muted">+ hourly backfill</td><td class="muted">hourly</td><td class="num">${fmtMoney(d.newHourlyCost)}</td><td><span class="chip hourly">${fmtH(d.unmet)}h @ $${R.params.hourlyRate}</span></td></tr>`;
+    html+='</tbody></table></div>';
+  });
+  html+='</div>';
+
+  // forward-window summary
+  html+='<div class="card"><h2>Across the forward window</h2><table><thead><tr><th>Month</th><th class="num">Kept</th><th class="num">Cut</th><th class="num">Gross profit</th><th class="num">Labor</th><th class="num">Exec profit</th><th class="num">Margin</th></tr></thead><tbody>';
+  R.perMonth.forEach(m=>{
+    html+=`<tr><td>${m.mk}</td><td class="num">${m.keptIds.length}</td><td class="num">${m.cutIds.length}</td><td class="num">${fmtMoney(m.final.gp)}</td><td class="num">${fmtMoney(m.final.laborCost)}</td><td class="num ${m.final.execProfit>=0?'pos':'neg'}">${fmtMoney(m.final.execProfit)}</td><td class="num">${Math.round(m.final.execMargin*100)}%</td></tr>`;
+  });
+  html+='</tbody></table><div class="note">Watch how the cut list shifts as future accounts start — a person cuttable now may be needed when a new account kicks in.</div></div>';
+
+  document.getElementById('results').innerHTML=html;
+  document.querySelectorAll('.mtab').forEach(b=>b.onclick=()=>{activeMonth=b.dataset.mk; renderResults();});
+}
+function kpi(l,v,d,cls){ return `<div class="kpi"><div class="l">${l}</div><div class="v ${cls||''}">${v}</div><div class="d ${cls||''}">${d||''}</div></div>`; }
+function objLabel(){ return objective==='maximize'?'Maximize team profit':objective==='margin'?'Target margin':'Cover overhead'; }
+function esc(s){ return String(s||'').replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])); }
+
+// ---------- auth + boot ----------
+async function boot(){
+  sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+  const {data:{session}}=await sb.auth.getSession();
+  if(session) enter(); else document.getElementById('login').style.display='block';
+  sb.auth.onAuthStateChange((e,s)=>{ if(s) enter(); });
+}
+document.getElementById('signin').onclick=async()=>{
+  const {error}=await sb.auth.signInWithPassword({email:document.getElementById('email').value,password:document.getElementById('password').value});
+  if(error) document.getElementById('login-msg').textContent=error.message;
+};
+async function enter(){
+  document.getElementById('login').style.display='none';
+  document.getElementById('app').style.display='block';
+  const {data,error}=await sb.from('ledger_state').select('data').eq('id',WORKSPACE_ID).maybeSingle();
+  if(error||!data){ document.getElementById('results').innerHTML='<div class="err">Could not load the ledger.</div>'; return; }
+  STATE=data.data;
+  ['staff','projects','assignments','actuals','demand'].forEach(k=>{ if(!STATE[k]) STATE[k]= (k==='staff'||k==='projects')?[]:{}; });
+}
+document.getElementById('obj-toggle').onclick=(e)=>{
+  const btn=e.target.closest('.obj-btn'); if(!btn) return;
+  objective=btn.dataset.obj;
+  document.querySelectorAll('.obj-btn').forEach(b=>b.classList.toggle('active',b===btn));
+  document.getElementById('wrap-margin').style.display=objective==='margin'?'':'none';
+  document.getElementById('wrap-overhead').style.display=objective==='overhead'?'':'none';
+  if(lastRun) renderResults();
+};
+document.getElementById('run').onclick=()=>{ if(!STATE){alert('Still loading the ledger…');return;} runScenario(); };
+boot();
+</script>
+</body>
+</html>

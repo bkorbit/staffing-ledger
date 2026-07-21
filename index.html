@@ -711,6 +711,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
         <label>Weekly capacity (hrs)<input type="text" inputmode="decimal" data-role="pm-cap" id="pm-cap"></label>
         <label>Start month<input type="month" data-role="pm-start" id="pm-start"><span class="pm-hint">capacity counts from this month · blank = always</span></label>
         <label>End month<input type="month" data-role="pm-end" id="pm-end"><span class="pm-hint">blank = ongoing</span></label>
+        <label class="pm-full" style="flex-direction:row; align-items:center; gap:8px;"><input type="checkbox" data-role="pm-nolayoff" id="pm-nolayoff" style="width:auto;"> Protected from layoff (dept head / key role)<span class="pm-hint" style="margin:0;">scenario planner always retains this person</span></label>
       </div>
     </div>
   </div>
@@ -1076,6 +1077,7 @@ function openPersonModal(id) {
   document.getElementById('pm-cap').value = s.weeklyCapacity;
   document.getElementById('pm-start').value = s.startMonth || '';
   document.getElementById('pm-end').value = s.endMonth || '';
+  document.getElementById('pm-nolayoff').checked = !!s.layoffProtected;
   refreshPersonCostUI(false);
   const costLabel = document.getElementById('pm-cost').closest('label');
   if (costLabel) costLabel.style.display = canSeeSalaries ? '' : 'none';
@@ -4214,6 +4216,7 @@ document.addEventListener('change', (e) => {
   if (dRole === 'pj-end') { setFlightDate(projectEditId, 'end', e.target.value); rebuildBillingSection(); rebuildProjectModalMonths(); return; }
   if (dRole === 'pm-start') { updateStaffField(personEditId, 'startMonth', e.target.value); return; }
   if (dRole === 'pm-end') { updateStaffField(personEditId, 'endMonth', e.target.value); return; }
+  if (dRole === 'pm-nolayoff') { updateStaffField(personEditId, 'layoffProtected', e.target.checked); return; }
   if (e.target && e.target.dataset && e.target.dataset.role === 'bl-mode') {
     const p = state.projects.find(x => x.id === projectEditId);
     const line = p && p.billing && p.billing.lines[+e.target.dataset.line];
