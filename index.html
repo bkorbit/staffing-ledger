@@ -119,6 +119,7 @@ td.sel-col input, th.sel-col input { width: auto; margin: 0; cursor: pointer; }
 @media (max-width: 860px) { .fc-row { grid-template-columns: 1fr 1fr; row-gap: 2px; } }
 
 table { width: 100%; border-collapse: collapse; background: var(--paper-raised); border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+#team-table, #team-table tbody, #team-table tr, #team-table td, #team-table .team-breakout td { overflow: visible; }
 th { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
 th.sortable { cursor: pointer; user-select: none; }
 th.sortable:hover { color: var(--ink); }
@@ -242,8 +243,18 @@ input.rev-input { min-width: 90px; flex: 1; }
 .tm-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 0 0 26px; }
 .tm-add select, .tm-add input { border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; background: var(--paper); width: auto; font-family: var(--font-mono); font-size: 11px; }
 .tm-add input.numfield { width: 80px; }
-.tm-acct-input { min-width: 240px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 4px; padding: 6px 9px; font-family: var(--font-mono); font-size: 11px; background: var(--paper-raised); }
-.tm-acct-input:focus { outline: none; border-color: var(--brand); }
+.tm-picker { position: relative; min-width: 240px; }
+.tm-picker-input { width: 100%; box-sizing: border-box; border: 1px solid var(--line); border-radius: 4px; padding: 6px 9px; font-family: var(--font-mono); font-size: 11px; background: var(--paper-raised); }
+.tm-picker-input:focus { outline: none; border-color: var(--brand); }
+.tm-picker-menu { display: none; position: absolute; z-index: 200; top: calc(100% + 3px); left: 0; right: 0; background: #fff; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(10,73,60,0.16); max-height: 260px; overflow-y: auto; }
+.tm-picker.open .tm-picker-menu { display: block; }
+.tm-picker.up .tm-picker-menu { top: auto; bottom: calc(100% + 3px); }
+.tm-picker-opt { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 11px; cursor: pointer; border-bottom: 1px solid #eee; }
+.tm-picker-opt:last-of-type { border-bottom: none; }
+.tm-picker-opt:hover, .tm-picker-opt.active { background: var(--mint); }
+.tm-picker-opt .tm-opt-name { font-family: var(--font-display); font-size: 12px; font-weight: 600; color: var(--ink); }
+.tm-picker-opt .tm-opt-meta { font-family: var(--font-mono); font-size: 9px; color: var(--slate); white-space: nowrap; }
+.tm-picker-none { padding: 9px 11px; font-family: var(--font-mono); font-size: 10px; color: var(--slate); }
 .tm-empty { font-family: var(--font-mono); font-size: 11px; color: var(--slate); padding: 6px 0 2px 26px; }
 
 /* Dashboard */
@@ -3242,14 +3253,20 @@ function renderStaffTable() {
           </div>`;
       }).join('');
       const suggFor = pid => { const a = getActual(s.id, pid); return a > 0 ? Math.round((a / nVm) * 10) / 10 : 0; };
-      const dlId = 'tm-dl-' + s.id;
       const addForm = unassignedProjs.length ? `
         <div class="tm-add">
-          <input type="text" class="tm-acct-input" id="tm-proj-q-${s.id}" data-role="tm-acct-input" data-id="${s.id}"
-            list="${dlId}" placeholder="Search account to assign…" autocomplete="off">
-          <datalist id="${dlId}">
-            ${unassignedProjs.map(p => `<option value="${escapeAttr(p.name || 'Untitled')}">${suggFor(p.id) > 0 ? 'logged ' + fmtHrs(suggFor(p.id)) + 'h/mo' : ''}${projectActiveInMonth(p, currentMonth) ? '' : ' · flight ended'}</option>`).join('')}
-          </datalist>
+          <div class="tm-picker" data-id="${s.id}">
+            <input type="text" class="tm-picker-input" id="tm-proj-q-${s.id}" data-role="tm-picker-input" data-id="${s.id}"
+              placeholder="Search account to assign…" autocomplete="off">
+            <div class="tm-picker-menu" id="tm-menu-${s.id}">
+              ${unassignedProjs.map(p => { const sg = suggFor(p.id); return `
+                <div class="tm-picker-opt" data-role="tm-picker-opt" data-id="${s.id}" data-pid="${p.id}" data-name="${escapeAttr(p.name || 'Untitled')}" data-sugg="${sg}">
+                  <span class="tm-opt-name">${escapeHtml(p.name) || 'Untitled'}</span>
+                  <span class="tm-opt-meta">${sg > 0 ? 'logged ' + fmtHrs(sg) + 'h/mo' : ''}${projectActiveInMonth(p, currentMonth) ? '' : ' · flight ended'}</span>
+                </div>`; }).join('')}
+              <div class="tm-picker-none" style="display:none;">No matching accounts</div>
+            </div>
+          </div>
           <input type="text" inputmode="decimal" class="numfield" placeholder="Hours" title="Pre-filled with their logged hours on this account once an account is picked" id="tm-hrs-${s.id}">
           <select id="tm-unit-${s.id}">
             <option value="month">hrs / month</option>
@@ -3854,6 +3871,70 @@ const TYPED_ROLES = new Set(['staff-name','staff-dept','staff-cost','staff-cap',
   'bl-amount','bl-fee','bl-rate','bl-margin','bl-hours','bl-budget','bl-mmargin','bl-mhours','bl-label']);
 let typedFieldDirty = false;
 
+/* ===== Team assignment picker (styled, self-contained; no re-render on keystroke) ===== */
+// Open + position on focus
+document.addEventListener('focusin', (e) => {
+  const inp = e.target.closest && e.target.closest('.tm-picker-input');
+  if (!inp) return;
+  const picker = inp.closest('.tm-picker');
+  if (!picker) return;
+  // reset filter to show all when reopening
+  const menu = picker.querySelector('.tm-picker-menu');
+  if (menu) { menu.querySelectorAll('.tm-picker-opt').forEach(o => { o.style.display = ''; o.classList.remove('active'); }); const n = menu.querySelector('.tm-picker-none'); if (n) n.style.display = 'none'; }
+  picker.classList.add('open');
+  const r = inp.getBoundingClientRect();
+  picker.classList.toggle('up', (window.innerHeight - r.bottom) < 280);
+});
+// Pick on mousedown (fires before blur, so selection always lands)
+document.addEventListener('mousedown', (e) => {
+  const opt = e.target.closest && e.target.closest('.tm-picker-opt');
+  if (!opt) return;
+  e.preventDefault();   // keep focus off; we control close ourselves
+  const picker = opt.closest('.tm-picker');
+  const inp = picker.querySelector('.tm-picker-input');
+  inp.value = opt.dataset.name;
+  picker.dataset.pid = opt.dataset.pid;     // remember the chosen project id
+  picker.classList.remove('open');
+  // prefill hours with the logged suggestion for this account
+  const sid = picker.dataset.id;
+  const hrs = document.getElementById('tm-hrs-' + sid);
+  const sugg = parseFloat(opt.dataset.sugg) || 0;
+  if (hrs) hrs.value = sugg > 0 ? sugg : '';
+});
+// Typing invalidates a prior selection
+document.addEventListener('input', (e) => {
+  const inp = e.target.closest && e.target.closest('.tm-picker-input');
+  if (inp) { const p = inp.closest('.tm-picker'); if (p) delete p.dataset.pid; }
+}, true);
+// Close when clicking/focusing outside
+document.addEventListener('mousedown', (e) => {
+  if (e.target.closest && e.target.closest('.tm-picker')) return;
+  document.querySelectorAll('.tm-picker.open').forEach(p => p.classList.remove('open'));
+});
+// Keyboard: arrows move highlight, Enter selects, Esc closes
+document.addEventListener('keydown', (e) => {
+  const inp = e.target.closest && e.target.closest('.tm-picker-input');
+  if (!inp) return;
+  const picker = inp.closest('.tm-picker');
+  const menu = picker.querySelector('.tm-picker-menu');
+  const opts = [...menu.querySelectorAll('.tm-picker-opt')].filter(o => o.style.display !== 'none');
+  if (e.key === 'Escape') { picker.classList.remove('open'); return; }
+  if (!opts.length) return;
+  let idx = opts.findIndex(o => o.classList.contains('active'));
+  if (e.key === 'ArrowDown') { e.preventDefault(); picker.classList.add('open'); idx = Math.min(idx + 1, opts.length - 1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); idx = Math.max(idx - 1, 0); }
+  else if (e.key === 'Enter') {
+    e.preventDefault();
+    const pick = idx >= 0 ? opts[idx] : opts[0];
+    if (pick) { inp.value = pick.dataset.name; picker.dataset.pid = pick.dataset.pid; picker.classList.remove('open');
+      const hrs = document.getElementById('tm-hrs-' + picker.dataset.id); const sugg = parseFloat(pick.dataset.sugg) || 0; if (hrs) hrs.value = sugg > 0 ? sugg : ''; }
+    return;
+  } else return;
+  opts.forEach(o => o.classList.remove('active'));
+  if (opts[idx]) { opts[idx].classList.add('active'); opts[idx].scrollIntoView({ block: 'nearest' }); }
+});
+
+
 document.addEventListener('input', (e) => {
   const t = e.target;
   if (t.id === 'team-search') { ui.teamSearch = t.value; render(); return; }
@@ -3972,19 +4053,22 @@ document.addEventListener('change', (e) => {
   if (t.id === 'team-show-ended') { ui.teamShowEnded = t.checked; render(); return; }
   if (t.id === 'team-client-only') { ui.teamClientOnly = t.checked; render(); return; }
   if (t.id === 'dash-proj-filter') { ui.dashProjFilter = t.value; render(); return; }
-  if (t.dataset.role === 'tm-acct-input') {
-    // Native datalist handles filtering/showing. When the typed value matches an
-    // account name exactly (user picked one), prefill the hours field with their
-    // logged average. No table re-render — the input stays smooth.
-    const sid = t.dataset.id;
-    const match = state.projects.find(p => (p.name || 'Untitled') === t.value);
-    if (match) {
-      const nVm = viewMonths().length || 1;
-      const a = getActual(sid, match.id);
-      const sugg = a > 0 ? Math.round((a / nVm) * 10) / 10 : 0;
-      const hrs = document.getElementById('tm-hrs-' + sid);
-      if (hrs && !hrs.value) hrs.value = sugg > 0 ? sugg : '';
-    }
+  if (t.dataset.role === 'tm-picker-input') {
+    // Filter the styled dropdown locally in the DOM — no table re-render, so typing stays smooth.
+    const menu = document.getElementById('tm-menu-' + t.dataset.id);
+    const picker = t.closest('.tm-picker');
+    if (!menu || !picker) return;
+    picker.classList.add('open');
+    const q = t.value.trim().toLowerCase();
+    let shown = 0;
+    menu.querySelectorAll('.tm-picker-opt').forEach(opt => {
+      const hit = !q || (opt.dataset.name || '').toLowerCase().includes(q);
+      opt.style.display = hit ? '' : 'none';
+      opt.classList.remove('active');
+      if (hit) shown++;
+    });
+    const none = menu.querySelector('.tm-picker-none');
+    if (none) none.style.display = shown ? 'none' : '';
     return;
   }
   if (t.id === 'proj-active-only') { ui.projActiveOnly = t.checked; render(); return; }
@@ -4063,16 +4147,21 @@ document.addEventListener('click', (e) => {
   }
   else if (role === 'team-add-assign') {
     const sid = t.dataset.id;
+    const picker = document.querySelector('.tm-picker[data-id="' + sid + '"]');
     const acctInput = document.getElementById('tm-proj-q-' + sid);
     const hrsInput = document.getElementById('tm-hrs-' + sid);
     const unitSel = document.getElementById('tm-unit-' + sid);
-    // Resolve the typed/selected account name to a project. Match is case-insensitive
-    // and tolerates the "Untitled" placeholder.
-    const typedName = (acctInput ? acctInput.value : '').trim().toLowerCase();
-    const project = state.projects.find(p => (p.name || 'Untitled').toLowerCase() === typedName);
+    // Prefer the explicitly picked project id; fall back to a name match on the typed text.
+    let project = null;
+    const pickedPid = picker && picker.dataset.pid;
+    if (pickedPid) project = state.projects.find(p => p.id === pickedPid);
+    if (!project) {
+      const typedName = (acctInput ? acctInput.value : '').trim().toLowerCase();
+      project = state.projects.find(p => (p.name || 'Untitled').toLowerCase() === typedName);
+    }
     const hrs = parseFloat(hrsInput ? hrsInput.value : '') || 0;
     const unit = unitSel ? unitSel.value : 'month';
-    if (!project) { toast(typedName ? 'No account matches "' + acctInput.value + '". Pick one from the list.' : 'Type or pick an account first.'); return; }
+    if (!project) { toast((acctInput && acctInput.value) ? 'No account matches "' + acctInput.value + '". Pick one from the list.' : 'Type or pick an account first.'); return; }
     if (hrs <= 0) { toast('Enter the number of hours (greater than 0).'); return; }
     const res = resolveUnits(hrs, unit, project);
     if (res.error) { toast(res.error); return; }
