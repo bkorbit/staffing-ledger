@@ -714,8 +714,8 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
         </select></label>
         <label><span id="pm-cost-caption">Annual cost ($)</span><input type="text" inputmode="decimal" data-role="pm-cost" id="pm-cost"><span class="pm-hint" id="pm-rate-hint"></span></label>
         <label>Weekly capacity (hrs)<input type="text" inputmode="decimal" data-role="pm-cap" id="pm-cap"></label>
-        <label>Start month<input type="month" data-role="pm-start" id="pm-start"><span class="pm-hint">capacity counts from this month · blank = always</span></label>
-        <label>End month<input type="month" data-role="pm-end" id="pm-end"><span class="pm-hint">blank = ongoing</span></label>
+        <label>Start date<input type="date" data-role="pm-start" id="pm-start"><span class="pm-hint">capacity prorates from this day · blank = always</span></label>
+        <label>End date<input type="date" data-role="pm-end" id="pm-end"><span class="pm-hint">last day worked · blank = ongoing</span></label>
         <label class="pm-full" style="flex-direction:row; align-items:center; gap:8px;"><input type="checkbox" data-role="pm-nolayoff" id="pm-nolayoff" style="width:auto;"> Protected from layoff (dept head / key role)<span class="pm-hint" style="margin:0;">scenario planner always retains this person</span></label>
       </div>
     </div>
@@ -1079,8 +1079,8 @@ function openPersonModal(id) {
   document.getElementById('pm-dept').value = s.department || '';
   document.getElementById('pm-type').value = empType(s);
   document.getElementById('pm-cap').value = s.weeklyCapacity;
-  document.getElementById('pm-start').value = s.startMonth || '';
-  document.getElementById('pm-end').value = s.endMonth || '';
+  document.getElementById('pm-start').value = s.startDate || (s.startMonth ? s.startMonth + '-01' : '');
+  document.getElementById('pm-end').value = s.endDate || (s.endMonth ? lastDayOf(s.endMonth) : '');
   document.getElementById('pm-nolayoff').checked = !!s.layoffProtected;
   refreshPersonCostUI(false);
   const costLabel = document.getElementById('pm-cost').closest('label');
@@ -1357,7 +1357,36 @@ function weekdaysInMonth(mk) {
   }
   return n;
 }
-function monthlyCapacityFor(s, mk) { return weekdaysInMonth(mk) * ((s.weeklyCapacity || 0) / 5); }
+// Count weekdays in month mk that fall on/after `from` (YYYY-MM-DD) and on/before `to`.
+// `from`/`to` may be null for unbounded. Used to prorate a person's first/last month.
+function weekdaysInMonthBetween(mk, from, to) {
+  const [y, m] = mk.split('-').map(Number);
+  const dim = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  let n = 0;
+  for (let d = 1; d <= dim; d++) {
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    if (dow < 1 || dow > 5) continue;
+    const ds = mk + '-' + String(d).padStart(2, '0');
+    if (from && ds < from) continue;
+    if (to && ds > to) continue;
+    n++;
+  }
+  return n;
+}
+// Monthly capacity, prorated for the person's start/end DATES when they fall mid-month.
+// A person starting the 15th only gets the working days from the 15th onward that month.
+function monthlyCapacityFor(s, mk) {
+  const perDay = (s.weeklyCapacity || 0) / 5;
+  const startDate = s.startDate || (s.startMonth ? s.startMonth + '-01' : null);
+  const endDate = s.endDate || (s.endMonth ? lastDayOf(s.endMonth) : null);
+  // Only the boundary months need day-level proration; interior months are full.
+  const startMk = startDate ? startDate.slice(0, 7) : null;
+  const endMk = endDate ? endDate.slice(0, 7) : null;
+  if ((startMk && mk === startMk) || (endMk && mk === endMk)) {
+    return weekdaysInMonthBetween(mk, startDate, endDate) * perDay;
+  }
+  return weekdaysInMonth(mk) * perDay;
+}
 
 /* ===== PERIOD (single month or range) ===== */
 function viewMonths() {
@@ -1577,6 +1606,21 @@ function updateStaffField(id, field, value) {
   if (field === 'weeklyCapacity') recomputeSalariedRate(s); // salary is fixed; rate follows capacity
   scheduleSave(); render();
 }
+function setStaffDate(id, side, value) {
+  const s = state.staff.find(x => x.id === id);
+  if (!s) return;
+  if (side === 'start') {
+    s.startDate = value || '';
+    s.startMonth = value ? value.slice(0, 7) : '';   // keep month in sync for coarse comparisons
+  } else {
+    s.endDate = value || '';
+    s.endMonth = value ? value.slice(0, 7) : '';
+  }
+  // sanity: warn if end precedes start
+  const sd = s.startDate, ed = s.endDate;
+  if (sd && ed && ed < sd) toast('Heads up: the end date is before the start date — fix one of them.', 6000);
+  scheduleSave(); render();
+}
 function updateStaffCost(id, raw) {
   const s = state.staff.find(x => x.id === id);
   if (!s) return;
@@ -1727,8 +1771,10 @@ function staffTotalHours(staffId, useActuals) {
   return projHrs + (useActuals ? getActual(staffId, INTERNAL_ID) : getAssignment(staffId, INTERNAL_ID));
 }
 function staffActiveInMonth(s, mk) {
-  if (s.startMonth && mk < s.startMonth) return false;
-  if (s.endMonth && mk > s.endMonth) return false;
+  const startMk = (s.startDate || '').slice(0, 7) || s.startMonth;
+  const endMk = (s.endDate || '').slice(0, 7) || s.endMonth;
+  if (startMk && mk < startMk) return false;
+  if (endMk && mk > endMk) return false;
   return true;
 }
 function staffActiveMonths(s) { return viewMonths().filter(mk => staffActiveInMonth(s, mk)).length; }
@@ -3315,7 +3361,7 @@ function renderStaffTable() {
       <td class="cap-readout">
         ${isRange() ? fmtHrs(cap) + 'h period' : fmtHrs(monthlyCapacityFor(s, currentMonth)) + 'h/mo'} <span class="cap-tag">${empType(s) === 'hourly' ? 'hourly' : 'salaried'}</span>
         ${intHrsEarly > 0 && cap > 0 ? `<div class="computed-sub">− ${fmtHrs(intHrsEarly)}h internal = ${fmtHrs(avail)}h avail</div>` : ''}
-        ${(s.startMonth || s.endMonth) ? `<div class="computed-sub">${s.startMonth ? 'from ' + monthShort(s.startMonth) : ''}${s.startMonth && s.endMonth ? ' ' : ''}${s.endMonth ? 'until ' + monthShort(s.endMonth) : ''}</div>` : ''}
+        ${(s.startDate || s.endDate || s.startMonth || s.endMonth) ? `<div class="computed-sub">${(s.startDate || s.startMonth) ? 'from ' + (s.startDate ? fmtDate(s.startDate) : monthShort(s.startMonth)) : ''}${(s.startDate || s.startMonth) && (s.endDate || s.endMonth) ? ' ' : ''}${(s.endDate || s.endMonth) ? 'until ' + (s.endDate ? fmtDate(s.endDate) : monthShort(s.endMonth)) : ''}</div>` : ''}
       </td>
       <td class="internal-cell">
         <input type="text" inputmode="decimal" class="numfield" ${hourInputAttrs(uniformOver(mk => assignFor(mk, s.id, INTERNAL_ID)))} data-role="staff-internal" data-id="${s.id}">
@@ -4316,8 +4362,8 @@ document.addEventListener('change', (e) => {
   if (dRole === 'flight-end') { setFlightDate(e.target.dataset.id, 'end', e.target.value); return; }
   if (dRole === 'pj-start') { setFlightDate(projectEditId, 'start', e.target.value); rebuildBillingSection(); rebuildProjectModalMonths(); return; }
   if (dRole === 'pj-end') { setFlightDate(projectEditId, 'end', e.target.value); rebuildBillingSection(); rebuildProjectModalMonths(); return; }
-  if (dRole === 'pm-start') { updateStaffField(personEditId, 'startMonth', e.target.value); return; }
-  if (dRole === 'pm-end') { updateStaffField(personEditId, 'endMonth', e.target.value); return; }
+  if (dRole === 'pm-start') { setStaffDate(personEditId, 'start', e.target.value); return; }
+  if (dRole === 'pm-end') { setStaffDate(personEditId, 'end', e.target.value); return; }
   if (dRole === 'pm-nolayoff') { updateStaffField(personEditId, 'layoffProtected', e.target.checked); return; }
   if (e.target && e.target.dataset && e.target.dataset.role === 'bl-mode') {
     const p = state.projects.find(x => x.id === projectEditId);
