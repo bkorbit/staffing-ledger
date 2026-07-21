@@ -3181,7 +3181,12 @@ function renderStaffTable() {
     } else if (logged <= 0 && total <= 0) {
       loggedCell = '<span class="computed-sub">—</span>';
     } else {
-      const offPlan = staffOffPlanHours(s.id);
+      const offPlanRaw = staffOffPlanHours(s.id);
+      // If the person has NO project assignments this month, everything they logged is
+      // unplanned by definition — don't cry wolf. Only flag off-plan work when there's
+      // an actual plan to deviate from (some project assignment exists).
+      const hasProjectPlan = staffProjectHours(s.id, false) > 0;
+      const offPlan = hasProjectPlan ? offPlanRaw : { off: 0, onPlan: offPlanRaw.onPlan + offPlanRaw.off, projects: [] };
       const denom = Math.max(total, logged) || 1;      // scale bar to the larger of assigned/logged
       const onPlanPct = Math.min((offPlan.onPlan / denom) * 100, 100);
       const offPlanPct = Math.min((offPlan.off / denom) * 100, 100 - onPlanPct);
