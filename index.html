@@ -624,6 +624,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
         <select id="team-dept-filter"><option value="">All departments</option></select>
         <label title="Flight end dates aren't always correct — this lets you assign to accounts whose flight has technically ended"><input type="checkbox" id="team-show-ended"> include ended flights in assign list</label>
         <label title="Hide internal and time-off segments in the logged bars"><input type="checkbox" id="team-client-only"> client hours only</label>
+        <label title="By default, people whose start/end dates put them outside the selected month/period are hidden"><input type="checkbox" id="team-show-inactive"> show inactive this period</label>
       </div>
       <table id="team-table">
         <thead>
@@ -811,6 +812,7 @@ let ui = {
   expanded: {},     // `${projectId}__${dept}` -> true
   teamExpanded: {}, // staffId -> true
   teamShowEnded: false,
+  teamShowInactive: false,
   teamClientOnly: false,
   dashProjSearch: '', dashProjFilter: 'all', fcCostsOpen: false,
   projExpanded: {}   // projectId -> true  // staffId -> true
@@ -3201,6 +3203,12 @@ function sortedFilteredStaff() {
   const q = ui.teamSearch.trim().toLowerCase();
   if (q) list = list.filter(s => s.name.toLowerCase().includes(q));
   if (ui.teamDept) list = list.filter(s => normDept(s.department).toLowerCase() === ui.teamDept.toLowerCase());
+  // Hide people who aren't working in the selected month/period (start/end dates put
+  // them outside it), unless the user opts to show everyone.
+  if (!ui.teamShowInactive) {
+    const vm = viewMonths();
+    list = list.filter(s => vm.some(mk => staffActiveInMonth(s, mk)));
+  }
   if (ui.teamSort.key) {
     const k = ui.teamSort.key, dir = ui.teamSort.dir;
     const eco = k === 'profit' ? personEconomicsBlended() : null;
@@ -4168,6 +4176,7 @@ document.addEventListener('change', (e) => {
   if (t.id === 'import-type') { if (importHeaders) buildMappingUI(); return; }
   if (t.id === 'team-dept-filter') { ui.teamDept = t.value; render(); return; }
   if (t.id === 'team-show-ended') { ui.teamShowEnded = t.checked; render(); return; }
+  if (t.id === 'team-show-inactive') { ui.teamShowInactive = t.checked; render(); return; }
   if (t.id === 'team-client-only') { ui.teamClientOnly = t.checked; render(); return; }
   if (t.id === 'dash-proj-filter') { ui.dashProjFilter = t.value; render(); return; }
   if (t.dataset.role === 'tm-picker-input') {
