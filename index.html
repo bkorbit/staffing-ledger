@@ -3102,6 +3102,43 @@ function summaryActualLabor() {
    each revenue project's period revenue / its total hours (plan or logged),
    times the person's own hours on it. Cost: plan side = planned hours x rate;
    actual side = salaried at full period capacity, hourly at logged hours. */
+// Blended economics for the view period: each month uses logged actuals when that
+// month has any, otherwise planned assignments + forecast revenue. This makes the
+// profit column meaningful for FUTURE months (plan-based) and mirrors the coverage
+// model used by the scenario planner: attributed GP ÷ own cost, salaried at full salary.
+function personEconomicsBlended() {
+  const months = viewMonths();
+  const map = {};
+  state.staff.forEach(st => { map[st.id] = { attributed: 0, cost: 0, hours: 0, monthsAct: 0, monthsPlan: 0 }; });
+  months.forEach(mk => {
+    const hasAct = Object.keys(state.actuals[mk] || {}).length > 0;
+    const hFor = (sid, pid) => hasAct ? actualFor(mk, sid, pid) : assignFor(mk, sid, pid);
+    state.projects.filter(p => projectActiveInMonth(p, mk)).forEach(p => {
+      const rev = revenueFor(p, mk);
+      if (rev <= 0) return;
+      let tot = 0;
+      state.staff.forEach(st => { tot += hFor(st.id, p.id); });
+      if (tot <= 0) return;
+      const rph = rev / tot;
+      state.staff.forEach(st => { const h = hFor(st.id, p.id); if (h > 0) map[st.id].attributed += h * rph; });
+    });
+    state.staff.forEach(st => {
+      if (!staffActiveInMonth(st, mk)) return;
+      const h = staffMonthHours(st.id, mk, hasAct);
+      map[st.id].hours += h;
+      if (empType(st) === 'fulltime') map[st.id].cost += monthlyCapacityFor(st, mk) * st.hourlyCost;
+      else map[st.id].cost += h * st.hourlyCost;
+      if (hasAct) map[st.id].monthsAct++; else map[st.id].monthsPlan++;
+    });
+  });
+  Object.values(map).forEach(e => {
+    e.profit = e.attributed - e.cost;
+    e.coverage = e.cost > 0 ? e.attributed / e.cost : null;
+    e.basis = e.monthsAct > 0 && e.monthsPlan > 0 ? 'mixed' : (e.monthsAct > 0 ? 'logged' : 'plan');
+  });
+  return map;
+}
+
 function personEconomics(useActuals) {
   const projs = activeProjects();
   const revPerHour = {};
@@ -3166,7 +3203,7 @@ function sortedFilteredStaff() {
   if (ui.teamDept) list = list.filter(s => normDept(s.department).toLowerCase() === ui.teamDept.toLowerCase());
   if (ui.teamSort.key) {
     const k = ui.teamSort.key, dir = ui.teamSort.dir;
-    const eco = k === 'profit' ? personEconomics(true) : null;
+    const eco = k === 'profit' ? personEconomicsBlended() : null;
     const computed = {
       utilization: staffUtilizationPct,
       internalHrs: s => getAssignment(s.id, INTERNAL_ID),
@@ -3233,6 +3270,7 @@ function renderStaffTable() {
   }
   const showActual = hasActualsThisMonth();
   const actEco = showActual ? personEconomics(true) : null;
+  const blendEco = personEconomicsBlended();
   tbody.innerHTML = list.map(s => {
     const cap = periodCapacity(s);
     const intHrsEarly = getAssignment(s.id, INTERNAL_ID);
@@ -3406,11 +3444,11 @@ function renderStaffTable() {
       <td>${loggedCapCell}</td>
       <td data-salary-col>${(() => {
         if (!canSeeSalaries) return '<span class="computed-sub" title="Hidden for your access level">—</span>';
-        if (!actEco) return '<span class="computed-sub">needs logged hours</span>';
-        const e = actEco[s.id];
-        if (e.hours <= 0 && e.cost <= 0) return '<span class="computed-sub">—</span>';
+        const e = blendEco[s.id];
+        if (!e || (e.hours <= 0 && e.cost <= 0)) return '<span class="computed-sub">—</span>';
+        const cov = e.coverage === null ? '' : ` · <span class="${e.coverage >= 1 ? '' : 'offplan-note'}" title="Coverage: gross profit of their work ÷ their cost. The staffing model retains highest coverage first; everyone should clear 1×.">${e.coverage.toFixed(2)}×</span>`;
         return `<span class="util-pct ${e.profit >= 0 ? 'full' : 'over'}">${fmtMoney(e.profit)}</span>
-          <div class="computed-sub">rev ${fmtMoney(e.attributed)} · cost ${fmtMoney(e.cost)}</div>`;
+          <div class="computed-sub">rev ${fmtMoney(e.attributed)} · cost ${fmtMoney(e.cost)} · <span title="logged = from actuals, plan = from assignments + forecast (future months), mixed = both in this period">${e.basis}</span>${cov}</div>`;
       })()}</td>
       <td class="edit-col"><button class="edit-btn" data-role="edit-staff" data-id="${s.id}" title="Edit details">✎</button></td>
       <td class="remove-col"><button class="remove-btn" data-role="remove-staff" data-id="${s.id}">×</button></td>
