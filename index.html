@@ -3854,6 +3854,13 @@ let typedFieldDirty = false;
 
 // Decide whether the assignment dropdown opens up or down based on room below,
 // so the last rows in the team list don't render their list off-screen/behind the table.
+document.addEventListener('mousedown', (e) => {
+  // Keep the search input focused while clicking a dropdown option, otherwise the
+  // :focus-within list hides on blur before the click can land on the option.
+  const opt = e.target.closest && e.target.closest('.tm-combo-opt, .tm-combo-list');
+  if (opt) e.preventDefault();
+}, true);
+
 document.addEventListener('focusin', (e) => {
   const inp = e.target.closest && e.target.closest('.tm-combo-input');
   if (!inp) return;
@@ -3995,8 +4002,14 @@ document.addEventListener('change', (e) => {
 });
 
 document.addEventListener('click', (e) => {
-  const t = e.target;
+  let t = e.target;
   let role = t.dataset.role;
+  // If the click landed on a child element with no role (e.g. the text span inside a
+  // dropdown option), walk up to the nearest element that carries a data-role.
+  if (!role) {
+    const roleEl = t.closest && t.closest('[data-role]');
+    if (roleEl) { t = roleEl; role = roleEl.dataset.role; }
+  }
   // Clicking anywhere inside a billed forecast row (but not its inner ✎ button) opens the editor
   if (!role || (role !== 'edit-project')) {
     const fcRow = t.closest && t.closest('.fc-row.fc-billed');
