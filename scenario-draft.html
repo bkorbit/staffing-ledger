@@ -151,13 +151,57 @@ function runScenario(){
   const startMk=monthKey(new Date());
   const months=[]; for(let i=0;i<nMonths;i++) months.push(shiftMonth(startMk,i));
 
-  const perMonth=months.map(mk=>optimizeMonth(mk,{util,downsize,pphFloor,outlierRule,targetMargin,overhead,hourlyRate}));
-  lastRun={months,perMonth,params:{util,downsize,pphFloor,outlierRule,targetMargin,overhead,hourlyRate}};
+  const confidence=computeConfidence(months);
+  const perMonth=months.map(mk=>optimizeMonth(mk,{util,downsize,pphFloor,outlierRule,targetMargin,overhead,hourlyRate},confidence));
+  lastRun={months,perMonth,confidence,params:{util,downsize,pphFloor,outlierRule,targetMargin,overhead,hourlyRate}};
   if(!activeMonth||!months.includes(activeMonth)) activeMonth=months[0];
   renderResults();
 }
 
-function optimizeMonth(mk,P){
+// Per-account data-confidence. Past = trailing 3 months (need actuals+revenue),
+// current month exempt, future = up to flight end (need assignments+forecast).
+function computeConfidence(forwardMonths){
+  const nowMk=monthKey(new Date());
+  const past3=[shiftMonth(nowMk,-3),shiftMonth(nowMk,-2),shiftMonth(nowMk,-1)];
+  const out={}; // pid -> {level, score, reasons[], noForecast, dataThin}
+  STATE.projects.forEach(p=>{
+    const reasons=[]; let checks=0, pass=0;
+    // PAST: months in the last 3 where the account was in-flight
+    const pastMissActuals=[], pastMissRev=[];
+    past3.forEach(mk=>{
+      if(!projectActiveInMonth(p,mk)) return;
+      checks+=2;
+      if(projectHours(p.id,mk)>0) pass++; else pastMissActuals.push(mk);
+      if(revenueFor(p,mk)!==0) pass++; else pastMissRev.push(mk);
+    });
+    // FUTURE: next month through flight end (or forward window if no end)
+    const end=p.endMonth||forwardMonths[forwardMonths.length-1];
+    const futMissAssign=[], futMissFcast=[];
+    let mk=shiftMonth(nowMk,1),g=0;
+    while(mk<=end && g<24){
+      if(projectActiveInMonth(p,mk)){
+        checks+=2;
+        // assignments (planned hours) for the month
+        let planned=0; STATE.staff.forEach(st=>{ planned+=assignFor(mk,st.id,p.id); });
+        if(planned>0) pass++; else futMissAssign.push(mk);
+        if(revenueFor(p,mk)!==0) pass++; else futMissFcast.push(mk);
+      }
+      mk=shiftMonth(mk,1); g++;
+    }
+    if(pastMissActuals.length) reasons.push('no logged hours '+past3Label(pastMissActuals));
+    if(pastMissRev.length) reasons.push('no revenue '+past3Label(pastMissRev));
+    if(futMissAssign.length) reasons.push('no assignments '+past3Label(futMissAssign));
+    if(futMissFcast.length) reasons.push('no forecast '+past3Label(futMissFcast));
+    const score=checks>0? pass/checks : 1;
+    const noForecast=futMissFcast.length>0;
+    const dataThin=score<0.6 || (pastMissActuals.length>0 && futMissAssign.length>0);
+    out[p.id]={ score, level: score>=0.85?'high':score>=0.6?'med':'low', reasons, noForecast, dataThin };
+  });
+  return out;
+}
+function past3Label(mks){ return mks.map(mk=>{ const [y,m]=mk.split('-'); return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m-1]; }).join(', '); }
+
+function optimizeMonth(mk,P,confidence){
   // active accounts this month with GP>0 or in-flight
   const accounts=STATE.projects.filter(p=>projectActiveInMonth(p,mk)).map(p=>{
     const gp=revenueFor(p,mk);
@@ -196,13 +240,18 @@ function optimizeMonth(mk,P){
       const laborSaved=before.laborCost-after.laborCost;
       const gpLost=before.gp-after.gp;
       const belowFloor=a.pph<P.pphFloor;
+      // Confidence guard: never auto-cut an account whose cut rests on missing data
+      // (its profit/hour or GP is computed from gaps). Hold for review instead.
+      const conf=(confidence||{})[a.id]||{score:1};
+      if(conf.dataThin || conf.noForecast){ continue; }
       if(laborSaved>gpLost && (belowFloor || after.execMargin>before.execMargin)){
         keptIds=trialKept; cutIds.add(a.id); improved=true;
       }
     }
   }
   const final=evaluate(accounts,[...keptIds],people,[...cutIds],P,mk);
-  return {mk, accounts, people, baseline, final, keptIds:[...keptIds], cutIds:[...cutIds]};
+  const review=accounts.filter(a=>keptIds.has(a.id)).map(a=>a.id).filter(id=>{ const c=(confidence||{})[id]||{}; return c.dataThin||c.noForecast; });
+  return {mk, accounts, people, baseline, final, keptIds:[...keptIds], cutIds:[...cutIds], review};
 }
 
 // evaluate a keep-set: size each dept's salaried headcount to retained workload,
@@ -285,6 +334,18 @@ function renderResults(){
   if(objective==='overhead') html+=kpi('After overhead', fmtMoney(f.overheadCovered), 'covers '+fmtMoney(R.params.overhead), f.overheadCovered>=0?'pos':'neg');
   html+=kpi('Cut test', healthy?'PASSES':'FAILS', 'labor saved '+(healthy?'>':'≤')+' revenue lost', healthy?'pos':'neg');
   html+='</div>';
+  // confidence summary
+  const conf=R.confidence||{};
+  const activeIds=md.accounts.map(a=>a.id);
+  const low=activeIds.filter(id=>(conf[id]||{}).level==='low').length;
+  const med=activeIds.filter(id=>(conf[id]||{}).level==='med').length;
+  const noFc=activeIds.filter(id=>(conf[id]||{}).noForecast).length;
+  const avgScore=activeIds.length? Math.round(activeIds.reduce((s,id)=>s+((conf[id]||{score:1}).score),0)/activeIds.length*100):100;
+  html+=`<div class="note" style="background:${avgScore>=85?'var(--mint)':avgScore>=60?'#fdf3dc':'#fbe7e4'}; border-radius:6px; padding:10px 12px; color:var(--ink);">
+    <strong>Run confidence: ${avgScore}%</strong> — ${low} account${low===1?'':'s'} low-confidence, ${med} medium, ${noFc} missing a forward forecast.
+    ${(md.review&&md.review.length)? md.review.length+' account'+(md.review.length===1?'':'s')+' held for review (not auto-cut) because the decision would rest on missing data.' : 'No accounts held for review.'}
+    Past = trailing 3 months (need logged hours + revenue) · current month exempt · future = through flight end (need assignments + forecast).
+  </div>`;
   html+='<div class="note">The cut test is the honest guardrail: a scenario only helps if the forward labor you eliminate (salaried layoffs + dropped hourly) exceeds the gross profit you give up. Hourly reductions lower cost but salaried layoffs are the real forward savings.</div>';
   html+='</div>';
 
@@ -293,7 +354,13 @@ function renderResults(){
   [...md.accounts].sort((a,b)=>b.pph-a.pph).forEach(a=>{
     const cut=md.cutIds.includes(a.id);
     const marginal=!cut && a.pph<R.params.pphFloor;
-    html+=`<tr class="${cut?'cut':(marginal?'kept-marginal':'')}"><td>${esc(a.name)}${cut?'<span class="chip cut">cut</span>':(marginal?'<span class="chip under">below floor</span>':'')}</td><td class="muted">${esc(a.dept)}</td><td class="num">${fmtMoney(a.gp)}</td><td class="num">${fmtH(a.hours)}h</td><td class="num ${a.pph<R.params.pphFloor?'neg':'pos'}">${a.pph===Infinity?'—':fmtMoney(a.pph)}</td><td>${cut?'Cancel':'Keep'}</td></tr>`;
+    const c=(conf[a.id]||{level:'high',reasons:[]});
+    const inReview=(md.review||[]).includes(a.id);
+    const dot=c.level==='high'?'#0a493c':c.level==='med'?'#fabf4d':'#d1453b';
+    const confChip=`<span class="chip" style="background:${dot};color:#fff;" title="${esc((c.reasons||[]).join(' · ')||'complete data')}">${Math.round((c.score||1)*100)}%</span>`;
+    let decision = cut?'Cancel' : inReview?'<span class="chip under">review — thin data</span>' : 'Keep';
+    html+=`<tr class="${cut?'cut':(marginal?'kept-marginal':'')}"><td>${esc(a.name)}${confChip}${cut?'<span class="chip cut">cut</span>':(marginal&&!inReview?'<span class="chip under">below floor</span>':'')}</td><td class="muted">${esc(a.dept)}</td><td class="num">${fmtMoney(a.gp)}</td><td class="num">${fmtH(a.hours)}h</td><td class="num ${a.pph<R.params.pphFloor?'neg':'pos'}">${a.pph===Infinity?'—':fmtMoney(a.pph)}</td><td>${decision}</td></tr>`;
+    if((c.reasons||[]).length) html+=`<tr><td colspan="6" class="note" style="padding-top:0;">↳ ${esc(a.name)}: ${esc(c.reasons.join(' · '))}</td></tr>`;
   });
   html+='</tbody></table></div>';
 
