@@ -2454,7 +2454,18 @@ function revenueByMonthSplit() {
   const months = [];
   let mk = sorted[0], guard = 0;
   while (mk <= sorted[sorted.length - 1] && guard < 36) { months.push(mk); mk = shiftMonth(mk, 1); guard++; }
-  const capped = months.length > 18 ? months.slice(-18) : months;
+  // Cap the window for readability, but anchored to the PRESENT: keep up to 6 months
+  // of history before the current month and fill the rest with future months. Never
+  // silently trim recent past just because far-future entries (2027 costs, long
+  // flights) widened the window — the from/to filters remain for manual control.
+  let capped = months;
+  if (months.length > 18) {
+    const histStart = shiftMonth(currentMonth, -6);
+    const startIdx = Math.max(months.findIndex(m => m >= histStart), 0);
+    capped = months.slice(startIdx, startIdx + 18);
+    // ensure current month is inside; if somehow past the slice, shift the window
+    if (capped.length && currentMonth > capped[capped.length - 1]) capped = months.slice(-18);
+  }
   return capped.map(m => {
     let actual = 0, forecast = 0, labor = 0;
     const contributors = [];
