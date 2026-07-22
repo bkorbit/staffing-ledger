@@ -609,6 +609,9 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
           <div id="fc-costs-list"></div>
           <button class="ghost" id="fc-cost-add" style="margin-top:8px;">+ Add fixed cost</button>
           <div id="fc-costs-total" style="font-family:var(--font-mono); font-size:11px; font-weight:700; color:var(--brand); margin-top:8px;"></div>
+          <div style="border-top:1px solid var(--line); margin:14px 0 10px;"></div>
+          <div style="font-family:var(--font-mono); font-size:10px; color:var(--slate); margin-bottom:8px;">Past-month corrections — override a settled month's total actual revenue or labor cost when the imported data is missing or wrong. Overrides replace the computed figure and persist over syncs until cleared.</div>
+          <div id="fc-corrections-list"></div>
         </div>
         <div class="chart-wrap" style="height:300px;"><canvas id="chart-forecast"></canvas></div>
       </div>
@@ -2627,6 +2630,33 @@ function renderFixedCostsMenu() {
   const perMonthTotals = fcMonths.map(mk => fixedCostsTotal(mk));
   const avg = perMonthTotals.length ? perMonthTotals.reduce((a, b) => a + b, 0) / perMonthTotals.length : 0;
   document.getElementById('fc-costs-total').textContent = costs.length ? 'Fixed cost this window: ' + fmtMoney(perMonthTotals.reduce((a, b) => a + b, 0)) + ' total · ' + fmtMoney(avg) + '/mo avg' : '';
+  renderCorrectionsList();
+}
+
+// Past-month corrections list inside the fixed-cost panel: one row per past month
+// (last 12), each with an Actual and Labor override input and a clear control.
+function renderCorrectionsList() {
+  const el = document.getElementById('fc-corrections-list');
+  if (!el) return;
+  const now = currentMonth;
+  const months = [];
+  let mk = shiftMonth(now, -12);
+  while (mk < now) { months.push(mk); mk = shiftMonth(mk, 1); }
+  const corr = state.monthCorrections || {};
+  el.innerHTML = `
+    <div style="display:grid; grid-template-columns:70px 1fr 1fr 24px; gap:6px 8px; align-items:center; font-family:var(--font-mono); font-size:9px; color:var(--slate); text-transform:uppercase; letter-spacing:0.04em;">
+      <div>Month</div><div>Actual revenue</div><div>Labor cost</div><div></div>
+    </div>` +
+    months.map(m => {
+      const c = corr[m] || {};
+      const hasAny = c.actual !== undefined || c.payroll !== undefined;
+      return `<div style="display:grid; grid-template-columns:70px 1fr 1fr 24px; gap:6px 8px; align-items:center; margin-top:5px;">
+        <div style="font-family:var(--font-mono); font-size:10px; color:var(--ink);">${monthShort(m)}</div>
+        <input type="text" inputmode="decimal" placeholder="computed" value="${c.actual !== undefined ? '$' + Math.round(c.actual).toLocaleString() : ''}" data-role="fc-correct-actual" data-mk="${m}" style="border:1px solid var(--line); border-radius:4px; padding:5px 7px; font-family:var(--font-mono); font-size:11px; text-align:right;">
+        <input type="text" inputmode="decimal" placeholder="computed" value="${c.payroll !== undefined ? '$' + Math.round(c.payroll).toLocaleString() : ''}" data-role="fc-correct-payroll" data-mk="${m}" style="border:1px solid var(--line); border-radius:4px; padding:5px 7px; font-family:var(--font-mono); font-size:11px; text-align:right;">
+        ${hasAny ? `<button class="fc-clear" data-role="fc-clear-correction" data-mk="${m}" title="Clear both overrides for ${monthShort(m)}">×</button>` : '<span></span>'}
+      </div>`;
+    }).join('');
 }
 
 function renderForecast() {
@@ -2698,22 +2728,15 @@ function renderForecast() {
         <div class="fc-payroll">Labor ${fmtMoney(r.payroll)}${r.fixed ? ' · fixed costs ' + fmtMoney(r.fixed) : ''} <span class="fc-basis" title="Salaried staff cost their full monthly salary; hourly staff cost logged hours × rate (planned hours for future months). Expected profit subtracts the fixed-cost inputs on top of that.">salaried = full salary · hourly = hours × rate</span></div>
       </td></tr>`;
     }
-    const isPast = r.mk < currentMonth;
-    const corrActual = r.actualCorrected;
-    const corrPayroll = r.payrollCorrected;
     return `
     <tr ${r.mk === currentMonth ? 'style="background:var(--mint);"' : ''}>
       <td><button class="expand-btn" data-role="forecast-toggle" data-mk="${r.mk}">${expanded ? '▾' : '▸'}</button></td>
       <td style="font-family:var(--font-display); font-weight:600;">${monthLabel(r.mk)}</td>
-      <td class="computed-cell" style="color:var(--brand); font-weight:700;">${isPast
-        ? `<input type="text" inputmode="decimal" class="fc-correct-input" data-role="fc-correct-actual" data-mk="${r.mk}" value="${corrActual ? '$' + Math.round(r.actual).toLocaleString() : ''}" placeholder="${r.actual ? '$' + Math.round(r.actual).toLocaleString() : '$0'}" title="Actual revenue for ${monthLabel(r.mk)}. Empty = computed from projects; type to override.">${corrActual ? ` <button class="fc-clear" data-role="fc-clear-actual" data-mk="${r.mk}" title="Revert to computed">×</button>` : ''}`
-        : (r.actual ? fmtMoney(r.actual) : '—')}</td>
+      <td class="computed-cell" style="color:var(--brand); font-weight:700;">${r.actual ? fmtMoney(r.actual) : '—'}</td>
       <td class="computed-cell" style="color:#19a789;">${r.forecast ? fmtMoney(r.forecast) : '—'}</td>
       <td class="computed-cell" style="font-weight:700;">${fmtMoney(total)}</td>
       <td class="computed-cell">${r.labor ? fmtMoney(r.labor) : '—'}</td>
-      <td class="computed-cell">${isPast
-        ? `<input type="text" inputmode="decimal" class="fc-correct-input" data-role="fc-correct-payroll" data-mk="${r.mk}" value="${corrPayroll ? '$' + Math.round(r.payroll).toLocaleString() : ''}" placeholder="${r.payroll ? '$' + Math.round(r.payroll).toLocaleString() : '$0'}" title="Labor cost for ${monthLabel(r.mk)}. Empty = computed payroll; type to override.">${corrPayroll ? ` <button class="fc-clear" data-role="fc-clear-payroll" data-mk="${r.mk}" title="Revert to computed">×</button>` : ''}`
-        : `${r.payroll ? fmtMoney(r.payroll) : '—'}${r.payroll ? `<div class="computed-sub" title="Payroll not accounted for by project hours (salaried under-logging, unassigned time)">${r.unattributed >= 0 ? '+' : '−'}${fmtMoney(Math.abs(r.unattributed))} unattributed</div>` : ''}`}${(corrActual || corrPayroll) ? '<div class="computed-sub" style="color:var(--gold);">✎ corrected</div>' : ''}</td>
+      <td class="computed-cell">${r.payroll ? fmtMoney(r.payroll) : '—'}${r.payroll && !r.payrollCorrected ? `<div class="computed-sub" title="Payroll not accounted for by project hours (salaried under-logging, unassigned time)">${r.unattributed >= 0 ? '+' : '−'}${fmtMoney(Math.abs(r.unattributed))} unattributed</div>` : ''}</td>
       <td class="computed-cell" style="color:${r.profitPayroll >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(r.profitPayroll)}<div class="computed-sub" style="color:${r.expectedProfit >= 0 ? 'var(--teal)' : 'var(--rust)'};">${fmtMoney(r.expectedProfit)} expected${r.fixed ? ' (incl. ' + fmtMoney(r.fixed) + ' fixed)' : ''}</div></td>
       <td class="computed-sub">${total !== 0 ? pct + '% confirmed' : ''}</td>
     </tr>${breakout}`;
@@ -4399,10 +4422,9 @@ document.addEventListener('click', (e) => {
     if (pr) { setRevenueOverride(t.dataset.id, t.dataset.mk, String(Math.round(billingGP(pr, t.dataset.mk)))); render(); }
   }
   else if (role === 'fc-cost-remove') { state.fixedCosts.splice(+t.dataset.i, 1); scheduleSave(); render(); }
-  else if (role === 'fc-clear-actual' || role === 'fc-clear-payroll') {
-    const mk = t.dataset.mk, field = role === 'fc-clear-actual' ? 'actual' : 'payroll';
-    const rec = (state.monthCorrections || {})[mk];
-    if (rec) { delete rec[field]; if (!Object.keys(rec).length) delete state.monthCorrections[mk]; scheduleSave(); renderForecast(); }
+  else if (role === 'fc-clear-correction') {
+    const mk = t.dataset.mk;
+    if ((state.monthCorrections || {})[mk]) { delete state.monthCorrections[mk]; scheduleSave(); renderForecast(); }
   }
   else if (role === 'proj-toggle') {
     ui.projExpanded[t.dataset.id] = !ui.projExpanded[t.dataset.id];
