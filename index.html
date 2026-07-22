@@ -598,7 +598,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
       </div>
       <div class="chart-card" style="margin-bottom:16px;">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
-          <h4 style="margin:0;">Gross revenue month over month · line = expected profit</h4>
+          <h4 style="margin:0;">Gross revenue · labor cost · profit after labor · line = expected profit</h4>
           <button class="ghost" id="fc-costs-toggle" style="display:none;">Fixed costs ▸</button>
         </div>
         <div id="fc-costs-panel" style="display:none; border:1px solid var(--line); border-radius:6px; padding:12px 14px; margin:10px 0 4px; background:var(--paper-raised);">
@@ -2711,6 +2711,7 @@ function renderForecast() {
       datasets: [
         { label: 'Actual', data: rows.map(r => Math.round(r.actual)), backgroundColor: '#0a493c', stack: 'rev' },
         { label: 'Forecasted', data: rows.map(r => Math.round(r.forecast)), backgroundColor: '#3bc9ac', stack: 'rev' },
+        { label: 'Labor cost', data: rows.map(r => Math.round(r.payroll)), backgroundColor: '#c98a3b', stack: 'labor', isLabor: true },
         { label: 'Profit after labor', data: rows.map(r => Math.round(r.profitPayroll)), backgroundColor: rows.map(r => r.profitPayroll >= 0 ? '#7a9d54' : '#B5482A'), stack: 'profit', isProfit: true },
         { type: 'line', label: 'Expected profit', data: rows.map(r => Math.round(r.expectedProfit)), borderColor: '#fabf4d', backgroundColor: '#fabf4d', borderWidth: 2.5, borderDash: [6, 4], fill: false, tension: 0, pointRadius: 2.5, order: -1, stack: 'payline', isPayLine: true }
       ]
@@ -2729,15 +2730,17 @@ function renderForecast() {
             const ds = ctx.chart.data.datasets[ctx.datasetIndex];
             if (ds.isPayLine) return false;
             if (ds.isProfit) return true;
+            if (ds.isLabor) return true;
             const revSets = ctx.chart.data.datasets.filter(d => d.stack === 'rev');
             return ds === revSets[revSets.length - 1];
           },
           anchor: 'end', align: 'top', offset: 2, clip: false,
           font: { family: "'DM Mono', monospace", size: 9, weight: '700' },
-          color: ctx => ctx.dataset.isProfit ? (ctx.dataset.data[ctx.dataIndex] >= 0 ? '#7a9d54' : '#B5482A') : '#0a493c',
+          color: ctx => ctx.dataset.isProfit ? (ctx.dataset.data[ctx.dataIndex] >= 0 ? '#7a9d54' : '#B5482A') : (ctx.dataset.isLabor ? '#c98a3b' : '#0a493c'),
           formatter: (v, ctx) => {
             const i = ctx.dataIndex;
             if (ctx.dataset.isProfit) return v !== 0 ? '$' + Math.round(v / 1000) + 'k' : '';
+            if (ctx.dataset.isLabor) return v !== 0 ? '$' + Math.round(v / 1000) + 'k' : '';
             const total = ctx.chart.data.datasets.filter(d => d.stack === 'rev').reduce((sum, ds) => sum + (ds.data[i] || 0), 0);
             return total !== 0 ? '$' + Math.round(total / 1000) + 'k' : '';
           }
