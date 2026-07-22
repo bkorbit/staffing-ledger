@@ -211,17 +211,22 @@ input.rev-input { min-width: 90px; flex: 1; }
 .mini-track.split { display: flex; overflow: hidden; }
 .mini-track.split .seg-onplan { background: var(--accent); height: 100%; }
 .mini-track.split .seg-offplan { background: var(--rust); height: 100%; }
-.mini-track.split .seg-pto { background: repeating-linear-gradient(45deg, #b9c2be, #b9c2be 3px, #d7ddda 3px, #d7ddda 6px); height: 100%; }
+.mini-track.split .seg-pto { background: repeating-linear-gradient(45deg, #fabf4d, #fabf4d 3px, #f3d38a 3px, #f3d38a 6px); height: 100%; }
 .offplan-note { font-family: var(--font-mono); font-size: 9px; color: var(--rust); margin-left: 4px; white-space: nowrap; }
 .mini-track.split .seg { height: 100%; flex-shrink: 0; }
-.mini-track.split .seg-int { background: repeating-linear-gradient(45deg, var(--gold), var(--gold) 3px, #e3aa32 3px, #e3aa32 6px); }
+.mini-track.split .seg-int { background: #0a493c; }
 .mini-track.split .seg-proj { background: var(--accent); }
 .mini-track.split .seg-proj.over { background: var(--rust); }
 .mini-track.split .seg-acct-on { background: var(--accent); border-right: 1px solid rgba(255,255,255,0.6); }
 .mini-track.split .seg-acct-over { background: var(--rust); border-right: 1px solid rgba(255,255,255,0.6); }
 .mini-track.split .seg-acct-under { background: #a9dcc9; border-right: 1px solid rgba(255,255,255,0.6); }
 .mini-track.split .seg:last-child { border-right: none; }
-.mini-track { position: relative; width: 100%; max-width: 220px; height: 10px; background: #dedede; border-radius: 2px; overflow: hidden; margin-top: 3px; }
+.mini-track { position: relative; width: 100%; max-width: 100%; height: 10px; background: #dedede; border-radius: 2px; overflow: hidden; margin-top: 3px; }
+/* The three utilization/logged bars share a fixed, equal column so long sub-text wraps
+   inside its column instead of bleeding across the row. */
+#team-table th.col-bar, #team-table td.col-bar { width: 190px; min-width: 190px; max-width: 190px; }
+#team-table td.col-bar .computed-sub { white-space: normal; line-height: 1.45; }
+#team-table td.col-bar .offplan-note { white-space: normal; display: inline; }
 .mini-bar { position: absolute; top: 0; bottom: 0; left: 0; background: var(--accent); }
 .mini-bar.over { background: var(--rust); }
 .util-pct { font-family: var(--font-mono); font-size: 11px; }
@@ -638,9 +643,9 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
             <th class="col-dept sortable" data-sort="department">Department <span class="sort-ind" data-ind="department"></span></th>
             <th class="col-capy sortable" data-sort="weeklyCapacity">Capacity <span class="sort-ind" data-ind="weeklyCapacity"></span></th>
             <th class="col-int sortable" data-sort="internalHrs">Internal hrs <span class="sort-ind" data-ind="internalHrs"></span></th>
-            <th class="sortable" data-sort="utilization">Utilization (plan) <span class="sort-ind" data-ind="utilization"></span></th>
-            <th class="sortable" data-sort="loggedHrs">Logged vs assigned <span class="sort-ind" data-ind="loggedHrs"></span></th>
-            <th class="sortable" data-sort="loggedUtil">Logged vs capacity <span class="sort-ind" data-ind="loggedUtil"></span></th>
+            <th class="sortable col-bar" data-sort="utilization">Utilization (plan) <span class="sort-ind" data-ind="utilization"></span></th>
+            <th class="sortable col-bar" data-sort="loggedHrs">Logged vs assigned <span class="sort-ind" data-ind="loggedHrs"></span></th>
+            <th class="sortable col-bar" data-sort="loggedUtil">Logged vs capacity <span class="sort-ind" data-ind="loggedUtil"></span></th>
             <th class="col-profit sortable" data-sort="profit" data-salary-col>Profit (period) <span class="sort-ind" data-ind="profit"></span></th>
             <th class="edit-col"></th>
             <th class="remove-col"></th>
@@ -3481,7 +3486,7 @@ function renderStaffTable() {
         <input type="text" inputmode="decimal" class="numfield" ${hourInputAttrs(uniformOver(mk => assignFor(mk, s.id, INTERNAL_ID)))} data-role="staff-internal" data-id="${s.id}">
         <div class="computed-sub">${showActual && intAct ? 'act ' + fmtHrs(intAct) + 'h' : '&nbsp;'}</div>
       </td>
-      <td>
+      <td class="col-bar">
         ${cap <= 0
           ? `<span class="computed-sub">not active this period</span>${total > 0 ? `<div class="util-pct over">${fmtHrs(total)}h assigned!</div>` : ''}`
           : `<span class="util-pct ${pctCls}">${Math.round(pct)}%</span>
@@ -3509,8 +3514,8 @@ function renderStaffTable() {
           return segs || '<div class="seg seg-acct-on" style="width:0%;"></div>';
         })()}</div>`}
       </td>
-      <td>${loggedCell}</td>
-      <td>${loggedCapCell}</td>
+      <td class="col-bar">${loggedCell}</td>
+      <td class="col-bar">${loggedCapCell}</td>
       <td data-salary-col>${(() => {
         if (!canSeeSalaries) return '<span class="computed-sub" title="Hidden for your access level">—</span>';
         const e = blendEco[s.id];
