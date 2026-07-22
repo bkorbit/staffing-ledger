@@ -153,6 +153,21 @@ function assignFor(mk,sid,pid){ return (STATE.assignments[mk]||{})[sid+'__'+pid]
 function personProjectHours(sid,pid,mk){ const a=actualFor(mk,sid,pid); return a>0?a:assignFor(mk,sid,pid); }
 // total hours logged/planned on a project in a month across all staff
 function projectHours(pid,mk){ let sum=0; STATE.staff.forEach(s=>{ sum+=personProjectHours(s.id,pid,mk); }); return sum; }
+// The months an account spans. Prefer explicit flight dates; else any month that has
+// revenue or hours in the platform (so undated accounts still total correctly).
+function accountMonths(p){
+  const fl=monthsOfFlight(p);
+  if(fl) return fl;
+  const set=new Set();
+  Object.keys(p.revenueOverrides||{}).forEach(mk=>{ if(/^\d{4}-\d{2}$/.test(mk)) set.add(mk); });
+  if(billingActive(p)) billingMonths(p).forEach(mk=>set.add(mk));
+  ['assignments','actuals'].forEach(store=>{ Object.keys(STATE[store]||{}).forEach(mk=>{ const b=STATE[store][mk]||{}; if(Object.keys(b).some(k=>k.endsWith('__'+p.id))) set.add(mk); }); });
+  return [...set].sort();
+}
+// Whole-flight totals used for the keep/cut decision: all scheduled hours (actuals where
+// logged, else assignments) and all revenue entered across the account's lifespan.
+function projectFlightHours(p){ return accountMonths(p).reduce((s,mk)=>s+projectHours(p.id,mk),0); }
+function projectFlightRevenue(p){ return accountMonths(p).reduce((s,mk)=>s+revenueFor(p,mk),0); }
 function personInternalHours(sid,mk){ return Math.max(actualFor(mk,sid,INTERNAL_ID), assignFor(mk,sid,INTERNAL_ID)); }
 
 // ---------- the optimizer ----------
@@ -280,12 +295,17 @@ function personCoverage(pp, mk, kept){
 }
 
 function optimizeMonth(mk,P,confidence){
-  // active accounts this month with GP>0 or in-flight
+  // Accounts active in the decision month. The keep/cut decision weighs each account by
+  // its WHOLE-FLIGHT economics — all scheduled hours (actuals where logged, else
+  // assignments) and all revenue in the platform across every month it runs — while
+  // staffing/coverage below is still sized on the decision month.
   const accounts=STATE.projects.filter(p=>projectActiveInMonth(p,mk)).map(p=>{
-    const gp=revenueFor(p,mk);
-    const hours=projectHours(p.id,mk);
+    const gp=projectFlightRevenue(p);
+    const hours=projectFlightHours(p);
+    const gpMonth=revenueFor(p,mk);
+    const hoursMonth=projectHours(p.id,mk);
     const dept=dominantDept(p.id,mk);
-    return {p, id:p.id, name:p.name||'Untitled', gp, hours, dept, pph: hours>0?gp/hours:(gp>0?Infinity:0)};
+    return {p, id:p.id, name:p.name||'Untitled', gp, hours, gpMonth, hoursMonth, dept, pph: hours>0?gp/hours:(gp>0?Infinity:0)};
   }).filter(a=>a.gp!==0||a.hours>0);
 
   // people active this month
@@ -309,19 +329,20 @@ function optimizeMonth(mk,P,confidence){
     improved=false;
     for(const a of ranked){
       if(!keptIds.has(a.id)) continue;
-      // try cutting this account
+      // Confidence guard: never auto-cut an account whose cut rests on missing data.
+      const conf=(confidence||{})[a.id]||{score:1};
+      if(conf.dataThin || conf.noForecast){ continue; }
+      // Cut test on WHOLE-FLIGHT economics: the monthly staffing evaluate() tells us the
+      // monthly labor freed; scale it across the account's remaining flight months and
+      // compare to the account's whole-flight GP. Cut only if flight labor saved > flight GP lost.
       const trialKept=new Set(keptIds); trialKept.delete(a.id);
       const before=evaluate(accounts,[...keptIds],people,[...cutIds],P,mk);
       const after=evaluate(accounts,[...trialKept],people,[...cutIds,a.id],P,mk);
-      // cut is good if forward labor SAVED (eliminated salaries) exceeds GP lost,
-      // AND it doesn't violate the pph floor logic (only cut at-or-below floor unless it helps)
-      const laborSaved=before.laborCost-after.laborCost;
-      const gpLost=before.gp-after.gp;
+      const monthlyLaborSaved=before.laborCost-after.laborCost;   // salaries eliminated (monthly)
+      const flightMonths=Math.max(accountMonths(a.p).filter(m=>m>=mk).length,1);
+      const laborSaved=monthlyLaborSaved*flightMonths;            // over the remaining flight
+      const gpLost=a.gp;                                          // whole-flight revenue of this account
       const belowFloor=a.pph<P.pphFloor;
-      // Confidence guard: never auto-cut an account whose cut rests on missing data
-      // (its profit/hour or GP is computed from gaps). Hold for review instead.
-      const conf=(confidence||{})[a.id]||{score:1};
-      if(conf.dataThin || conf.noForecast){ continue; }
       if(laborSaved>gpLost && (belowFloor || after.execMargin>before.execMargin)){
         keptIds=trialKept; cutIds.add(a.id); improved=true;
       }
@@ -338,11 +359,11 @@ function evaluate(accounts, keptIds, people, cutIds, P, mk){
   const kept=new Set(keptIds);
   const byDept={};
   people.forEach(pp=>{ (byDept[pp.dept]=byDept[pp.dept]||{people:[],demand:0}).people.push(pp); });
-  // workload per dept = hours on kept accounts, attributed to the dept that owns them
-  accounts.forEach(a=>{ if(kept.has(a.id)){ const d=a.dept||'No department'; (byDept[d]=byDept[d]||{people:[],demand:0}).demand+=a.hours; } });
+  // workload per dept = MONTHLY hours on kept accounts (sized against monthly capacity)
+  accounts.forEach(a=>{ if(kept.has(a.id)){ const d=a.dept||'No department'; (byDept[d]=byDept[d]||{people:[],demand:0}).demand+=(a.hoursMonth||0); } });
 
   let laborCost=0, gp=0, staffPlan=[], newHourly=0;
-  accounts.forEach(a=>{ if(kept.has(a.id)) gp+=a.gp; });
+  accounts.forEach(a=>{ if(kept.has(a.id)) gp+=(a.gpMonth||0); });
 
   Object.entries(byDept).forEach(([dept,info])=>{
     const demand=info.demand;
@@ -437,7 +458,7 @@ function renderResults(){
   html+='</tbody></table><div class="note">Watch the Notes column: where a new account starts after the decision, the frozen layoff plan didn\'t size for it — that\'s where you may need to keep or rehire capacity.</div></div>';
 
   // ---- accounts: keep/cut ----
-  html+='<div class="card"><h2>Accounts — keep / cancel</h2><table><thead><tr><th>Account</th><th>Dept</th><th class="num">Gross profit</th><th class="num">Hours</th><th class="num">Profit / hr</th><th>Decision</th></tr></thead><tbody>';
+  html+='<div class="card"><h2>Accounts — keep / cancel</h2><div class="note" style="margin-bottom:8px;">Gross profit, hours, and profit/hr are whole-flight totals — all revenue and all scheduled hours (actuals where logged, else assignments) across every month the account runs.</div><table><thead><tr><th>Account</th><th>Dept</th><th class="num">Gross profit (flight)</th><th class="num">Hours (flight)</th><th class="num">Profit / hr</th><th>Decision</th></tr></thead><tbody>';
   [...D.accounts].sort((a,b)=>b.pph-a.pph).forEach(a=>{
     const cut=R.cutSet.includes(a.id);
     const c=(conf[a.id]||{level:'high',reasons:[]});
