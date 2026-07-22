@@ -90,7 +90,8 @@ tr.kept-marginal{ background:#fdf3dc; }
         <label class="param" id="wrap-margin">Target net margin %<input type="number" id="p-margin" value="35"></label>
         <label class="param" id="wrap-overhead" style="display:none;">Monthly overhead $<input type="number" id="p-overhead" value="0"></label>
         <label class="param">New-hourly rate $<input type="number" id="p-hourly" value="45"></label>
-        <label class="param">Forward months<input type="number" id="p-months" value="6"></label>
+        <label class="param">Horizon (months)<input type="number" id="p-months" value="6" title="How far forward the model evaluates. Headcount, coverage, and the keep/cut decision all reason across this window."></label>
+        <label class="param">Max idle months<input type="number" id="p-maxidle" value="3" title="Longest a person may sit idle waiting for a future account before they're a layoff candidate. The longer the idle stretch, the more that future account must be worth to justify carrying them."></label>
         <label class="param">Changes effective<input type="month" id="p-effective"></label>
       </div>
       <button class="run" id="run">Run scenario</button>
@@ -180,27 +181,241 @@ function runScenario(){
   const overhead=+document.getElementById('p-overhead').value||0;
   const hourlyRate=+document.getElementById('p-hourly').value||45;
   const nMonths=Math.max(1,Math.min(18,+document.getElementById('p-months').value||6));
+  const maxIdle=Math.max(0,Math.min(18,+document.getElementById('p-maxidle').value||3));
 
-  const P={util,downsize,pphFloor,outlierRule,targetMargin,overhead,hourlyRate};
-  // Changes take effect on the chosen month (defaults to next month).
+  const P={util,downsize,pphFloor,outlierRule,targetMargin,overhead,hourlyRate,maxIdle,nMonths};
   const effEl=document.getElementById('p-effective');
   const decideMk=(effEl && /^\d{4}-\d{2}$/.test(effEl.value)) ? effEl.value : shiftMonth(monthKey(new Date()),1);
   const months=[]; for(let i=0;i<nMonths;i++) months.push(shiftMonth(decideMk,i));
   const confidence=computeConfidence(months);
 
-  // Solve the decision ONCE on the decision month.
-  const decision=optimizeMonth(decideMk,P,confidence);
+  // HORIZON-BASED joint optimization: decide which accounts to cut and who to lay off by
+  // reasoning across the whole window, not the decision month alone.
+  const decision=optimizeHorizon(months,decideMk,P,confidence);
 
-  // Project that SAME frozen decision across every forward month (no re-optimizing),
-  // so we see the true impact of acting now — including months where a cut collides
-  // with an account that starts later.
+  // Project the frozen decision across the window for the trajectory view.
   const cutSet=new Set(decision.cutIds);
-  const laidOffIds=new Set();
-  decision.final.staffPlan.forEach(d=>d.laidOff.forEach(pp=>laidOffIds.add(pp.id)));
+  const laidOffIds=new Set(decision.laidOffIds);
   const trajectory=months.map(mk=>projectDecision(mk,cutSet,laidOffIds,P,decideMk));
 
   lastRun={decideMk,months,decision,trajectory,cutSet:[...cutSet],laidOffIds:[...laidOffIds],confidence,params:P};
   renderResults();
+}
+
+// ===== Horizon engine =====
+// Builds per-account and per-person forward profiles across the window, then jointly
+// decides account cuts and layoffs so that: (a) headcount is retained to cover future
+// demand (a big account starting next month keeps its people), (b) a person is laid off
+// only when their forward GP contribution doesn't justify their salary + idle carrying
+// cost, and (c) an account that's marginal on its own is kept when doing so absorbs
+// otherwise-idle (already-paid) capacity.
+function optimizeHorizon(months, decideMk, P, confidence){
+  const projects = STATE.projects;
+
+  // Per-account flight economics (whole-flight totals) + which window months it's active.
+  const accounts = projects.map(p=>{
+    const gp = projectFlightRevenue(p);
+    const hours = projectFlightHours(p);
+    const winMonths = months.filter(mk=>projectActiveInMonth(p,mk));
+    const dept = dominantDept(p.id, winMonths[0]||decideMk);
+    // per-window-month hours this account needs (actuals where logged else assignments)
+    const monthHours = {}; winMonths.forEach(mk=>{ monthHours[mk]=projectHours(p.id,mk); });
+    const monthGP = {}; winMonths.forEach(mk=>{ monthGP[mk]=revenueFor(p,mk); });
+    return {p, id:p.id, name:p.name||'Untitled', gp, hours, dept, winMonths, monthHours, monthGP,
+      pph: hours>0? gp/hours : (gp>0?Infinity:0), active: winMonths.length>0};
+  }).filter(a=>a.active && (a.gp!==0 || a.hours>0));
+
+  // People active at any point in the window.
+  const people = STATE.staff.filter(s=>months.some(mk=>staffActiveInMonth(s,mk))).map(s=>({
+    s, id:s.id, name:s.name||'Unnamed', dept:normDept(s.department), type:empType(s),
+    protected: !!s.layoffProtected,
+    // salary per window month (0 in months they're not active)
+    monthSalary: Object.fromEntries(months.map(mk=>[mk, empType(s)==='fulltime' && staffActiveInMonth(s,mk) ? salariedMonthlyCost(s,mk) : 0])),
+    rate: s.hourlyCost,
+    cap: Object.fromEntries(months.map(mk=>[mk, staffActiveInMonth(s,mk)? monthlyCapacityFor(s,mk):0])),
+    internal: Object.fromEntries(months.map(mk=>[mk, staffActiveInMonth(s,mk)? personInternalHours(s.id,mk):0]))
+  }));
+
+  // Greedy joint decision.
+  const keptIds = new Set(accounts.map(a=>a.id));
+  const cutIds = new Set();
+
+  // Rank accounts worst-first by whole-flight profit/hr.
+  const ranked = [...accounts].sort((a,b)=> a.pph-b.pph);
+
+  let improved=true, guard=0;
+  while(improved && guard<accounts.length+2){
+    improved=false; guard++;
+    for(const a of ranked){
+      if(!keptIds.has(a.id)) continue;
+      const conf=(confidence||{})[a.id]||{score:1};
+      if(conf.dataThin || conf.noForecast) continue;   // hold low-confidence for review
+
+      // Evaluate horizon profit WITH vs WITHOUT this account, each time re-deciding
+      // layoffs optimally for the resulting kept-set. The account is cut only if doing
+      // so IMPROVES total horizon execution profit (this automatically captures the
+      // "keep a marginal account to absorb idle capacity" case: if cutting it frees
+      // nobody, the GP loss makes profit worse and we keep it).
+      const withA = solveStaffing(accounts, keptIds, people, months, P);
+      const trial = new Set(keptIds); trial.delete(a.id);
+      const withoutA = solveStaffing(accounts, trial, people, months, P);
+      if(withoutA.execProfit > withA.execProfit + 1){
+        keptIds.delete(a.id); cutIds.add(a.id); improved=true;
+      }
+    }
+  }
+
+  const finalStaff = solveStaffing(accounts, keptIds, people, months, P);
+  const review = accounts.filter(a=>keptIds.has(a.id)).map(a=>a.id)
+    .filter(id=>{ const c=(confidence||{})[id]||{}; return c.dataThin||c.noForecast; });
+
+  return {
+    accounts, people, months, decideMk,
+    keptIds:[...keptIds], cutIds:[...cutIds],
+    laidOffIds: finalStaff.laidOffIds,
+    staff: finalStaff, review,
+    // shims so the existing renderer (which expects decision.final.staffPlan, .accounts, etc.) works
+    final: { gp: finalStaff.gpMonth0, laborCost: finalStaff.laborMonth0, execProfit: finalStaff.execProfit,
+             execMargin: finalStaff.execMargin, staffPlan: finalStaff.staffPlan, newHourly: finalStaff.newHourly },
+    baseline: solveStaffing(accounts, new Set(accounts.map(a=>a.id)), people, months, P)
+  };
+}
+
+// Decide, for a given kept-account set, which people to retain vs lay off across the
+// horizon, and compute total horizon execution profit. This is where the forward,
+// carrying-cost logic lives.
+function solveStaffing(accounts, keptIds, people, months, P){
+  const kept = new Set(keptIds);
+  const keptAccts = accounts.filter(a=>kept.has(a.id));
+
+  // Demand per department per window month (hours needed by kept accounts).
+  const deptMonthDemand = {};   // dept -> {mk -> hours}
+  keptAccts.forEach(a=>{
+    const d=a.dept||'No department';
+    (deptMonthDemand[d]=deptMonthDemand[d]||{});
+    a.winMonths.forEach(mk=>{ deptMonthDemand[d][mk]=(deptMonthDemand[d][mk]||0)+(a.monthHours[mk]||0); });
+  });
+
+  // Per-person forward GP contribution on kept accounts (hours-proportional share).
+  function personForwardGP(pp){
+    let gp=0;
+    months.forEach(mk=>{
+      keptAccts.forEach(a=>{
+        if(!a.winMonths.includes(mk)) return;
+        const tot=a.monthHours[mk]; if(tot<=0) return;
+        const mine=personProjectHours(pp.id,a.id,mk); if(mine<=0) return;
+        gp += (a.monthGP[mk]||0) * (mine/tot);
+      });
+    });
+    return gp;
+  }
+  // Months in the window where this person has ANY work on kept accounts.
+  function personBusyMonths(pp){
+    return months.filter(mk=> keptAccts.some(a=>a.winMonths.includes(mk) && personProjectHours(pp.id,a.id,mk)>0));
+  }
+
+  const byDept={};
+  people.forEach(pp=>{ (byDept[pp.dept]=byDept[pp.dept]||[]).push(pp); });
+
+  let laidOffIds=[], staffPlan=[];
+  let totalGP=0, totalLabor=0;
+  // month-0 (decision month) snapshots for KPI/label compatibility
+  const mk0=months[0];
+  let gpMonth0=0, laborMonth0=0;
+
+  Object.entries(byDept).forEach(([dept, dp])=>{
+    const demandByMonth = deptMonthDemand[dept]||{};
+    const peakDemand = Math.max(0, ...months.map(mk=>demandByMonth[mk]||0));
+
+    const salaried = dp.filter(p=>p.type==='fulltime');
+    const hourly = dp.filter(p=>p.type==='hourly');
+
+    // Forward metrics per salaried person.
+    salaried.forEach(pp=>{
+      pp._fwdGP = personForwardGP(pp);
+      pp._fwdSalary = months.reduce((s,mk)=> s + (pp.monthSalary[mk]||0), 0);
+      pp._busy = personBusyMonths(pp);
+      pp._idleMonths = months.filter(mk=>(pp.monthSalary[mk]||0)>0 && !pp._busy.includes(mk)).length;
+      pp._coverage = pp._fwdSalary>0 ? pp._fwdGP/pp._fwdSalary : Infinity;
+    });
+
+    // Retention: protected first, then by forward coverage (highest first). A person is
+    // RETAINED if either (a) they're needed to cover demand in some window month, or
+    // (b) their forward GP justifies their salary. Layoff candidates are those who clear
+    // neither — and the idle-carry rule makes a long idle gap require proportionally
+    // more future GP to survive.
+    const protectedPpl = salaried.filter(p=>p.protected);
+    const cuttable = salaried.filter(p=>!p.protected).sort((a,b)=> b._coverage-a._coverage);
+
+    // Start by retaining protected people; track covered capacity per month.
+    const retained=[...protectedPpl];
+    const coveredByMonth = {}; months.forEach(mk=>{ coveredByMonth[mk]=protectedPpl.reduce((s,pp)=> s + Math.max((pp.cap[mk]||0)-(pp.internal[mk]||0),0),0); });
+
+    for(const pp of cuttable){
+      // Does any window month still need more capacity that this person could fill?
+      const neededSomewhere = months.some(mk=> (demandByMonth[mk]||0) > coveredByMonth[mk] + 0.5 && (pp.cap[mk]||0)>0 );
+      // Carrying-cost-aware worth test: forward GP must exceed salary, with idle months
+      // weighted up (longer idle => higher bar). investmentFactor grows with idle length.
+      const idle = pp._idleMonths;
+      const idlePenalty = idle>0 ? (idle/Math.max(P.maxIdle,1)) : 0;   // 0..>1
+      const worthKeeping = pp._fwdGP > pp._fwdSalary * (1 + idlePenalty);
+      const idleTooLong = idle > P.maxIdle;
+
+      let keep = false, reason='';
+      if(neededSomewhere){ keep=true; reason = idleTooLong ? ('needed for forward demand · idle '+idle+'mo') : 'needed for forward demand'; }
+      else if(worthKeeping && !idleTooLong){ keep=true; reason='forward GP justifies cost'; }
+
+      if(keep){
+        retained.push(pp);
+        months.forEach(mk=>{ coveredByMonth[mk]+=Math.max((pp.cap[mk]||0)-(pp.internal[mk]||0),0); });
+        pp._retainReason=reason;
+      } else {
+        pp._retainReason = idleTooLong ? ('idle '+idle+'mo > max') : 'forward GP below cost';
+      }
+    }
+    const laidOff = cuttable.filter(p=>!retained.includes(p)).sort((a,b)=> a._coverage-b._coverage);
+    laidOff.forEach(p=>laidOffIds.push(p.id));
+
+    // Costs across the window: retained salaries + hourly (existing) + hourly backfill for gaps.
+    months.forEach(mk=>{
+      const retSalary = retained.reduce((s,pp)=> s+(pp.monthSalary[mk]||0),0);
+      let hourlyCost=0; hourly.forEach(h=>{ let hrs=0; keptAccts.forEach(a=>{ if(a.winMonths.includes(mk)) hrs+=personProjectHours(h.id,a.id,mk); }); hourlyCost+=hrs*h.rate; });
+      const covered = retained.reduce((s,pp)=> s+Math.max((pp.cap[mk]||0)-(pp.internal[mk]||0),0),0);
+      const unmet = Math.max((demandByMonth[mk]||0)-covered,0);
+      const backfill = unmet*P.hourlyRate;
+      totalLabor += retSalary+hourlyCost+backfill;
+      if(mk===mk0){ laborMonth0 += retSalary+hourlyCost+backfill; }
+    });
+
+    // GP across the window from kept accounts in this dept.
+    months.forEach(mk=>{
+      keptAccts.filter(a=>(a.dept||'No department')===dept && a.winMonths.includes(mk)).forEach(a=>{
+        totalGP += (a.monthGP[mk]||0);
+        if(mk===mk0) gpMonth0 += (a.monthGP[mk]||0);
+      });
+    });
+
+    // Build the plan rows (month-0 view for display, with forward annotations).
+    const peakMonth = months.reduce((best,mk)=> (demandByMonth[mk]||0) > (demandByMonth[best]||0) ? mk : best, months[0]);
+    staffPlan.push({
+      dept, demand: demandByMonth[mk0]||0, peakDemand, peakMonth,
+      coveredCap: retained.reduce((s,pp)=> s+Math.max((pp.cap[mk0]||0)-(pp.internal[mk0]||0),0),0),
+      unmet: Math.max((demandByMonth[mk0]||0) - retained.reduce((s,pp)=> s+Math.max((pp.cap[mk0]||0)-(pp.internal[mk0]||0),0),0),0),
+      retained: retained.map(pp=>({ name:pp.name, type:pp.type, protected:pp.protected,
+        salaryMonthly: pp.monthSalary[mk0]||0, _gp: pp._fwdGP, _coverage: pp._coverage,
+        _idle: pp._idleMonths, _reason: pp._retainReason,
+        _util: (function(){ const av=Math.max((pp.cap[mk0]||0)-(pp.internal[mk0]||0),0); if(av<=0) return 0; let h=0; keptAccts.forEach(a=>{ if(a.winMonths.includes(mk0)) h+=personProjectHours(pp.id,a.id,mk0); }); return h/av; })() })),
+      laidOff: laidOff.map(pp=>({ name:pp.name, type:pp.type, salaryMonthly: pp.monthSalary[mk0]||0,
+        _gp: pp._fwdGP, _coverage: pp._coverage, _idle: pp._idleMonths, _reason: pp._retainReason })),
+      hourly,
+      newHourlyCost: (function(){ const covered=retained.reduce((s,pp)=> s+Math.max((pp.cap[mk0]||0)-(pp.internal[mk0]||0),0),0); return Math.max((demandByMonth[mk0]||0)-covered,0)*P.hourlyRate; })()
+    });
+  });
+
+  const execProfit = totalGP - totalLabor;             // whole-horizon
+  const execMargin = totalGP>0 ? execProfit/totalGP : 0;
+  return { execProfit, execMargin, totalGP, totalLabor, laidOffIds, staffPlan,
+           gpMonth0, laborMonth0, newHourly:0 };
 }
 
 // Per-account data-confidence. Past = trailing 3 months (need actuals+revenue),
@@ -270,144 +485,6 @@ function projectDecision(mk, cutSet, laidOffIds, P, decideMk){
   return {mk, gpKept, gpLostToCuts, labor, execProfit, execMargin: gpKept>0?execProfit/gpKept:0, newlyStarted};
 }
 
-// Gross profit attributed to a person = sum over accounts of (their hours on it /
-// total hours on it) * account GP, for the given month and keep-set.
-function personGP(sid, mk, kept){
-  let gp=0;
-  STATE.projects.forEach(p=>{ if(kept && !kept.has(p.id)) return;
-    const total=projectHours(p.id,mk); if(total<=0) return;
-    const mine=personProjectHours(sid,p.id,mk); if(mine<=0) return;
-    gp += revenueFor(p,mk) * (mine/total);
-  });
-  return gp;
-}
-// Their own monthly cost: salaried = salary, hourly = logged hours * rate.
-function personCost(pp, mk){
-  if(pp.type==='fulltime') return pp.salaryMonthly;   // already calendar-day cost for the decision month
-  let hrs=0; STATE.projects.forEach(p=>{ hrs+=personProjectHours(pp.id,p.id,mk); });
-  return hrs*pp.rate;
-}
-// Coverage ratio = GP of their work / their cost. <1 means they don't cover themselves.
-function personCoverage(pp, mk, kept){
-  const cost=personCost(pp,mk);
-  if(cost<=0) return Infinity;
-  return personGP(pp.id,mk,kept)/cost;
-}
-
-function optimizeMonth(mk,P,confidence){
-  // Accounts active in the decision month. The keep/cut decision weighs each account by
-  // its WHOLE-FLIGHT economics — all scheduled hours (actuals where logged, else
-  // assignments) and all revenue in the platform across every month it runs — while
-  // staffing/coverage below is still sized on the decision month.
-  const accounts=STATE.projects.filter(p=>projectActiveInMonth(p,mk)).map(p=>{
-    const gp=projectFlightRevenue(p);
-    const hours=projectFlightHours(p);
-    const gpMonth=revenueFor(p,mk);
-    const hoursMonth=projectHours(p.id,mk);
-    const dept=dominantDept(p.id,mk);
-    return {p, id:p.id, name:p.name||'Untitled', gp, hours, gpMonth, hoursMonth, dept, pph: hours>0?gp/hours:(gp>0?Infinity:0)};
-  }).filter(a=>a.gp!==0||a.hours>0);
-
-  // people active this month
-  const people=STATE.staff.filter(s=>staffActiveInMonth(s,mk)).map(s=>{
-    const cap=monthlyCapacityFor(s,mk);
-    const internal=personInternalHours(s.id,mk);
-    return {s, id:s.id, name:s.name||'Unnamed', dept:normDept(s.department), type:empType(s),
-      salaryMonthly: empType(s)==='fulltime'? salariedMonthlyCost(s,mk) : 0, rate:s.hourlyCost,
-      cap, avail:Math.max(cap-internal,0), protected:!!s.layoffProtected };
-  });
-
-  // baseline (keep everything)
-  const baseline=evaluate(accounts, accounts.map(a=>a.id), people, [], P, mk);
-
-  // greedy cut: repeatedly drop the worst-profit/hr account if it improves the ratio
-  let keptIds=new Set(accounts.map(a=>a.id));
-  const cutIds=new Set();
-  let improved=true;
-  const ranked=[...accounts].sort((a,b)=> (a.pph)-(b.pph)); // worst first
-  while(improved){
-    improved=false;
-    for(const a of ranked){
-      if(!keptIds.has(a.id)) continue;
-      // Confidence guard: never auto-cut an account whose cut rests on missing data.
-      const conf=(confidence||{})[a.id]||{score:1};
-      if(conf.dataThin || conf.noForecast){ continue; }
-      // Cut test on WHOLE-FLIGHT economics: the monthly staffing evaluate() tells us the
-      // monthly labor freed; scale it across the account's remaining flight months and
-      // compare to the account's whole-flight GP. Cut only if flight labor saved > flight GP lost.
-      const trialKept=new Set(keptIds); trialKept.delete(a.id);
-      const before=evaluate(accounts,[...keptIds],people,[...cutIds],P,mk);
-      const after=evaluate(accounts,[...trialKept],people,[...cutIds,a.id],P,mk);
-      const monthlyLaborSaved=before.laborCost-after.laborCost;   // salaries eliminated (monthly)
-      const flightMonths=Math.max(accountMonths(a.p).filter(m=>m>=mk).length,1);
-      const laborSaved=monthlyLaborSaved*flightMonths;            // over the remaining flight
-      const gpLost=a.gp;                                          // whole-flight revenue of this account
-      const belowFloor=a.pph<P.pphFloor;
-      if(laborSaved>gpLost && (belowFloor || after.execMargin>before.execMargin)){
-        keptIds=trialKept; cutIds.add(a.id); improved=true;
-      }
-    }
-  }
-  const final=evaluate(accounts,[...keptIds],people,[...cutIds],P,mk);
-  const review=accounts.filter(a=>keptIds.has(a.id)).map(a=>a.id).filter(id=>{ const c=(confidence||{})[id]||{}; return c.dataThin||c.noForecast; });
-  return {mk, accounts, people, baseline, final, keptIds:[...keptIds], cutIds:[...cutIds], review};
-}
-
-// evaluate a keep-set: size each dept's salaried headcount to retained workload,
-// decide layoffs (highest salary first among eligible), backfill sub-threshold gaps with hourly.
-function evaluate(accounts, keptIds, people, cutIds, P, mk){
-  const kept=new Set(keptIds);
-  const byDept={};
-  people.forEach(pp=>{ (byDept[pp.dept]=byDept[pp.dept]||{people:[],demand:0}).people.push(pp); });
-  // workload per dept = MONTHLY hours on kept accounts (sized against monthly capacity)
-  accounts.forEach(a=>{ if(kept.has(a.id)){ const d=a.dept||'No department'; (byDept[d]=byDept[d]||{people:[],demand:0}).demand+=(a.hoursMonth||0); } });
-
-  let laborCost=0, gp=0, staffPlan=[], newHourly=0;
-  accounts.forEach(a=>{ if(kept.has(a.id)) gp+=(a.gpMonth||0); });
-
-  Object.entries(byDept).forEach(([dept,info])=>{
-    const demand=info.demand;
-    // eligible people sorted for retention: protected first, then keep those needed;
-    // layoff candidates = highest salary first among unprotected salaried.
-    const salaried=info.people.filter(p=>p.type==='fulltime');
-    const hourly=info.people.filter(p=>p.type==='hourly');
-    // Coverage ratio per person = GP of their work / their cost. Everyone must
-    // cover themselves (>=1); we prefer to retain those who cover it many times over.
-    salaried.forEach(p=>{ p._coverage=personCoverage(p,mk,kept); p._gp=personGP(p.id,mk,kept); });
-    const protectedPpl=salaried.filter(p=>p.protected);
-    // Retain protected first, then the highest-coverage people until demand is met.
-    // Layoff order is therefore LOWEST coverage first (least profit per dollar of their cost).
-    const cuttable=salaried.filter(p=>!p.protected);
-    const retainOrder=[...cuttable].sort((a,b)=> b._coverage-a._coverage); // keep highest coverage first
-    let coveredCap=protectedPpl.reduce((s,p)=>s+p.avail,0);
-    const retained=[...protectedPpl];
-    for(const p of retainOrder){
-      if(coveredCap>=demand) break;
-      retained.push(p); coveredCap+=p.avail;
-    }
-    const laidOff=cuttable.filter(p=>!retained.includes(p)).sort((a,b)=> a._coverage-b._coverage); // worst coverage listed first
-    // hourly: keep those whose assigned hours are on kept accounts (their cost = assigned hours*rate)
-    let hourlyCostDept=0;
-    hourly.forEach(h=>{ let hrs=0; accounts.forEach(a=>{ if(kept.has(a.id)) hrs+=personProjectHours(h.id,a.id,mk); }); hourlyCostDept+=hrs*h.rate; });
-    // remaining unmet demand after retained salaried -> backfill hourly at P.hourlyRate
-    const unmet=Math.max(demand-coveredCap,0);
-    // downsize check: a retained salaried person below the downsize threshold flags FT->hourly
-    retained.forEach(p=>{
-      const u=p.avail>0? Math.min(demandShare(p,demand,coveredCap)/p.avail,1):0;
-      p._util=u;
-    });
-    newHourly+=unmet*P.hourlyRate;
-    const deptSalaryCost=retained.reduce((s,p)=>s+p.salaryMonthly,0);
-    laborCost+=deptSalaryCost+hourlyCostDept+unmet*P.hourlyRate;
-    staffPlan.push({dept, demand, retained, laidOff, hourly, unmet, coveredCap, hourlyCostDept, newHourlyCost:unmet*P.hourlyRate});
-  });
-
-  const execProfit=gp-laborCost;
-  const execMargin=gp>0? execProfit/gp : 0;
-  const overheadCovered=execProfit-P.overhead;
-  return {gp, laborCost, execProfit, execMargin, overheadCovered, staffPlan, newHourly};
-}
-function demandShare(p, demand, coveredCap){ return coveredCap>0? demand*(p.avail/coveredCap) : 0; }
 
 function dominantDept(pid,mk){
   const tally={};
@@ -529,17 +606,23 @@ function renderResults(){
 
   // ---- staffing plan (per-person coverage + layoff) ----
   html+='<div class="card"><h2>Staffing plan — retain / lay off</h2>';
+  html+='<div class="note" style="margin-bottom:8px;">Retention is judged across the '+R.params.nMonths+'-month horizon: a person is kept if some month needs them or their forward GP justifies their cost. The longer someone sits idle waiting for future work, the more that work must be worth (max '+R.params.maxIdle+' idle months before they\'re a layoff candidate). Coverage and GP are forward totals over the window.</div>';
   const covChip=(c)=>{ if(c===Infinity) return '<span class="muted">—</span>'; const cls=c>=2?'pos':c>=1?'':'neg'; return `<span class="${cls}" style="font-weight:700;">${c.toFixed(2)}×</span>`; };
   f.staffPlan.filter(d=>d.retained.length||d.laidOff.length||d.hourly.length).forEach(d=>{
-    html+=`<div class="deptblock"><h4>${esc(d.dept)} <span class="muted" style="font-size:11px;">· ${fmtH(d.demand)}h demand · ${fmtH(d.coveredCap)}h covered${d.unmet>0?' · '+fmtH(d.unmet)+'h gap':''}</span></h4>`;
-    html+='<table><thead><tr><th>Person</th><th>Type</th><th class="num">Monthly cost</th><th class="num">GP generated</th><th class="num">Coverage</th><th>Status</th></tr></thead><tbody>';
+    const peakNote = d.peakDemand>d.demand ? ` · peaks at ${fmtH(d.peakDemand)}h in ${d.peakMonth}` : '';
+    html+=`<div class="deptblock"><h4>${esc(d.dept)} <span class="muted" style="font-size:11px;">· ${fmtH(d.demand)}h demand (${R.decideMk})${peakNote} · ${fmtH(d.coveredCap)}h covered${d.unmet>0?' · '+fmtH(d.unmet)+'h gap':''}</span></h4>`;
+    html+='<table><thead><tr><th>Person</th><th>Type</th><th class="num">Monthly cost</th><th class="num">Forward GP</th><th class="num">Coverage</th><th>Status</th></tr></thead><tbody>';
     d.retained.forEach(p=>{
       const low=(p._util||0)<R.params.downsize;
       const under=(p._coverage!==undefined&&p._coverage<1);
-      html+=`<tr><td>${esc(p.name)}${p.protected?'<span class="chip protected">protected</span>':''}${under&&!p.protected?'<span class="chip under">below 1× — review</span>':''}</td><td class="muted">${p.type}</td><td class="num">${p.type==='fulltime'?fmtMoney(p.salaryMonthly):p.rate+'/hr'}</td><td class="num">${p._gp!==undefined?fmtMoney(p._gp):'—'}</td><td class="num">${covChip(p._coverage!==undefined?p._coverage:Infinity)}</td><td>Retain${low&&p.type==='fulltime'&&!p.protected?' <span class="chip hourly">under '+Math.round(R.params.downsize*100)+'% → consider hourly</span>':''}</td></tr>`;
+      // Idle-gap flag: retained but sitting idle for part of the window waiting for future work.
+      const idleFlag = (p._idle>0)
+        ? `<span class="chip" style="background:var(--gold);color:#3a2c00;" title="Retained but idle ${p._idle} month${p._idle===1?'':'s'} in the window — ${p._reason}. Carrying cost while idle: ${fmtMoney((p.salaryMonthly||0)*p._idle)}.">idle ${p._idle}mo</span>`
+        : '';
+      html+=`<tr><td>${esc(p.name)}${p.protected?'<span class="chip protected">protected</span>':''}${idleFlag}${under&&!p.protected?'<span class="chip under">below 1× — review</span>':''}</td><td class="muted">${p.type}</td><td class="num">${p.type==='fulltime'?fmtMoney(p.salaryMonthly):p.rate+'/hr'}</td><td class="num">${p._gp!==undefined?fmtMoney(p._gp):'—'}</td><td class="num">${covChip(p._coverage!==undefined?p._coverage:Infinity)}</td><td>Retain${low&&p.type==='fulltime'&&!p.protected?' <span class="chip hourly">under '+Math.round(R.params.downsize*100)+'% → consider hourly</span>':''}</td></tr>`;
     });
     d.laidOff.forEach(p=>{
-      html+=`<tr class="cut"><td>${esc(p.name)}</td><td class="muted">${p.type}</td><td class="num">${fmtMoney(p.salaryMonthly)}</td><td class="num">${p._gp!==undefined?fmtMoney(p._gp):'—'}</td><td class="num">${covChip(p._coverage!==undefined?p._coverage:0)}</td><td><span class="chip layoff">lay off</span></td></tr>`;
+      html+=`<tr class="cut"><td>${esc(p.name)}</td><td class="muted">${p.type}</td><td class="num">${fmtMoney(p.salaryMonthly)}</td><td class="num">${p._gp!==undefined?fmtMoney(p._gp):'—'}</td><td class="num">${covChip(p._coverage!==undefined?p._coverage:0)}</td><td><span class="chip layoff" title="${esc(p._reason||'')}">lay off</span></td></tr>`;
     });
     if(d.unmet>0) html+=`<tr><td class="muted">+ hourly backfill</td><td class="muted">hourly</td><td class="num">${fmtMoney(d.newHourlyCost)}</td><td class="num">—</td><td class="num">—</td><td><span class="chip hourly">${fmtH(d.unmet)}h @ $${R.params.hourlyRate}</span></td></tr>`;
     html+='</tbody></table></div>';
