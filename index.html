@@ -223,6 +223,8 @@ input.rev-input { min-width: 90px; flex: 1; }
 /* The three utilization/logged bars share a fixed, equal column so long sub-text wraps
    inside its column instead of bleeding across the row. */
 #team-table th.col-bar, #team-table td.col-bar { width: 190px; min-width: 190px; max-width: 190px; }
+#team-table td.col-bar { vertical-align: bottom; }
+#team-table td.col-bar .mini-track { margin-top: 6px; }   /* consistent gap; bar sits at the cell bottom */
 #team-table td.col-bar .computed-sub { white-space: normal; line-height: 1.45; }
 #team-table td.col-bar .offplan-note { white-space: normal; display: inline; }
 #team-table th.col-profit, #team-table td.col-profit { width: 150px; min-width: 150px; max-width: 150px; }
@@ -384,8 +386,9 @@ input.flight-date:hover { border-color: var(--line); }
 input.flight-date:focus { outline: none; border-color: var(--brand); background: var(--paper-raised); }
 #tab-team tbody td { vertical-align: top; }
 .tm-row.tm-logged-only { background: rgba(250, 191, 77, 0.07); border-left: 3px solid var(--gold); }
-td.internal-cell input.numfield { display: block; margin-bottom: 2px; }
-td.internal-cell .computed-sub { min-height: 13px; }
+td.internal-cell { text-align: right; }
+td.internal-cell input.numfield { display: block; margin-bottom: 2px; margin-left: auto; text-align: right; }
+td.internal-cell .computed-sub { min-height: 13px; text-align: right; }
 
 /* Assign modal */
 .modal-overlay { position: fixed; inset: 0; background: rgba(32,36,46,0.45); display: none; align-items: flex-start; justify-content: center; z-index: 50; padding: 40px 16px; overflow-y: auto; }
