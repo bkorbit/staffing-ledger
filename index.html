@@ -217,6 +217,10 @@ input.rev-input { min-width: 90px; flex: 1; }
 .mini-track.split .seg-int { background: repeating-linear-gradient(45deg, var(--gold), var(--gold) 3px, #e3aa32 3px, #e3aa32 6px); }
 .mini-track.split .seg-proj { background: var(--accent); }
 .mini-track.split .seg-proj.over { background: var(--rust); }
+.mini-track.split .seg-acct-on { background: var(--accent); border-right: 1px solid rgba(255,255,255,0.6); }
+.mini-track.split .seg-acct-over { background: var(--rust); border-right: 1px solid rgba(255,255,255,0.6); }
+.mini-track.split .seg-acct-under { background: #a9dcc9; border-right: 1px solid rgba(255,255,255,0.6); }
+.mini-track.split .seg:last-child { border-right: none; }
 .mini-track { position: relative; width: 100%; max-width: 220px; height: 10px; background: #dedede; border-radius: 2px; overflow: hidden; margin-top: 3px; }
 .mini-bar { position: absolute; top: 0; bottom: 0; left: 0; background: var(--accent); }
 .mini-bar.over { background: var(--rust); }
@@ -1803,6 +1807,29 @@ function staffOffPlanHours(sid) {
   });
   return { off, onPlan, projects };
 }
+// Per-account breakdown for the utilization bar: for each account the person is
+// assigned to (or has logged on), returns { name, assigned, logged, status }.
+// status: 'over' (logged > assigned*1.1), 'under' (logged < assigned*0.5 with actuals present),
+// else 'on'. Sorted biggest-first so the bar reads left-to-right by load.
+function staffAccountBreakdown(sid) {
+  const hasAct = viewMonths().some(mk => Object.keys(state.actuals[mk] || {}).length > 0);
+  const rows = [];
+  activeProjects().forEach(p => {
+    const assigned = getAssignment(sid, p.id);
+    const logged = getActual(sid, p.id);
+    if (assigned <= 0 && logged <= 0) return;
+    const basisHrs = assigned > 0 ? assigned : logged;   // bar is plan-based; use assigned, fall back to logged
+    let status = 'on';
+    if (hasAct && logged > 0) {
+      if (assigned <= 0) status = 'over';                          // logging on an account with no assignment
+      else if (logged > assigned * 1.1) status = 'over';           // >10% over their scoped hours
+      else if (logged < assigned * 0.5) status = 'under';          // barely using scoped hours
+    }
+    rows.push({ name: p.name || 'Untitled', assigned, logged, basisHrs, status });
+  });
+  return rows.sort((a, b) => b.basisHrs - a.basisHrs);
+}
+
 function staffUtilizationPct(s) {
   const avail = availableCapacity(s);
   if (avail <= 0) return 0;
@@ -3460,17 +3487,26 @@ function renderStaffTable() {
           : `<span class="util-pct ${pctCls}">${Math.round(pct)}%</span>
         <span class="computed-sub"> · ${fmtHrs(projHrs)} / ${fmtHrs(avail)}h avail${intHrsEarly > 0 ? ' · ' + fmtHrs(intHrsEarly) + 'h int' : ''}${pto > 0 ? ' · ' + fmtHrs(pto) + 'h PTO' : ''}</span>
         <div class="mini-track split">${(() => {
-          // Segments as a share of full capacity: project work, internal, then PTO.
-          // The remaining space is genuinely free capacity. PTO is shown (not hidden)
-          // so a not-full bar is self-explanatory rather than mysterious.
-          const w = h => cap > 0 ? Math.max(Math.min((h / cap) * 100, 100), 0) : 0;
-          const projW = Math.min(w(projHrs), 100);
-          const intW = Math.min(w(intHrsEarly), Math.max(100 - projW, 0));
-          const ptoW = Math.min(w(pto), Math.max(100 - projW - intW, 0));
-          return `${over ? `<div class="seg seg-proj over" style="width:100%;" title="${fmtHrs(projHrs)}h project work — over available"></div>`
-            : `<div class="seg seg-proj" style="width:${projW}%;" title="${fmtHrs(projHrs)}h project work"></div>`
-              + (intHrsEarly > 0 ? `<div class="seg seg-int" style="width:${intW}%;" title="${fmtHrs(intHrsEarly)}h internal"></div>` : '')
-              + (pto > 0 ? `<div class="seg seg-pto" style="width:${ptoW}%;" title="${fmtHrs(pto)}h time off (reduces available capacity)"></div>` : '')}`;
+          // Project portion is split per-account so an evenly-loaded person reads
+          // differently from one who's over-scope on one account and under on others.
+          // Each account segment is sized to its hours and colored by over/under-scope.
+          const w = h => cap > 0 ? Math.max((h / cap) * 100, 0) : 0;
+          const accts = staffAccountBreakdown(s.id);
+          let used = 0; let segs = '';
+          accts.forEach(a => {
+            let width = w(a.basisHrs);
+            if (used + width > 100) width = Math.max(100 - used, 0);
+            if (width <= 0) return;
+            used += width;
+            const cls = a.status === 'over' ? 'seg-acct-over' : a.status === 'under' ? 'seg-acct-under' : 'seg-acct-on';
+            const tip = a.name + ' — ' + fmtHrs(a.assigned) + 'h assigned' + (a.logged > 0 ? ', ' + fmtHrs(a.logged) + 'h logged' : '') + (a.status === 'over' ? ' · OVER scope' : a.status === 'under' ? ' · under scope' : '');
+            segs += `<div class="seg ${cls}" style="width:${width}%;" title="${escapeAttr(tip)}"></div>`;
+          });
+          const intW = Math.min(w(intHrsEarly), Math.max(100 - used, 0)); used += intW;
+          const ptoW = Math.min(w(pto), Math.max(100 - used, 0));
+          if (intHrsEarly > 0 && intW > 0) segs += `<div class="seg seg-int" style="width:${intW}%;" title="${fmtHrs(intHrsEarly)}h internal"></div>`;
+          if (pto > 0 && ptoW > 0) segs += `<div class="seg seg-pto" style="width:${ptoW}%;" title="${fmtHrs(pto)}h time off (reduces available capacity)"></div>`;
+          return segs || '<div class="seg seg-acct-on" style="width:0%;"></div>';
         })()}</div>`}
       </td>
       <td>${loggedCell}</td>
