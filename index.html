@@ -217,16 +217,16 @@ input.rev-input { min-width: 90px; flex: 1; }
 .mini-track.split .seg-int { background: #0a493c; }
 .mini-track.split .seg-proj { background: var(--accent); }
 .mini-track.split .seg-proj.over { background: var(--rust); }
-.mini-track.split .seg-acct-on { background: var(--accent); border-right: 1px solid rgba(255,255,255,0.6); }
-.mini-track.split .seg-acct-over { background: var(--rust); border-right: 1px solid rgba(255,255,255,0.6); }
-.mini-track.split .seg-acct-under { background: #a9dcc9; border-right: 1px solid rgba(255,255,255,0.6); }
-.mini-track.split .seg:last-child { border-right: none; }
+.mini-track.split .seg-acct { background: var(--accent); border-right: 2px solid #fff; }
+.mini-track.split .seg-acct:last-child { border-right: none; }
 .mini-track { position: relative; width: 100%; max-width: 100%; height: 10px; background: #dedede; border-radius: 2px; overflow: hidden; margin-top: 3px; }
 /* The three utilization/logged bars share a fixed, equal column so long sub-text wraps
    inside its column instead of bleeding across the row. */
 #team-table th.col-bar, #team-table td.col-bar { width: 190px; min-width: 190px; max-width: 190px; }
 #team-table td.col-bar .computed-sub { white-space: normal; line-height: 1.45; }
 #team-table td.col-bar .offplan-note { white-space: normal; display: inline; }
+#team-table th.col-profit, #team-table td.col-profit { width: 150px; min-width: 150px; max-width: 150px; }
+#team-table td.col-profit .computed-sub { white-space: normal; line-height: 1.45; }
 .mini-bar { position: absolute; top: 0; bottom: 0; left: 0; background: var(--accent); }
 .mini-bar.over { background: var(--rust); }
 .util-pct { font-family: var(--font-mono); font-size: 11px; }
@@ -1801,6 +1801,22 @@ function staffProjectHours(sid, useActuals) {
 }
 // Hours a person LOGGED on projects they were NOT assigned to (assignment == 0).
 // Returns {off, onPlan, projects:[{name, hrs}]} for the active view period.
+// On-plan vs over, measured logged-against-assigned per account:
+//   on-plan = min(logged, assigned) summed  (worked within scope)
+//   over    = logged beyond assigned + all logged on unassigned accounts
+function staffLoggedSplit(sid) {
+  let onPlan = 0, over = 0; const overProjects = [];
+  activeProjects().forEach(p => {
+    const logged = getActual(sid, p.id);
+    if (logged <= 0) return;
+    const assigned = getAssignment(sid, p.id);
+    const good = Math.min(logged, assigned);
+    const extra = logged - good;
+    onPlan += good;
+    if (extra > 0) { over += extra; overProjects.push({ name: p.name || 'Untitled', hrs: extra, noAssign: assigned <= 0 }); }
+  });
+  return { onPlan, over, overProjects };
+}
 function staffOffPlanHours(sid) {
   let off = 0, onPlan = 0; const projects = [];
   activeProjects().forEach(p => {
@@ -3346,25 +3362,24 @@ function renderStaffTable() {
     } else if (logged <= 0 && total <= 0) {
       loggedCell = '<span class="computed-sub">—</span>';
     } else {
-      const offPlanRaw = staffOffPlanHours(s.id);
-      // If the person has NO project assignments this month, everything they logged is
-      // unplanned by definition — don't cry wolf. Only flag off-plan work when there's
-      // an actual plan to deviate from (some project assignment exists).
-      const hasProjectPlan = staffProjectHours(s.id, false) > 0;
-      const offPlan = hasProjectPlan ? offPlanRaw : { off: 0, onPlan: offPlanRaw.onPlan + offPlanRaw.off, projects: [] };
-      const denom = Math.max(total, logged) || 1;      // scale bar to the larger of assigned/logged
-      const onPlanPct = Math.min((offPlan.onPlan / denom) * 100, 100);
-      const offPlanPct = Math.min((offPlan.off / denom) * 100, 100 - onPlanPct);
-      const offNote = offPlan.off > 0
-        ? `<span class="offplan-note" title="Logged on accounts they aren't assigned to: ${offPlan.projects.map(x => escapeHtml(x.name) + ' ' + fmtHrs(x.hrs) + 'h').join(', ')}">⚠ ${fmtHrs(offPlan.off)}h off-plan</span>`
+      // Logged vs assigned: hours worked within scope (green) vs beyond scope / on
+      // unassigned accounts (red). Bar scales to assigned hours, so all-green means
+      // exactly on plan; red spilling past means overworked.
+      const split = staffLoggedSplit(s.id);
+      const assignedTotal = staffProjectHours(s.id, false);   // assigned project hours (excl. internal)
+      const barDenom = Math.max(assignedTotal, split.onPlan + split.over) || 1;
+      const onPlanPct = Math.min((split.onPlan / barDenom) * 100, 100);
+      const overPct = Math.min((split.over / barDenom) * 100, 100 - onPlanPct);
+      const overNote = split.over > 0
+        ? `<span class="offplan-note" title="Beyond scope: ${split.overProjects.map(x => escapeHtml(x.name) + ' +' + fmtHrs(x.hrs) + 'h' + (x.noAssign ? ' (not assigned)' : '')).join(', ')}">⚠ ${fmtHrs(split.over)}h over</span>`
         : '';
       loggedCell = `
-        <span class="util-pct ${loggedOver ? 'over' : (total > 0 && logged >= total * 0.95 ? 'full' : 'under')}">${fmtHrs(logged)}h</span>
-        <span class="computed-sub"> / ${fmtHrs(total)}h assigned${total > 0 ? ' ' : ''}</span>${total > 0 ? deltaHtml(total, logged, false) : ''}
-        ${offNote}
-        <div class="mini-track split" title="teal = logged on assigned accounts · red = logged on accounts they aren't assigned to">
+        <span class="util-pct ${split.over > 0 ? 'over' : 'full'}">${fmtHrs(split.onPlan + split.over)}h</span>
+        <span class="computed-sub"> / ${fmtHrs(assignedTotal)}h scheduled</span>
+        ${overNote}
+        <div class="mini-track split" title="green = worked within scheduled hours · red = worked beyond scheduled / on unassigned accounts">
           <div class="seg seg-onplan" style="width:${onPlanPct}%"></div>
-          <div class="seg seg-offplan" style="width:${offPlanPct}%"></div>
+          <div class="seg seg-offplan" style="width:${overPct}%"></div>
         </div>`;
     }
     const loggedProj = staffProjectHours(s.id, true);
@@ -3388,7 +3403,7 @@ function renderStaffTable() {
       loggedCapCell = `
         <span class="util-pct ${capCls}">${Math.round(capPct)}%</span>
         <span class="computed-sub"> · ${fmtHrs(loggedProj)}h client${ui.teamClientOnly ? '' : (intAct > 0 ? ' · ' + fmtHrs(intAct) + 'h int' : '') + (offAct > 0 ? ' · ' + fmtHrs(offAct) + 'h off' : '')} / ${fmtHrs(avail)}h avail</span>
-        <div class="seg-track">${segs}</div>`;
+        <div class="mini-track split">${segs}</div>`;
     }
     const expanded = !!ui.teamExpanded[s.id];
 
@@ -3496,16 +3511,16 @@ function renderStaffTable() {
           // differently from one who's over-scope on one account and under on others.
           // Each account segment is sized to its hours and colored by over/under-scope.
           const w = h => cap > 0 ? Math.max((h / cap) * 100, 0) : 0;
-          const accts = staffAccountBreakdown(s.id);
+          // Utilization reflects the SCHEDULE only: one colour, split per account with
+          // white dividers so you can see how the scheduled load spreads across accounts.
+          const accts = staffAccountBreakdown(s.id).filter(a => a.assigned > 0);
           let used = 0; let segs = '';
           accts.forEach(a => {
-            let width = w(a.basisHrs);
+            let width = w(a.assigned);
             if (used + width > 100) width = Math.max(100 - used, 0);
             if (width <= 0) return;
             used += width;
-            const cls = a.status === 'over' ? 'seg-acct-over' : a.status === 'under' ? 'seg-acct-under' : 'seg-acct-on';
-            const tip = a.name + ' — ' + fmtHrs(a.assigned) + 'h assigned' + (a.logged > 0 ? ', ' + fmtHrs(a.logged) + 'h logged' : '') + (a.status === 'over' ? ' · OVER scope' : a.status === 'under' ? ' · under scope' : '');
-            segs += `<div class="seg ${cls}" style="width:${width}%;" title="${escapeAttr(tip)}"></div>`;
+            segs += `<div class="seg seg-acct" style="width:${width}%;" title="${escapeAttr(a.name + ' — ' + fmtHrs(a.assigned) + 'h scheduled')}"></div>`;
           });
           const intW = Math.min(w(intHrsEarly), Math.max(100 - used, 0)); used += intW;
           const ptoW = Math.min(w(pto), Math.max(100 - used, 0));
@@ -3516,7 +3531,7 @@ function renderStaffTable() {
       </td>
       <td class="col-bar">${loggedCell}</td>
       <td class="col-bar">${loggedCapCell}</td>
-      <td data-salary-col>${(() => {
+      <td class="col-profit" data-salary-col>${(() => {
         if (!canSeeSalaries) return '<span class="computed-sub" title="Hidden for your access level">—</span>';
         const e = blendEco[s.id];
         if (!e || (e.hours <= 0 && e.cost <= 0)) return '<span class="computed-sub">—</span>';
