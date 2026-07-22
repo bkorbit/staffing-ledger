@@ -1390,6 +1390,26 @@ function weekdaysInMonthBetween(mk, from, to) {
 }
 // Monthly capacity, prorated for the person's start/end DATES when they fall mid-month.
 // A person starting the 15th only gets the working days from the 15th onward that month.
+// Salaried monthly cost: flat (annual / 12) for a full month, prorated by CALENDAR
+// days when the person's start/end date falls mid-month. Independent of capacity,
+// weekly hours, and hourly rate — only the salary and the start/end dates matter.
+function salariedMonthlyCost(s, mk) {
+  const annual = s.annualCost || 0;
+  if (annual <= 0) return 0;
+  const monthly = annual / 12;
+  const [y, m] = mk.split('-').map(Number);
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  // active calendar days this month, bounded by start/end dates
+  const monthStart = mk + '-01';
+  const monthEnd = mk + '-' + String(daysInMonth).padStart(2, '0');
+  const startDate = s.startDate || (s.startMonth ? s.startMonth + '-01' : null);
+  const endDate = s.endDate || (s.endMonth ? lastDayOf(s.endMonth) : null);
+  const from = startDate && startDate > monthStart ? startDate : monthStart;
+  const to = endDate && endDate < monthEnd ? endDate : monthEnd;
+  if (to < from) return 0;
+  const activeDays = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;   // inclusive
+  return monthly * (activeDays / daysInMonth);
+}
 function monthlyCapacityFor(s, mk) {
   const perDay = (s.weeklyCapacity || 0) / 5;
   const startDate = s.startDate || (s.startMonth ? s.startMonth + '-01' : null);
@@ -2480,7 +2500,7 @@ function monthTotalPayroll(mk) {
   const hasAct = Object.keys(state.actuals[mk] || {}).length > 0;
   return state.staff.reduce((sum, s) => {
     if (!staffActiveInMonth(s, mk)) return sum;
-    if (empType(s) === 'fulltime') return sum + monthlyCapacityFor(s, mk) * s.hourlyCost;
+    if (empType(s) === 'fulltime') return sum + salariedMonthlyCost(s, mk);
     return sum + staffMonthHours(s.id, mk, hasAct) * s.hourlyCost;
   }, 0);
 }
@@ -3191,7 +3211,7 @@ function personEconomicsBlended() {
       if (!staffActiveInMonth(st, mk)) return;
       const h = staffMonthHours(st.id, mk, hasAct);
       map[st.id].hours += h;
-      if (empType(st) === 'fulltime') map[st.id].cost += monthlyCapacityFor(st, mk) * st.hourlyCost;
+      if (empType(st) === 'fulltime') map[st.id].cost += salariedMonthlyCost(st, mk);
       else map[st.id].cost += h * st.hourlyCost;
       if (hasAct) map[st.id].monthsAct++; else map[st.id].monthsPlan++;
     });
@@ -3218,8 +3238,8 @@ function personEconomics(useActuals) {
   state.staff.forEach(s => {
     const attributed = projs.reduce((sum, p) => sum + (revPerHour[p.id] ? get(s.id, p.id) * revPerHour[p.id] : 0), 0);
     const hours = staffTotalHours(s.id, useActuals);
-    const cost = useActuals
-      ? (empType(s) === 'fulltime' ? periodCapacity(s) * s.hourlyCost : hours * s.hourlyCost)
+    const cost = empType(s) === 'fulltime'
+      ? viewMonths().filter(mk => staffActiveInMonth(s, mk)).reduce((c, mk) => c + salariedMonthlyCost(s, mk), 0)
       : hours * s.hourlyCost;
     map[s.id] = { attributed, cost, profit: attributed - cost, hours };
   });

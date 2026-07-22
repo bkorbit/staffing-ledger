@@ -116,7 +116,24 @@ function fmtMoney(n){ const neg=n<0; n=Math.abs(Math.round(n)); return (neg?'-':
 function fmtH(n){ return (Math.round(n*10)/10).toLocaleString(); }
 function weekdaysInMonth(mk){ const [y,m]=mk.split('-').map(Number); const dim=new Date(y,m,0).getDate(); let n=0; for(let d=1;d<=dim;d++){const dow=new Date(y,m-1,d).getDay(); if(dow>=1&&dow<=5)n++;} return n; }
 function monthlyCapacityFor(s,mk){ return weekdaysInMonth(mk)*((s.weeklyCapacity||0)/5); }
-function staffActiveInMonth(s,mk){ if(s.startMonth&&mk<s.startMonth)return false; if(s.endMonth&&mk>s.endMonth)return false; return true; }
+function lastDayOf(mk){ const [y,m]=mk.split('-').map(Number); return mk+'-'+String(new Date(Date.UTC(y,m,0)).getUTCDate()).padStart(2,'0'); }
+// Salaried monthly cost: annual/12 for a full month, calendar-day prorated for partial
+// boundary months. Independent of capacity/rate — only salary + start/end dates.
+function salariedMonthlyCost(s,mk){
+  const annual=s.annualCost||0; if(annual<=0) return 0;
+  const monthly=annual/12;
+  const [y,m]=mk.split('-').map(Number);
+  const dim=new Date(Date.UTC(y,m,0)).getUTCDate();
+  const monthStart=mk+'-01', monthEnd=mk+'-'+String(dim).padStart(2,'0');
+  const startDate=s.startDate||(s.startMonth?s.startMonth+'-01':null);
+  const endDate=s.endDate||(s.endMonth?lastDayOf(s.endMonth):null);
+  const from=startDate&&startDate>monthStart?startDate:monthStart;
+  const to=endDate&&endDate<monthEnd?endDate:monthEnd;
+  if(to<from) return 0;
+  const activeDays=Math.round((Date.parse(to)-Date.parse(from))/86400000)+1;
+  return monthly*(activeDays/dim);
+}
+function staffActiveInMonth(s,mk){ const sm=(s.startDate||'').slice(0,7)||s.startMonth; const em=(s.endDate||'').slice(0,7)||s.endMonth; if(sm&&mk<sm)return false; if(em&&mk>em)return false; return true; }
 function projectActiveInMonth(p,mk){ if(p.startMonth&&mk<p.startMonth)return false; if(p.endMonth&&mk>p.endMonth)return false; return true; }
 function billingActive(p){ return !!(p.billing&&p.billing.lines&&p.billing.lines.length); }
 function monthsOfFlight(p){ if(!p.startMonth||!p.endMonth||p.endMonth<p.startMonth)return null; const a=[]; let mk=p.startMonth,g=0; while(mk<=p.endMonth&&g<60){a.push(mk); mk=shiftMonth(mk,1); g++;} return a; }
@@ -231,7 +248,7 @@ function projectDecision(mk, cutSet, laidOffIds, P, decideMk){
   STATE.staff.forEach(s=>{
     if(!staffActiveInMonth(s,mk)) return;
     if(laidOffIds.has(s.id)) return; // gone as of decision
-    if(empType(s)==='fulltime'){ labor+=monthlyCapacityFor(s,mk)*s.hourlyCost; }
+    if(empType(s)==='fulltime'){ labor+=salariedMonthlyCost(s,mk); }
     else { let hrs=0; STATE.projects.forEach(p=>{ if(!cutSet.has(p.id)) hrs+=personProjectHours(s.id,p.id,mk); }); labor+=hrs*s.hourlyCost; }
   });
   const execProfit=gpKept-labor;
@@ -251,7 +268,7 @@ function personGP(sid, mk, kept){
 }
 // Their own monthly cost: salaried = salary, hourly = logged hours * rate.
 function personCost(pp, mk){
-  if(pp.type==='fulltime') return pp.salaryMonthly;
+  if(pp.type==='fulltime') return pp.salaryMonthly;   // already calendar-day cost for the decision month
   let hrs=0; STATE.projects.forEach(p=>{ hrs+=personProjectHours(pp.id,p.id,mk); });
   return hrs*pp.rate;
 }
@@ -276,7 +293,7 @@ function optimizeMonth(mk,P,confidence){
     const cap=monthlyCapacityFor(s,mk);
     const internal=personInternalHours(s.id,mk);
     return {s, id:s.id, name:s.name||'Unnamed', dept:normDept(s.department), type:empType(s),
-      salaryMonthly: empType(s)==='fulltime'? cap*s.hourlyCost : 0, rate:s.hourlyCost,
+      salaryMonthly: empType(s)==='fulltime'? salariedMonthlyCost(s,mk) : 0, rate:s.hourlyCost,
       cap, avail:Math.max(cap-internal,0), protected:!!s.layoffProtected };
   });
 
