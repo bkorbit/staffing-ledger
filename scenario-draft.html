@@ -72,7 +72,7 @@ tr.kept-marginal{ background:#fdf3dc; }
   </div>
 
   <div id="app" style="display:none;">
-    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0327</span></h1>
+    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0330</span></h1>
     <div class="sub">Reads the live ledger. Changes nothing. <strong>Stage 1:</strong> every account is judged on gross profit per hour of team time it consumes, against a floor you set — anything below the floor is a cut candidate, regardless of who happens to be staffed on it. <strong>Stage 2:</strong> a staffing plan is built from the survivors, with real salaried + hourly costs, showing the labor you save. Drag the floor and watch accounts move. Every number is a proposal — apply judgment.</div>
 
     <div class="card">
@@ -81,10 +81,12 @@ tr.kept-marginal{ background:#fdf3dc; }
         <label class="param">Window from<input type="month" id="p-from"></label>
         <label class="param">Window to<input type="month" id="p-to"></label>
         <label class="param">New-hourly rate $<input type="number" id="p-hourly" value="45" title="Blended rate used to cost any hourly backfill needed to cover demand that retained salaried staff can't."></label>
+        <label class="param">Max new hourly hours<input type="number" id="p-maxbf" value="300" title="The most new hourly labor you can realistically source across the window. The optimizer will never propose a plan needing more."></label>
         <label class="param">Target utilization %<input type="number" id="p-targetutil" value="85" title="Staffing is sized so retained people run at about this utilization on surviving work. Higher = leaner team, more hourly backfill risk; lower = more retained capacity."></label>
       </div>
       <div id="floor-box" style="margin-top:16px;"></div>
       <button class="run" id="run">Run scenario</button>
+      <button class="run" id="solve-opt" style="background:var(--gold); color:#000; margin-left:10px;">Solve optimally</button>
       <button class="run" id="export-json" style="background:var(--paper-raised); color:var(--brand); border:1px solid var(--brand); margin-left:10px;">Export ledger JSON</button>
     </div>
 
@@ -629,7 +631,15 @@ function renderResults(floorOnly){
   const gpCut=cutList.reduce((s,a)=>s+a.gp,0);
   const contribCut=cutList.reduce((s,a)=>s+a.contribution,0);
   const net=D.netSavings, healthy=net>0;
-  html+='<div class="card" style="border-left:4px solid '+(healthy?'var(--brand)':'var(--rust)')+';"><h2>Recalibration at ≥'+R.floor+'% margin — '+R.from+' to '+R.to+'</h2>';
+  let optBanner='';
+  if(R.optimal){
+    optBanner=`<div style="background:var(--brand); color:#fff; border-radius:6px; padding:12px 14px; margin-bottom:12px; font-family:var(--font-mono); font-size:12px;">
+      <strong style="font-size:14px;">★ Proven-optimal plan applied</strong> — the solver searched every cut/keep and retain/lay-off combination.
+      Objective (GP kept − all labor) <strong>${fmtMoney(R.optimal.objective)}</strong> over the window · solver proposes <strong>${R.optimal.layoffs.length}</strong> layoffs · new hourly capped at ${R.optimal.maxBF}h.
+      The optimal cut set is pinned via overrides below — toggle any account to explore variations (numbers re-evaluate instantly, but only this pinned set is proven optimal). Protected people and your prior keep/cut pins were honored as hard constraints.</div>`;
+  }
+  html+='<div class="card" style="border-left:4px solid '+(healthy?'var(--brand)':'var(--rust)')+';"><h2>Recalibration — '+R.from+' to '+R.to+'</h2>';
+  html+=optBanner;
   // The CEO verdict banner
   html+=`<div style="background:${healthy?'var(--mint)':'#fbe7e4'}; border-radius:6px; padding:12px 14px; margin-bottom:12px; font-family:var(--font-mono); font-size:13px; color:var(--ink);">
     <strong style="font-size:15px;">${healthy?'✓ Net improvement '+fmtMoney(net):'✗ Net loss '+fmtMoney(net)}</strong> over ${R.from}–${R.to}<br>
@@ -807,6 +817,108 @@ document.getElementById('run').onclick=async()=>{
   if(!STATE){alert('Could not load the ledger.');return;}
   runScenario();
 };
+
+// ================= EXACT OPTIMIZER (HiGHS via WebAssembly) =================
+// Builds a mixed-integer model of the whole business problem — which accounts to
+// keep, who to retain — and solves it to PROVEN optimality. Objective: maximize
+// GP of kept accounts minus real cash labor (retained salaries + contractor hours
+// + hourly backfill), subject to: every kept account's hours covered per dept per
+// month; protected people retained; manual overrides honored; salaried loaded to
+// at most the target utilization; new hourly capped at what you can source.
+async function loadHighs(){
+  if(window.__highsInstance) return window.__highsInstance;
+  await new Promise((res,rej)=>{ const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/highs@1.15.2/build/highs.js';
+    s.onload=res; s.onerror=()=>rej(new Error('could not load the solver from CDN'));
+    document.head.appendChild(s); });
+  window.__highsInstance = await window.Module({ locateFile:(f)=>'https://cdn.jsdelivr.net/npm/highs@1.15.2/build/'+f });
+  return window.__highsInstance;
+}
+
+function buildOptimizerLP(R){
+  const months=R.months, accounts=R.accounts;
+  const staffAll=STATE.staff.filter(s=>months.some(mk=>staffActiveInMonth(s,mk)));
+  const deptOfP={}; staffAll.forEach(s=>{ deptOfP[s.id]=normDept(s.department)||'No department'; });
+  const salaried=staffAll.filter(s=>empType(s)==='fulltime');
+  const hourlyP=staffAll.filter(s=>empType(s)==='hourly');
+  const targetUtil=R.params.targetUtil||0.85, hourlyRate=R.params.hourlyRate||45;
+  const maxBF=Math.max(0,+((document.getElementById('p-maxbf')||{}).value)||300);
+
+  const salWin={}, capNet={};
+  salaried.forEach(s=>{ salWin[s.id]=months.reduce((t,mk)=>t+salariedMonthlyCost(s,mk),0);
+    capNet[s.id]={}; months.forEach(mk=>{ capNet[s.id][mk]=Math.max(monthlyCapacityFor(s,mk)-personInternalHours(s.id,mk),0); }); });
+  const hrs={}; staffAll.forEach(s=>{ hrs[s.id]={}; accounts.forEach(a=>{ const m={}; a.winMonths.forEach(mk=>{ const h=personProjectHours(s.id,a.id,mk); if(h>0) m[mk]=h; }); hrs[s.id][a.id]=m; }); });
+
+  const obj=[], cons=[], bounds=[], bins=[];
+  const vA={}, vY={};
+  accounts.forEach((a,i)=>{ vA[a.id]='a'+i; bins.push('a'+i); if(a.gp) obj.push(`${a.gp>0?'+':'-'} ${Math.abs(a.gp).toFixed(2)} a${i}`); });
+  salaried.forEach((s,i)=>{ vY[s.id]='y'+i; bins.push('y'+i); if(salWin[s.id]>0) obj.push(`- ${salWin[s.id].toFixed(2)} y${i}`); });
+  salaried.forEach(s=>{ if(s.layoffProtected) cons.push(`prot_${vY[s.id]}: ${vY[s.id]} = 1`); });
+  const ov=(R.overrides||{});
+  accounts.forEach(a=>{ if(ov[a.id]==='keep') cons.push(`ovk_${vA[a.id]}: ${vA[a.id]} = 1`); if(ov[a.id]==='cut') cons.push(`ovc_${vA[a.id]}: ${vA[a.id]} = 0`); });
+
+  const depts=[...new Set(staffAll.map(s=>deptOfP[s.id]))];
+  const bVars=[];
+  depts.forEach((d,di)=>months.forEach((mk,mi)=>{
+    const terms=[];
+    accounts.forEach(a=>{ let dem=0; staffAll.forEach(s=>{ if(deptOfP[s.id]===d) dem+=(hrs[s.id][a.id]||{})[mk]||0; }); if(dem>0.01) terms.push(`+ ${dem.toFixed(2)} ${vA[a.id]}`); });
+    if(!terms.length) return;
+    salaried.forEach(s=>{ if(deptOfP[s.id]!==d) return; const c=capNet[s.id][mk]; if(c>0.01) terms.push(`- ${(targetUtil*c).toFixed(2)} ${vY[s.id]}`); });
+    hourlyP.forEach((h,hi)=>{
+      if(deptOfP[h.id]!==d) return;
+      let tot=0; accounts.forEach(a=>{ tot+=(hrs[h.id][a.id]||{})[mk]||0; });
+      if(tot<=0.01) return;
+      const cv=`c${hi}_${mi}`;
+      terms.push(`- ${cv}`);
+      obj.push(`- ${(h.hourlyCost||0).toFixed(2)} ${cv}`);
+      bounds.push(`0 <= ${cv} <= ${tot.toFixed(2)}`);
+      const lim=[]; accounts.forEach(a=>{ const hh=(hrs[h.id][a.id]||{})[mk]||0; if(hh>0.01) lim.push(`- ${hh.toFixed(2)} ${vA[a.id]}`); });
+      cons.push(`clim${hi}_${mi}: ${cv} ${lim.join(' ')} <= 0`);
+    });
+    const bv=`b${di}_${mi}`; bVars.push(bv); terms.push(`- ${bv}`);
+    obj.push(`- ${hourlyRate} ${bv}`); bounds.push(`${bv} >= 0`);
+    cons.push(`cov${di}_${mi}: ${terms.join(' ')} <= 0`);
+  }));
+  if(bVars.length) cons.push(`maxbf: ${bVars.join(' + ')} <= ${maxBF}`);
+
+  const lp=`Maximize\n obj: ${obj.join(' ')}\nSubject To\n ${cons.join('\n ')}\nBounds\n ${bounds.join('\n ')}\nBinary\n ${bins.join(' ')}\nEnd`;
+  return { lp, vA, vY, accounts, salaried, maxBF };
+}
+
+function applyOptimalSolution(sol, M){
+  // Pin the proven-optimal cut set as overrides, then let the demand-driven staffing
+  // and rendering pipeline present it — every account stays individually togglable.
+  lastRun.overrides={};
+  M.accounts.forEach(a=>{ lastRun.overrides[a.id] = (sol.Columns[M.vA[a.id]].Primal>=0.5)?'keep':'cut'; });
+  lastRun.decision=decideByFloor(lastRun.accounts,lastRun.floor,lastRun.confidence,lastRun.months,lastRun.params);
+  lastRun.optimal={ objective:sol.ObjectiveValue,
+    layoffs:M.salaried.filter(s=>sol.Columns[M.vY[s.id]].Primal<0.5).map(s=>s.name||'Unnamed'),
+    maxBF:M.maxBF };
+  renderResults();
+}
+
+document.getElementById('solve-opt').onclick=async()=>{
+  const btn=document.getElementById('solve-opt');
+  btn.disabled=true;
+  try{
+    btn.textContent='Loading data…';
+    try{ const {data,error}=await sb.from('ledger_state').select('data').eq('id',WORKSPACE_ID).maybeSingle();
+      if(!error&&data){ STATE=data.data; ['staff','projects','assignments','actuals','demand'].forEach(k=>{ if(!STATE[k]) STATE[k]=(k==='staff'||k==='projects')?[]:{}; }); } }catch(e){}
+    if(!STATE){ alert('Could not load the ledger.'); return; }
+    if(lastRun) lastRun.optimal=null;
+    runScenario();
+    btn.textContent='Loading solver…';
+    const highs=await loadHighs();
+    btn.textContent='Solving…';
+    const M=buildOptimizerLP(lastRun);
+    const sol=highs.solve(M.lp);
+    if(sol.Status!=='Optimal'){ alert('Solver finished with status: '+sol.Status+'. Try raising the max new hourly hours — the constraints may be infeasible.'); return; }
+    applyOptimalSolution(sol,M);
+  }catch(e){ console.error(e); alert('Optimizer failed: '+e.message); }
+  finally{ btn.textContent='Solve optimally'; btn.disabled=false; }
+};
+// ================= end optimizer =================
+
 document.getElementById('export-json').onclick=async()=>{
   const btn=document.getElementById('export-json'); btn.textContent='Exporting…'; btn.disabled=true;
   try{
