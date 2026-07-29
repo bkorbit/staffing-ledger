@@ -1164,9 +1164,10 @@ function rebuildBillingSection() {
     if (t === 'search' || t === 'social') params = `<label>fee %<input type="text" inputmode="decimal" value="${l.feePct || ''}" data-role="bl-fee" data-line="${i}"></label><span class="pm-hint" style="margin:0;">media is 1:1 pass-through — only the fee counts as gross profit</span>`;
     if (t === 'programmatic') params = `<label>fee %<input type="text" inputmode="decimal" value="${l.feePct || ''}" data-role="bl-fee" data-line="${i}"></label><label>default margin %<input type="text" inputmode="decimal" value="${l.marginPct || ''}" data-role="bl-margin" data-line="${i}"></label>`;
     if (t === 'hourly') params = `<label>rate $/h<input type="text" inputmode="decimal" value="${l.rate || ''}" data-role="bl-rate" data-line="${i}"></label>
-      <label>hours<select data-role="bl-mode" data-line="${i}"><option value="flight" ${l.mode !== 'monthly' ? 'selected' : ''}>spread over flight</option><option value="monthly" ${l.mode === 'monthly' ? 'selected' : ''}>per month</option></select></label>
-      ${l.mode !== 'monthly' ? `<label>total hours<input type="text" inputmode="decimal" value="${l.hours || ''}" data-role="bl-hours" data-line="${i}"></label>` : ''}`;
-    const needsMonths = (t !== 'retainer') && !(t === 'hourly' && l.mode !== 'monthly');
+      <label>hours<select data-role="bl-mode" data-line="${i}"><option value="flight" ${(l.mode !== 'monthly' && l.mode !== 'scheduled') ? 'selected' : ''}>spread over flight</option><option value="monthly" ${l.mode === 'monthly' ? 'selected' : ''}>per month</option><option value="scheduled" ${l.mode === 'scheduled' ? 'selected' : ''}>billed from schedule</option></select></label>
+      ${(l.mode !== 'monthly' && l.mode !== 'scheduled') ? `<label>total hours<input type="text" inputmode="decimal" value="${l.hours || ''}" data-role="bl-hours" data-line="${i}"></label>` : ''}
+      ${l.mode === 'scheduled' ? `<label>cap h/mo (optional)<input type="text" inputmode="decimal" value="${l.capHours || ''}" data-role="bl-caph" data-line="${i}" title="Max billable hours per month. Scheduled hours above the cap still cost but don't bill — prevents padded schedules from inflating forecast revenue."></label>` : ''}`;
+    const needsMonths = (t !== 'retainer') && !(t === 'hourly' && l.mode !== 'monthly');   // scheduled falls under mode !== 'monthly' -> no month grid
     return `
       <div class="bl-line">
         <div class="bl-top">
@@ -1474,6 +1475,16 @@ function lineGP(p, line, mk) {
     return budget * ((line.feePct || 0) + margin) / 100;
   }
   if (t === 'hourly') {
+    if (line.mode === 'scheduled') {
+      // Bill the hours actually scheduled/logged on the account this month (same hours
+      // source as delivery cost: actuals where logged, else planned assignments), at the
+      // blended rate — optionally capped so padded schedules can't inflate revenue.
+      // Hours above the cap still cost (the work is done) but don't bill.
+      let h = 0;
+      state.staff.forEach(s => { const a = actualFor(mk, s.id, p.id); h += a > 0 ? a : assignFor(mk, s.id, p.id); });
+      const cap = +line.capHours > 0 ? +line.capHours : Infinity;
+      return Math.min(h, cap) * (line.rate || 0);
+    }
     if (line.mode === 'monthly') return ((line.hoursByMonth || {})[mk] || 0) * (line.rate || 0);
     if (!flight || !flight.length || !inFlight) return 0;
     return ((line.hours || 0) / flight.length) * (line.rate || 0);
@@ -1499,7 +1510,12 @@ function billingMonths(p) {
   if (!billingActive(p)) return set;
   const flight = monthsOfFlight(p) || [];
   p.billing.lines.forEach(l => {
-    if (l.type === 'retainer' || (l.type === 'hourly' && l.mode !== 'monthly')) flight.forEach(mk => set.add(mk));
+    if (l.type === 'retainer' || (l.type === 'hourly' && l.mode !== 'monthly' && l.mode !== 'scheduled')) flight.forEach(mk => set.add(mk));
+    if (l.type === 'hourly' && l.mode === 'scheduled') {
+      ['assignments', 'actuals'].forEach(store => Object.keys(state[store] || {}).forEach(mk => {
+        if (Object.keys(state[store][mk] || {}).some(k => k.endsWith('__' + p.id))) set.add(mk);
+      }));
+    }
     Object.keys(l.budgets || {}).forEach(mk => { if (l.budgets[mk]) set.add(mk); });
     Object.keys(l.hoursByMonth || {}).forEach(mk => { if (l.hoursByMonth[mk]) set.add(mk); });
   });
@@ -4141,7 +4157,7 @@ function render() {
 const TYPED_ROLES = new Set(['staff-name','staff-dept','staff-cost','staff-cap','staff-internal',
   'project-name','project-revenue-month','assignment','demand-hours',
   'pm-name','pm-dept','pm-cost','pm-cap','pj-rev-month','fc-rev-month','pb-rev-month',
-  'bl-amount','bl-fee','bl-rate','bl-margin','bl-hours','bl-budget','bl-mmargin','bl-mhours','bl-label']);
+  'bl-amount','bl-fee','bl-rate','bl-margin','bl-hours','bl-budget','bl-mmargin','bl-mhours','bl-caph','bl-label']);
 let typedFieldDirty = false;
 
 /* ===== Team assignment picker (styled, self-contained; no re-render on keystroke) ===== */
@@ -4272,6 +4288,7 @@ document.addEventListener('input', (e) => {
         else if (role === 'bl-amount') line.amount = num(t.value) || 0;
         else if (role === 'bl-fee') line.feePct = num(t.value) || 0;
         else if (role === 'bl-margin') line.marginPct = num(t.value) || 0;
+        else if (role === 'bl-caph') line.capHours = num(t.value) || 0;
         else if (role === 'bl-rate') line.rate = num(t.value) || 0;
         else if (role === 'bl-hours') line.hours = num(t.value) || 0;
         else if (role === 'bl-budget') { if (!line.budgets) line.budgets = {}; const v = num(t.value); if (v === undefined) delete line.budgets[t.dataset.mk]; else line.budgets[t.dataset.mk] = v; }
