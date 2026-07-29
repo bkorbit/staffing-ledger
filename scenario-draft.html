@@ -72,7 +72,7 @@ tr.kept-marginal{ background:#fdf3dc; }
   </div>
 
   <div id="app" style="display:none;">
-    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0422</span></h1>
+    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-1804</span></h1>
     <div class="sub">Reads the live ledger. Changes nothing. <strong>Stage 1:</strong> every account is judged on gross profit per hour of team time it consumes, against a floor you set — anything below the floor is a cut candidate, regardless of who happens to be staffed on it. <strong>Stage 2:</strong> a staffing plan is built from the survivors, with real salaried + hourly costs, showing the labor you save. Drag the floor and watch accounts move. Every number is a proposal — apply judgment.</div>
 
     <div class="card">
@@ -167,7 +167,24 @@ function revenueFor(p,mk){ const man=(p.revenueOverrides||{})[mk]; if(man!==unde
 function actualFor(mk,sid,pid){ return (STATE.actuals[mk]||{})[sid+'__'+pid]||0; }
 function assignFor(mk,sid,pid){ return (STATE.assignments[mk]||{})[sid+'__'+pid]||0; }
 // hours a person spends on a given project in a month: prefer actuals, fall back to plan
-function personProjectHours(sid,pid,mk){ const a=actualFor(mk,sid,pid); return a>0?a:assignFor(mk,sid,pid); }
+// ---- ACCOUNT MERGES (this tool only; never written to the ledger) ----
+// Some ledger entries are effectively one client. Merging them here makes the whole
+// pipeline — economics, demand, coverage, the solver, the display — treat them as a
+// single account, with ONE cut/keep decision. Map: secondary project id -> primary.
+const ACCOUNT_MERGES = { '52p8iz5d': 'lw03p3g2' };   // Disney Parks & Resorts -> Disney Rewards Visa Card
+const MERGE_MEMBERS = {};                             // primary -> [primary, ...secondaries]
+Object.entries(ACCOUNT_MERGES).forEach(([sec,prim])=>{ (MERGE_MEMBERS[prim]=MERGE_MEMBERS[prim]||[prim]).push(sec); });
+const MERGE_LABELS = { 'lw03p3g2': 'Disney (Visa + Parks & Resorts)' };
+function mergeMemberProjects(pid){ return (MERGE_MEMBERS[pid]||[pid]).map(id=>STATE.projects.find(x=>x.id===id)).filter(Boolean); }
+
+// Merge-aware: asking for a primary returns hours across all its members; a secondary
+// (folded into its primary) returns 0 so it never double-counts or appears on its own.
+function personProjectHours(sid,pid,mk){
+  const mem=MERGE_MEMBERS[pid];
+  if(mem){ let t=0; mem.forEach(m=>{ const a=actualFor(mk,sid,m); t+=a>0?a:assignFor(mk,sid,m); }); return t; }
+  if(ACCOUNT_MERGES[pid]) return 0;
+  const a=actualFor(mk,sid,pid); return a>0?a:assignFor(mk,sid,pid);
+}
 // total hours logged/planned on a project in a month across all staff
 function projectHours(pid,mk){ let sum=0; STATE.staff.forEach(s=>{ sum+=personProjectHours(s.id,pid,mk); }); return sum; }
 
@@ -244,18 +261,20 @@ function blendedFteHourCost(months){
 function accountEconomics(months){
   const winSet=new Set(months);
   return STATE.projects.map(p=>{
-    // Window months where the account has any footprint (revenue, billing, or hours),
+    if(ACCOUNT_MERGES[p.id]) return null;   // secondary — folded into its primary below
+    const memberProjs = mergeMemberProjects(p.id);
+    // Window months = union of every member's footprint (revenue, billing, or hours),
     // NOT gated by flight dates — computed-billing months outside the flight still count.
-    const foot=new Set(accountMonths(p));
+    const foot=new Set(); memberProjs.forEach(mp=>accountMonths(mp).forEach(mk=>foot.add(mk)));
     const winMonths = months.filter(mk=>foot.has(mk));
     let gp=0, hours=0;
-    winMonths.forEach(mk=>{ gp+=revenueFor(p,mk); hours+=projectHours(p.id,mk); });
+    winMonths.forEach(mk=>{ memberProjs.forEach(mp=>{ gp+=revenueFor(mp,mk); }); hours+=projectHours(p.id,mk); });
     const dept = dominantDept(p.id, winMonths[0]||months[0]);
     const del = accountDelivery(p, winMonths);
     const contribution = gp - del.loaded;          // fully-loaded (allocation) truth
     const cashContribution = gp - del.marginal;    // marginal / cash
     const unattributed = del.hours <= 0 && gp !== 0; // revenue but nobody staffed -> can't assess
-    return { p, id:p.id, name:p.name||'Untitled', dept, winMonths,
+    return { p, id:p.id, members:memberProjs, name:(MERGE_LABELS[p.id]||p.name||'Untitled'), dept, winMonths,
       gp, hours, deliveryLoaded:del.loaded, deliveryMarginal:del.marginal, perPerson:del.perPerson,
       contribution, cashContribution,
       marginPct: gp>0 ? contribution/gp : (contribution<0?-1:0),
@@ -263,8 +282,8 @@ function accountEconomics(months){
       contribPerHour: hours>0 ? contribution/hours : (contribution>0?Infinity:0),
       unattributed,
       monthHours: Object.fromEntries(winMonths.map(mk=>[mk,projectHours(p.id,mk)])),
-      monthGP: Object.fromEntries(winMonths.map(mk=>[mk,revenueFor(p,mk)])) };
-  }).filter(a=>a.winMonths.length && (a.gp!==0 || a.hours>0));
+      monthGP: Object.fromEntries(winMonths.map(mk=>[mk, memberProjs.reduce((s,mp)=>s+revenueFor(mp,mk),0)])) };
+  }).filter(a=>a && a.winMonths.length && (a.gp!==0 || a.hours>0));
 }
 
 // Lens B: per-person efficiency across the window. Cost = fully-loaded salary/rate;
@@ -922,11 +941,11 @@ function buildOptimizerLP(R){
   const hourlyGPOf={};
   accounts.forEach(a=>{
     let hg=0;
-    if(billingActive(a.p)) a.winMonths.forEach(mk=>{
-      if((a.p.revenueOverrides||{})[mk]!==undefined) return;         // manual months: source unknown, no discount
-      if(!billingMonths(a.p).has(mk)) return;
-      a.p.billing.lines.forEach(l=>{ if(l.type==='hourly') hg+=lineGP(a.p,l,mk); });
-    });
+    (a.members||[a.p]).forEach(mp=>{ if(!billingActive(mp)) return; a.winMonths.forEach(mk=>{
+      if((mp.revenueOverrides||{})[mk]!==undefined) return;          // manual months: source unknown, no discount
+      if(!billingMonths(mp).has(mk)) return;
+      mp.billing.lines.forEach(l=>{ if(l.type==='hourly') hg+=lineGP(mp,l,mk); });
+    }); });
     hourlyGPOf[a.id]=Math.max(0,Math.min(hg,a.gp||0));
   });
   accounts.forEach((a,i)=>{ vA[a.id]='a'+i; bins.push('a'+i);
