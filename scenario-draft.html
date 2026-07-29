@@ -72,7 +72,7 @@ tr.kept-marginal{ background:#fdf3dc; }
   </div>
 
   <div id="app" style="display:none;">
-    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0229</span></h1>
+    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0233</span></h1>
     <div class="sub">Reads the live ledger. Changes nothing. <strong>Stage 1:</strong> every account is judged on gross profit per hour of team time it consumes, against a floor you set — anything below the floor is a cut candidate, regardless of who happens to be staffed on it. <strong>Stage 2:</strong> a staffing plan is built from the survivors, with real salaried + hourly costs, showing the labor you save. Drag the floor and watch accounts move. Every number is a proposal — apply judgment.</div>
 
     <div class="card">
@@ -81,6 +81,7 @@ tr.kept-marginal{ background:#fdf3dc; }
         <label class="param">Window from<input type="month" id="p-from"></label>
         <label class="param">Window to<input type="month" id="p-to"></label>
         <label class="param">New-hourly rate $<input type="number" id="p-hourly" value="45" title="Blended rate used to cost any hourly backfill needed to cover demand that retained salaried staff can't."></label>
+        <label class="param">Keep if util ≥ %<input type="number" id="p-keeputil" value="30" title="After cuts, if a salaried person's remaining work on surviving accounts fills less than this % of their capacity, a full salary isn't justified — lay them off and backfill the leftover hours hourly. Set to 0 to retain anyone with any surviving work."></label>
       </div>
       <div id="floor-box" style="margin-top:16px;"></div>
       <button class="run" id="run">Run scenario</button>
@@ -329,6 +330,7 @@ function departmentRollup(months){
 function runScenario(){
   if(!STATE){ return; }
   const hourlyRate=+document.getElementById('p-hourly').value||45;
+  const keepUtil=Math.max(0,Math.min(100,+document.getElementById('p-keeputil').value||0))/100;
   const fromEl=document.getElementById('p-from'), toEl=document.getElementById('p-to');
   const nowMk=monthKey(new Date());
   let from=(fromEl&&/^\d{4}-\d{2}$/.test(fromEl.value))?fromEl.value:shiftMonth(nowMk,1);
@@ -336,7 +338,7 @@ function runScenario(){
   if(to<from) to=from;
   const months=[]; let mk=from, g=0; while(mk<=to && g<36){ months.push(mk); mk=shiftMonth(mk,1); g++; }
 
-  const P={ hourlyRate, months, from, to };
+  const P={ hourlyRate, keepUtil, months, from, to };
   const confidence=computeConfidence(months);
   const accounts=accountEconomics(months);
   const rollup=departmentRollup(months);
@@ -433,14 +435,23 @@ function solveStaffing(accounts, keptIds, months, P){
     const hourly=dp.filter(p=>p.type==='hourly');
     salaried.forEach(pp=>{ pp._fwdGP=fwdGP(pp); pp._fwdSalary=months.reduce((s,mk)=>s+(pp.monthSalary[mk]||0),0); pp._cov=pp._fwdSalary>0?pp._fwdGP/pp._fwdSalary:Infinity; pp._keptHours=keptHoursOf(pp); pp._keptAssignments=keptAssignmentsOf(pp); });
 
-    // Retention rule: a person is retained ONLY if they still have hours on a surviving
-    // account (their work didn't get cut). Protected people are always retained.
-    // Reassignment is same-department only and never invents cross-department moves.
+    // Retention rule:
+    //  - Protected people are always retained.
+    //  - If ALL of a person's accounts are cut, they have no work -> lay off.
+    //  - If only a SLIVER survives (post-cut utilization below the keep threshold), a full
+    //    salary isn't justified -> lay off and backfill the leftover hours hourly.
+    //  - Otherwise retain them on their surviving work.
+    const keepUtil = (P.keepUtil!==undefined ? P.keepUtil : 0.3);
+    const availOf = pp => months.reduce((s,mk)=>s+Math.max((pp.cap[mk]||0)-(pp.internal[mk]||0),0),0);
     const retained=[], laidOff=[];
     salaried.forEach(pp=>{
       if(pp.protected){ retained.push(pp); pp._reason='protected'; return; }
-      if(pp._keptHours>0.5){ retained.push(pp); pp._reason='works on surviving account'+(pp._keptAssignments.length?' ('+pp._keptAssignments.map(x=>x.name).join(', ')+')':''); }
-      else { laidOff.push(pp); pp._reason='all their accounts cut — no remaining work'; }
+      const avail=availOf(pp);
+      const postUtil = avail>0 ? pp._keptHours/avail : 0;
+      pp._postUtil=postUtil;
+      if(pp._keptHours<=0.5){ laidOff.push(pp); pp._reason='all their accounts cut — no remaining work'; }
+      else if(postUtil < keepUtil){ laidOff.push(pp); pp._reason='only '+Math.round(postUtil*100)+'% utilized after cuts ('+pp._keptAssignments.map(x=>x.name).join(', ')+') — leftover backfilled hourly'; }
+      else { retained.push(pp); pp._reason='works on surviving account'+(pp._keptAssignments.length?' ('+pp._keptAssignments.map(x=>x.name).join(', ')+')':''); }
     });
     laidOff.forEach(p=>laidOffIds.push(p.id));
 
