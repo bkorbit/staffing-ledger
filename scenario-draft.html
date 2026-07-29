@@ -72,7 +72,7 @@ tr.kept-marginal{ background:#fdf3dc; }
   </div>
 
   <div id="app" style="display:none;">
-    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0323</span></h1>
+    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0327</span></h1>
     <div class="sub">Reads the live ledger. Changes nothing. <strong>Stage 1:</strong> every account is judged on gross profit per hour of team time it consumes, against a floor you set — anything below the floor is a cut candidate, regardless of who happens to be staffed on it. <strong>Stage 2:</strong> a staffing plan is built from the survivors, with real salaried + hourly costs, showing the labor you save. Drag the floor and watch accounts move. Every number is a proposal — apply judgment.</div>
 
     <div class="card">
@@ -416,10 +416,18 @@ function solveStaffing(accounts, keptIds, months, P){
   const kept=accounts.filter(a=>keptIds.has(a.id));
   const targetUtil=Math.min(Math.max(P.targetUtil||0.85,0.4),1);
 
-  // Demand per department per month = ALL hours kept accounts need, whoever currently
-  // does them (salaried, laid-off, or contractor). Staffing is sized to cover this.
+  // Demand per department per month: hours that THIS department's people have on kept
+  // accounts. An account can span departments (creative + analytics + media on one
+  // client) — bucketing whole accounts under a dominant dept starves the others.
+  const deptOf={}; STATE.staff.forEach(s=>{ deptOf[s.id]=normDept(s.department); });
   const deptMonthDemand={};
-  kept.forEach(a=>{ const d=a.dept||'No department'; (deptMonthDemand[d]=deptMonthDemand[d]||{}); a.winMonths.forEach(mk=>{ deptMonthDemand[d][mk]=(deptMonthDemand[d][mk]||0)+(a.monthHours[mk]||0); }); });
+  kept.forEach(a=>{ a.winMonths.forEach(mk=>{
+    STATE.staff.forEach(s=>{
+      const h=personProjectHours(s.id,a.id,mk); if(h<=0) return;
+      const d=deptOf[s.id]||'No department';
+      (deptMonthDemand[d]=deptMonthDemand[d]||{})[mk]=((deptMonthDemand[d]||{})[mk]||0)+h;
+    });
+  }); });
 
   const people=STATE.staff.filter(s=>months.some(mk=>staffActiveInMonth(s,mk))).map(s=>({
     s, id:s.id, name:s.name||'Unnamed', dept:normDept(s.department), type:empType(s),
