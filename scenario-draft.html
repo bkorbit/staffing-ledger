@@ -73,27 +73,16 @@ tr.kept-marginal{ background:#fdf3dc; }
 
   <div id="app" style="display:none;">
     <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span></h1>
-    <div class="sub">Reads the live ledger. Changes nothing. Target: how much is left after paying the execution team to deliver services. People are ranked by coverage — the gross profit their work generates versus their own cost; everyone should clear 1×, and we retain those who clear it by the most. Every number is a proposal — apply judgment.</div>
+    <div class="sub">Reads the live ledger. Changes nothing. <strong>Stage 1:</strong> every account is judged on gross profit per hour of team time it consumes, against a floor you set — anything below the floor is a cut candidate, regardless of who happens to be staffed on it. <strong>Stage 2:</strong> a staffing plan is built from the survivors, with real salaried + hourly costs, showing the labor you save. Drag the floor and watch accounts move. Every number is a proposal — apply judgment.</div>
 
     <div class="card">
       <h2>Run parameters</h2>
-      <div class="obj-toggle" id="obj-toggle">
-        <button class="obj-btn active" data-obj="maximize">Maximize team profit</button>
-        <button class="obj-btn" data-obj="margin">Hit target net margin %</button>
-        <button class="obj-btn" data-obj="overhead">Cover overhead $ + profit</button>
-      </div>
       <div class="params">
-        <label class="param">Utilization target %<input type="number" id="p-util" value="80"></label>
-        <label class="param">FT→hourly trigger %<input type="number" id="p-downsize" value="50"></label>
-        <label class="param">Profit/hr floor $<input type="number" id="p-pph" value="150"></label>
-        <label class="param">Outlier rule<select id="p-outlier"><option value="avg1">Dept avg + ≤1 below</option><option value="all">Everyone must clear</option><option value="avg">Dept average only</option></select></label>
-        <label class="param" id="wrap-margin">Target net margin %<input type="number" id="p-margin" value="35"></label>
-        <label class="param" id="wrap-overhead" style="display:none;">Monthly overhead $<input type="number" id="p-overhead" value="0"></label>
-        <label class="param">New-hourly rate $<input type="number" id="p-hourly" value="45"></label>
-        <label class="param">Horizon (months)<input type="number" id="p-months" value="6" title="How far forward the model evaluates. Headcount, coverage, and the keep/cut decision all reason across this window."></label>
-        <label class="param">Max idle months<input type="number" id="p-maxidle" value="3" title="Longest a person may sit idle waiting for a future account before they're a layoff candidate. The longer the idle stretch, the more that future account must be worth to justify carrying them."></label>
-        <label class="param">Changes effective<input type="month" id="p-effective"></label>
+        <label class="param">Window from<input type="month" id="p-from"></label>
+        <label class="param">Window to<input type="month" id="p-to"></label>
+        <label class="param">New-hourly rate $<input type="number" id="p-hourly" value="45" title="Blended rate used to cost any hourly backfill needed to cover demand that retained salaried staff can't."></label>
       </div>
+      <div id="floor-box" style="margin-top:16px;"></div>
       <button class="run" id="run">Run scenario</button>
     </div>
 
@@ -171,251 +160,160 @@ function projectFlightHours(p){ return accountMonths(p).reduce((s,mk)=>s+project
 function projectFlightRevenue(p){ return accountMonths(p).reduce((s,mk)=>s+revenueFor(p,mk),0); }
 function personInternalHours(sid,mk){ return Math.max(actualFor(mk,sid,INTERNAL_ID), assignFor(mk,sid,INTERNAL_ID)); }
 
-// ---------- the optimizer ----------
+// ---------- the two-stage model ----------
+// Blended cost of one hour of salaried capacity across the window — the break-even
+// anchor for the floor. If an account earns less GP per hour than this, it literally
+// doesn't cover the cost of the team hours it eats.
+function blendedFteHourCost(months){
+  let salary=0, capHours=0;
+  STATE.staff.filter(s=>empType(s)==='fulltime').forEach(s=>{
+    months.forEach(mk=>{
+      if(!staffActiveInMonth(s,mk)) return;
+      salary += salariedMonthlyCost(s,mk);
+      capHours += Math.max(monthlyCapacityFor(s,mk),0);
+    });
+  });
+  return capHours>0 ? salary/capHours : 0;
+}
+
+// Stage 1 input: per-account economics over the window, purely on the account's own
+// numbers — total GP, total scheduled hours (whoever is on them), GP/hr, margin.
+function accountEconomics(months){
+  return STATE.projects.map(p=>{
+    const winMonths = months.filter(mk=>projectActiveInMonth(p,mk));
+    let gp=0, hours=0, revenue=0;
+    winMonths.forEach(mk=>{ gp+=revenueFor(p,mk); hours+=projectHours(p.id,mk); });
+    revenue = gp; // GP is already gross profit in this model
+    const dept = dominantDept(p.id, winMonths[0]||months[0]);
+    return { p, id:p.id, name:p.name||'Untitled', dept, winMonths,
+      gp, hours, pph: hours>0 ? gp/hours : (gp>0?Infinity:0),
+      margin: null,   // reserved: GP/revenue once top-line revenue is modelled
+      monthHours: Object.fromEntries(winMonths.map(mk=>[mk,projectHours(p.id,mk)])),
+      monthGP: Object.fromEntries(winMonths.map(mk=>[mk,revenueFor(p,mk)])) };
+  }).filter(a=>a.winMonths.length && (a.gp!==0 || a.hours>0));
+}
+
 function runScenario(){
-  const util=(+document.getElementById('p-util').value||80)/100;
-  const downsize=(+document.getElementById('p-downsize').value||50)/100;
-  const pphFloor=+document.getElementById('p-pph').value||0;
-  const outlierRule=document.getElementById('p-outlier').value;
-  const targetMargin=(+document.getElementById('p-margin').value||0)/100;
-  const overhead=+document.getElementById('p-overhead').value||0;
+  if(!STATE){ return; }
   const hourlyRate=+document.getElementById('p-hourly').value||45;
-  const nMonths=Math.max(1,Math.min(18,+document.getElementById('p-months').value||6));
-  const maxIdle=Math.max(0,Math.min(18,+document.getElementById('p-maxidle').value||3));
+  const fromEl=document.getElementById('p-from'), toEl=document.getElementById('p-to');
+  const nowMk=monthKey(new Date());
+  let from=(fromEl&&/^\d{4}-\d{2}$/.test(fromEl.value))?fromEl.value:shiftMonth(nowMk,1);
+  let to=(toEl&&/^\d{4}-\d{2}$/.test(toEl.value))?toEl.value:shiftMonth(from,4);
+  if(to<from) to=from;
+  const months=[]; let mk=from, g=0; while(mk<=to && g<36){ months.push(mk); mk=shiftMonth(mk,1); g++; }
 
-  const P={util,downsize,pphFloor,outlierRule,targetMargin,overhead,hourlyRate,maxIdle,nMonths};
-  const effEl=document.getElementById('p-effective');
-  const decideMk=(effEl && /^\d{4}-\d{2}$/.test(effEl.value)) ? effEl.value : shiftMonth(monthKey(new Date()),1);
-  const months=[]; for(let i=0;i<nMonths;i++) months.push(shiftMonth(decideMk,i));
+  const P={ hourlyRate, months, from, to };
   const confidence=computeConfidence(months);
+  const accounts=accountEconomics(months);
+  const breakeven=blendedFteHourCost(months);
 
-  // HORIZON-BASED joint optimization: decide which accounts to cut and who to lay off by
-  // reasoning across the whole window, not the decision month alone.
-  const decision=optimizeHorizon(months,decideMk,P,confidence);
+  // Floor: first run anchors to break-even; after that, honor whatever the user set
+  // (either the live floor from lastRun or the current input value).
+  let floor;
+  if(lastRun && typeof lastRun.floor==='number'){
+    const floorEl=document.getElementById('floor-input');
+    floor = (floorEl && /^\d/.test(floorEl.value)) ? +floorEl.value : lastRun.floor;
+  } else {
+    floor = Math.round(breakeven);
+  }
 
-  // Project the frozen decision across the window for the trajectory view.
-  const cutSet=new Set(decision.cutIds);
-  const laidOffIds=new Set(decision.laidOffIds);
-  const trajectory=months.map(mk=>projectDecision(mk,cutSet,laidOffIds,P,decideMk));
+  const decision=decideByFloor(accounts, floor, confidence, months, P);
 
-  lastRun={decideMk,months,decision,trajectory,cutSet:[...cutSet],laidOffIds:[...laidOffIds],confidence,params:P};
+  lastRun={ months, from, to, accounts, breakeven, floor, decision, confidence, params:P };
   renderResults();
 }
 
-// ===== Horizon engine =====
-// Builds per-account and per-person forward profiles across the window, then jointly
-// decides account cuts and layoffs so that: (a) headcount is retained to cover future
-// demand (a big account starting next month keeps its people), (b) a person is laid off
-// only when their forward GP contribution doesn't justify their salary + idle carrying
-// cost, and (c) an account that's marginal on its own is kept when doing so absorbs
-// otherwise-idle (already-paid) capacity.
-function optimizeHorizon(months, decideMk, P, confidence){
-  const projects = STATE.projects;
+// Stage 1: cut every account whose GP/hr is below the floor (unless the data is too
+// thin to trust — those are held for review, but can be force-cut in the table).
+// Stage 2: build the staffing plan from survivors and cost it for real.
+function decideByFloor(accounts, floor, confidence, months, P){
+  const overrides = (lastRun && lastRun.overrides) || {};   // id -> 'cut' | 'keep'
+  const cutIds=new Set(), keptIds=new Set(), reviewIds=new Set();
+  accounts.forEach(a=>{
+    const conf=confidence[a.id]||{};
+    const belowFloor = a.pph < floor;
+    const ov = overrides[a.id];
+    if(ov==='cut'){ cutIds.add(a.id); return; }
+    if(ov==='keep'){ keptIds.add(a.id); return; }
+    if(belowFloor){
+      if(conf.dataThin || conf.noForecast){ reviewIds.add(a.id); keptIds.add(a.id); }  // safety valve: hold, don't auto-cut
+      else cutIds.add(a.id);
+    } else keptIds.add(a.id);
+  });
 
-  // Per-account flight economics (whole-flight totals) + which window months it's active.
-  const accounts = projects.map(p=>{
-    const gp = projectFlightRevenue(p);
-    const hours = projectFlightHours(p);
-    const winMonths = months.filter(mk=>projectActiveInMonth(p,mk));
-    const dept = dominantDept(p.id, winMonths[0]||decideMk);
-    // per-window-month hours this account needs (actuals where logged else assignments)
-    const monthHours = {}; winMonths.forEach(mk=>{ monthHours[mk]=projectHours(p.id,mk); });
-    const monthGP = {}; winMonths.forEach(mk=>{ monthGP[mk]=revenueFor(p,mk); });
-    return {p, id:p.id, name:p.name||'Untitled', gp, hours, dept, winMonths, monthHours, monthGP,
-      pph: hours>0? gp/hours : (gp>0?Infinity:0), active: winMonths.length>0};
-  }).filter(a=>a.active && (a.gp!==0 || a.hours>0));
-
-  // People active at any point in the window.
-  const people = STATE.staff.filter(s=>months.some(mk=>staffActiveInMonth(s,mk))).map(s=>({
-    s, id:s.id, name:s.name||'Unnamed', dept:normDept(s.department), type:empType(s),
-    protected: !!s.layoffProtected,
-    // salary per window month (0 in months they're not active)
-    monthSalary: Object.fromEntries(months.map(mk=>[mk, empType(s)==='fulltime' && staffActiveInMonth(s,mk) ? salariedMonthlyCost(s,mk) : 0])),
-    rate: s.hourlyCost,
-    cap: Object.fromEntries(months.map(mk=>[mk, staffActiveInMonth(s,mk)? monthlyCapacityFor(s,mk):0])),
-    internal: Object.fromEntries(months.map(mk=>[mk, staffActiveInMonth(s,mk)? personInternalHours(s.id,mk):0]))
-  }));
-
-  // Greedy joint decision.
-  const keptIds = new Set(accounts.map(a=>a.id));
-  const cutIds = new Set();
-
-  // Rank accounts worst-first by whole-flight profit/hr.
-  const ranked = [...accounts].sort((a,b)=> a.pph-b.pph);
-
-  let improved=true, guard=0;
-  while(improved && guard<accounts.length+2){
-    improved=false; guard++;
-    for(const a of ranked){
-      if(!keptIds.has(a.id)) continue;
-      const conf=(confidence||{})[a.id]||{score:1};
-      if(conf.dataThin || conf.noForecast) continue;   // hold low-confidence for review
-
-      // Evaluate horizon profit WITH vs WITHOUT this account, each time re-deciding
-      // layoffs optimally for the resulting kept-set. The account is cut only if doing
-      // so IMPROVES total horizon execution profit (this automatically captures the
-      // "keep a marginal account to absorb idle capacity" case: if cutting it frees
-      // nobody, the GP loss makes profit worse and we keep it).
-      const withA = solveStaffing(accounts, keptIds, people, months, P);
-      const trial = new Set(keptIds); trial.delete(a.id);
-      const withoutA = solveStaffing(accounts, trial, people, months, P);
-      if(withoutA.execProfit > withA.execProfit + 1){
-        keptIds.delete(a.id); cutIds.add(a.id); improved=true;
-      }
-    }
-  }
-
-  const finalStaff = solveStaffing(accounts, keptIds, people, months, P);
-  const review = accounts.filter(a=>keptIds.has(a.id)).map(a=>a.id)
-    .filter(id=>{ const c=(confidence||{})[id]||{}; return c.dataThin||c.noForecast; });
-
-  return {
-    accounts, people, months, decideMk,
-    keptIds:[...keptIds], cutIds:[...cutIds],
-    laidOffIds: finalStaff.laidOffIds,
-    staff: finalStaff, review,
-    // shims so the existing renderer (which expects decision.final.staffPlan, .accounts, etc.) works
-    final: { gp: finalStaff.gpMonth0, laborCost: finalStaff.laborMonth0, execProfit: finalStaff.execProfit,
-             execMargin: finalStaff.execMargin, staffPlan: finalStaff.staffPlan, newHourly: finalStaff.newHourly },
-    baseline: solveStaffing(accounts, new Set(accounts.map(a=>a.id)), people, months, P)
-  };
+  const staff = solveStaffing(accounts, keptIds, months, P);
+  const cutList = accounts.filter(a=>cutIds.has(a.id));
+  const gpCut = cutList.reduce((s,a)=>s+a.gp,0);
+  const hoursFreed = cutList.reduce((s,a)=>s+a.hours,0);
+  return { floor, cutIds:[...cutIds], keptIds:[...keptIds], reviewIds:[...reviewIds],
+    staff, gpCut, hoursFreed, laborSaved: staff.laborSaved,
+    keptGP: staff.totalGP, keptLabor: staff.totalLabor, execProfit: staff.totalGP - staff.totalLabor };
 }
 
-// Decide, for a given kept-account set, which people to retain vs lay off across the
-// horizon, and compute total horizon execution profit. This is where the forward,
-// carrying-cost logic lives.
-function solveStaffing(accounts, keptIds, people, months, P){
-  const kept = new Set(keptIds);
-  const keptAccts = accounts.filter(a=>kept.has(a.id));
+// Stage 2. Given the surviving accounts, work out per-dept demand across the window,
+// retain salaried people up to that demand (protected first, then best coverage),
+// lay off the rest, and cost hourly backfill for any uncovered demand. Also reports
+// the labor saved vs. keeping everyone.
+function solveStaffing(accounts, keptIds, months, P){
+  const kept=accounts.filter(a=>keptIds.has(a.id));
+  const deptMonthDemand={};
+  kept.forEach(a=>{ const d=a.dept||'No department'; (deptMonthDemand[d]=deptMonthDemand[d]||{}); a.winMonths.forEach(mk=>{ deptMonthDemand[d][mk]=(deptMonthDemand[d][mk]||0)+(a.monthHours[mk]||0); }); });
 
-  // Demand per department per window month (hours needed by kept accounts).
-  const deptMonthDemand = {};   // dept -> {mk -> hours}
-  keptAccts.forEach(a=>{
-    const d=a.dept||'No department';
-    (deptMonthDemand[d]=deptMonthDemand[d]||{});
-    a.winMonths.forEach(mk=>{ deptMonthDemand[d][mk]=(deptMonthDemand[d][mk]||0)+(a.monthHours[mk]||0); });
-  });
+  const people=STATE.staff.filter(s=>months.some(mk=>staffActiveInMonth(s,mk))).map(s=>({
+    s, id:s.id, name:s.name||'Unnamed', dept:normDept(s.department), type:empType(s),
+    protected:!!s.layoffProtected, rate:s.hourlyCost,
+    monthSalary:Object.fromEntries(months.map(mk=>[mk, empType(s)==='fulltime'&&staffActiveInMonth(s,mk)?salariedMonthlyCost(s,mk):0])),
+    cap:Object.fromEntries(months.map(mk=>[mk, staffActiveInMonth(s,mk)?monthlyCapacityFor(s,mk):0])),
+    internal:Object.fromEntries(months.map(mk=>[mk, staffActiveInMonth(s,mk)?personInternalHours(s.id,mk):0]))
+  }));
 
-  // Per-person forward GP contribution on kept accounts (hours-proportional share).
-  function personForwardGP(pp){
-    let gp=0;
-    months.forEach(mk=>{
-      keptAccts.forEach(a=>{
-        if(!a.winMonths.includes(mk)) return;
-        const tot=a.monthHours[mk]; if(tot<=0) return;
-        const mine=personProjectHours(pp.id,a.id,mk); if(mine<=0) return;
-        gp += (a.monthGP[mk]||0) * (mine/tot);
-      });
-    });
-    return gp;
-  }
-  // Months in the window where this person has ANY work on kept accounts.
-  function personBusyMonths(pp){
-    return months.filter(mk=> keptAccts.some(a=>a.winMonths.includes(mk) && personProjectHours(pp.id,a.id,mk)>0));
-  }
+  // per-person forward GP on kept accounts (hours-proportional share)
+  function fwdGP(pp){ let gp=0; months.forEach(mk=>{ kept.forEach(a=>{ if(!a.winMonths.includes(mk))return; const tot=a.monthHours[mk]; if(tot<=0)return; const mine=personProjectHours(pp.id,a.id,mk); if(mine>0) gp+=(a.monthGP[mk]||0)*(mine/tot); }); }); return gp; }
 
-  const byDept={};
-  people.forEach(pp=>{ (byDept[pp.dept]=byDept[pp.dept]||[]).push(pp); });
+  const byDept={}; people.forEach(pp=>{ (byDept[pp.dept]=byDept[pp.dept]||[]).push(pp); });
+  let laidOffIds=[], staffPlan=[], totalLabor=0, totalGP=0, laborAll=0;
 
-  let laidOffIds=[], staffPlan=[];
-  let totalGP=0, totalLabor=0;
-  // month-0 (decision month) snapshots for KPI/label compatibility
-  const mk0=months[0];
-  let gpMonth0=0, laborMonth0=0;
+  Object.entries(byDept).forEach(([dept,dp])=>{
+    const demand=deptMonthDemand[dept]||{};
+    const salaried=dp.filter(p=>p.type==='fulltime');
+    const hourly=dp.filter(p=>p.type==='hourly');
+    salaried.forEach(pp=>{ pp._fwdGP=fwdGP(pp); pp._fwdSalary=months.reduce((s,mk)=>s+(pp.monthSalary[mk]||0),0); pp._cov=pp._fwdSalary>0?pp._fwdGP/pp._fwdSalary:Infinity; });
 
-  Object.entries(byDept).forEach(([dept, dp])=>{
-    const demandByMonth = deptMonthDemand[dept]||{};
-    const peakDemand = Math.max(0, ...months.map(mk=>demandByMonth[mk]||0));
-
-    const salaried = dp.filter(p=>p.type==='fulltime');
-    const hourly = dp.filter(p=>p.type==='hourly');
-
-    // Forward metrics per salaried person.
-    salaried.forEach(pp=>{
-      pp._fwdGP = personForwardGP(pp);
-      pp._fwdSalary = months.reduce((s,mk)=> s + (pp.monthSalary[mk]||0), 0);
-      pp._busy = personBusyMonths(pp);
-      pp._idleMonths = months.filter(mk=>(pp.monthSalary[mk]||0)>0 && !pp._busy.includes(mk)).length;
-      pp._coverage = pp._fwdSalary>0 ? pp._fwdGP/pp._fwdSalary : Infinity;
-    });
-
-    // Retention: protected first, then by forward coverage (highest first). A person is
-    // RETAINED if either (a) they're needed to cover demand in some window month, or
-    // (b) their forward GP justifies their salary. Layoff candidates are those who clear
-    // neither — and the idle-carry rule makes a long idle gap require proportionally
-    // more future GP to survive.
-    const protectedPpl = salaried.filter(p=>p.protected);
-    const cuttable = salaried.filter(p=>!p.protected).sort((a,b)=> b._coverage-a._coverage);
-
-    // Start by retaining protected people; track covered capacity per month.
+    const protectedPpl=salaried.filter(p=>p.protected);
+    const cuttable=salaried.filter(p=>!p.protected).sort((a,b)=>b._cov-a._cov);
     const retained=[...protectedPpl];
-    const coveredByMonth = {}; months.forEach(mk=>{ coveredByMonth[mk]=protectedPpl.reduce((s,pp)=> s + Math.max((pp.cap[mk]||0)-(pp.internal[mk]||0),0),0); });
+    const coveredByMonth={}; months.forEach(mk=>{ coveredByMonth[mk]=protectedPpl.reduce((s,pp)=>s+Math.max((pp.cap[mk]||0)-(pp.internal[mk]||0),0),0); });
 
     for(const pp of cuttable){
-      // Does any window month still need more capacity that this person could fill?
-      const neededSomewhere = months.some(mk=> (demandByMonth[mk]||0) > coveredByMonth[mk] + 0.5 && (pp.cap[mk]||0)>0 );
-      // Carrying-cost-aware worth test: forward GP must exceed salary, with idle months
-      // weighted up (longer idle => higher bar). investmentFactor grows with idle length.
-      const idle = pp._idleMonths;
-      const idlePenalty = idle>0 ? (idle/Math.max(P.maxIdle,1)) : 0;   // 0..>1
-      const worthKeeping = pp._fwdGP > pp._fwdSalary * (1 + idlePenalty);
-      const idleTooLong = idle > P.maxIdle;
-
-      let keep = false, reason='';
-      if(neededSomewhere){ keep=true; reason = idleTooLong ? ('needed for forward demand · idle '+idle+'mo') : 'needed for forward demand'; }
-      else if(worthKeeping && !idleTooLong){ keep=true; reason='forward GP justifies cost'; }
-
-      if(keep){
-        retained.push(pp);
-        months.forEach(mk=>{ coveredByMonth[mk]+=Math.max((pp.cap[mk]||0)-(pp.internal[mk]||0),0); });
-        pp._retainReason=reason;
-      } else {
-        pp._retainReason = idleTooLong ? ('idle '+idle+'mo > max') : 'forward GP below cost';
-      }
+      const needed=months.some(mk=>(demand[mk]||0)>coveredByMonth[mk]+0.5 && (pp.cap[mk]||0)>0);
+      if(needed){ retained.push(pp); months.forEach(mk=>{ coveredByMonth[mk]+=Math.max((pp.cap[mk]||0)-(pp.internal[mk]||0),0); }); pp._reason='needed to cover demand'; }
+      else pp._reason='no demand for their time in window';
     }
-    const laidOff = cuttable.filter(p=>!retained.includes(p)).sort((a,b)=> a._coverage-b._coverage);
+    const laidOff=cuttable.filter(p=>!retained.includes(p));
     laidOff.forEach(p=>laidOffIds.push(p.id));
 
-    // Costs across the window: retained salaries + hourly (existing) + hourly backfill for gaps.
     months.forEach(mk=>{
-      const retSalary = retained.reduce((s,pp)=> s+(pp.monthSalary[mk]||0),0);
-      let hourlyCost=0; hourly.forEach(h=>{ let hrs=0; keptAccts.forEach(a=>{ if(a.winMonths.includes(mk)) hrs+=personProjectHours(h.id,a.id,mk); }); hourlyCost+=hrs*h.rate; });
-      const covered = retained.reduce((s,pp)=> s+Math.max((pp.cap[mk]||0)-(pp.internal[mk]||0),0),0);
-      const unmet = Math.max((demandByMonth[mk]||0)-covered,0);
-      const backfill = unmet*P.hourlyRate;
-      totalLabor += retSalary+hourlyCost+backfill;
-      if(mk===mk0){ laborMonth0 += retSalary+hourlyCost+backfill; }
+      const retSalary=retained.reduce((s,pp)=>s+(pp.monthSalary[mk]||0),0);
+      let hourlyCost=0; hourly.forEach(h=>{ let hrs=0; kept.forEach(a=>{ if(a.winMonths.includes(mk)) hrs+=personProjectHours(h.id,a.id,mk); }); hourlyCost+=hrs*h.rate; });
+      const covered=retained.reduce((s,pp)=>s+Math.max((pp.cap[mk]||0)-(pp.internal[mk]||0),0),0);
+      const unmet=Math.max((demand[mk]||0)-covered,0);
+      totalLabor += retSalary+hourlyCost+unmet*P.hourlyRate;
+      // labor if we kept EVERYONE (all salaried in dept + same hourly): the baseline
+      laborAll += salaried.reduce((s,pp)=>s+(pp.monthSalary[mk]||0),0)+hourlyCost;
     });
+    months.forEach(mk=>{ kept.filter(a=>(a.dept||'No department')===dept && a.winMonths.includes(mk)).forEach(a=>{ totalGP+=(a.monthGP[mk]||0); }); });
 
-    // GP across the window from kept accounts in this dept.
-    months.forEach(mk=>{
-      keptAccts.filter(a=>(a.dept||'No department')===dept && a.winMonths.includes(mk)).forEach(a=>{
-        totalGP += (a.monthGP[mk]||0);
-        if(mk===mk0) gpMonth0 += (a.monthGP[mk]||0);
-      });
-    });
-
-    // Build the plan rows (month-0 view for display, with forward annotations).
-    const peakMonth = months.reduce((best,mk)=> (demandByMonth[mk]||0) > (demandByMonth[best]||0) ? mk : best, months[0]);
-    staffPlan.push({
-      dept, demand: demandByMonth[mk0]||0, peakDemand, peakMonth,
-      coveredCap: retained.reduce((s,pp)=> s+Math.max((pp.cap[mk0]||0)-(pp.internal[mk0]||0),0),0),
-      unmet: Math.max((demandByMonth[mk0]||0) - retained.reduce((s,pp)=> s+Math.max((pp.cap[mk0]||0)-(pp.internal[mk0]||0),0),0),0),
-      retained: retained.map(pp=>({ name:pp.name, type:pp.type, protected:pp.protected,
-        salaryMonthly: pp.monthSalary[mk0]||0, _gp: pp._fwdGP, _coverage: pp._coverage,
-        _idle: pp._idleMonths, _reason: pp._retainReason,
-        _util: (function(){ const av=Math.max((pp.cap[mk0]||0)-(pp.internal[mk0]||0),0); if(av<=0) return 0; let h=0; keptAccts.forEach(a=>{ if(a.winMonths.includes(mk0)) h+=personProjectHours(pp.id,a.id,mk0); }); return h/av; })() })),
-      laidOff: laidOff.map(pp=>({ name:pp.name, type:pp.type, salaryMonthly: pp.monthSalary[mk0]||0,
-        _gp: pp._fwdGP, _coverage: pp._coverage, _idle: pp._idleMonths, _reason: pp._retainReason })),
-      hourly,
-      newHourlyCost: (function(){ const covered=retained.reduce((s,pp)=> s+Math.max((pp.cap[mk0]||0)-(pp.internal[mk0]||0),0),0); return Math.max((demandByMonth[mk0]||0)-covered,0)*P.hourlyRate; })()
-    });
+    const mk0=months[0];
+    staffPlan.push({ dept,
+      demand:demand[mk0]||0,
+      peakDemand:Math.max(0,...months.map(mk=>demand[mk]||0)),
+      retained:retained.map(pp=>({name:pp.name,type:pp.type,protected:pp.protected,salaryMonthly:pp.monthSalary[mk0]||0,_gp:pp._fwdGP,_cov:pp._cov,_reason:pp._reason||'protected'})),
+      laidOff:laidOff.map(pp=>({name:pp.name,type:pp.type,salaryMonthly:pp.monthSalary[mk0]||0,_gp:pp._fwdGP,_cov:pp._cov,_reason:pp._reason})),
+      hourly });
   });
 
-  const execProfit = totalGP - totalLabor;             // whole-horizon
-  const execMargin = totalGP>0 ? execProfit/totalGP : 0;
-  return { execProfit, execMargin, totalGP, totalLabor, laidOffIds, staffPlan,
-           gpMonth0, laborMonth0, newHourly:0 };
+  return { staffPlan, laidOffIds, totalGP, totalLabor, laborSaved: laborAll-totalLabor };
 }
 
 // Per-account data-confidence. Past = trailing 3 months (need actuals+revenue),
@@ -462,30 +360,6 @@ function computeConfidence(forwardMonths){
 function past3Label(mks){ return mks.map(mk=>{ const [y,m]=mk.split('-'); return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m-1]; }).join(', '); }
 
 // Apply a fixed decision (which accounts cut, which people laid off) to month mk.
-function projectDecision(mk, cutSet, laidOffIds, P, decideMk){
-  const activeAccts=STATE.projects.filter(p=>projectActiveInMonth(p,mk));
-  let gpKept=0, gpLostToCuts=0;
-  const newlyStarted=[];
-  activeAccts.forEach(p=>{
-    const gp=revenueFor(p,mk);
-    if(cutSet.has(p.id)){ gpLostToCuts+=gp; return; }
-    gpKept+=gp;
-    // account that begins after the decision month = new work the layoff plan didn't size for
-    if(p.startMonth && p.startMonth>decideMk) newlyStarted.push({name:p.name||'Untitled', gp, dept:dominantDept(p.id,mk)});
-  });
-  // labor after layoffs: salaried still employed + hourly on kept accounts
-  let labor=0;
-  STATE.staff.forEach(s=>{
-    if(!staffActiveInMonth(s,mk)) return;
-    if(laidOffIds.has(s.id)) return; // gone as of decision
-    if(empType(s)==='fulltime'){ labor+=salariedMonthlyCost(s,mk); }
-    else { let hrs=0; STATE.projects.forEach(p=>{ if(!cutSet.has(p.id)) hrs+=personProjectHours(s.id,p.id,mk); }); labor+=hrs*s.hourlyCost; }
-  });
-  const execProfit=gpKept-labor;
-  return {mk, gpKept, gpLostToCuts, labor, execProfit, execMargin: gpKept>0?execProfit/gpKept:0, newlyStarted};
-}
-
-
 function dominantDept(pid,mk){
   const tally={};
   STATE.staff.forEach(s=>{ const h=personProjectHours(s.id,pid,mk); if(h>0){ const d=normDept(s.department); tally[d]=(tally[d]||0)+h; } });
@@ -494,145 +368,114 @@ function dominantDept(pid,mk){
 }
 
 // ---------- rendering ----------
-function renderResults(){
-  const R=lastRun; if(!R){document.getElementById('results').innerHTML='';return;}
-  const D=R.decision, f=D.final, b=D.baseline;
-  const conf=R.confidence||{};
-  const laborSaved=b.laborCost-f.laborCost, gpLost=b.gp-f.gp;
-  const healthy=laborSaved>gpLost;
+function renderFloorBox(){
+  const box=document.getElementById('floor-box'); if(!box) return;
+  const R=lastRun;
+  const be = R ? R.breakeven : null;
+  const floor = R ? R.floor : (be!=null?Math.round(be):150);
+  box.innerHTML = `
+    <div style="display:flex; align-items:flex-end; gap:16px; flex-wrap:wrap;">
+      <label class="param" style="min-width:200px;">Profit / hr floor $
+        <input type="number" id="floor-input" value="${floor}" step="5">
+      </label>
+      ${be!=null?`<div class="note" style="margin:0;">Break-even (blended cost of one salaried hour this window): <strong>${fmtMoney(be)}/hr</strong>. Accounts below the floor are cut candidates.</div>`:''}
+    </div>
+    <div id="floor-dist"></div>`;
+  const fi=document.getElementById('floor-input');
+  if(fi) fi.addEventListener('input', ()=>{
+    if(!lastRun) return;
+    lastRun.floor=+fi.value||0;
+    lastRun.decision=decideByFloor(lastRun.accounts, lastRun.floor, lastRun.confidence, lastRun.months, lastRun.params);
+    renderResults(true);
+  });
+}
+
+function renderResults(floorOnly){
+  const R=lastRun; if(!R){ document.getElementById('results').innerHTML=''; return; }
+  if(!floorOnly) renderFloorBox(); else { const fb=document.getElementById('floor-input'); /* keep input as-is */ }
+  const D=R.decision, conf=R.confidence||{};
+  const cut=new Set(D.cutIds), review=new Set(D.reviewIds);
+  const sorted=[...R.accounts].sort((a,b)=>a.pph-b.pph);   // worst first — the tail you care about
+  const maxPph=Math.max(1,...sorted.map(a=>a.pph===Infinity?0:a.pph));
+
   let html='';
 
-  // ---- headline: one decision, effective the decision month ----
-  html+='<div class="card"><h2>Proposed changes — effective '+R.decideMk+' · '+objLabel()+'</h2>';
+  // ---- consequences KPIs ----
+  html+='<div class="card"><h2>Consequences at $'+Math.round(R.floor)+'/hr floor — '+R.from+' to '+R.to+'</h2>';
   html+='<div class="kpis">';
-  html+=kpi('Accounts', (D.accounts.length-R.cutSet.length)+' kept · '+R.cutSet.length+' cut', 'of '+D.accounts.length);
-  html+=kpi('Layoffs', R.laidOffIds.length+' salaried', 'lowest coverage first');
-  html+=kpi('Monthly labor', fmtMoney(f.laborCost), (laborSaved>=0?'−':'+')+fmtMoney(Math.abs(laborSaved))+'/mo', laborSaved>=0?'pos':'neg');
-  html+=kpi('Gross profit', fmtMoney(f.gp), (gpLost>0?'−':'+')+fmtMoney(Math.abs(gpLost))+'/mo', gpLost<=0?'pos':'neg');
-  html+=kpi('Execution profit', fmtMoney(f.execProfit), Math.round(f.execMargin*100)+'% margin', f.execProfit>=0?'pos':'neg');
-  if(objective==='overhead') html+=kpi('After overhead', fmtMoney(f.execProfit-R.params.overhead), 'covers '+fmtMoney(R.params.overhead), (f.execProfit-R.params.overhead)>=0?'pos':'neg');
-  html+=kpi('Cut test', healthy?'PASSES':'FAILS', 'labor saved '+(healthy?'>':'≤')+' GP lost', healthy?'pos':'neg');
+  html+=kpi('Accounts cut', D.cutIds.length+' of '+R.accounts.length, fmtH(D.hoursFreed)+'h freed');
+  html+=kpi('Gross profit lost', fmtMoney(D.gpCut), 'from cut accounts', 'neg');
+  html+=kpi('Labor saved', fmtMoney(D.laborSaved), 'salaried freed + backfill', D.laborSaved>=0?'pos':'neg');
+  const net=D.laborSaved-D.gpCut;
+  html+=kpi('Net effect', (net>=0?'+':'')+fmtMoney(net), net>=0?'cutting helps':'cutting costs profit', net>=0?'pos':'neg');
+  html+=kpi('Layoffs implied', D.staff.laidOffIds.length+' salaried', 'from freed capacity');
+  html+=kpi('Kept exec profit', fmtMoney(D.execProfit), Math.round(R.breakeven)+'/hr break-even');
   html+='</div>';
-  // confidence summary
-  const activeIds=D.accounts.map(a=>a.id);
-  const low=activeIds.filter(id=>(conf[id]||{}).level==='low').length;
-  const noFc=activeIds.filter(id=>(conf[id]||{}).noForecast).length;
-  const avgScore=activeIds.length? Math.round(activeIds.reduce((s,id)=>s+((conf[id]||{score:1}).score),0)/activeIds.length*100):100;
-  html+=`<div class="note" style="background:${avgScore>=85?'var(--mint)':avgScore>=60?'#fdf3dc':'#fbe7e4'}; border-radius:6px; padding:10px 12px; color:var(--ink);">
-    <strong>Run confidence ${avgScore}%</strong> — ${low} low-confidence, ${noFc} missing a forward forecast${(D.review&&D.review.length)?', '+D.review.length+' held for review (not auto-cut on missing data)':''}. Decision solved on ${R.decideMk} and held constant across the window below.</div>`;
+  if(review.size) html+='<div class="note" style="background:#fdf3dc; border-radius:6px; padding:10px 12px; color:var(--ink);"><strong>'+review.size+' account'+(review.size===1?'':'s')+' below the floor held for review</strong> — data too thin to trust the per-hour number. They\'re kept for now; use the toggle to force a cut if you know they should go.</div>';
   html+='</div>';
 
-  // ---- trajectory strip: the whole forward picture at a glance ----
-  html+='<div class="card"><h2>Forward picture — the same decision, month by month</h2>';
-  html+='<table><thead><tr><th>Month</th><th class="num">Gross profit</th><th class="num">Labor</th><th class="num">Execution profit</th><th class="num">Margin</th><th>Notes</th></tr></thead><tbody>';
-  R.trajectory.forEach(t=>{
-    const notes = t.newlyStarted.length ? '<span class="chip under">'+t.newlyStarted.length+' new account'+(t.newlyStarted.length===1?'':'s')+' start</span> '+t.newlyStarted.map(n=>esc(n.name)).join(', ') : '';
-    html+=`<tr><td>${t.mk}</td><td class="num">${fmtMoney(t.gpKept)}</td><td class="num">${fmtMoney(t.labor)}</td><td class="num ${t.execProfit>=0?'pos':'neg'}">${fmtMoney(t.execProfit)}</td><td class="num">${Math.round(t.execMargin*100)}%</td><td class="note" style="padding:7px 9px;">${notes}</td></tr>`;
-  });
-  // totals
-  const tot=R.trajectory.reduce((a,t)=>({gp:a.gp+t.gpKept,lab:a.lab+t.labor,ep:a.ep+t.execProfit}),{gp:0,lab:0,ep:0});
-  html+=`<tr style="border-top:2px solid var(--brand);"><td style="font-weight:700;">Window total</td><td class="num" style="font-weight:700;">${fmtMoney(tot.gp)}</td><td class="num" style="font-weight:700;">${fmtMoney(tot.lab)}</td><td class="num ${tot.ep>=0?'pos':'neg'}" style="font-weight:700;">${fmtMoney(tot.ep)}</td><td class="num">${tot.gp>0?Math.round(tot.ep/tot.gp*100):0}%</td><td></td></tr>`;
-  html+='</tbody></table><div class="note">Watch the Notes column: where a new account starts after the decision, the frozen layoff plan didn\'t size for it — that\'s where you may need to keep or rehire capacity.</div></div>';
-
-  // ---- accounts: keep/cut ----
-  html+='<div class="card"><h2>Accounts — keep / cancel</h2><div class="note" style="margin-bottom:8px;">Gross profit, hours, and profit/hr are whole-flight totals — all revenue and all scheduled hours (actuals where logged, else assignments) across every month the account runs.</div><table><thead><tr><th>Account</th><th>Dept</th><th class="num">Gross profit (flight)</th><th class="num">Hours (flight)</th><th class="num">Profit / hr</th><th>Decision</th></tr></thead><tbody>';
-  [...D.accounts].sort((a,b)=>b.pph-a.pph).forEach(a=>{
-    const cut=R.cutSet.includes(a.id);
-    const c=(conf[a.id]||{level:'high',reasons:[]});
-    const inReview=(D.review||[]).includes(a.id);
+  // ---- the distribution: every account ranked by GP/hr with the floor line ----
+  html+='<div class="card"><h2>Accounts ranked by profit / hour</h2>';
+  html+='<div class="note" style="margin-bottom:10px;">Gross profit and hours are totals across the selected window (actuals where logged, else planned assignments). The bar shows profit/hr against the floor line — drag the floor above to move the cut boundary. Click a decision to override.</div>';
+  html+='<table><thead><tr><th>Account</th><th>Dept</th><th class="num">GP (window)</th><th class="num">Hours</th><th class="num">Profit / hr</th><th style="width:34%;">vs floor</th><th>Decision</th></tr></thead><tbody>';
+  sorted.forEach(a=>{
+    const isCut=cut.has(a.id), inReview=review.has(a.id);
+    const c=conf[a.id]||{level:'high',score:1,reasons:[]};
     const dot=c.level==='high'?'#0a493c':c.level==='med'?'#fabf4d':'#d1453b';
     const confChip=`<span class="chip" style="background:${dot};color:#fff;" title="${esc((c.reasons||[]).join(' · ')||'complete data')}">${Math.round((c.score||1)*100)}%</span>`;
-    const decision=cut?'Cancel':inReview?'<span class="chip under">review — thin data</span>':'Keep';
-    html+=`<tr class="${cut?'cut':''}"><td>${esc(a.name)}${confChip}${cut?'<span class="chip cut">cut</span>':''}</td><td class="muted">${esc(a.dept)}</td><td class="num">${fmtMoney(a.gp)}</td><td class="num">${fmtH(a.hours)}h</td><td class="num ${a.pph<R.params.pphFloor?'neg':'pos'}">${a.pph===Infinity?'—':fmtMoney(a.pph)}</td><td>${decision}</td></tr>`;
+    const pph=a.pph===Infinity?maxPph:a.pph;
+    const pct=Math.max(2,Math.min(100,(pph/maxPph)*100));
+    const floorPct=Math.max(0,Math.min(100,(R.floor/maxPph)*100));
+    const below=a.pph<R.floor;
+    const bar=`<div style="position:relative; height:14px; background:#eee; border-radius:3px;">
+        <div style="position:absolute; left:0; top:0; height:100%; width:${pct}%; background:${below?'var(--rust)':'var(--accent)'}; border-radius:3px;"></div>
+        <div style="position:absolute; left:${floorPct}%; top:-2px; height:18px; width:2px; background:var(--ink);" title="floor $${Math.round(R.floor)}/hr"></div>
+      </div>`;
+    const ov=(R.overrides||{})[a.id];
+    let decision;
+    if(isCut) decision=`<span class="chip cut">cut</span>`;
+    else if(inReview) decision=`<span class="chip under">review</span>`;
+    else decision=`<span class="chip keep">keep</span>`;
+    const toggle=`<span class="toggle-cell" data-toggle="${a.id}" title="Click to override" style="margin-left:6px; font-size:9px; color:var(--slate); border:1px solid var(--line); border-radius:3px; padding:1px 4px;">${ov?('override: '+ov+' ✕'):'override'}</span>`;
+    html+=`<tr class="${isCut?'cut':''}"><td>${esc(a.name)}${confChip}</td><td class="muted">${esc(a.dept)}</td><td class="num">${fmtMoney(a.gp)}</td><td class="num">${fmtH(a.hours)}h</td><td class="num ${below?'neg':'pos'}" style="font-weight:700;">${a.pph===Infinity?'—':fmtMoney(a.pph)}</td><td>${bar}</td><td>${decision}${toggle}</td></tr>`;
   });
   html+='</tbody></table></div>';
 
-  // ---- per-account deployment plan (kept accounts: who's on it now -> after) ----
-  html+='<div class="card"><h2>Deployment plan — who staffs each kept account</h2>';
-  html+='<div class="note" style="margin-bottom:10px;">For each kept account: current staffing, and any gap to fill from people freed by the cancellations (same department). Existing assignments are left in place — only gaps are proposed.</div>';
-  const laid=new Set(R.laidOffIds);
-  const cutSet=new Set(R.cutSet);
-  // Spare-capacity pool per department, computed AFTER the decision: for each retained
-  // person, spare = (capacity − internal) − hours still on kept accounts. Hours freed by
-  // cancelled accounts are automatically part of spare. Salaried listed first (their
-  // salary is already paid — filling them costs nothing extra), then existing hourly.
-  const poolByDept={};
-  STATE.staff.forEach(st=>{
-    if(laid.has(st.id) || !staffActiveInMonth(st,R.decideMk)) return;
-    const cap=monthlyCapacityFor(st,R.decideMk);
-    const internal=personInternalHours(st.id,R.decideMk);
-    let keptHrs=0; STATE.projects.forEach(p=>{ if(!cutSet.has(p.id)) keptHrs+=personProjectHours(st.id,p.id,R.decideMk); });
-    const spare=Math.max(cap-internal-keptHrs,0);
-    if(spare>0.5){ const d=normDept(st.department); (poolByDept[d]=poolByDept[d]||[]).push({st, spare, type:empType(st)}); }
-  });
-  Object.values(poolByDept).forEach(pool=>pool.sort((a,b)=>{
-    if(a.type!==b.type) return a.type==='fulltime'?-1:1;   // salaried first — sunk cost
-    return b.spare-a.spare;                                 // then most spare capacity
-  }));
-
-  D.accounts.filter(a=>!cutSet.has(a.id)).sort((a,b)=>b.gp-a.gp).forEach(a=>{
-    const roster=STATE.staff.map(st=>({st,hrs:personProjectHours(st.id,a.id,R.decideMk)})).filter(x=>x.hrs>0);
-    const anyLaidOff=roster.some(x=>laid.has(x.st.id));
-    html+=`<div class="deptblock"><h4>${esc(a.name)} <span class="muted" style="font-size:11px;">· ${esc(a.dept)} · ${fmtMoney(a.gp)} GP · ${fmtH(a.hours)}h</span></h4>`;
-    html+='<table><thead><tr><th>Person</th><th class="num">Hours now</th><th>After changes</th></tr></thead><tbody>';
-    roster.forEach(x=>{
-      const gone=laid.has(x.st.id);
-      html+=`<tr class="${gone?'cut':''}"><td>${esc(x.st.name||'Unnamed')}</td><td class="num">${fmtH(x.hrs)}h</td><td>${gone?'<span class="chip layoff">laid off — needs backfill</span>':'unchanged'}</td></tr>`;
-    });
-    // Allocate the laid-off hours to NAMED people from the same-department spare pool,
-    // depleting it as we go so nobody is double-booked across accounts. Priority:
-    // salaried with spare (free to fill), then existing hourly, then new hourly @ rate.
-    if(anyLaidOff){
-      let gap=roster.filter(x=>laid.has(x.st.id)).reduce((sum,x)=>sum+x.hrs,0);
-      const pool=poolByDept[a.dept]||[];
-      const allocations=[];
-      for(const cand of pool){
-        if(gap<=0.5) break;
-        if(cand.spare<=0.5) continue;
-        const take=Math.min(cand.spare,gap);
-        allocations.push({name:cand.st.name||'Unnamed', hrs:take, type:cand.type});
-        cand.spare-=take; gap-=take;
-      }
-      allocations.forEach(al=>{
-        html+=`<tr><td class="muted">↳ move ${esc(al.name)}</td><td class="num">+${fmtH(al.hrs)}h</td><td>${al.type==='fulltime'?'salaried spare capacity — no added cost':'existing hourly — ' + fmtH(al.hrs) + 'h added cost'}</td></tr>`;
-      });
-      if(gap>0.5){
-        html+=`<tr><td class="muted">↳ hire hourly</td><td class="num">+${fmtH(gap)}h</td><td><span class="chip hourly">no same-dept spare left — ${fmtH(gap)}h @ $${R.params.hourlyRate} (${fmtMoney(gap*R.params.hourlyRate)}/mo)</span></td></tr>`;
-      }
-    }
-    html+='</tbody></table></div>';
-  });
-  html+='</div>';
-
-  // ---- staffing plan (per-person coverage + layoff) ----
-  html+='<div class="card"><h2>Staffing plan — retain / lay off</h2>';
-  html+='<div class="note" style="margin-bottom:8px;">Retention is judged across the '+R.params.nMonths+'-month horizon: a person is kept if some month needs them or their forward GP justifies their cost. The longer someone sits idle waiting for future work, the more that work must be worth (max '+R.params.maxIdle+' idle months before they\'re a layoff candidate). Coverage and GP are forward totals over the window.</div>';
+  // ---- staffing plan from survivors ----
+  html+='<div class="card"><h2>Staffing plan from survivors</h2>';
+  html+='<div class="note" style="margin-bottom:8px;">Built only from kept accounts. Salaried people are retained where a department still needs their hours across the window; the rest are layoff candidates. Hourly backfill is costed at $'+R.params.hourlyRate+'/hr for demand the retained team can\'t cover.</div>';
   const covChip=(c)=>{ if(c===Infinity) return '<span class="muted">—</span>'; const cls=c>=2?'pos':c>=1?'':'neg'; return `<span class="${cls}" style="font-weight:700;">${c.toFixed(2)}×</span>`; };
-  f.staffPlan.filter(d=>d.retained.length||d.laidOff.length||d.hourly.length).forEach(d=>{
-    const peakNote = d.peakDemand>d.demand ? ` · peaks at ${fmtH(d.peakDemand)}h in ${d.peakMonth}` : '';
-    html+=`<div class="deptblock"><h4>${esc(d.dept)} <span class="muted" style="font-size:11px;">· ${fmtH(d.demand)}h demand (${R.decideMk})${peakNote} · ${fmtH(d.coveredCap)}h covered${d.unmet>0?' · '+fmtH(d.unmet)+'h gap':''}</span></h4>`;
+  D.staff.staffPlan.filter(d=>d.retained.length||d.laidOff.length||d.hourly.length).forEach(d=>{
+    const peakNote=d.peakDemand>d.demand?` · peaks at ${fmtH(d.peakDemand)}h`:'';
+    html+=`<div class="deptblock"><h4>${esc(d.dept)} <span class="muted" style="font-size:11px;">· ${fmtH(d.demand)}h demand${peakNote}</span></h4>`;
     html+='<table><thead><tr><th>Person</th><th>Type</th><th class="num">Monthly cost</th><th class="num">Forward GP</th><th class="num">Coverage</th><th>Status</th></tr></thead><tbody>';
     d.retained.forEach(p=>{
-      const low=(p._util||0)<R.params.downsize;
-      const under=(p._coverage!==undefined&&p._coverage<1);
-      // Idle-gap flag: retained but sitting idle for part of the window waiting for future work.
-      const idleFlag = (p._idle>0)
-        ? `<span class="chip" style="background:var(--gold);color:#3a2c00;" title="Retained but idle ${p._idle} month${p._idle===1?'':'s'} in the window — ${p._reason}. Carrying cost while idle: ${fmtMoney((p.salaryMonthly||0)*p._idle)}.">idle ${p._idle}mo</span>`
-        : '';
-      html+=`<tr><td>${esc(p.name)}${p.protected?'<span class="chip protected">protected</span>':''}${idleFlag}${under&&!p.protected?'<span class="chip under">below 1× — review</span>':''}</td><td class="muted">${p.type}</td><td class="num">${p.type==='fulltime'?fmtMoney(p.salaryMonthly):p.rate+'/hr'}</td><td class="num">${p._gp!==undefined?fmtMoney(p._gp):'—'}</td><td class="num">${covChip(p._coverage!==undefined?p._coverage:Infinity)}</td><td>Retain${low&&p.type==='fulltime'&&!p.protected?' <span class="chip hourly">under '+Math.round(R.params.downsize*100)+'% → consider hourly</span>':''}</td></tr>`;
+      html+=`<tr><td>${esc(p.name)}${p.protected?'<span class="chip protected">protected</span>':''}</td><td class="muted">${p.type}</td><td class="num">${p.type==='fulltime'?fmtMoney(p.salaryMonthly):p.rate+'/hr'}</td><td class="num">${p._gp!==undefined?fmtMoney(p._gp):'—'}</td><td class="num">${covChip(p._cov!==undefined?p._cov:Infinity)}</td><td>Retain <span class="muted" style="font-size:10px;">${esc(p._reason||'')}</span></td></tr>`;
     });
     d.laidOff.forEach(p=>{
-      html+=`<tr class="cut"><td>${esc(p.name)}</td><td class="muted">${p.type}</td><td class="num">${fmtMoney(p.salaryMonthly)}</td><td class="num">${p._gp!==undefined?fmtMoney(p._gp):'—'}</td><td class="num">${covChip(p._coverage!==undefined?p._coverage:0)}</td><td><span class="chip layoff" title="${esc(p._reason||'')}">lay off</span></td></tr>`;
+      html+=`<tr class="cut"><td>${esc(p.name)}</td><td class="muted">${p.type}</td><td class="num">${fmtMoney(p.salaryMonthly)}</td><td class="num">${p._gp!==undefined?fmtMoney(p._gp):'—'}</td><td class="num">${covChip(p._cov!==undefined?p._cov:0)}</td><td><span class="chip layoff" title="${esc(p._reason||'')}">lay off</span></td></tr>`;
     });
-    if(d.unmet>0) html+=`<tr><td class="muted">+ hourly backfill</td><td class="muted">hourly</td><td class="num">${fmtMoney(d.newHourlyCost)}</td><td class="num">—</td><td class="num">—</td><td><span class="chip hourly">${fmtH(d.unmet)}h @ $${R.params.hourlyRate}</span></td></tr>`;
     html+='</tbody></table></div>';
   });
   html+='</div>';
 
   document.getElementById('results').innerHTML=html;
+
+  // override toggles
+  document.querySelectorAll('[data-toggle]').forEach(el=>{
+    el.addEventListener('click',()=>{
+      const id=el.dataset.toggle;
+      if(!lastRun.overrides) lastRun.overrides={};
+      const cur=lastRun.overrides[id];
+      // cycle: none -> cut -> keep -> none
+      lastRun.overrides[id] = cur==='cut'?'keep':cur==='keep'?undefined:'cut';
+      if(lastRun.overrides[id]===undefined) delete lastRun.overrides[id];
+      lastRun.decision=decideByFloor(lastRun.accounts,lastRun.floor,lastRun.confidence,lastRun.months,lastRun.params);
+      renderResults(true);
+    });
+  });
 }
 function kpi(l,v,d,cls){ return `<div class="kpi"><div class="l">${l}</div><div class="v ${cls||''}">${v}</div><div class="d ${cls||''}">${d||''}</div></div>`; }
-function objLabel(){ return objective==='maximize'?'Maximize team profit':objective==='margin'?'Target margin':'Cover overhead'; }
 function esc(s){ return String(s||'').replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])); }
 
 // ---------- auth + boot ----------
@@ -653,16 +496,11 @@ async function enter(){
   if(error||!data){ document.getElementById('results').innerHTML='<div class="err">Could not load the ledger.</div>'; return; }
   STATE=data.data;
   ['staff','projects','assignments','actuals','demand'].forEach(k=>{ if(!STATE[k]) STATE[k]= (k==='staff'||k==='projects')?[]:{}; });
+  const nm=shiftMonth(monthKey(new Date()),1);
+  if(!document.getElementById('p-from').value) document.getElementById('p-from').value=nm;
+  if(!document.getElementById('p-to').value) document.getElementById('p-to').value=shiftMonth(nm,4);
+  renderFloorBox();
 }
-document.getElementById('obj-toggle').onclick=(e)=>{
-  const btn=e.target.closest('.obj-btn'); if(!btn) return;
-  objective=btn.dataset.obj;
-  document.querySelectorAll('.obj-btn').forEach(b=>b.classList.toggle('active',b===btn));
-  document.getElementById('wrap-margin').style.display=objective==='margin'?'':'none';
-  document.getElementById('wrap-overhead').style.display=objective==='overhead'?'':'none';
-  if(lastRun) renderResults();
-};
-document.getElementById('p-effective').value=shiftMonth(monthKey(new Date()),1);
 document.getElementById('run').onclick=async()=>{
   // Re-fetch the ledger fresh on every run so edits made in the main tool are picked up
   // without reloading this page.
