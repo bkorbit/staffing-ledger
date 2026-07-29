@@ -72,7 +72,7 @@ tr.kept-marginal{ background:#fdf3dc; }
   </div>
 
   <div id="app" style="display:none;">
-    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0330</span></h1>
+    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0333</span></h1>
     <div class="sub">Reads the live ledger. Changes nothing. <strong>Stage 1:</strong> every account is judged on gross profit per hour of team time it consumes, against a floor you set — anything below the floor is a cut candidate, regardless of who happens to be staffed on it. <strong>Stage 2:</strong> a staffing plan is built from the survivors, with real salaried + hourly costs, showing the labor you save. Drag the floor and watch accounts move. Every number is a proposal — apply judgment.</div>
 
     <div class="card">
@@ -827,12 +827,20 @@ document.getElementById('run').onclick=async()=>{
 // at most the target utilization; new hourly capped at what you can source.
 async function loadHighs(){
   if(window.__highsInstance) return window.__highsInstance;
-  await new Promise((res,rej)=>{ const s=document.createElement('script');
-    s.src='https://cdn.jsdelivr.net/npm/highs@1.15.2/build/highs.js';
-    s.onload=res; s.onerror=()=>rej(new Error('could not load the solver from CDN'));
-    document.head.appendChild(s); });
-  window.__highsInstance = await window.Module({ locateFile:(f)=>'https://cdn.jsdelivr.net/npm/highs@1.15.2/build/'+f });
-  return window.__highsInstance;
+  // Prefer the copy vendored in THIS repo (fully self-hosted, no third-party
+  // dependency); fall back to the jsDelivr CDN mirror if it's missing.
+  const sources=[ './vendor/', 'https://cdn.jsdelivr.net/npm/highs@1.15.2/build/' ];
+  let lastErr=null;
+  for(const base of sources){
+    try{
+      await new Promise((res,rej)=>{ const s=document.createElement('script');
+        s.src=base+'highs.js'; s.onload=res; s.onerror=()=>rej(new Error('load failed: '+base));
+        document.head.appendChild(s); });
+      window.__highsInstance = await window.Module({ locateFile:(f)=>base+f });
+      return window.__highsInstance;
+    }catch(e){ lastErr=e; }
+  }
+  throw new Error('could not load the solver ('+(lastErr&&lastErr.message)+')');
 }
 
 function buildOptimizerLP(R){
