@@ -72,7 +72,7 @@ tr.kept-marginal{ background:#fdf3dc; }
   </div>
 
   <div id="app" style="display:none;">
-    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0344</span></h1>
+    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0351</span></h1>
     <div class="sub">Reads the live ledger. Changes nothing. <strong>Stage 1:</strong> every account is judged on gross profit per hour of team time it consumes, against a floor you set — anything below the floor is a cut candidate, regardless of who happens to be staffed on it. <strong>Stage 2:</strong> a staffing plan is built from the survivors, with real salaried + hourly costs, showing the labor you save. Drag the floor and watch accounts move. Every number is a proposal — apply judgment.</div>
 
     <div class="card">
@@ -646,7 +646,8 @@ function renderResults(floorOnly){
   if(R.optimal){
     optBanner=`<div style="background:var(--brand); color:#fff; border-radius:6px; padding:12px 14px; margin-bottom:12px; font-family:var(--font-mono); font-size:12px;">
       <strong style="font-size:14px;">★ Proven-optimal plan applied</strong> — the solver searched every cut/keep and retain/lay-off combination.
-      Objective (GP kept − all labor) <strong>${fmtMoney(R.optimal.objective)}</strong> over the window · solver proposes <strong>${R.optimal.layoffs.length}</strong> layoffs · new hourly capped at ${R.optimal.maxBF}h.
+      Objective (GP kept − all labor) <strong>${fmtMoney(R.optimal.objective)}</strong> over the window · solver proposes <strong>${R.optimal.releases.length}</strong> releases (${R.optimal.immediate} immediate, rest timed to when their work ends) · new hourly capped at ${R.optimal.maxBF}h.<br>
+      <span style="opacity:0.85;">${R.optimal.releases.map(r=>esc(r.name)+' ('+r.when+')').join(' · ')||'no releases'}</span><br>
       Your keep/cut pins were honored as hard constraints (${Object.keys(userOverrides).length} pinned), protected people always retained. To iterate: pin any account keep/cut with its override toggle, then Solve again — each solve is proven optimal GIVEN your pins. Toggling without re-solving re-evaluates instantly but is no longer proven optimal.</div>`;
   }
   html+='<div class="card" style="border-left:4px solid '+(healthy?'var(--brand)':'var(--rust)')+';"><h2>Recalibration — '+R.from+' to '+R.to+'</h2>';
@@ -863,16 +864,28 @@ function buildOptimizerLP(R){
   const targetUtil=R.params.targetUtil||0.85, hourlyRate=R.params.hourlyRate||45;
   const maxBF=Math.max(0,+((document.getElementById('p-maxbf')||{}).value)||300);
 
-  const salWin={}, capNet={};
-  salaried.forEach(s=>{ salWin[s.id]=months.reduce((t,mk)=>t+salariedMonthlyCost(s,mk),0);
-    capNet[s.id]={}; months.forEach(mk=>{ capNet[s.id][mk]=Math.max(monthlyCapacityFor(s,mk)-personInternalHours(s.id,mk),0); }); });
+  const salMonth={}, capNet={};
+  salaried.forEach(s=>{ salMonth[s.id]={}; capNet[s.id]={};
+    months.forEach(mk=>{ salMonth[s.id][mk]=salariedMonthlyCost(s,mk);
+      capNet[s.id][mk]=Math.max(monthlyCapacityFor(s,mk)-personInternalHours(s.id,mk),0); }); });
   const hrs={}; staffAll.forEach(s=>{ hrs[s.id]={}; accounts.forEach(a=>{ const m={}; a.winMonths.forEach(mk=>{ const h=personProjectHours(s.id,a.id,mk); if(h>0) m[mk]=h; }); hrs[s.id][a.id]=m; }); });
 
   const obj=[], cons=[], bounds=[], bins=[];
-  const vA={}, vY={};
+  // Retention is TIME-PHASED: yi_m = person i still employed in month m, with the
+  // monotone rule yi_{m+1} <= yi_m (once released, they stay released). This lets the
+  // solver keep people exactly as long as temporary accounts need them — "retain
+  // through September, release October 1" — instead of an all-or-nothing window call.
+  const vA={}, vY={};   // vY[s.id][mi] = variable name
   accounts.forEach((a,i)=>{ vA[a.id]='a'+i; bins.push('a'+i); if(a.gp) obj.push(`${a.gp>0?'+':'-'} ${Math.abs(a.gp).toFixed(2)} a${i}`); });
-  salaried.forEach((s,i)=>{ vY[s.id]='y'+i; bins.push('y'+i); if(salWin[s.id]>0) obj.push(`- ${salWin[s.id].toFixed(2)} y${i}`); });
-  salaried.forEach(s=>{ if(s.layoffProtected) cons.push(`prot_${vY[s.id]}: ${vY[s.id]} = 1`); });
+  salaried.forEach((s,i)=>{
+    vY[s.id]={};
+    months.forEach((mk,mi)=>{
+      const v=`y${i}_${mi}`; vY[s.id][mi]=v; bins.push(v);
+      const sal=salMonth[s.id][mk]; if(sal>0) obj.push(`- ${sal.toFixed(2)} ${v}`);
+      if(mi>0) cons.push(`mono${i}_${mi}: ${v} - y${i}_${mi-1} <= 0`);
+      if(s.layoffProtected) cons.push(`prot${i}_${mi}: ${v} = 1`);
+    });
+  });
   accounts.forEach(a=>{ if(userOverrides[a.id]==='keep') cons.push(`ovk_${vA[a.id]}: ${vA[a.id]} = 1`); if(userOverrides[a.id]==='cut') cons.push(`ovc_${vA[a.id]}: ${vA[a.id]} = 0`); });
 
   const depts=[...new Set(staffAll.map(s=>deptOfP[s.id]))];
@@ -881,7 +894,7 @@ function buildOptimizerLP(R){
     const terms=[];
     accounts.forEach(a=>{ let dem=0; staffAll.forEach(s=>{ if(deptOfP[s.id]===d) dem+=(hrs[s.id][a.id]||{})[mk]||0; }); if(dem>0.01) terms.push(`+ ${dem.toFixed(2)} ${vA[a.id]}`); });
     if(!terms.length) return;
-    salaried.forEach(s=>{ if(deptOfP[s.id]!==d) return; const c=capNet[s.id][mk]; if(c>0.01) terms.push(`- ${(targetUtil*c).toFixed(2)} ${vY[s.id]}`); });
+    salaried.forEach(s=>{ if(deptOfP[s.id]!==d) return; const c=capNet[s.id][mk]; if(c>0.01) terms.push(`- ${(targetUtil*c).toFixed(2)} ${vY[s.id][mi]}`); });
     hourlyP.forEach((h,hi)=>{
       if(deptOfP[h.id]!==d) return;
       let tot=0; accounts.forEach(a=>{ tot+=(hrs[h.id][a.id]||{})[mk]||0; });
@@ -900,7 +913,7 @@ function buildOptimizerLP(R){
   if(bVars.length) cons.push(`maxbf: ${bVars.join(' + ')} <= ${maxBF}`);
 
   const lp=`Maximize\n obj: ${obj.join(' ')}\nSubject To\n ${cons.join('\n ')}\nBounds\n ${bounds.join('\n ')}\nBinary\n ${bins.join(' ')}\nEnd`;
-  return { lp, vA, vY, accounts, salaried, maxBF };
+  return { lp, vA, vY, accounts, salaried, months, maxBF };
 }
 
 function applyOptimalSolution(sol, M){
@@ -909,9 +922,16 @@ function applyOptimalSolution(sol, M){
   lastRun.optimalSet={};
   M.accounts.forEach(a=>{ lastRun.optimalSet[a.id] = (sol.Columns[M.vA[a.id]].Primal>=0.5)?'keep':'cut'; });
   lastRun.decision=decideByFloor(lastRun.accounts,lastRun.floor,lastRun.confidence,lastRun.months,lastRun.params);
-  lastRun.optimal={ objective:sol.ObjectiveValue,
-    layoffs:M.salaried.filter(s=>sol.Columns[M.vY[s.id]].Primal<0.5).map(s=>s.name||'Unnamed'),
-    maxBF:M.maxBF };
+  // Release schedule: for each salaried person, the last month the solver keeps them.
+  const releases=[]; let immediate=0;
+  M.salaried.forEach(s=>{
+    let lastKept=-1;
+    M.months.forEach((mk,mi)=>{ if(sol.Columns[M.vY[s.id][mi]].Primal>=0.5) lastKept=mi; });
+    if(lastKept===M.months.length-1) return;                         // retained all window
+    if(lastKept<0){ immediate++; releases.push({name:s.name||'Unnamed', when:'immediately'}); }
+    else releases.push({name:s.name||'Unnamed', when:'after '+M.months[lastKept]});
+  });
+  lastRun.optimal={ objective:sol.ObjectiveValue, releases, immediate, maxBF:M.maxBF };
   renderResults();
 }
 
