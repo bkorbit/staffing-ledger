@@ -72,7 +72,7 @@ tr.kept-marginal{ background:#fdf3dc; }
   </div>
 
   <div id="app" style="display:none;">
-    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0237</span></h1>
+    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0246</span></h1>
     <div class="sub">Reads the live ledger. Changes nothing. <strong>Stage 1:</strong> every account is judged on gross profit per hour of team time it consumes, against a floor you set — anything below the floor is a cut candidate, regardless of who happens to be staffed on it. <strong>Stage 2:</strong> a staffing plan is built from the survivors, with real salaried + hourly costs, showing the labor you save. Drag the floor and watch accounts move. Every number is a proposal — apply judgment.</div>
 
     <div class="card">
@@ -383,11 +383,26 @@ function decideByFloor(accounts, floor, confidence, months, P){
   });
 
   const staff = solveStaffing(accounts, keptIds, months, P);
+  // Baseline: keep EVERY account (no cuts) — its cash labor is what we\'d pay with no action.
+  const allIds = new Set(accounts.map(a=>a.id));
+  const baseline = solveStaffing(accounts, allIds, months, P);
   const cutList = accounts.filter(a=>cutIds.has(a.id));
   const gpCut = cutList.reduce((s,a)=>s+a.gp,0);
   const hoursFreed = cutList.reduce((s,a)=>s+a.hours,0);
+  // The CEO test: real cash saved by the cut set vs the revenue it gives up.
+  const cashSaved = baseline.cashLabor - staff.cashLabor;   // salaries of people the cuts lay off + hourly stopped, net of backfill
+  const revenueLost = gpCut;
+  const netSavings = cashSaved - revenueLost;               // must be POSITIVE to improve the business
+  // Per-account "cut this alone" cash test: does cutting just this one free any cash?
+  const perAccountCash = {};
+  cutList.forEach(a=>{
+    const trialKept = new Set(accounts.map(x=>x.id)); trialKept.delete(a.id);
+    const trial = solveStaffing(accounts, trialKept, months, P);
+    perAccountCash[a.id] = baseline.cashLabor - trial.cashLabor;   // cash freed by cutting ONLY this account
+  });
   return { floor, cutIds:[...cutIds], keptIds:[...keptIds], reviewIds:[...reviewIds],
-    staff, gpCut, hoursFreed, laborSaved: staff.laborSaved,
+    staff, baseline, gpCut, hoursFreed, cashSaved, revenueLost, netSavings, perAccountCash,
+    laborSaved: staff.laborSaved,
     keptGP: staff.totalGP, keptLabor: staff.totalLabor, execProfit: staff.totalGP - staff.totalLabor };
 }
 
@@ -427,7 +442,7 @@ function solveStaffing(accounts, keptIds, months, P){
   }
 
   const byDept={}; people.forEach(pp=>{ (byDept[pp.dept]=byDept[pp.dept]||[]).push(pp); });
-  let laidOffIds=[], staffPlan=[], totalLabor=0, totalGP=0, laborAll=0;
+  let laidOffIds=[], staffPlan=[], totalLabor=0, totalGP=0, laborAll=0, cashLabor=0;
 
   Object.entries(byDept).forEach(([dept,dp])=>{
     const demand=deptMonthDemand[dept]||{};
@@ -482,6 +497,7 @@ function solveStaffing(accounts, keptIds, months, P){
       // Backfill for orphaned surviving-account work that retained spare couldn't absorb.
       const backfill=(reassignByMonth[mk]||{}).backfill||0;
       totalLabor += retSalary+hourlyCost+backfill*P.hourlyRate;
+      cashLabor += retSalary + hourlyCost + backfill*P.hourlyRate;   // real cash out this month
       // labor if we kept EVERYONE (all salaried in dept + same hourly): the baseline
       laborAll += salaried.reduce((s,pp)=>s+(pp.monthSalary[mk]||0),0)+hourlyCost;
     });
@@ -499,7 +515,7 @@ function solveStaffing(accounts, keptIds, months, P){
       hourly });
   });
 
-  return { staffPlan, laidOffIds, totalGP, totalLabor, laborSaved: laborAll-totalLabor };
+  return { staffPlan, laidOffIds, totalGP, totalLabor, cashLabor, laborSaved: laborAll-totalLabor };
 }
 
 // Per-account data-confidence. Past = trailing 3 months (need actuals+revenue),
@@ -586,16 +602,21 @@ function renderResults(floorOnly){
   const cutList=R.accounts.filter(a=>cut.has(a.id));
   const gpCut=cutList.reduce((s,a)=>s+a.gp,0);
   const contribCut=cutList.reduce((s,a)=>s+a.contribution,0);
-  const cashCut=cutList.reduce((s,a)=>s+a.cashContribution,0);
-  html+='<div class="card"><h2>Recalibration at ≥'+R.floor+'% margin — '+R.from+' to '+R.to+'</h2>';
+  const net=D.netSavings, healthy=net>0;
+  html+='<div class="card" style="border-left:4px solid '+(healthy?'var(--brand)':'var(--rust)')+';"><h2>Recalibration at ≥'+R.floor+'% margin — '+R.from+' to '+R.to+'</h2>';
+  // The CEO verdict banner
+  html+=`<div style="background:${healthy?'var(--mint)':'#fbe7e4'}; border-radius:6px; padding:12px 14px; margin-bottom:12px; font-family:var(--font-mono); font-size:13px; color:var(--ink);">
+    <strong style="font-size:15px;">${healthy?'✓ Net improvement '+fmtMoney(net):'✗ Net loss '+fmtMoney(net)}</strong> over ${R.from}–${R.to}<br>
+    <span class="muted">cash labor saved ${fmtMoney(D.cashSaved)} − revenue given up ${fmtMoney(D.revenueLost)} = <strong class="${healthy?'pos':'neg'}">${fmtMoney(net)}</strong>. ${healthy?'These cuts improve the business.':'These cuts lose more revenue than they save in cash — not yet a real improvement. Cut more of the accounts that free whole people, or the savings will not materialize.'}</span>
+  </div>`;
   html+='<div class="kpis">';
-  html+=kpi('Accounts to cut', D.cutIds.length+' of '+R.accounts.length, fmtMoney(gpCut)+' GP');
-  html+=kpi('Loaded contribution freed', fmtMoney(-contribCut), 'these accounts drained this', contribCut<0?'pos':'neg');
-  html+=kpi('Cash saved if cut', fmtMoney(D.laborSaved), 'real payroll + backfill', D.laborSaved>=0?'pos':'neg');
+  html+=kpi('Accounts to cut', D.cutIds.length+' of '+R.accounts.length, fmtMoney(gpCut)+' GP given up');
+  html+=kpi('Cash labor saved', fmtMoney(D.cashSaved), 'layoffs + hourly stopped − backfill', D.cashSaved>=0?'pos':'neg');
+  html+=kpi('Revenue lost', fmtMoney(D.revenueLost), 'GP of cut accounts', 'neg');
+  html+=kpi('Net savings', fmtMoney(net), healthy?'improves the business':'not yet positive', healthy?'pos':'neg');
   html+=kpi('Layoffs implied', D.staff.laidOffIds.length+' salaried', 'from freed capacity');
-  html+=kpi('Kept contribution', fmtMoney(R.accounts.filter(a=>!cut.has(a.id)).reduce((s,a)=>s+a.contribution,0)), 'fully-loaded');
   html+='</div>';
-  html+='<div class="note" style="margin-top:6px;">All figures use <strong>planned assignments</strong> where hours aren\'t yet logged — this is a forward plan, not actuals. "Loaded contribution" charges every hour at the delivering person\'s salary-derived rate; "cash saved" only counts money that actually stops going out the door (hourly + layoffs), which is smaller when the freed people are salaried and would sit idle.</div>';
+  html+='<div class="note" style="margin-top:6px;"><strong>Cash basis:</strong> savings count only money that actually stops leaving — hourly hours you stop paying and the full salary of anyone the cuts lay off, minus hourly backfill for their leftover surviving-account work. A salaried person you keep costs the same whether or not their account is cut, so cutting an account whose people stay saves $0. Figures use planned assignments where hours aren\'t logged — a forward plan, not actuals.</div>';
   if(review.size) html+='<div class="note" style="background:#fdf3dc; border-radius:6px; padding:10px 12px; color:var(--ink); margin-top:8px;"><strong>'+review.size+' account'+(review.size===1?'':'s')+' held for review</strong> — below the floor but data too thin, or revenue with no staffing plan to cost against. Use the override to force a cut.</div>';
   html+='</div>';
 
@@ -610,6 +631,10 @@ function renderResults(floorOnly){
     const confChip=`<span class="chip" style="background:${dot};color:#fff;" title="${esc((c.reasons||[]).join(' · ')||'complete data')}">${Math.round((c.score||1)*100)}%</span>`;
     const ov=(R.overrides||{})[a.id];
     let decision = isCut?`<span class="chip cut">cut</span>` : inReview?`<span class="chip under">review</span>` : `<span class="chip keep">keep</span>`;
+    if(isCut){
+      const freed=(R.decision.perAccountCash||{})[a.id]||0;
+      if(freed<1) decision += ` <span class="chip under" title="Cutting this account alone frees no cash — its people stay on salaried payroll. Only saves money as part of a bundle that lays someone off.">$0 cash alone</span>`;
+    }
     const toggle=`<span class="toggle-cell" data-toggle="${a.id}" title="Override" style="margin-left:6px; font-size:9px; color:var(--slate); border:1px solid var(--line); border-radius:3px; padding:1px 4px;">${ov?('override: '+ov+' ✕'):'override'}</span>`;
     const mCls=a.marginPct>=0.3?'pos':a.marginPct>=0?'':'neg';
     html+=`<tr class="${isCut?'cut':''}"><td><span class="toggle-cell" data-expand="${a.id}" style="cursor:pointer;">▸ ${esc(a.name)}</span>${confChip}${a.unattributed?'<span class="chip under" title="Revenue but no one staffed — cannot compute delivery cost">no staffing</span>':''}</td><td class="muted">${esc(a.dept)}</td><td class="num">${fmtMoney(a.gp)}</td><td class="num">${fmtMoney(a.deliveryLoaded)}</td><td class="num ${a.contribution>=0?'pos':'neg'}" style="font-weight:700;">${fmtMoney(a.contribution)}</td><td class="num ${mCls}" style="font-weight:700;">${a.gp>0?Math.round(a.marginPct*100)+'%':'—'}</td><td class="num">${a.pph===Infinity?'—':fmtMoney(a.pph)}</td><td>${decision}${toggle}</td></tr>`;
