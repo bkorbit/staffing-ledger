@@ -72,7 +72,7 @@ tr.kept-marginal{ background:#fdf3dc; }
   </div>
 
   <div id="app" style="display:none;">
-    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0215</span></h1>
+    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0218</span></h1>
     <div class="sub">Reads the live ledger. Changes nothing. <strong>Stage 1:</strong> every account is judged on gross profit per hour of team time it consumes, against a floor you set — anything below the floor is a cut candidate, regardless of who happens to be staffed on it. <strong>Stage 2:</strong> a staffing plan is built from the survivors, with real salaried + hourly costs, showing the labor you save. Drag the floor and watch accounts move. Every number is a proposal — apply judgment.</div>
 
     <div class="card">
@@ -127,11 +127,23 @@ function staffActiveInMonth(s,mk){ const sm=(s.startDate||'').slice(0,7)||s.star
 function projectActiveInMonth(p,mk){ if(p.startMonth&&mk<p.startMonth)return false; if(p.endMonth&&mk>p.endMonth)return false; return true; }
 function billingActive(p){ return !!(p.billing&&p.billing.lines&&p.billing.lines.length); }
 function monthsOfFlight(p){ if(!p.startMonth||!p.endMonth||p.endMonth<p.startMonth)return null; const a=[]; let mk=p.startMonth,g=0; while(mk<=p.endMonth&&g<60){a.push(mk); mk=shiftMonth(mk,1); g++;} return a; }
-function lineGP(p,l,mk){
-  if(l.type==='retainer') return l.amount||0;
-  if(l.type==='search'||l.type==='social'){ const b=(l.budgets||{})[mk]||0; return b*((l.feePct||0)/100); }
-  if(l.type==='programmatic'){ const b=(l.budgets||{})[mk]||0; const m=((l.margins||{})[mk]!==undefined?(l.margins||{})[mk]:(l.defaultMargin||0)); return b*((l.feePct||0)/100)+b*((m||0)/100); }
-  if(l.type==='hourly'){ const h=(l.hoursByMonth||{})[mk]!==undefined?(l.hoursByMonth[mk]):(l.mode==='monthly'?(l.hoursPerMonth||0):0); return (h||0)*(l.rate||0); }
+function lineGP(p, line, mk){
+  // Ported verbatim from the main app (index.html) so billing GP can never drift.
+  const flight = monthsOfFlight(p);
+  const inFlight = flight ? flight.includes(mk) : false;
+  const t = line.type;
+  if(t==='retainer') return inFlight ? (line.amount||0) : 0;
+  if(t==='search'||t==='social') return ((line.budgets||{})[mk]||0) * (line.feePct||0)/100;
+  if(t==='programmatic'){
+    const budget=(line.budgets||{})[mk]||0;
+    const margin=(line.margins||{})[mk]!==undefined ? line.margins[mk] : (line.marginPct||0);
+    return budget*((line.feePct||0)+margin)/100;
+  }
+  if(t==='hourly'){
+    if(line.mode==='monthly') return ((line.hoursByMonth||{})[mk]||0)*(line.rate||0);
+    if(!flight||!flight.length||!inFlight) return 0;
+    return ((line.hours||0)/flight.length)*(line.rate||0);
+  }
   return 0;
 }
 function billingMonths(p){ const set=new Set(); if(!billingActive(p))return set; const fl=monthsOfFlight(p)||[]; p.billing.lines.forEach(l=>{ if(l.type==='retainer'||(l.type==='hourly'&&l.mode!=='monthly')) fl.forEach(mk=>set.add(mk)); Object.keys(l.budgets||{}).forEach(mk=>{if(l.budgets[mk])set.add(mk);}); Object.keys(l.hoursByMonth||{}).forEach(mk=>{if(l.hoursByMonth[mk])set.add(mk);}); }); return set; }
