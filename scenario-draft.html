@@ -72,7 +72,7 @@ tr.kept-marginal{ background:#fdf3dc; }
   </div>
 
   <div id="app" style="display:none;">
-    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0335</span></h1>
+    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0344</span></h1>
     <div class="sub">Reads the live ledger. Changes nothing. <strong>Stage 1:</strong> every account is judged on gross profit per hour of team time it consumes, against a floor you set — anything below the floor is a cut candidate, regardless of who happens to be staffed on it. <strong>Stage 2:</strong> a staffing plan is built from the survivors, with real salaried + hourly costs, showing the labor you save. Drag the floor and watch accounts move. Every number is a proposal — apply judgment.</div>
 
     <div class="card">
@@ -145,13 +145,20 @@ function lineGP(p, line, mk){
     return budget*((line.feePct||0)+margin)/100;
   }
   if(t==='hourly'){
+    if(line.mode==='scheduled'){
+      // Ported verbatim from index.html: bill scheduled/logged hours × rate, capped.
+      let h=0;
+      STATE.staff.forEach(s=>{ const a=actualFor(mk,s.id,p.id); h += a>0?a:assignFor(mk,s.id,p.id); });
+      const cap = +line.capHours>0 ? +line.capHours : Infinity;
+      return Math.min(h,cap)*(line.rate||0);
+    }
     if(line.mode==='monthly') return ((line.hoursByMonth||{})[mk]||0)*(line.rate||0);
     if(!flight||!flight.length||!inFlight) return 0;
     return ((line.hours||0)/flight.length)*(line.rate||0);
   }
   return 0;
 }
-function billingMonths(p){ const set=new Set(); if(!billingActive(p))return set; const fl=monthsOfFlight(p)||[]; p.billing.lines.forEach(l=>{ if(l.type==='retainer'||(l.type==='hourly'&&l.mode!=='monthly')) fl.forEach(mk=>set.add(mk)); Object.keys(l.budgets||{}).forEach(mk=>{if(l.budgets[mk])set.add(mk);}); Object.keys(l.hoursByMonth||{}).forEach(mk=>{if(l.hoursByMonth[mk])set.add(mk);}); }); return set; }
+function billingMonths(p){ const set=new Set(); if(!billingActive(p))return set; const fl=monthsOfFlight(p)||[]; p.billing.lines.forEach(l=>{ if(l.type==='retainer'||(l.type==='hourly'&&l.mode!=='monthly'&&l.mode!=='scheduled')) fl.forEach(mk=>set.add(mk)); if(l.type==='hourly'&&l.mode==='scheduled'){ ['assignments','actuals'].forEach(store=>Object.keys(STATE[store]||{}).forEach(mk=>{ if(Object.keys(STATE[store][mk]||{}).some(k=>k.endsWith('__'+p.id))) set.add(mk); })); } Object.keys(l.budgets||{}).forEach(mk=>{if(l.budgets[mk])set.add(mk);}); Object.keys(l.hoursByMonth||{}).forEach(mk=>{if(l.hoursByMonth[mk])set.add(mk);}); }); return set; }
 function billingGP(p,mk){ if(!billingActive(p))return null; return p.billing.lines.reduce((s,l)=>s+lineGP(p,l,mk),0); }
 function revenueFor(p,mk){ const man=(p.revenueOverrides||{})[mk]; if(man!==undefined)return man; if(billingActive(p)&&billingMonths(p).has(mk))return billingGP(p,mk); return 0; }
 function actualFor(mk,sid,pid){ return (STATE.actuals[mk]||{})[sid+'__'+pid]||0; }
