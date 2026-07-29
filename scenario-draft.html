@@ -163,7 +163,6 @@ function accountDelivery(p, months){
   const perPerson={};   // sid -> {hours, loaded, marginal}
   let hours=0, loaded=0, marginal=0;
   months.forEach(mk=>{
-    if(!projectActiveInMonth(p,mk)) return;
     STATE.staff.forEach(s=>{
       const h=personProjectHours(s.id,p.id,mk); if(h<=0) return;
       const lr=loadedRate(s,mk), mr=marginalRate(s);
@@ -178,9 +177,13 @@ function accountDelivery(p, months){
 // The months an account spans. Prefer explicit flight dates; else any month that has
 // revenue or hours in the platform (so undated accounts still total correctly).
 function accountMonths(p){
-  const fl=monthsOfFlight(p);
-  if(fl) return fl;
+  // Union of every month the account has ANY economic footprint: flight span,
+  // manual revenue, computed billing, and scheduled/logged hours. Flight dates
+  // alone are not authoritative — a computed-billing month outside the flight
+  // still carries revenue and must be counted.
   const set=new Set();
+  const fl=monthsOfFlight(p);
+  if(fl) fl.forEach(mk=>set.add(mk));
   Object.keys(p.revenueOverrides||{}).forEach(mk=>{ if(/^\d{4}-\d{2}$/.test(mk)) set.add(mk); });
   if(billingActive(p)) billingMonths(p).forEach(mk=>set.add(mk));
   ['assignments','actuals'].forEach(store=>{ Object.keys(STATE[store]||{}).forEach(mk=>{ const b=STATE[store][mk]||{}; if(Object.keys(b).some(k=>k.endsWith('__'+p.id))) set.add(mk); }); });
@@ -212,12 +215,16 @@ function blendedFteHourCost(months){
 // cost is the loaded cost of whoever is planned/logged on it; contribution = GP minus
 // delivery cost. Contribution margin % is the ranking metric.
 function accountEconomics(months){
+  const winSet=new Set(months);
   return STATE.projects.map(p=>{
-    const winMonths = months.filter(mk=>projectActiveInMonth(p,mk));
+    // Window months where the account has any footprint (revenue, billing, or hours),
+    // NOT gated by flight dates — computed-billing months outside the flight still count.
+    const foot=new Set(accountMonths(p));
+    const winMonths = months.filter(mk=>foot.has(mk));
     let gp=0, hours=0;
     winMonths.forEach(mk=>{ gp+=revenueFor(p,mk); hours+=projectHours(p.id,mk); });
     const dept = dominantDept(p.id, winMonths[0]||months[0]);
-    const del = accountDelivery(p, months);
+    const del = accountDelivery(p, winMonths);
     const contribution = gp - del.loaded;          // fully-loaded (allocation) truth
     const cashContribution = gp - del.marginal;    // marginal / cash
     const unattributed = del.hours <= 0 && gp !== 0; // revenue but nobody staffed -> can't assess
@@ -246,7 +253,6 @@ function personEfficiency(months){
       const internal=personInternalHours(s.id,mk);
       avail += Math.max(cap-internal,0);
       STATE.projects.forEach(p=>{
-        if(!projectActiveInMonth(p,mk)) return;
         const h=personProjectHours(s.id,p.id,mk); if(h<=0) return;
         booked+=h;
         if(empType(s)==='hourly') cost+=h*(s.hourlyCost||0);
@@ -283,7 +289,6 @@ function departmentRollup(months){
       cost += empType(s)==='fulltime'? salariedMonthlyCost(s,mk) : 0;
     });
     STATE.projects.forEach(p=>{
-      if(!projectActiveInMonth(p,mk)) return;
       // GP attributed to this dept by that dept's share of the project's hours
       const tot=projectHours(p.id,mk); if(tot<=0) return;
       let deptHrs=0; STATE.staff.forEach(s=>{ if(normDept(s.department)===dept) deptHrs+=personProjectHours(s.id,p.id,mk); });
