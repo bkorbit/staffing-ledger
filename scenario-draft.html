@@ -72,7 +72,7 @@ tr.kept-marginal{ background:#fdf3dc; }
   </div>
 
   <div id="app" style="display:none;">
-    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0357</span></h1>
+    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0408</span></h1>
     <div class="sub">Reads the live ledger. Changes nothing. <strong>Stage 1:</strong> every account is judged on gross profit per hour of team time it consumes, against a floor you set — anything below the floor is a cut candidate, regardless of who happens to be staffed on it. <strong>Stage 2:</strong> a staffing plan is built from the survivors, with real salaried + hourly costs, showing the labor you save. Drag the floor and watch accounts move. Every number is a proposal — apply judgment.</div>
 
     <div class="card">
@@ -83,6 +83,7 @@ tr.kept-marginal{ background:#fdf3dc; }
         <label class="param">New-hourly rate $<input type="number" id="p-hourly" value="45" title="Blended rate used to cost any hourly backfill needed to cover demand that retained salaried staff can't."></label>
         <label class="param">Continuation horizon (mo)<input type="number" id="p-conth" value="6" title="How many months BEYOND the window an account's future value is counted. Long-term clients earn continuation value; accounts that end inside the window earn none — encoding that stable revenue beats period-bound revenue."></label>
         <label class="param">Continuation weight %<input type="number" id="p-contw" value="0" title="How much of that future contribution to bank on (retention confidence). 100 = trust it fully, 0 = ignore the future entirely (old behavior)."></label>
+        <label class="param">Internal time = overhead %<input type="number" id="p-intovh" value="100" title="What fraction of a person's internal-hours salary is treated as business-operating overhead, EXCLUDED from the client cut/keep math. At 100, someone 50% internal is judged only on the client-facing half of their salary vs their client-facing capacity — the solver stops firing people for running the business. At 0, full salary is charged against client GP (old behavior)."></label>
         <label class="param">Hourly revenue confidence %<input type="number" id="p-hconf" value="75" title="Revenue from hourly billing lines is discounted to this confidence in the solver's objective (display unchanged). Hourly accounts are harder to scale and short-term hourly work is a risk — this makes hourly the marginal revenue the plan can survive losing, not its foundation. 100 = no discount."></label>
         <label class="param">Max new hourly hours<input type="number" id="p-maxbf" value="300" title="The most new hourly labor you can realistically source across the window. The optimizer will never propose a plan needing more."></label>
         <label class="param">Target utilization %<input type="number" id="p-targetutil" value="85" title="Staffing is sized so retained people run at about this utilization on surviving work. Higher = leaner team, more hourly backfill risk; lower = more retained capacity."></label>
@@ -649,7 +650,7 @@ function renderResults(floorOnly){
   if(R.optimal){
     optBanner=`<div style="background:var(--brand); color:#fff; border-radius:6px; padding:12px 14px; margin-bottom:12px; font-family:var(--font-mono); font-size:12px;">
       <strong style="font-size:14px;">★ Proven-optimal plan applied</strong> — the solver searched every cut/keep and retain/lay-off combination.
-      Objective (GP kept − all labor) <strong>${fmtMoney(R.optimal.objective)}</strong> over the window · solver proposes <strong>${R.optimal.layoffs.length}</strong> layoffs, all as ONE cut at window start — people kept for period-bound accounts are costed for the whole window, so temporary revenue must cover the capacity it strands${(R.optimal.hConf||1)<1?' · hourly-line revenue counted at '+Math.round(R.optimal.hConf*100)+'% confidence (harder to scale, last-resort revenue)':''}${(R.optimal.contW||0)>0?' · includes continuation value':''} · new hourly capped at ${R.optimal.maxBF}h.<br>
+      Objective (GP kept − all labor) <strong>${fmtMoney(R.optimal.objective)}</strong> over the window · solver proposes <strong>${R.optimal.layoffs.length}</strong> layoffs, all as ONE cut at window start — people kept for period-bound accounts are costed for the whole window, so temporary revenue must cover the capacity it strands${(R.optimal.hConf||1)<1?' · hourly-line revenue counted at '+Math.round(R.optimal.hConf*100)+'% confidence (harder to scale, last-resort revenue)':''}${(R.optimal.intOvh||0)>0?' · internal time treated as operating overhead ('+Math.round(R.optimal.intOvh*100)+'%), so people are judged on client-facing economics only':''}${(R.optimal.contW||0)>0?' · includes continuation value':''} · new hourly capped at ${R.optimal.maxBF}h.<br>
       <span style="opacity:0.85;">${R.optimal.layoffs.map(esc).join(' · ')||'no layoffs'}</span><br>
       Your keep/cut pins were honored as hard constraints (${Object.keys(userOverrides).length} pinned), protected people always retained. To iterate: pin any account keep/cut with its override toggle, then Solve again — each solve is proven optimal GIVEN your pins. Toggling without re-solving re-evaluates instantly but is no longer proven optimal.</div>`;
   }
@@ -922,10 +923,21 @@ function buildOptimizerLP(R){
   // layoffs. A person kept for a temporary account is paid for the WHOLE window, so
   // period-bound accounts must either justify the stranded capacity after they end or
   // have replacement work in the plan. Stable revenue wins on the math, not a weight.
+  // INTERNAL TIME AS OVERHEAD: senior people spend real hours operating the business.
+  // That work doesn't disappear if they're laid off, so charging their FULL salary
+  // against client GP systematically fires the people running the company. The internal
+  // share of salary is treated as operating overhead (knob below) and excluded from
+  // the client cut/keep objective — each person is judged on client-facing salary vs
+  // client-facing capacity. NOTE: real cash saved by a layoff is still the full salary;
+  // this knob changes the DECISION frame (ops must continue), not the payroll math.
+  const intOvh=Math.max(0,Math.min(100,+((document.getElementById('p-intovh')||{}).value)||0))/100;
   salaried.forEach((s,i)=>{
     const v='y'+i; vY[s.id]=v; bins.push(v);
     const salWin=months.reduce((t,mk)=>t+(salMonth[s.id][mk]||0),0);
-    if(salWin>0) obj.push(`- ${salWin.toFixed(2)} ${v}`);
+    let grossCap=0,intl=0; months.forEach(mk=>{ grossCap+=monthlyCapacityFor(s,mk)||0; intl+=personInternalHours(s.id,mk)||0; });
+    const intShare=grossCap>0?Math.min(intl/grossCap,1):0;
+    const effSal=salWin*(1-intOvh*intShare);
+    if(effSal>0) obj.push(`- ${effSal.toFixed(2)} ${v}`);
     if(s.layoffProtected) cons.push(`prot${i}: ${v} = 1`);
   });
   accounts.forEach(a=>{ if(userOverrides[a.id]==='keep') cons.push(`ovk_${vA[a.id]}: ${vA[a.id]} = 1`); if(userOverrides[a.id]==='cut') cons.push(`ovc_${vA[a.id]}: ${vA[a.id]} = 0`); });
@@ -955,7 +967,7 @@ function buildOptimizerLP(R){
   if(bVars.length) cons.push(`maxbf: ${bVars.join(' + ')} <= ${maxBF}`);
 
   const lp=`Maximize\n obj: ${obj.join(' ')}\nSubject To\n ${cons.join('\n ')}\nBounds\n ${bounds.join('\n ')}\nBinary\n ${bins.join(' ')}\nEnd`;
-  return { lp, vA, vY, accounts, salaried, months, maxBF, tails, contH, contW, hConf };
+  return { lp, vA, vY, accounts, salaried, months, maxBF, tails, contH, contW, hConf, intOvh };
 }
 
 function applyOptimalSolution(sol, M){
@@ -965,7 +977,7 @@ function applyOptimalSolution(sol, M){
   M.accounts.forEach(a=>{ lastRun.optimalSet[a.id] = (sol.Columns[M.vA[a.id]].Primal>=0.5)?'keep':'cut'; });
   lastRun.decision=decideByFloor(lastRun.accounts,lastRun.floor,lastRun.confidence,lastRun.months,lastRun.params);
   const layoffs=M.salaried.filter(s=>sol.Columns[M.vY[s.id]].Primal<0.5).map(s=>s.name||'Unnamed');
-  lastRun.optimal={ objective:sol.ObjectiveValue, layoffs, maxBF:M.maxBF, hConf:M.hConf, contW:M.contW };
+  lastRun.optimal={ objective:sol.ObjectiveValue, layoffs, maxBF:M.maxBF, hConf:M.hConf, contW:M.contW, intOvh:M.intOvh };
   renderResults();
 }
 
