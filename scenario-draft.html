@@ -72,7 +72,7 @@ tr.kept-marginal{ background:#fdf3dc; }
   </div>
 
   <div id="app" style="display:none;">
-    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0333</span></h1>
+    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0335</span></h1>
     <div class="sub">Reads the live ledger. Changes nothing. <strong>Stage 1:</strong> every account is judged on gross profit per hour of team time it consumes, against a floor you set — anything below the floor is a cut candidate, regardless of who happens to be staffed on it. <strong>Stage 2:</strong> a staffing plan is built from the survivors, with real salaried + hourly costs, showing the labor you save. Drag the floor and watch accounts move. Every number is a proposal — apply judgment.</div>
 
     <div class="card">
@@ -100,6 +100,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_cJRK4z_cAj1oVhVg8tpOkA_FZRwNPhI';
 const WORKSPACE_ID = 'default';
 const INTERNAL_ID = '__internal__', TIMEOFF_ID = '__timeoff__';
 let sb, STATE = null, objective = 'maximize', activeMonth = null, lastRun = null;
+let userOverrides = {};   // account id -> 'cut' | 'keep' — the USER'S pins; survive re-runs and solves
 
 // ---------- helpers mirrored from the app ----------
 function monthKey(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
@@ -371,14 +372,17 @@ function runScenario(){
 // thin to trust — those are held for review, but can be force-cut in the table).
 // Stage 2: build the staffing plan from survivors and cost it for real.
 function decideByFloor(accounts, floor, confidence, months, P){
-  const overrides = (lastRun && lastRun.overrides) || {};   // id -> 'cut' | 'keep'
+  // Decision precedence: the user's pins always win; then the optimizer's proven set
+  // (if one has been applied); then the margin-floor heuristic.
+  const optSet = (lastRun && lastRun.optimalSet) || null;   // id -> 'cut'|'keep' from the solver
   const cutIds=new Set(), keptIds=new Set(), reviewIds=new Set();
   accounts.forEach(a=>{
     const conf=confidence[a.id]||{};
-    const belowFloor = (a.marginPct*100) < floor;
-    const ov = overrides[a.id];
+    const ov = userOverrides[a.id];
     if(ov==='cut'){ cutIds.add(a.id); return; }
     if(ov==='keep'){ keptIds.add(a.id); return; }
+    if(optSet){ if(optSet[a.id]==='cut') cutIds.add(a.id); else keptIds.add(a.id); return; }
+    const belowFloor = (a.marginPct*100) < floor;
     if(a.unattributed){ reviewIds.add(a.id); keptIds.add(a.id); return; }   // revenue but no staffing — can't assess
     if(belowFloor){
       if(conf.dataThin || conf.noForecast){ reviewIds.add(a.id); keptIds.add(a.id); }  // safety valve: hold, don't auto-cut
@@ -636,7 +640,7 @@ function renderResults(floorOnly){
     optBanner=`<div style="background:var(--brand); color:#fff; border-radius:6px; padding:12px 14px; margin-bottom:12px; font-family:var(--font-mono); font-size:12px;">
       <strong style="font-size:14px;">★ Proven-optimal plan applied</strong> — the solver searched every cut/keep and retain/lay-off combination.
       Objective (GP kept − all labor) <strong>${fmtMoney(R.optimal.objective)}</strong> over the window · solver proposes <strong>${R.optimal.layoffs.length}</strong> layoffs · new hourly capped at ${R.optimal.maxBF}h.
-      The optimal cut set is pinned via overrides below — toggle any account to explore variations (numbers re-evaluate instantly, but only this pinned set is proven optimal). Protected people and your prior keep/cut pins were honored as hard constraints.</div>`;
+      Your keep/cut pins were honored as hard constraints (${Object.keys(userOverrides).length} pinned), protected people always retained. To iterate: pin any account keep/cut with its override toggle, then Solve again — each solve is proven optimal GIVEN your pins. Toggling without re-solving re-evaluates instantly but is no longer proven optimal.</div>`;
   }
   html+='<div class="card" style="border-left:4px solid '+(healthy?'var(--brand)':'var(--rust)')+';"><h2>Recalibration — '+R.from+' to '+R.to+'</h2>';
   html+=optBanner;
@@ -668,7 +672,7 @@ function renderResults(floorOnly){
     const c=conf[a.id]||{level:'high',score:1,reasons:[]};
     const dot=c.level==='high'?'#0a493c':c.level==='med'?'#fabf4d':'#d1453b';
     const confChip=`<span class="chip" style="background:${dot};color:#fff;" title="${esc((c.reasons||[]).join(' · ')||'complete data')}">${Math.round((c.score||1)*100)}%</span>`;
-    const ov=(R.overrides||{})[a.id];
+    const ov=userOverrides[a.id];
     let decision = isCut?`<span class="chip cut">cut</span>` : inReview?`<span class="chip under">review</span>` : `<span class="chip keep">keep</span>`;
     if(isCut){
       const freed=(R.decision.perAccountCash||{})[a.id]||0;
@@ -766,10 +770,10 @@ function renderResults(floorOnly){
   document.getElementById('results').innerHTML=html;
 
   document.querySelectorAll('[data-toggle]').forEach(el=>el.addEventListener('click',()=>{
-    const id=el.dataset.toggle; if(!lastRun.overrides) lastRun.overrides={};
-    const cur=lastRun.overrides[id];
-    lastRun.overrides[id]=cur==='cut'?'keep':cur==='keep'?undefined:'cut';
-    if(lastRun.overrides[id]===undefined) delete lastRun.overrides[id];
+    const id=el.dataset.toggle;
+    const cur=userOverrides[id];
+    userOverrides[id]=cur==='cut'?'keep':cur==='keep'?undefined:'cut';
+    if(userOverrides[id]===undefined) delete userOverrides[id];
     lastRun.decision=decideByFloor(lastRun.accounts,lastRun.floor,lastRun.confidence,lastRun.months,lastRun.params);
     renderResults(true);
   }));
@@ -862,8 +866,7 @@ function buildOptimizerLP(R){
   accounts.forEach((a,i)=>{ vA[a.id]='a'+i; bins.push('a'+i); if(a.gp) obj.push(`${a.gp>0?'+':'-'} ${Math.abs(a.gp).toFixed(2)} a${i}`); });
   salaried.forEach((s,i)=>{ vY[s.id]='y'+i; bins.push('y'+i); if(salWin[s.id]>0) obj.push(`- ${salWin[s.id].toFixed(2)} y${i}`); });
   salaried.forEach(s=>{ if(s.layoffProtected) cons.push(`prot_${vY[s.id]}: ${vY[s.id]} = 1`); });
-  const ov=(R.overrides||{});
-  accounts.forEach(a=>{ if(ov[a.id]==='keep') cons.push(`ovk_${vA[a.id]}: ${vA[a.id]} = 1`); if(ov[a.id]==='cut') cons.push(`ovc_${vA[a.id]}: ${vA[a.id]} = 0`); });
+  accounts.forEach(a=>{ if(userOverrides[a.id]==='keep') cons.push(`ovk_${vA[a.id]}: ${vA[a.id]} = 1`); if(userOverrides[a.id]==='cut') cons.push(`ovc_${vA[a.id]}: ${vA[a.id]} = 0`); });
 
   const depts=[...new Set(staffAll.map(s=>deptOfP[s.id]))];
   const bVars=[];
@@ -896,8 +899,8 @@ function buildOptimizerLP(R){
 function applyOptimalSolution(sol, M){
   // Pin the proven-optimal cut set as overrides, then let the demand-driven staffing
   // and rendering pipeline present it — every account stays individually togglable.
-  lastRun.overrides={};
-  M.accounts.forEach(a=>{ lastRun.overrides[a.id] = (sol.Columns[M.vA[a.id]].Primal>=0.5)?'keep':'cut'; });
+  lastRun.optimalSet={};
+  M.accounts.forEach(a=>{ lastRun.optimalSet[a.id] = (sol.Columns[M.vA[a.id]].Primal>=0.5)?'keep':'cut'; });
   lastRun.decision=decideByFloor(lastRun.accounts,lastRun.floor,lastRun.confidence,lastRun.months,lastRun.params);
   lastRun.optimal={ objective:sol.ObjectiveValue,
     layoffs:M.salaried.filter(s=>sol.Columns[M.vY[s.id]].Primal<0.5).map(s=>s.name||'Unnamed'),
