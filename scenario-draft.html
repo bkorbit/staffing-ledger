@@ -72,7 +72,7 @@ tr.kept-marginal{ background:#fdf3dc; }
   </div>
 
   <div id="app" style="display:none;">
-    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0415</span></h1>
+    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0422</span></h1>
     <div class="sub">Reads the live ledger. Changes nothing. <strong>Stage 1:</strong> every account is judged on gross profit per hour of team time it consumes, against a floor you set — anything below the floor is a cut candidate, regardless of who happens to be staffed on it. <strong>Stage 2:</strong> a staffing plan is built from the survivors, with real salaried + hourly costs, showing the labor you save. Drag the floor and watch accounts move. Every number is a proposal — apply judgment.</div>
 
     <div class="card">
@@ -680,7 +680,7 @@ function renderResults(floorOnly){
   // ===== accounts: cut / keep — THE decision, made on account economics alone =====
   html+='<div class="card" style="border-left:4px solid var(--brand);"><h2>① Accounts — cut / keep <span class="muted" style="font-size:11px; font-weight:400;">the decision</span></h2>';
   html+='<div class="note" style="margin-bottom:8px;">The leading decision, made on each account\'s own economics: cut anything below the margin floor. Ranked by contribution margin (worst first). Contribution = GP − loaded cost of the team currently delivering it. Headcount changes below are the <em>consequence</em> of these cuts, not an input to them. Click a name for the cost breakdown; click the decision to override.</div>';
-  html+='<table><thead><tr><th>Account</th><th>Dept</th><th class="num">GP</th><th class="num">Delivery cost</th><th class="num">Contribution</th><th class="num">Margin</th><th class="num">$/hr billed</th><th>Decision</th></tr></thead><tbody>';
+  html+='<table><thead><tr><th>Account</th><th>Dept</th><th class="num">Hours</th><th class="num">GP</th><th class="num">Delivery cost</th><th class="num">Contribution</th><th class="num">Margin</th><th class="num">$/hr billed</th><th>Decision</th></tr></thead><tbody>';
   accts.forEach(a=>{
     const isCut=cut.has(a.id), inReview=review.has(a.id);
     const c=conf[a.id]||{level:'high',score:1,reasons:[]};
@@ -694,10 +694,10 @@ function renderResults(floorOnly){
     }
     const toggle=`<span class="toggle-cell" data-toggle="${a.id}" title="Override" style="margin-left:6px; font-size:9px; color:var(--slate); border:1px solid var(--line); border-radius:3px; padding:1px 4px;">${ov?('override: '+ov+' ✕'):'override'}</span>`;
     const mCls=a.marginPct>=0.3?'pos':a.marginPct>=0?'':'neg';
-    html+=`<tr class="${isCut?'cut':''}"><td><span class="toggle-cell" data-expand="${a.id}" style="cursor:pointer;">▸ ${esc(a.name)}</span>${confChip}${a.unattributed?'<span class="chip under" title="Revenue but no one staffed — cannot compute delivery cost">no staffing</span>':''}</td><td class="muted">${esc(a.dept)}</td><td class="num">${fmtMoney(a.gp)}</td><td class="num">${fmtMoney(a.deliveryLoaded)}</td><td class="num ${a.contribution>=0?'pos':'neg'}" style="font-weight:700;">${fmtMoney(a.contribution)}</td><td class="num ${mCls}" style="font-weight:700;">${a.gp>0?Math.round(a.marginPct*100)+'%':'—'}</td><td class="num">${a.pph===Infinity?'—':fmtMoney(a.pph)}</td><td>${decision}${toggle}</td></tr>`;
+    html+=`<tr class="${isCut?'cut':''}"><td><span class="toggle-cell" data-expand="${a.id}" style="cursor:pointer;">▸ ${esc(a.name)}</span>${confChip}${a.unattributed?'<span class="chip under" title="Revenue but no one staffed — cannot compute delivery cost">no staffing</span>':''}</td><td class="muted">${esc(a.dept)}</td><td class="num" title="${a.winMonths.length} month(s) in window · avg ${fmtH(a.hours/(a.winMonths.length||1))}h/mo">${fmtH(a.hours)}h</td><td class="num">${fmtMoney(a.gp)}</td><td class="num">${fmtMoney(a.deliveryLoaded)}</td><td class="num ${a.contribution>=0?'pos':'neg'}" style="font-weight:700;">${fmtMoney(a.contribution)}</td><td class="num ${mCls}" style="font-weight:700;">${a.gp>0?Math.round(a.marginPct*100)+'%':'—'}</td><td class="num">${a.pph===Infinity?'—':fmtMoney(a.pph)}</td><td>${decision}${toggle}</td></tr>`;
     // hidden per-person breakdown row
     if((R.expanded||{})[a.id]){
-      html+=`<tr><td colspan="8" style="background:#f7f7f7; padding:8px 14px;">`;
+      html+=`<tr><td colspan="9" style="background:#f7f7f7; padding:8px 14px;">`;
       // revenue audit: every footprint month, its manual/computed source and value
       const acctP=STATE.projects.find(x=>x.id===a.id);
       const foot=accountMonths(acctP).filter(mk=>R.months.includes(mk));
