@@ -72,7 +72,7 @@ tr.kept-marginal{ background:#fdf3dc; }
   </div>
 
   <div id="app" style="display:none;">
-    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0302</span></h1>
+    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0318</span></h1>
     <div class="sub">Reads the live ledger. Changes nothing. <strong>Stage 1:</strong> every account is judged on gross profit per hour of team time it consumes, against a floor you set — anything below the floor is a cut candidate, regardless of who happens to be staffed on it. <strong>Stage 2:</strong> a staffing plan is built from the survivors, with real salaried + hourly costs, showing the labor you save. Drag the floor and watch accounts move. Every number is a proposal — apply judgment.</div>
 
     <div class="card">
@@ -81,7 +81,7 @@ tr.kept-marginal{ background:#fdf3dc; }
         <label class="param">Window from<input type="month" id="p-from"></label>
         <label class="param">Window to<input type="month" id="p-to"></label>
         <label class="param">New-hourly rate $<input type="number" id="p-hourly" value="45" title="Blended rate used to cost any hourly backfill needed to cover demand that retained salaried staff can't."></label>
-        <label class="param">Keep if util ≥ %<input type="number" id="p-keeputil" value="30" title="After cuts, if a salaried person's remaining work on surviving accounts fills less than this % of their capacity, a full salary isn't justified — lay them off and backfill the leftover hours hourly. Set to 0 to retain anyone with any surviving work."></label>
+        <label class="param">Target utilization %<input type="number" id="p-targetutil" value="85" title="Staffing is sized so retained people run at about this utilization on surviving work. Higher = leaner team, more hourly backfill risk; lower = more retained capacity."></label>
       </div>
       <div id="floor-box" style="margin-top:16px;"></div>
       <button class="run" id="run">Run scenario</button>
@@ -330,7 +330,8 @@ function departmentRollup(months){
 function runScenario(){
   if(!STATE){ return; }
   const hourlyRate=+document.getElementById('p-hourly').value||45;
-  const keepUtil=Math.max(0,Math.min(100,+document.getElementById('p-keeputil').value||0))/100;
+  const tuEl=document.getElementById('p-targetutil');
+  const targetUtil=Math.max(40,Math.min(100,(tuEl&&+tuEl.value)||85))/100;
   const fromEl=document.getElementById('p-from'), toEl=document.getElementById('p-to');
   const nowMk=monthKey(new Date());
   let from=(fromEl&&/^\d{4}-\d{2}$/.test(fromEl.value))?fromEl.value:shiftMonth(nowMk,1);
@@ -338,7 +339,7 @@ function runScenario(){
   if(to<from) to=from;
   const months=[]; let mk=from, g=0; while(mk<=to && g<36){ months.push(mk); mk=shiftMonth(mk,1); g++; }
 
-  const P={ hourlyRate, keepUtil, months, from, to };
+  const P={ hourlyRate, targetUtil, months, from, to };
   const confidence=computeConfidence(months);
   const accounts=accountEconomics(months);
   const rollup=departmentRollup(months);
@@ -412,6 +413,10 @@ function decideByFloor(accounts, floor, confidence, months, P){
 // the labor saved vs. keeping everyone.
 function solveStaffing(accounts, keptIds, months, P){
   const kept=accounts.filter(a=>keptIds.has(a.id));
+  const targetUtil=Math.min(Math.max(P.targetUtil||0.85,0.4),1);
+
+  // Demand per department per month = ALL hours kept accounts need, whoever currently
+  // does them (salaried, laid-off, or contractor). Staffing is sized to cover this.
   const deptMonthDemand={};
   kept.forEach(a=>{ const d=a.dept||'No department'; (deptMonthDemand[d]=deptMonthDemand[d]||{}); a.winMonths.forEach(mk=>{ deptMonthDemand[d][mk]=(deptMonthDemand[d][mk]||0)+(a.monthHours[mk]||0); }); });
 
@@ -423,18 +428,8 @@ function solveStaffing(accounts, keptIds, months, P){
     internal:Object.fromEntries(months.map(mk=>[mk, staffActiveInMonth(s,mk)?personInternalHours(s.id,mk):0]))
   }));
 
-  // per-person forward GP on kept accounts (hours-proportional share)
   function fwdGP(pp){ let gp=0; months.forEach(mk=>{ kept.forEach(a=>{ if(!a.winMonths.includes(mk))return; const tot=a.monthHours[mk]; if(tot<=0)return; const mine=personProjectHours(pp.id,a.id,mk); if(mine>0) gp+=(a.monthGP[mk]||0)*(mine/tot); }); }); return gp; }
-
-  // Hours a person still has on KEPT accounts across the window (their real remaining
-  // work). People are not fungible department capacity — if every account a person
-  // works on is cut, they have no work regardless of what the department needs.
-  function keptHoursOf(pp){
-    let h=0;
-    months.forEach(mk=>{ kept.forEach(a=>{ if(a.winMonths.includes(mk)) h+=personProjectHours(pp.id,a.id,mk); }); });
-    return h;
-  }
-  // Per-account remaining hours for a person, for the after-state assignment view.
+  function keptHoursOf(pp){ let h=0; months.forEach(mk=>{ kept.forEach(a=>{ if(a.winMonths.includes(mk)) h+=personProjectHours(pp.id,a.id,mk); }); }); return h; }
   function keptAssignmentsOf(pp){
     const byAcct={};
     months.forEach(mk=>{ kept.forEach(a=>{ if(!a.winMonths.includes(mk))return; const hh=personProjectHours(pp.id,a.id,mk); if(hh>0) byAcct[a.id]=(byAcct[a.id]||0)+hh; }); });
@@ -443,141 +438,97 @@ function solveStaffing(accounts, keptIds, months, P){
 
   const byDept={}; people.forEach(pp=>{ (byDept[pp.dept]=byDept[pp.dept]||[]).push(pp); });
   let laidOffIds=[], staffPlan=[], totalLabor=0, totalGP=0, laborAll=0, cashLabor=0;
-  const contractorStatus={};   // hourly id -> {status, total, displaced, remaining}
+  const contractorStatus={};
 
   Object.entries(byDept).forEach(([dept,dp])=>{
     const demand=deptMonthDemand[dept]||{};
     const salaried=dp.filter(p=>p.type==='fulltime');
     const hourly=dp.filter(p=>p.type==='hourly');
-    salaried.forEach(pp=>{ pp._fwdGP=fwdGP(pp); pp._fwdSalary=months.reduce((s,mk)=>s+(pp.monthSalary[mk]||0),0); pp._cov=pp._fwdSalary>0?pp._fwdGP/pp._fwdSalary:Infinity; pp._keptHours=keptHoursOf(pp); pp._keptAssignments=keptAssignmentsOf(pp); });
+    salaried.forEach(pp=>{ pp._fwdGP=fwdGP(pp); pp._fwdSalary=months.reduce((s,mk)=>s+(pp.monthSalary[mk]||0),0); pp._cov=pp._fwdSalary>0?pp._fwdGP/pp._fwdSalary:Infinity; pp._keptHours=keptHoursOf(pp); pp._keptAssignments=keptAssignmentsOf(pp); pp._extraHours=0; });
+    const capOf=(pp,mk)=>Math.max((pp.cap[mk]||0)-(pp.internal[mk]||0),0);
 
-    // Retention rule:
-    //  - Protected people are always retained.
-    //  - If ALL of a person's accounts are cut, they have no work -> lay off.
-    //  - If only a SLIVER survives (post-cut utilization below the keep threshold), a full
-    //    salary isn't justified -> lay off and backfill the leftover hours hourly.
-    //  - Otherwise retain them on their surviving work.
-    const keepUtil = (P.keepUtil!==undefined ? P.keepUtil : 0.3);
-    const availOf = pp => months.reduce((s,mk)=>s+Math.max((pp.cap[mk]||0)-(pp.internal[mk]||0),0),0);
-    // Contractor (hourly) hours on KEPT accounts this dept — the pool that salaried
-    // people can take over. Salaried cost is sunk; contractor cost is live cash and
-    // full-timers are cheaper, so wherever salaried capacity exists the contractor is
-    // displaced. Total contractor hours available to reassign, across the window:
-    const contractorHoursTotal = ()=>{ let h=0; months.forEach(mk=>{ hourly.forEach(hh=>{ kept.forEach(a=>{ if(a.winMonths.includes(mk)) h+=personProjectHours(hh.id,a.id,mk); }); }); }); return h; };
-
-    const retained=[], laidOff=[];
-    salaried.forEach(pp=>{
-      if(pp.protected){ retained.push(pp); pp._reason='protected'; return; }
-      const avail=availOf(pp);
-      const postUtil = avail>0 ? pp._keptHours/avail : 0;
-      pp._postUtil=postUtil; pp._avail=avail;
-      if(pp._keptHours<=0.5 && contractorHoursTotal()<=0.5){ laidOff.push(pp); pp._reason='all their accounts cut — no remaining work'; }
-      else if(postUtil >= keepUtil){ retained.push(pp); pp._reason='works on surviving account'+(pp._keptAssignments.length?' ('+pp._keptAssignments.map(x=>x.name).join(', ')+')':''); }
-      else { laidOff.push(pp); pp._reason='below-threshold'; }   // provisional — rescue pass may reclaim
-    });
-
-    // ---- RESCUE PASS ----
-    // Before finalizing any layoff, try to keep the (cheaper) salaried person by handing
-    // them contractor work on kept accounts, same department. A would-be-laid-off salaried
-    // person is reclaimed if contractor hours can lift them to the keep threshold.
-    let contractorPool = contractorHoursTotal();   // window-total hours still on contractors
-    const rescued=[];
-    laidOff.slice().sort((a,b)=>b._keptHours-a._keptHours).forEach(pp=>{   // rescue those closest to the line first
-      if(contractorPool<=0.5) return;
-      const need = Math.max(pp._avail*keepUtil - pp._keptHours, 0);   // extra hours to reach the threshold
-      if(need<=0.5) return;
-      const take = Math.min(need, contractorPool, Math.max(pp._avail-pp._keptHours,0));
-      if(take>0.5){
-        pp._rescuedHours=take; contractorPool-=take;
-        rescued.push(pp);
-        pp._reason='retained by taking '+fmtH(take)+'h of contractor work (kept over a contractor)';
+    // ---- DEMAND-DRIVEN RETENTION ----
+    // Retain enough people to cover surviving demand at the target utilization.
+    // Protected always; then best coverage (GP earned per salary dollar), cheaper first
+    // on ties. Only people beyond what the surviving work needs are laid off.
+    const protectedPpl=salaried.filter(p=>p.protected);
+    protectedPpl.forEach(pp=>pp._reason='protected');
+    const ranked=salaried.filter(p=>!p.protected).sort((a,b)=> (b._cov-a._cov) || (a._fwdSalary-b._fwdSalary));
+    const retained=[...protectedPpl];
+    const retainedCap={}; months.forEach(mk=>{ retainedCap[mk]=retained.reduce((s,pp)=>s+capOf(pp,mk),0); });
+    const needCap={}; months.forEach(mk=>{ needCap[mk]=(demand[mk]||0)/targetUtil; });
+    const laidOff=[];
+    ranked.forEach(pp=>{
+      // Real uncovered work: retained capacity below demand somewhere -> must retain.
+      const realShort=months.some(mk=> retainedCap[mk]+0.5 < (demand[mk]||0) && capOf(pp,mk)>0 );
+      // Utilization buffer (demand/targetUtil): only fill it with people already
+      // working on surviving accounts — never retain someone with no surviving work
+      // just to pad the buffer.
+      const bufferShort=months.some(mk=> retainedCap[mk]+0.5 < needCap[mk] && capOf(pp,mk)>0 );
+      if(realShort || (bufferShort && pp._keptHours>0.5)){
+        retained.push(pp); months.forEach(mk=>{ retainedCap[mk]+=capOf(pp,mk); });
+        pp._reason=(realShort?'needed to cover surviving demand':'retained as utilization buffer')+(pp._keptAssignments.length?' — works on '+pp._keptAssignments.map(x=>x.name).join(', '):'');
       }
+      else { laidOff.push(pp); pp._reason='surplus to surviving demand — the retained team covers the remaining work'; }
     });
-    // move rescued from laidOff -> retained
-    rescued.forEach(pp=>{ const i=laidOff.indexOf(pp); if(i>=0) laidOff.splice(i,1); retained.push(pp); });
-    // finalize reasons for anyone still laid off after rescue
-    laidOff.forEach(pp=>{ if(pp._reason==='below-threshold') pp._reason='only '+Math.round(pp._postUtil*100)+'% utilized after cuts ('+pp._keptAssignments.map(x=>x.name).join(', ')+') — no contractor work to justify keeping; leftover backfilled hourly'; });
     laidOff.forEach(p=>laidOffIds.push(p.id));
 
-    // ---- CONTRACTOR ABSORPTION (pure cash mop-up) ----
-    // After rescues, any remaining contractor hours on kept accounts that idle salaried
-    // spare can cover are displaced too — every displaced hour is contractor cash saved
-    // at no added cost (the salaried person is already paid).
-    // Computed per month below in the cost loop.
-
-    // Orphaned hours: work on SURVIVING accounts that laid-off people were doing.
-    // That work still needs doing. Cover it same-department: first soak into retained
-    // salaried spare capacity (free — already paid), then hourly backfill (real cash).
-    let reassignTotal=0, backfillHoursTotal=0, backfillCostTotal=0;
-    let contractorDisplacedHours=0, contractorSaved=0;
-    const reassignByMonth={};
-    // Per-contractor tallies so we can show each one's status (displaced vs remaining).
-    hourly.forEach(hh=>{ hh._totalHrs=0; hh._displacedHrs=0; });
+    // ---- SERVING & COST, month by month ----
+    // Retained salaried serve demand first (their cost is fixed). Any residual goes to
+    // existing contractors CHEAPEST-first (expensive contractors displaced first). Only
+    // demand beyond both becomes new hourly backfill — the execution risk.
+    hourly.forEach(hh=>{ hh._totalHrs=0; hh._servedHrs=0; hh._displacedHrs=0; });
+    let backfillHoursTotal=0, backfillCostTotal=0, contractorDisplacedHours=0, contractorSaved=0;
+    let demandTotal=0, capTotal=0, serveTotal=0, orphanTotal=0;
     months.forEach(mk=>{
-      let orphan=0;
-      laidOff.forEach(pp=>{ kept.forEach(a=>{ if(a.winMonths.includes(mk)) orphan+=personProjectHours(pp.id,a.id,mk); }); });
-      let spare=0;
-      retained.forEach(pp=>{
-        const avail=Math.max((pp.cap[mk]||0)-(pp.internal[mk]||0),0);
-        let own=0; kept.forEach(a=>{ if(a.winMonths.includes(mk)) own+=personProjectHours(pp.id,a.id,mk); });
-        const rescuedPerMonth = (pp._rescuedHours||0)/months.length;
-        spare+=Math.max(avail-own-rescuedPerMonth,0);
-      });
-      const absorbed=Math.min(orphan,spare);
-      const backfill=Math.max(orphan-absorbed,0);
-      let spareLeft=Math.max(spare-absorbed,0);
-      // per-contractor hours this month on kept accounts (most expensive displaced first)
-      const cThis=hourly.map(hh=>{ let h=0; kept.forEach(a=>{ if(a.winMonths.includes(mk)) h+=personProjectHours(hh.id,a.id,mk); }); return {hh,h}; })
-        .filter(x=>x.h>0).sort((a,b)=>b.hh.rate-a.hh.rate);
+      const dem=demand[mk]||0; demandTotal+=dem;
+      const rc=retained.reduce((s,pp)=>s+capOf(pp,mk),0); capTotal+=rc;
+      const salariedServe=Math.min(dem, rc); serveTotal+=salariedServe;
+      let residual=Math.max(dem-salariedServe,0);
+      const cThis=hourly.map(hh=>{ let h=0; kept.forEach(a=>{ if(a.winMonths.includes(mk)) h+=personProjectHours(hh.id,a.id,mk); }); return {hh,h}; }).filter(x=>x.h>0);
       cThis.forEach(x=>x.hh._totalHrs+=x.h);
-      let displaced=0, dispCost=0;
-      for(const x of cThis){
-        if(spareLeft<=0.5) break;
-        const take=Math.min(x.h, spareLeft);
-        x.hh._displacedHrs+=take; spareLeft-=take; displaced+=take; dispCost+=take*x.hh.rate;
-      }
-      const avgRate = displaced>0 ? dispCost/displaced : 0;
-      contractorDisplacedHours+=displaced; contractorSaved+=dispCost;
-      reassignByMonth[mk]={orphan,absorbed,backfill,displaced,avgRate};
-      reassignTotal+=orphan; backfillHoursTotal+=backfill; backfillCostTotal+=backfill*P.hourlyRate;
-    });
-    // classify each contractor: fully displaced (engagement ends), partly, or unchanged
-    hourly.forEach(hh=>{
-      hh._remainingHrs=Math.max((hh._totalHrs||0)-(hh._displacedHrs||0),0);
-      contractorStatus[hh.id]={ id:hh.id, name:hh.name, rate:hh.rate,
-        total:hh._totalHrs||0, displaced:hh._displacedHrs||0, remaining:hh._remainingHrs,
-        status: (hh._totalHrs||0)<=0.5 ? 'none'
-          : hh._remainingHrs<=0.5 ? 'displaced'      // all work moved to salaried -> end engagement
-          : hh._displacedHrs>0.5 ? 'reduced' : 'kept' };
-    });
-
-    months.forEach(mk=>{
+      cThis.sort((a,b)=>a.hh.rate-b.hh.rate);
+      let contractorServeCost=0;
+      cThis.forEach(x=>{
+        const take=Math.min(x.h,residual);
+        x.hh._servedHrs+=take; contractorServeCost+=take*x.hh.rate; residual-=take;
+        const disp=x.h-take;
+        x.hh._displacedHrs+=disp; contractorDisplacedHours+=disp; contractorSaved+=disp*x.hh.rate;
+      });
+      const backfill=residual;
+      backfillHoursTotal+=backfill; backfillCostTotal+=backfill*P.hourlyRate;
       const retSalary=retained.reduce((s,pp)=>s+(pp.monthSalary[mk]||0),0);
-      // contractor cost on kept accounts, LESS hours rescued/displaced onto salaried people
-      let hourlyCost=0, hourlyHrs=0; hourly.forEach(h=>{ let hrs=0; kept.forEach(a=>{ if(a.winMonths.includes(mk)) hrs+=personProjectHours(h.id,a.id,mk); }); hourlyCost+=hrs*h.rate; hourlyHrs+=hrs; });
-      const rm=reassignByMonth[mk]||{};
-      const rescuedThisMonth = rescued.reduce((s,pp)=>s+((pp._rescuedHours||0)/months.length),0);
-      const removedHours = (rm.displaced||0) + rescuedThisMonth;
-      const netHourlyCost = Math.max(hourlyCost - removedHours*(rm.avgRate||0), 0);
-      // Backfill for orphaned surviving-account work that retained spare couldn't absorb.
-      const backfill=rm.backfill||0;
-      totalLabor += retSalary+netHourlyCost+backfill*P.hourlyRate;
-      cashLabor += retSalary + netHourlyCost + backfill*P.hourlyRate;   // real cash out this month
-      // labor if we kept EVERYONE (all salaried in dept + same hourly, no reassignment): the baseline
-      laborAll += salaried.reduce((s,pp)=>s+(pp.monthSalary[mk]||0),0)+hourlyCost;
+      totalLabor += retSalary+contractorServeCost+backfill*P.hourlyRate;
+      cashLabor  += retSalary+contractorServeCost+backfill*P.hourlyRate;
+      let fullContractor=0; cThis.forEach(x=>{ fullContractor+=x.h*x.hh.rate; });
+      laborAll += salaried.reduce((s,pp)=>s+(pp.monthSalary[mk]||0),0)+fullContractor;
+      laidOff.forEach(pp=>{ kept.forEach(a=>{ if(a.winMonths.includes(mk)) orphanTotal+=personProjectHours(pp.id,a.id,mk); }); });
     });
     months.forEach(mk=>{ kept.filter(a=>(a.dept||'No department')===dept && a.winMonths.includes(mk)).forEach(a=>{ totalGP+=(a.monthGP[mk]||0); }); });
+
+    hourly.forEach(hh=>{
+      contractorStatus[hh.id]={ id:hh.id, name:hh.name, rate:hh.rate,
+        total:hh._totalHrs||0, displaced:hh._displacedHrs||0, remaining:Math.max((hh._totalHrs||0)-(hh._displacedHrs||0),0),
+        status:(hh._totalHrs||0)<=0.5?'none':(hh._displacedHrs>=(hh._totalHrs-0.5))?'displaced':(hh._displacedHrs>0.5?'reduced':'kept') };
+    });
+
+    // Display allocation: reassigned work (laid-off people's kept hours + displaced
+    // contractor hours) shown against retained people's spare, largest spare first.
+    let poolLeft=orphanTotal+contractorDisplacedHours;
+    retained.map(pp=>{ let spare=0; months.forEach(mk=>{ let own=0; kept.forEach(a=>{ if(a.winMonths.includes(mk)) own+=personProjectHours(pp.id,a.id,mk); }); spare+=Math.max(capOf(pp,mk)-own,0); }); return {pp,spare}; })
+      .sort((a,b)=>b.spare-a.spare)
+      .forEach(x=>{ if(poolLeft<=0.5)return; const take=Math.min(x.spare,poolLeft); if(take>0.5){ x.pp._extraHours=take; poolLeft-=take; } });
 
     const mk0=months[0];
     staffPlan.push({ dept,
       demand:demand[mk0]||0,
       peakDemand:Math.max(0,...months.map(mk=>demand[mk]||0)),
-      reassign:{ orphanHours:reassignTotal, backfillHours:backfillHoursTotal, backfillCost:backfillCostTotal,
-        absorbedHours:reassignTotal-backfillHoursTotal,
-        contractorDisplacedHours, contractorSaved, rescuedCount:rescued.length },
-      retained:retained.map(pp=>({name:pp.name,type:pp.type,protected:pp.protected,salaryMonthly:pp.monthSalary[mk0]||0,_gp:pp._fwdGP,_cov:pp._cov,_reason:pp._reason||'protected',_assignments:pp._keptAssignments||[],_keptHours:pp._keptHours||0,_rescuedHours:pp._rescuedHours||0})),
-      laidOff:laidOff.map(pp=>({name:pp.name,type:pp.type,salaryMonthly:pp.monthSalary[mk0]||0,_gp:pp._fwdGP,_cov:pp._cov,_reason:pp._reason,
-        _orphan:(pp._keptAssignments||[])})),
+      demandTotal, capTotal, util: capTotal>0? serveTotal/capTotal : 0,
+      reassign:{ orphanHours:orphanTotal, backfillHours:backfillHoursTotal, backfillCost:backfillCostTotal,
+        absorbedHours:Math.max(orphanTotal+contractorDisplacedHours-backfillHoursTotal,0),
+        contractorDisplacedHours, contractorSaved, rescuedCount:0 },
+      retained:retained.map(pp=>({name:pp.name,type:pp.type,protected:pp.protected,salaryMonthly:pp.monthSalary[mk0]||0,_gp:pp._fwdGP,_cov:pp._cov,_reason:pp._reason,_assignments:pp._keptAssignments||[],_keptHours:pp._keptHours||0,_extraHours:pp._extraHours||0})),
+      laidOff:laidOff.map(pp=>({name:pp.name,type:pp.type,salaryMonthly:pp.monthSalary[mk0]||0,_gp:pp._fwdGP,_cov:pp._cov,_reason:pp._reason,_orphan:(pp._keptAssignments||[])})),
       hourly });
   });
 
@@ -680,8 +631,11 @@ function renderResults(floorOnly){
   html+=kpi('Cash labor saved', fmtMoney(D.cashSaved), 'layoffs + hourly stopped − backfill', D.cashSaved>=0?'pos':'neg');
   html+=kpi('Revenue lost', fmtMoney(D.revenueLost), 'GP of cut accounts', 'neg');
   html+=kpi('Net savings', fmtMoney(net), healthy?'improves the business':'not yet positive', healthy?'pos':'neg');
-  html+=kpi('Layoffs implied', D.staff.laidOffIds.length+' salaried', 'from freed capacity');
+  html+=kpi('Layoffs implied', D.staff.laidOffIds.length+' salaried', 'surplus to surviving demand');
   html+='</div>';
+  const totBF=D.staff.staffPlan.reduce((s,d)=>s+((d.reassign&&d.reassign.backfillHours)||0),0);
+  const totBFC=D.staff.staffPlan.reduce((s,d)=>s+((d.reassign&&d.reassign.backfillCost)||0),0);
+  if(totBF>0.5) html+=`<div class="note" style="background:#fbe7e4; border:1px solid var(--rust); border-radius:6px; padding:10px 12px; color:var(--ink); margin-top:8px;"><strong>⚠ Execution risk:</strong> this plan depends on sourcing <strong>${fmtH(totBF)}h</strong> of new hourly labor (${fmtMoney(totBFC)} at $${R.params.hourlyRate}/hr). If that labor can\'t be found, the savings above do not hold. Lower the target utilization or keep more people to shrink this gap.</div>`;
   html+='<div class="note" style="margin-top:6px;"><strong>Cash basis:</strong> savings count only money that actually stops leaving — hourly hours you stop paying and the full salary of anyone the cuts lay off, minus hourly backfill for their leftover surviving-account work. A salaried person you keep costs the same whether or not their account is cut, so cutting an account whose people stay saves $0. Figures use planned assignments where hours aren\'t logged — a forward plan, not actuals.</div>';
   if(review.size) html+='<div class="note" style="background:#fdf3dc; border-radius:6px; padding:10px 12px; color:var(--ink); margin-top:8px;"><strong>'+review.size+' account'+(review.size===1?'':'s')+' held for review</strong> — below the floor but data too thin, or revenue with no staffing plan to cost against. Use the override to force a cut.</div>';
   html+='</div>';
@@ -731,16 +685,16 @@ function renderResults(floorOnly){
 
   // ===== staffing plan from survivors: who stays, on what, and who's laid off =====
   html+='<div class="card"><h2>② Staffing plan from survivors — the consequence</h2>';
-  html+='<div class="note" style="margin-bottom:8px;">After the cuts above, each person\'s remaining work on <em>surviving</em> accounts (same-department only — people are never cross-assigned across departments). A salaried person whose accounts are all cut has no remaining work and becomes a layoff candidate.</div>';
+  html+='<div class="note" style="margin-bottom:8px;">Staffing is sized to <strong>surviving demand</strong>: each department retains enough people (protected first, then best GP-per-salary) to cover the total hours kept accounts need at ~'+Math.round((R.params.targetUtil||0.85)*100)+'% utilization. Only genuine surplus beyond that demand is laid off, so the retained team covers the work by construction — same-department only. Residual demand goes to existing contractors (cheapest first), and only what neither can cover becomes hourly backfill.</div>';
   const covChip=(c)=>{ if(c===Infinity) return '<span class="muted">—</span>'; const cls=c>=2?'pos':c>=1?'':'neg'; return `<span class="${cls}" style="font-weight:700;">${c.toFixed(2)}×</span>`; };
   D.staff.staffPlan.filter(d=>d.retained.length||d.laidOff.length).forEach(d=>{
-    html+=`<div class="deptblock"><h4>${esc(d.dept)} <span class="muted" style="font-size:11px;">· ${fmtH(d.demand)}h demand this month${d.peakDemand>d.demand?' · peaks '+fmtH(d.peakDemand)+'h':''}</span></h4>`;
+    html+=`<div class="deptblock"><h4>${esc(d.dept)} <span class="muted" style="font-size:11px;">· ${fmtH(d.demandTotal||0)}h demand · ${fmtH(d.capTotal||0)}h retained capacity · ${Math.round((d.util||0)*100)}% utilized</span></h4>`;
     html+='<table><thead><tr><th>Person</th><th class="num">Salary/mo</th><th class="num">Coverage</th><th>New assignments (after cuts)</th></tr></thead><tbody>';
     d.retained.forEach(p=>{
       let assigns = (p._assignments&&p._assignments.length)
         ? p._assignments.map(x=>`${esc(x.name)} <span class="muted">${fmtH(x.hrs)}h</span>`).join(' · ')
         : (p.protected ? '<span class="muted">protected — no surviving-account hours</span>' : '<span class="muted">—</span>');
-      if(p._rescuedHours>0.5) assigns += ` <span class="chip" style="background:var(--gold);color:#3a2c00;" title="Kept by taking over contractor work">+${fmtH(p._rescuedHours)}h from contractor</span>`;
+      if(p._extraHours>0.5) assigns += ` <span class="chip" style="background:var(--gold);color:#3a2c00;" title="Reassigned work this person absorbs: hours from laid-off colleagues and displaced contractors on surviving accounts">+${fmtH(p._extraHours)}h reassigned</span>`;
       html+=`<tr><td>${esc(p.name)}${p.protected?'<span class="chip protected">protected</span>':''}</td><td class="num">${fmtMoney(p.salaryMonthly)}</td><td class="num">${covChip(p._cov!==undefined?p._cov:Infinity)}</td><td>${assigns}</td></tr>`;
     });
     d.laidOff.forEach(p=>{
