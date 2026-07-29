@@ -72,7 +72,7 @@ tr.kept-marginal{ background:#fdf3dc; }
   </div>
 
   <div id="app" style="display:none;">
-    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0408</span></h1>
+    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0412</span></h1>
     <div class="sub">Reads the live ledger. Changes nothing. <strong>Stage 1:</strong> every account is judged on gross profit per hour of team time it consumes, against a floor you set — anything below the floor is a cut candidate, regardless of who happens to be staffed on it. <strong>Stage 2:</strong> a staffing plan is built from the survivors, with real salaried + hourly costs, showing the labor you save. Drag the floor and watch accounts move. Every number is a proposal — apply judgment.</div>
 
     <div class="card">
@@ -533,9 +533,12 @@ function solveStaffing(accounts, keptIds, months, P){
     months.forEach(mk=>{ kept.filter(a=>(a.dept||'No department')===dept && a.winMonths.includes(mk)).forEach(a=>{ totalGP+=(a.monthGP[mk]||0); }); });
 
     hourly.forEach(hh=>{
-      contractorStatus[hh.id]={ id:hh.id, name:hh.name, rate:hh.rate,
-        total:hh._totalHrs||0, displaced:hh._displacedHrs||0, remaining:Math.max((hh._totalHrs||0)-(hh._displacedHrs||0),0),
-        status:(hh._totalHrs||0)<=0.5?'none':(hh._displacedHrs>=(hh._totalHrs-0.5))?'displaced':(hh._displacedHrs>0.5?'reduced':'kept') };
+      let allHrs=0; months.forEach(mk=>{ accounts.forEach(a=>{ allHrs+=(a.winMonths.includes(mk)?personProjectHours(hh.id,a.id,mk):0); }); });
+      const keptHrs=hh._totalHrs||0;
+      contractorStatus[hh.id]={ id:hh.id, name:hh.name, rate:hh.rate, allHrs,
+        total:keptHrs, displaced:hh._displacedHrs||0, remaining:Math.max(keptHrs-(hh._displacedHrs||0),0),
+        status: keptHrs<=0.5 ? (allHrs>0.5?'accountsCut':'none')
+          : (hh._displacedHrs>=(keptHrs-0.5))?'displaced':(hh._displacedHrs>0.5?'reduced':'kept') };
     });
 
     // Display allocation: reassigned work (laid-off people's kept hours + displaced
@@ -741,6 +744,16 @@ function renderResults(floorOnly){
     if(d.reassign && d.reassign.orphanHours>0.5){
       html+=`<tr style="border-top:1px solid var(--brand);"><td colspan="4" class="note" style="padding:6px 9px;">↳ <strong>${fmtH(d.reassign.orphanHours)}h</strong> of surviving-account work from laid-off people needs re-covering: <strong>${fmtH(d.reassign.absorbedHours)}h</strong> absorbed by retained spare capacity (no added cost), <strong>${fmtH(d.reassign.backfillHours)}h</strong> hourly backfill @ $${R.params.hourlyRate} = <strong>${fmtMoney(d.reassign.backfillCost)}</strong> added cost.</td></tr>`;
     }
+    // named contractor rows — the WHO behind the aggregate contractor note
+    (d.hourly||[]).forEach(h=>{
+      const cs=(D.staff.contractorStatus||{})[h.id]; if(!cs || cs.status==='none') return;
+      let statusHtml, rowCut=false;
+      if(cs.status==='displaced'){ rowCut=true; statusHtml=`<span class="chip cut">end engagement</span> <span class="muted">all ${fmtH(cs.total)}h move to salaried spare — saves ${fmtMoney(cs.displaced*cs.rate)}</span>`; }
+      else if(cs.status==='accountsCut'){ rowCut=true; statusHtml=`<span class="chip cut">engagement ends</span> <span class="muted">their accounts were cut (${fmtH(cs.allHrs)}h no longer needed)</span>`; }
+      else if(cs.status==='reduced'){ statusHtml=`<span class="chip under">reduce ${fmtH(cs.displaced)}h</span> <span class="muted">${fmtH(cs.remaining)}h continue @ $${cs.rate} (${fmtMoney(cs.remaining*cs.rate)})</span>`; }
+      else { statusHtml=`<span class="chip keep">continue</span> <span class="muted">${fmtH(cs.remaining)}h @ $${cs.rate} (${fmtMoney(cs.remaining*cs.rate)})</span>`; }
+      html+=`<tr class="${rowCut?'cut':''}"><td>${esc(cs.name)} <span class="chip hourly">contractor</span></td><td class="num">$${cs.rate}/hr</td><td class="num">—</td><td>${statusHtml}</td></tr>`;
+    });
     if(d.reassign && (d.reassign.contractorDisplacedHours>0.5 || d.reassign.rescuedCount>0)){
       html+=`<tr style="border-top:1px solid var(--gold);"><td colspan="4" class="note" style="padding:6px 9px; background:#fdf9ef;">↳ contractor work moved to salaried staff: ${d.reassign.rescuedCount>0?`<strong>${d.reassign.rescuedCount}</strong> salaried person${d.reassign.rescuedCount===1?'':'s'} kept by taking contractor hours; `:''}<strong>${fmtH(d.reassign.contractorDisplacedHours)}h</strong> of contractor time absorbed into salaried spare capacity, saving <strong class="pos">${fmtMoney(d.reassign.contractorSaved)}</strong> in contractor cash (salaried already paid).</td></tr>`;
     }
@@ -760,10 +773,11 @@ function renderResults(floorOnly){
     let flag;
     if(laid.has(e.id)) flag='<span class="chip layoff">layoff candidate</span>';
     else if(cs && cs.status==='displaced') flag='<span class="chip cut">contractor — end engagement</span>';
+    else if(cs && cs.status==='accountsCut') flag='<span class="chip cut">contractor — accounts cut, engagement ends</span>';
     else if(cs && cs.status==='reduced') flag=`<span class="chip under" title="${fmtH(cs.displaced)}h moved to salaried, ${fmtH(cs.remaining)}h remain">contractor — reduce ${fmtH(cs.displaced)}h</span>`;
     else if(e.protected) flag='<span class="chip protected">protected</span>';
     else flag='';
-    const rowCut = laid.has(e.id) || (cs && cs.status==='displaced');
+    const rowCut = laid.has(e.id) || (cs && (cs.status==='displaced'||cs.status==='accountsCut'));
     html+=`<tr class="${rowCut?'cut':''}"><td>${esc(e.name)} ${flag}</td><td class="muted">${esc(e.dept)}</td><td class="muted">${e.type}</td><td class="num">${fmtMoney(e.cost)}</td><td class="num">${fmtMoney(e.gp)}</td><td class="num ${e.contribution>=0?'pos':'neg'}" style="font-weight:700;">${fmtMoney(e.contribution)}</td><td class="num ${utilCls}" style="font-weight:700;">${Math.round(e.util*100)}%</td></tr>`;
   });
   html+='</tbody></table></div>';
