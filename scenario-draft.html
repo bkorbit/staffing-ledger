@@ -72,7 +72,7 @@ tr.kept-marginal{ background:#fdf3dc; }
   </div>
 
   <div id="app" style="display:none;">
-    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0233</span></h1>
+    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0237</span></h1>
     <div class="sub">Reads the live ledger. Changes nothing. <strong>Stage 1:</strong> every account is judged on gross profit per hour of team time it consumes, against a floor you set — anything below the floor is a cut candidate, regardless of who happens to be staffed on it. <strong>Stage 2:</strong> a staffing plan is built from the survivors, with real salaried + hourly costs, showing the labor you save. Drag the floor and watch accounts move. Every number is a proposal — apply judgment.</div>
 
     <div class="card">
@@ -599,19 +599,9 @@ function renderResults(floorOnly){
   if(review.size) html+='<div class="note" style="background:#fdf3dc; border-radius:6px; padding:10px 12px; color:var(--ink); margin-top:8px;"><strong>'+review.size+' account'+(review.size===1?'':'s')+' held for review</strong> — below the floor but data too thin, or revenue with no staffing plan to cost against. Use the override to force a cut.</div>';
   html+='</div>';
 
-  // ===== department roll-up: the margin-compression story =====
-  html+='<div class="card"><h2>By department — where the margin is going</h2>';
-  html+='<div class="note" style="margin-bottom:8px;">Contribution = GP the department\'s hours earn minus its salary cost. Utilization = booked ÷ available capacity. A department flagged <span class="chip under">hiring &gt; revenue</span> has grown headcount versus the prior 3 months while its GP hasn\'t kept pace — the compression signal.</div>';
-  html+='<table><thead><tr><th>Department</th><th class="num">Head</th><th class="num">Salary cost</th><th class="num">GP</th><th class="num">Contribution</th><th class="num">Margin</th><th class="num">Utilization</th><th>Trend</th></tr></thead><tbody>';
-  R.rollup.forEach(d=>{
-    const utilCls=d.util>=0.85?'pos':d.util>=0.65?'':'neg';
-    html+=`<tr><td>${esc(d.dept)}</td><td class="num">${d.headcount}</td><td class="num">${fmtMoney(d.cost)}</td><td class="num">${fmtMoney(d.gp)}</td><td class="num ${d.contribution>=0?'pos':'neg'}" style="font-weight:700;">${fmtMoney(d.contribution)}</td><td class="num ${d.margin>=0?'pos':'neg'}">${Math.round(d.margin*100)}%</td><td class="num ${utilCls}">${Math.round(d.util*100)}%</td><td>${d.divergence?'<span class="chip under" title="Headcount up vs prior 3mo (was '+d.trailHead.toFixed(1)+', now '+d.winHead+') while GP flat/down (was '+fmtMoney(d.trailGP)+', now '+fmtMoney(d.winGP)+')">hiring &gt; revenue</span>':''}</td></tr>`;
-  });
-  html+='</tbody></table></div>';
-
-  // ===== accounts: cut / keep, ranked by contribution margin =====
-  html+='<div class="card"><h2>Accounts — cut / keep</h2>';
-  html+='<div class="note" style="margin-bottom:8px;">Ranked by contribution margin (worst first). Contribution = GP − loaded delivery cost. Click a name to see who\'s driving the cost; click the decision to override.</div>';
+  // ===== accounts: cut / keep — THE decision, made on account economics alone =====
+  html+='<div class="card" style="border-left:4px solid var(--brand);"><h2>① Accounts — cut / keep <span class="muted" style="font-size:11px; font-weight:400;">the decision</span></h2>';
+  html+='<div class="note" style="margin-bottom:8px;">The leading decision, made on each account\'s own economics: cut anything below the margin floor. Ranked by contribution margin (worst first). Contribution = GP − loaded cost of the team currently delivering it. Headcount changes below are the <em>consequence</em> of these cuts, not an input to them. Click a name for the cost breakdown; click the decision to override.</div>';
   html+='<table><thead><tr><th>Account</th><th>Dept</th><th class="num">GP</th><th class="num">Delivery cost</th><th class="num">Contribution</th><th class="num">Margin</th><th class="num">$/hr billed</th><th>Decision</th></tr></thead><tbody>';
   accts.forEach(a=>{
     const isCut=cut.has(a.id), inReview=review.has(a.id);
@@ -649,7 +639,7 @@ function renderResults(floorOnly){
   html+='</tbody></table></div>';
 
   // ===== staffing plan from survivors: who stays, on what, and who's laid off =====
-  html+='<div class="card"><h2>Staffing plan from survivors — new assignments</h2>';
+  html+='<div class="card"><h2>② Staffing plan from survivors — the consequence</h2>';
   html+='<div class="note" style="margin-bottom:8px;">After the cuts above, each person\'s remaining work on <em>surviving</em> accounts (same-department only — people are never cross-assigned across departments). A salaried person whose accounts are all cut has no remaining work and becomes a layoff candidate.</div>';
   const covChip=(c)=>{ if(c===Infinity) return '<span class="muted">—</span>'; const cls=c>=2?'pos':c>=1?'':'neg'; return `<span class="${cls}" style="font-weight:700;">${c.toFixed(2)}×</span>`; };
   D.staff.staffPlan.filter(d=>d.retained.length||d.laidOff.length).forEach(d=>{
@@ -675,7 +665,7 @@ function renderResults(floorOnly){
   html+='</div>';
 
   // ===== people panel: the headcount consequence =====
-  html+='<div class="card"><h2>People — utilization &amp; contribution</h2>';
+  html+='<div class="card"><h2>People — utilization &amp; contribution <span class="muted" style="font-size:11px; font-weight:400;">diagnostic</span></h2>';
   html+='<div class="note" style="margin-bottom:8px;">Worst first: low utilization + high cost + thin contribution rise to the top — the idle-and-expensive capacity. Contribution = GP their hours earn − their loaded cost. This is the headcount side of the recalibration; layoffs in the plan above are driven by which people the surviving accounts still need.</div>';
   html+='<table><thead><tr><th>Person</th><th>Dept</th><th>Type</th><th class="num">Cost</th><th class="num">GP earned</th><th class="num">Contribution</th><th class="num">Utilization</th></tr></thead><tbody>';
   const laid=new Set(D.staff.laidOffIds);
@@ -685,6 +675,17 @@ function renderResults(floorOnly){
     html+=`<tr class="${laid.has(e.id)?'cut':''}"><td>${esc(e.name)} ${flag}</td><td class="muted">${esc(e.dept)}</td><td class="muted">${e.type}</td><td class="num">${fmtMoney(e.cost)}</td><td class="num">${fmtMoney(e.gp)}</td><td class="num ${e.contribution>=0?'pos':'neg'}" style="font-weight:700;">${fmtMoney(e.contribution)}</td><td class="num ${utilCls}" style="font-weight:700;">${Math.round(e.util*100)}%</td></tr>`;
   });
   html+='</tbody></table></div>';
+
+  // ===== department roll-up: the margin-compression story =====
+  html+='<div class="card"><h2>③ By department — why margins are compressing <span class="muted" style="font-size:11px; font-weight:400;">context</span></h2>';
+  html+='<div class="note" style="margin-bottom:8px;">Contribution = GP the department\'s hours earn minus its salary cost. Utilization = booked ÷ available capacity. A department flagged <span class="chip under">hiring &gt; revenue</span> has grown headcount versus the prior 3 months while its GP hasn\'t kept pace — the compression signal.</div>';
+  html+='<table><thead><tr><th>Department</th><th class="num">Head</th><th class="num">Salary cost</th><th class="num">GP</th><th class="num">Contribution</th><th class="num">Margin</th><th class="num">Utilization</th><th>Trend</th></tr></thead><tbody>';
+  R.rollup.forEach(d=>{
+    const utilCls=d.util>=0.85?'pos':d.util>=0.65?'':'neg';
+    html+=`<tr><td>${esc(d.dept)}</td><td class="num">${d.headcount}</td><td class="num">${fmtMoney(d.cost)}</td><td class="num">${fmtMoney(d.gp)}</td><td class="num ${d.contribution>=0?'pos':'neg'}" style="font-weight:700;">${fmtMoney(d.contribution)}</td><td class="num ${d.margin>=0?'pos':'neg'}">${Math.round(d.margin*100)}%</td><td class="num ${utilCls}">${Math.round(d.util*100)}%</td><td>${d.divergence?'<span class="chip under" title="Headcount up vs prior 3mo (was '+d.trailHead.toFixed(1)+', now '+d.winHead+') while GP flat/down (was '+fmtMoney(d.trailGP)+', now '+fmtMoney(d.winGP)+')">hiring &gt; revenue</span>':''}</td></tr>`;
+  });
+  html+='</tbody></table></div>';
+
 
   document.getElementById('results').innerHTML=html;
 
