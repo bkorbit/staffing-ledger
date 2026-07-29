@@ -72,7 +72,7 @@ tr.kept-marginal{ background:#fdf3dc; }
   </div>
 
   <div id="app" style="display:none;">
-    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0318</span></h1>
+    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0323</span></h1>
     <div class="sub">Reads the live ledger. Changes nothing. <strong>Stage 1:</strong> every account is judged on gross profit per hour of team time it consumes, against a floor you set — anything below the floor is a cut candidate, regardless of who happens to be staffed on it. <strong>Stage 2:</strong> a staffing plan is built from the survivors, with real salaried + hourly costs, showing the labor you save. Drag the floor and watch accounts move. Every number is a proposal — apply judgment.</div>
 
     <div class="card">
@@ -85,6 +85,7 @@ tr.kept-marginal{ background:#fdf3dc; }
       </div>
       <div id="floor-box" style="margin-top:16px;"></div>
       <button class="run" id="run">Run scenario</button>
+      <button class="run" id="export-json" style="background:var(--paper-raised); color:var(--brand); border:1px solid var(--brand); margin-left:10px;">Export ledger JSON</button>
     </div>
 
     <div id="results"></div>
@@ -797,6 +798,21 @@ document.getElementById('run').onclick=async()=>{
   btn.textContent='Run scenario'; btn.disabled=false;
   if(!STATE){alert('Could not load the ledger.');return;}
   runScenario();
+};
+document.getElementById('export-json').onclick=async()=>{
+  const btn=document.getElementById('export-json'); btn.textContent='Exporting…'; btn.disabled=true;
+  try{
+    // fetch fresh so the export matches the live ledger exactly
+    const {data,error}=await sb.from('ledger_state').select('data').eq('id',WORKSPACE_ID).maybeSingle();
+    const state=(!error&&data)?data.data:STATE;
+    const payload={ exportedAt:new Date().toISOString(), source:'scenario-draft', workspace:WORKSPACE_ID, state };
+    const blob=new Blob([JSON.stringify(payload,null,1)],{type:'application/json'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='emg-ledger-'+new Date().toISOString().slice(0,10)+'.json';
+    a.click(); URL.revokeObjectURL(a.href);
+  }catch(e){ alert('Export failed: '+e.message); }
+  btn.textContent='Export ledger JSON'; btn.disabled=false;
 };
 boot();
 </script>
