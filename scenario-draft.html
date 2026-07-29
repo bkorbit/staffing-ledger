@@ -72,7 +72,7 @@ tr.kept-marginal{ background:#fdf3dc; }
   </div>
 
   <div id="app" style="display:none;">
-    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span></h1>
+    <h1>Scenario Planner <span class="draft-tag">DRAFT · read-only</span> <span class="draft-tag" id="build-stamp" style="background:#0a493c;color:#fff;">build b0729-0215</span></h1>
     <div class="sub">Reads the live ledger. Changes nothing. <strong>Stage 1:</strong> every account is judged on gross profit per hour of team time it consumes, against a floor you set — anything below the floor is a cut candidate, regardless of who happens to be staffed on it. <strong>Stage 2:</strong> a staffing plan is built from the survivors, with real salaried + hourly costs, showing the labor you save. Drag the floor and watch accounts move. Every number is a proposal — apply judgment.</div>
 
     <div class="card">
@@ -565,7 +565,22 @@ function renderResults(floorOnly){
     html+=`<tr class="${isCut?'cut':''}"><td><span class="toggle-cell" data-expand="${a.id}" style="cursor:pointer;">▸ ${esc(a.name)}</span>${confChip}${a.unattributed?'<span class="chip under" title="Revenue but no one staffed — cannot compute delivery cost">no staffing</span>':''}</td><td class="muted">${esc(a.dept)}</td><td class="num">${fmtMoney(a.gp)}</td><td class="num">${fmtMoney(a.deliveryLoaded)}</td><td class="num ${a.contribution>=0?'pos':'neg'}" style="font-weight:700;">${fmtMoney(a.contribution)}</td><td class="num ${mCls}" style="font-weight:700;">${a.gp>0?Math.round(a.marginPct*100)+'%':'—'}</td><td class="num">${a.pph===Infinity?'—':fmtMoney(a.pph)}</td><td>${decision}${toggle}</td></tr>`;
     // hidden per-person breakdown row
     if((R.expanded||{})[a.id]){
-      html+=`<tr><td colspan="8" style="background:#f7f7f7; padding:8px 14px;"><div class="note" style="margin:0 0 4px;">Delivery cost by person (loaded):</div><table style="margin:0;"><tbody>`;
+      html+=`<tr><td colspan="8" style="background:#f7f7f7; padding:8px 14px;">`;
+      // revenue audit: every footprint month, its manual/computed source and value
+      const acctP=STATE.projects.find(x=>x.id===a.id);
+      const foot=accountMonths(acctP).filter(mk=>R.months.includes(mk));
+      html+=`<div class="note" style="margin:0 0 4px;">Revenue by month (window):</div><table style="margin:0 0 8px;"><tbody>`;
+      let auditSum=0;
+      foot.forEach(mk=>{
+        const man=(acctP.revenueOverrides||{})[mk];
+        const bg=billingActive(acctP)?billingGP(acctP,mk):null;
+        const val=revenueFor(acctP,mk); auditSum+=val;
+        const src = man!==undefined?'manual':(bg!==null&&billingMonths(acctP).has(mk)?'computed billing':'—');
+        html+=`<tr><td>${mk}</td><td class="muted">${src}</td><td class="num">${fmtMoney(val)}</td>${bg!==null?`<td class="num muted" title="raw billing computation">bill ${fmtMoney(bg)}</td>`:'<td></td>'}</tr>`;
+      });
+      html+=`<tr style="border-top:1px solid var(--brand);"><td style="font-weight:700;">sum</td><td></td><td class="num" style="font-weight:700;">${fmtMoney(auditSum)}</td><td class="muted num">acct.gp ${fmtMoney(a.gp)}</td></tr>`;
+      html+=`</tbody></table>`;
+      html+=`<div class="note" style="margin:0 0 4px;">Delivery cost by person (loaded):</div><table style="margin:0;"><tbody>`;
       a.perPerson.forEach(pp=>{ html+=`<tr><td>${esc(pp.name)} <span class="muted">${pp.type}</span></td><td class="num">${fmtH(pp.hours)}h</td><td class="num">${fmtMoney(pp.loaded)}</td></tr>`; });
       if(!a.perPerson.length) html+=`<tr><td class="muted">No one staffed in the window.</td></tr>`;
       html+=`</tbody></table></td></tr>`;
