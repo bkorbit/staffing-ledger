@@ -83,6 +83,53 @@ button.confirm-armed { background: var(--rust) !important; color: #fff !importan
 .tab-btn:hover { color: var(--brand); background: var(--mint); border-radius: 4px 4px 0 0; }
 .tab-btn.active { color: var(--brand); border-bottom-color: var(--accent); }
 .tab-btn .tab-count { font-family: var(--font-mono); font-size: 10px; color: var(--slate); margin-left: 4px; }
+
+.scope-head { margin: 4px 0 12px; }
+.sc-title { font-size: 18px; margin: 0 0 4px; font-weight: 600; }
+.sc-sub { font-size: 12px; color: #666; max-width: 820px; line-height: 1.6; }
+.scope-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.scope-in { height: 30px; padding: 2px 8px; border: 1px solid #d9d6cf; border-radius: 5px; font-size: 13px; background: #fff; }
+.scope-in.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.scope-lbl { font-size: 11px; color: #777; }
+.sc-h { font-size: 14px; margin: 0 0 8px; font-weight: 600; }
+.sc-h4 { font-size: 13px; margin: 14px 0 6px; font-weight: 600; }
+.sc-ch { border: 1px solid #e6e3dc; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; background: #fbfaf8; }
+.sc-ch-on { background: #fff; border-color: #d9d6cf; }
+.sc-chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.sc-months { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.sc-mo { min-width: 74px; text-align: center; }
+.sc-mo-k { font-size: 10px; color: #999; }
+.sc-mo-v { font-size: 12px; padding: 4px 0; }
+.sc-mo-in { width: 74px; text-align: right; height: 26px; }
+.sc-mo-h { font-size: 10px; color: #888; margin-top: 2px; }
+.scope-verdict { display: flex; flex-direction: column; gap: 6px; }
+.sc-badge { display: inline-block; padding: 3px 12px; border-radius: 5px; font-size: 13px; font-weight: 600; }
+.sc-yes { background: #d9f0e3; color: #0a493c; }
+.sc-warn { background: #fdf0d5; color: #6b4c00; }
+.sc-no { background: #fbe0da; color: #7a2d17; }
+.sc-big { font-size: 30px; font-weight: 600; }
+.sc-unit { font-size: 14px; color: #888; font-weight: 400; }
+.sc-instr { background: #eef4fb; border: 1px solid #cfe0f2; border-radius: 6px; padding: 9px 12px; margin-top: 10px; font-size: 13px; color: #14456f; }
+.sc-instr-bad { background: #fbe0da; border-color: #f0c4b8; color: #7a2d17; }
+.sc-strip { display: flex; gap: 8px; align-items: flex-end; height: 96px; margin-top: 12px; }
+.sc-bar-wrap { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
+.sc-bar { border-radius: 4px 4px 0 0; }
+.sc-bar-ok { background: #7fc4a6; } .sc-bar-warn { background: #f0c987; } .sc-bar-bad { background: #e39b86; } .sc-bar-none { background: #eee; }
+.sc-bar-lbl { font-size: 10px; text-align: center; color: #777; margin-top: 4px; }
+.sc-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+.sc-tbl th { text-align: left; font-weight: 600; color: #777; border-bottom: 1px solid #e6e3dc; padding: 5px 6px; font-size: 11px; }
+.sc-tbl td { padding: 4px 6px; border-bottom: 1px solid #f2f0ec; }
+.sc-tbl .num { text-align: right; }
+.sc-pill { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+.sc-pill-ok { background: #d9f0e3; color: #0a493c; }
+.sc-pill-warn { background: #fdf0d5; color: #6b4c00; }
+.sc-pill-draft { background: #f0ece2; color: #6b5e42; }
+.sc-tiny { width: 52px; height: 26px; text-align: right; }
+.sc-tiny2 { width: 104px; height: 26px; }
+.sc-mini { font-size: 11px; padding: 2px 8px; }
+.sc-x { padding: 2px 8px; color: #a33; }
+.sc-modal { position: fixed; inset: 24px; background: #fff; border: 1px solid #d9d6cf; border-radius: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.18); overflow: auto; z-index: 900; }
+.sc-modal-inner { padding: 18px 22px; }
 .tab-section { display: none; }
 .tab-section.active { display: block; }
 
@@ -484,7 +531,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
   <header>
     <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0729-0348 · updated 2026-07-29</span></div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0731-1902 · updated 2026-07-31</span></div>
       <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
@@ -563,6 +610,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
     <button class="tab-btn" data-tab="forecast">Forecast</button>
     <button class="tab-btn" data-tab="team">Team <span class="tab-count" id="count-team"></span></button>
     <button class="tab-btn" data-tab="projects">Projects <span class="tab-count" id="count-projects"></span></button>
+    <button class="tab-btn" data-tab="scoping">Scoping</button>
   </div>
 
   <div class="tab-section active" id="tab-dashboard">
@@ -665,6 +713,14 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
     </section>
   </div>
 
+  <div class="tab-section" id="tab-scoping">
+    <div class="scope-head">
+      <h2 class="sc-title">Scoping — will this deal pay for itself?</h2>
+      <div class="sc-sub">Reads the ledger for live blended department rates and real spare capacity. Writes nothing to it. Hours come from the shared assumptions catalog; the verdict is profit per hour of team time against your target.</div>
+    </div>
+    <div id="scoping-body"></div>
+    <div id="scoping-modal" class="sc-modal" style="display:none;"></div>
+  </div>
   <div class="tab-section" id="tab-projects">
     <section class="panel">
       <div class="panel-head">
@@ -906,6 +962,7 @@ function setTab(tab) {
   ui.tab = tab;
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.querySelectorAll('.tab-section').forEach(s => s.classList.toggle('active', s.id === 'tab-' + tab));
+  if (tab === 'scoping') renderScoping();
 }
 
 function normalizeState(raw) {
@@ -4668,6 +4725,606 @@ document.getElementById('reset-btn').addEventListener('click', (e) => {
 });
 
 init();
+
+
+/* ==================== SCOPING TOOL ====================
+   Pre-sale profitability scoping. Reads the ledger (never writes to it) for live
+   blended department rates and real spare capacity. The assumptions catalog IS the
+   product: task-level hour estimates per channel, editable and persisted under
+   state.scoping so every scope is built on the same foundation.
+
+   Verdict currency matches the recalibration work: profit per hour of team time,
+   = (revenue - hours x blended loaded rate) / hours, against an editable target.
+   ====================================================== */
+
+const SCOPE_TIERS = ['light','standard','heavy'];
+function scopeDefaults(){ return {
+  version: 1,
+  targetPerHour: 150,
+  frontLoadPct: 25,
+  progMarginMin: 35, progMarginMax: 60, cpmMargin: 50,
+  targetUtil: 85,
+  tierMult: {
+    light:    { 'Planning':0.6,  'Activation':0.8, 'Optimization':0.9, 'Reporting':0.6, 'Client Management':0.8 },
+    standard: { 'Planning':1,    'Activation':1,   'Optimization':1,   'Reporting':1,   'Client Management':1 },
+    heavy:    { 'Planning':1.3,  'Activation':2.0, 'Optimization':1.2, 'Reporting':1.3, 'Client Management':1.4 }
+  },
+  channels: {
+    social: { label:'Paid social', dept:'Paid Media', model:'fee', feePct:15, verified:true, tasks:[
+      {c:"Planning",t:"Targeting / persona strategy refresh",f:"Monthly",o:2.0,h:2.0},
+      {c:"Planning",t:"Creative briefing based on performance learnings",f:"Monthly",o:2.0,h:3.0},
+      {c:"Planning",t:"Budget pacing & reallocation planning",f:"Monthly",o:2.0,h:2.0},
+      {c:"Planning",t:"Competitive creative analysis (Meta Ad Library review)",f:"Monthly",o:1.0,h:2.0},
+      {c:"Planning",t:"Full account audit",f:"Quarterly",o:0.33,h:8.0},
+      {c:"Planning",t:"Content / flight calendar alignment",f:"Monthly",o:1.0,h:2.0},
+      {c:"Activation",t:"New campaign / ad set build",f:"Monthly (avg)",o:2.0,h:5.0},
+      {c:"Activation",t:"Creative coordination",f:"Monthly",o:1.0,h:3.0},
+      {c:"Activation",t:"Ad copy variations writing",f:"Weekly",o:4.0,h:1.5},
+      {c:"Activation",t:"Custom Audience & Lookalike setup / refresh",f:"Monthly",o:1.0,h:2.0},
+      {c:"Activation",t:"Pixel / Conversions API event QA",f:"Monthly",o:1.0,h:2.0},
+      {c:"Activation",t:"UTM tagging & tracking QA",f:"Monthly",o:1.0,h:1.0},
+      {c:"Activation",t:"Creative upload & trafficking (multi-aspect-ratio assets)",f:"Weekly",o:4.0,h:3.0},
+      {c:"Optimization",t:"Budget / bid monitoring",f:"Weekly",o:8.0,h:1.5},
+      {c:"Optimization",t:"Creative fatigue monitoring & refresh cadence",f:"Biweekly",o:2.0,h:2.5},
+      {c:"Optimization",t:"A/B testing (creative / copy / audience)",f:"Biweekly",o:2.0,h:2.0},
+      {c:"Optimization",t:"Placement performance review",f:"Monthly",o:1.0,h:1.5},
+      {c:"Optimization",t:"Frequency & audience overlap review",f:"Monthly",o:1.0,h:1.0},
+      {c:"Optimization",t:"Advantage+ vs. manual targeting performance comparison",f:"Monthly",o:1.0,h:1.5},
+      {c:"Reporting",t:"Weekly performance check-in",f:"Weekly",o:4.0,h:1.5},
+      {c:"Reporting",t:"Monthly report build",f:"Monthly",o:1.0,h:5.0},
+      {c:"Reporting",t:"QBR TBD/ Intenral monthly reviews",f:"Quarterly",o:0.33,h:6.0},
+      {c:"Client Management",t:"Email Communciation",f:"Daily",o:20.0,h:0.25},
+      {c:"Client Management",t:"Client Requests",f:"Ongoing",o:1.0,h:5.0},
+      {c:"Client Management",t:"Client Calls",f:"Weekly/Bi-Weekly",o:4.0,h:1.0},
+      {c:"Client Management",t:"Internal Meetings",f:"Weekly",o:4.0,h:0.75},
+      {c:"Client Management",t:"Vendor Meetings & Management",f:"Bi-Weekly",o:6.0,h:0.75}
+    ] },
+    search: { label:'Paid search', dept:'Paid Media', model:'fee', feePct:15, verified:true, tasks:[
+      {c:"Planning",t:"Keyword research & expansion",f:"Monthly",o:1.0,h:3.0},
+      {c:"Planning",t:"Competitive / auction insights review",f:"Monthly",o:1.0,h:2.0},
+      {c:"Planning",t:"Budget pacing & reallocation planning",f:"Monthly",o:1.0,h:2.0},
+      {c:"Planning",t:"Full account audit",f:"Quarterly",o:0.33,h:8.0},
+      {c:"Planning",t:"New campaign / initiative structure planning",f:"Monthly (avg)",o:1.0,h:3.0},
+      {c:"Planning",t:"Ad copy / RSA refresh planning & briefing",f:"Monthly",o:1.0,h:2.0},
+      {c:"Planning",t:"Test planning",f:"Monthly",o:1.0,h:1.5},
+      {c:"Planning",t:"Seasonal / flight calendar planning",f:"Monthly",o:2.0,h:1.0},
+      {c:"Activation",t:"New campaign / ad group build",f:"Monthly (avg)",o:1.0,h:5.0},
+      {c:"Activation",t:"Ad Copy Writing",f:"Monthly (avg)",o:1.0,h:2.0},
+      {c:"Activation",t:"RSA ad copy upload & testing setup",f:"Monthly",o:1.0,h:3.0},
+      {c:"Activation",t:"Ad extensions setup / updates (sitelinks, callouts, etc.)",f:"Monthly",o:1.0,h:1.5},
+      {c:"Activation",t:"Conversion tracking QA (GA4, offline conversions, CAPI)",f:"Monthly",o:1.0,h:2.0},
+      {c:"Activation",t:"Audience list uploads (remarketing / customer match)",f:"Monthly",o:1.0,h:1.0},
+      {c:"Activation",t:"Performance Max / Demand Gen asset group builds & updates",f:"Monthly",o:1.0,h:3.0},
+      {c:"Optimization",t:"Search query report mining & negative keyword additions",f:"Weekly",o:4.0,h:1.5},
+      {c:"Optimization",t:"Bid / budget adjustments",f:"Weekly",o:4.0,h:1.0},
+      {c:"Optimization",t:"Ad copy A/B test review",f:"Biweekly",o:2.0,h:1.5},
+      {c:"Optimization",t:"Quality Score & landing page relevance review",f:"Monthly",o:1.0,h:2.0},
+      {c:"Optimization",t:"Smart Bidding target adjustments (tCPA/tROAS)",f:"Biweekly",o:2.0,h:1.0},
+      {c:"Optimization",t:"Device / location / dayparting adjustments",f:"Monthly",o:1.0,h:1.5},
+      {c:"Optimization",t:"Placement & search partner exclusions review",f:"Monthly",o:1.0,h:1.0},
+      {c:"Reporting",t:"Weekly performance check-in / dashboard update",f:"Weekly",o:4.0,h:1.0},
+      {c:"Reporting",t:"Monthly reports",f:"Monthly",o:1.0,h:3.5},
+      {c:"Reporting",t:"QBR TBD",f:"Quarterly",o:0.33,h:6.0},
+      {c:"Client Management",t:"Email Communciation",f:"Daily",o:20.0,h:0.25},
+      {c:"Client Management",t:"Client Requests",f:"Ongoing",o:1.0,h:5.0},
+      {c:"Client Management",t:"Client Calls",f:"Weekly/Bi-Weekly",o:4.0,h:1.0},
+      {c:"Client Management",t:"Internal Meetings",f:"Weekly",o:4.0,h:0.75},
+      {c:"Client Management",t:"Vendor Meetings & Management",f:"Bi-Weekly",o:2.0,h:0.75}
+    ] },
+    programmatic: { label:'Programmatic', dept:'Programmatic', model:'prog', feePct:10, verified:false, tasks:[
+      {c:'Planning',t:'Media plan & audience strategy',f:'Monthly',o:1,h:3},
+      {c:'Planning',t:'Deal / PMP sourcing & negotiation',f:'Monthly',o:1,h:2},
+      {c:'Activation',t:'Campaign & line item build',f:'Monthly',o:1,h:4},
+      {c:'Activation',t:'Creative trafficking & tag QA',f:'Monthly',o:1,h:2},
+      {c:'Optimization',t:'Bid / pacing optimization',f:'Weekly',o:4,h:1,},
+      {c:'Optimization',t:'Inventory & brand safety review',f:'Monthly',o:1,h:1.5},
+      {c:'Reporting',t:'Performance reporting',f:'Monthly',o:1,h:2.5},
+      {c:'Client Management',t:'Client & vendor communication',f:'Weekly',o:4,h:0.75}
+    ] },
+    creative: { label:'Creative', dept:'Creative', model:'retainer', verified:false, tasks:[
+      {c:'Planning',t:'Concepting & creative direction',f:'Monthly',o:1,h:6},
+      {c:'Activation',t:'Asset production & versioning',f:'Monthly',o:4,h:4},
+      {c:'Activation',t:'Revisions & client feedback rounds',f:'Monthly',o:2,h:3},
+      {c:'Reporting',t:'Creative performance review',f:'Monthly',o:1,h:2}
+    ] }
+  },
+  overlays: [
+    { label:'Account management', dept:'Planning & Strategy', hours:12, on:true },
+    { label:'Ad ops',             dept:'AdOps',               hours:8,  on:true },
+    { label:'Analytics & reporting', dept:'Analytics',        hours:6,  on:true }
+  ]
+}; }
+
+function scopeCfg(){
+  if (!state.scoping) state.scoping = scopeDefaults();
+  const d = scopeDefaults();
+  Object.keys(d).forEach(k => { if (state.scoping[k] === undefined) state.scoping[k] = d[k]; });
+  return state.scoping;
+}
+
+let scopeDeal = null;
+function newScopeDeal(){
+  const start = activeMonth || monthKey(new Date());
+  return { name:'', mode:'new', accountId:'', from:start, to:shiftMonth(start,3),
+    channels:{}, additional:[] };
+}
+function scopeChannelState(key){
+  if (!scopeDeal.channels[key]) {
+    const c = scopeCfg().channels[key];
+    scopeDeal.channels[key] = { on:false, tier:'standard', from:scopeDeal.from, to:scopeDeal.to,
+      spread:'even', budgetTotal:0, budgets:{}, feePct:c.feePct||0, retainer:0,
+      progMargin:null, dataCpm:0, rebatePct:0, rebateBasis:'fee',
+      cpmMode:false, cpm:0, impressions:0, frontLoad:null };
+  }
+  return scopeDeal.channels[key];
+}
+
+function scopeMonths(from,to){ const a=[]; let mk=from,g=0; while(mk<=to&&g<36){a.push(mk);mk=shiftMonth(mk,1);g++;} return a; }
+
+/* --- hours: catalog tasks x tier multiplier, front-loaded in first active month --- */
+function scopeChannelHours(key, mk){
+  const cs = scopeDeal.channels[key]; if(!cs||!cs.on) return 0;
+  const months = scopeMonths(cs.from, cs.to);
+  if (months.indexOf(mk) < 0) return 0;
+  const cfg = scopeCfg(), ch = cfg.channels[key];
+  const mult = cfg.tierMult[cs.tier] || cfg.tierMult.standard;
+  let h = 0;
+  (ch.tasks||[]).forEach(t => { h += (t.o||0) * (t.h||0) * (mult[t.c] !== undefined ? mult[t.c] : 1); });
+  if (mk === months[0]) {
+    const fl = (cs.frontLoad === null || cs.frontLoad === undefined) ? cfg.frontLoadPct : cs.frontLoad;
+    h *= (1 + (fl||0)/100);
+  }
+  return h;
+}
+
+/* --- budget for a channel-month: even spread or per-month entry --- */
+function scopeChannelBudget(key, mk){
+  const cs = scopeDeal.channels[key]; if(!cs||!cs.on) return 0;
+  const months = scopeMonths(cs.from, cs.to);
+  if (months.indexOf(mk) < 0) return 0;
+  if (cs.spread === 'even') return months.length ? (cs.budgetTotal||0)/months.length : 0;
+  return +(cs.budgets[mk]||0);
+}
+
+/* --- revenue for a channel-month. progMargin is the backend margin % (programmatic). --- */
+function scopeChannelRevenue(key, mk, progMarginPct){
+  const cs = scopeDeal.channels[key]; if(!cs||!cs.on) return 0;
+  const ch = scopeCfg().channels[key];
+  const months = scopeMonths(cs.from, cs.to);
+  if (months.indexOf(mk) < 0) return 0;
+  if (ch.model === 'retainer') return +(cs.retainer||0);
+  const budget = scopeChannelBudget(key, mk);
+  if (ch.model === 'fee') return budget * ((cs.feePct||0)/100);
+  // programmatic
+  if (cs.cpmMode) {
+    const imps = months.length ? (+(cs.impressions||0))/months.length : 0;
+    const billing = (imps/1000) * (+(cs.cpm||0));
+    const gp = billing * (scopeCfg().cpmMargin/100);
+    const data = (imps/1000) * (+(cs.dataCpm||0));
+    return Math.max(gp - data, 0);
+  }
+  const fee = budget * ((cs.feePct||0)/100);
+  const margin = budget * ((progMarginPct||0)/100);
+  const dataCost = budget * ((+(cs.dataPct||0))/100);   // external data as % of media
+  const rebateBase = cs.rebateBasis === 'margin' ? margin : fee;
+  const rebate = rebateBase * ((+(cs.rebatePct||0))/100);
+  return fee + margin - dataCost - rebate;
+}
+
+/* --- additional work lines --- */
+function scopeAdditionalHours(line, mk){
+  const months = scopeMonths(line.from||scopeDeal.from, line.to||scopeDeal.to);
+  if (months.indexOf(mk) < 0) return 0;
+  if (line.cadence === 'once') return mk === months[0] ? (+line.hours||0) : 0;
+  return +line.hours||0;
+}
+function scopeAdditionalRevenue(line, mk){
+  if (!line.billed) return 0;
+  const months = scopeMonths(line.from||scopeDeal.from, line.to||scopeDeal.to);
+  if (months.indexOf(mk) < 0) return 0;
+  if (line.cadence === 'once') return mk === months[0] ? (+line.amount||0) : 0;
+  return +line.amount||0;
+}
+
+/* --- live blended loaded rate per department, from active ledger staff --- */
+function scopeDeptRate(dept, months){
+  let cap=0, cost=0;
+  state.staff.forEach(s => {
+    if (empType(s) !== 'fulltime') return;
+    if (normDept(s.department).toLowerCase() !== String(dept).toLowerCase()) return;
+    months.forEach(mk => {
+      if (!staffActiveInMonth(s, mk)) return;
+      const c = monthlyCapacityFor(s, mk) || 0;
+      cap += c; cost += c * (s.hourlyCost || 0);
+    });
+  });
+  return cap > 0 ? cost/cap : 0;
+}
+
+/* --- real spare capacity per dept-month: active capacity x targetUtil - existing assignments --- */
+function scopeDeptSpare(dept, mk){
+  const util = (scopeCfg().targetUtil||85)/100;
+  let spare = 0;
+  state.staff.forEach(s => {
+    if (normDept(s.department).toLowerCase() !== String(dept).toLowerCase()) return;
+    if (!staffActiveInMonth(s, mk)) return;
+    const cap = empType(s)==='fulltime' ? (monthlyCapacityFor(s, mk)||0)*util : 0;
+    let used = 0;
+    const asg = state.assignments[mk] || {};
+    Object.keys(asg).forEach(k => { if (k.indexOf(s.id + '__') === 0) used += asg[k]||0; });
+    spare += Math.max(cap - used, 0);
+  });
+  return spare;
+}
+
+/* --- the whole computation for a given programmatic margin --- */
+function scopeCompute(progMarginPct){
+  const cfg = scopeCfg();
+  const months = scopeMonths(scopeDeal.from, scopeDeal.to);
+  const byMonth = {}, deptHours = {}, deptMonth = {};
+  months.forEach(mk => { byMonth[mk] = { rev:0, hours:0, cost:0 }; });
+  const addH = (dept, mk, h) => {
+    if (h <= 0) return;
+    deptHours[dept] = (deptHours[dept]||0) + h;
+    deptMonth[dept] = deptMonth[dept]||{}; deptMonth[dept][mk] = (deptMonth[dept][mk]||0) + h;
+    byMonth[mk].hours += h;
+  };
+  const perChannel = {};
+  Object.keys(cfg.channels).forEach(key => {
+    const cs = scopeDeal.channels[key]; if (!cs || !cs.on) return;
+    const dept = cfg.channels[key].dept;
+    perChannel[key] = { hours:0, rev:0, dept };
+    months.forEach(mk => {
+      const h = scopeChannelHours(key, mk), r = scopeChannelRevenue(key, mk, progMarginPct);
+      addH(dept, mk, h); byMonth[mk].rev += r;
+      perChannel[key].hours += h; perChannel[key].rev += r;
+    });
+  });
+  (cfg.overlays||[]).forEach(o => { if (!o.on) return;
+    months.forEach(mk => {
+      const anyLive = Object.keys(cfg.channels).some(k => scopeChannelHours(k, mk) > 0);
+      if (anyLive) addH(o.dept, mk, +o.hours||0);
+    });
+  });
+  (scopeDeal.additional||[]).forEach(line => {
+    months.forEach(mk => { addH(line.dept, mk, scopeAdditionalHours(line, mk)); byMonth[mk].rev += scopeAdditionalRevenue(line, mk); });
+  });
+  // cost at live blended dept rates
+  const rates = {};
+  Object.keys(deptHours).forEach(d => { rates[d] = scopeDeptRate(d, months); });
+  months.forEach(mk => {
+    let c = 0;
+    Object.keys(deptMonth).forEach(d => { c += (deptMonth[d][mk]||0) * (rates[d]||0); });
+    byMonth[mk].cost = c;
+  });
+  let totRev=0, totHours=0, totCost=0;
+  months.forEach(mk => { totRev+=byMonth[mk].rev; totHours+=byMonth[mk].hours; totCost+=byMonth[mk].cost; });
+  Object.keys(perChannel).forEach(k => {
+    const pc = perChannel[k];
+    pc.rate = rates[pc.dept]||0;
+    pc.perHour = pc.hours>0 ? (pc.rev - pc.hours*pc.rate)/pc.hours : 0;
+  });
+  return { months, byMonth, deptHours, deptMonth, rates, perChannel,
+    totRev, totHours, totCost, profit: totRev-totCost,
+    perHour: totHours>0 ? (totRev-totCost)/totHours : 0 };
+}
+
+/* --- solve: minimum programmatic backend margin that clears the target --- */
+function scopeSolveMargin(){
+  const cfg = scopeCfg();
+  const prog = scopeDeal.channels.programmatic;
+  const target = +cfg.targetPerHour||0;
+  if (!prog || !prog.on || prog.cpmMode) {
+    const r = scopeCompute(0);
+    return { needed:null, clamped:null, atMax:r.perHour, atMin:r.perHour, result:r, na:true };
+  }
+  const lo = cfg.progMarginMin, hi = cfg.progMarginMax;
+  const atMin = scopeCompute(lo), atMax = scopeCompute(hi);
+  let needed = null;
+  for (let m = lo; m <= hi + 0.001; m += 0.5) {
+    if (scopeCompute(m).perHour >= target) { needed = Math.round(m*10)/10; break; }
+  }
+  const use = needed !== null ? needed : hi;
+  return { needed, clamped:use, atMin:atMin.perHour, atMax:atMax.perHour,
+    result: scopeCompute(use), belowFloor: needed !== null && needed <= lo,
+    impossible: needed === null };
+}
+
+/* ==================== SCOPING UI ==================== */
+function scopeNum(v){ const n = parseFloat(String(v).replace(/[^0-9.\-]/g,'')); return isNaN(n)?0:n; }
+
+function renderScoping(){
+  const host = document.getElementById('scoping-body'); if (!host) return;
+  if (!scopeDeal) scopeDeal = newScopeDeal();
+  const cfg = scopeCfg();
+  const sol = scopeSolveMargin();
+  const R = sol.result;
+  const target = +cfg.targetPerHour||0;
+  const pass = R.totHours > 0 && R.perHour >= target;
+  const anyOn = Object.keys(cfg.channels).some(k => (scopeDeal.channels[k]||{}).on) || (scopeDeal.additional||[]).length;
+
+  let h = '';
+  /* deal header */
+  h += '<div class="card"><div class="scope-row">';
+  h += `<input id="sc-name" class="scope-in" style="min-width:220px;" placeholder="Deal name" value="${escapeAttr(scopeDeal.name)}">`;
+  h += `<select id="sc-mode" class="scope-in"><option value="new"${scopeDeal.mode==='new'?' selected':''}>New client</option><option value="expand"${scopeDeal.mode==='expand'?' selected':''}>Expansion</option></select>`;
+  if (scopeDeal.mode==='expand'){
+    h += `<select id="sc-acct" class="scope-in"><option value="">— pick account —</option>` +
+      state.projects.map(p=>`<option value="${escapeAttr(p.id)}"${scopeDeal.accountId===p.id?' selected':''}>${escapeHtml(p.name||'Untitled')}</option>`).join('') + `</select>`;
+  }
+  h += `<span class="scope-lbl">flight</span><input id="sc-from" class="scope-in mono" style="width:88px;" value="${escapeAttr(scopeDeal.from)}">`;
+  h += `<span class="scope-lbl">→</span><input id="sc-to" class="scope-in mono" style="width:88px;" value="${escapeAttr(scopeDeal.to)}">`;
+  h += `<span style="margin-left:auto;"></span>`;
+  h += `<span class="scope-lbl">target $/hr</span><input id="sc-target" class="scope-in mono" style="width:64px;" value="${target}">`;
+  h += `<span class="scope-lbl">front-load %</span><input id="sc-fl" class="scope-in mono" style="width:56px;" value="${cfg.frontLoadPct}">`;
+  h += `<button class="btn" id="sc-assump">Edit assumptions</button>`;
+  h += '</div></div>';
+
+  /* verdict */
+  if (anyOn && R.totHours > 0){
+    let badge, bcls, note='';
+    const capFail = scopeCapacityFails(R);
+    if (sol.impossible){ badge='NO-GO'; bcls='sc-no'; note=`even at ${cfg.progMarginMax}% programmatic margin this runs ${fmtMoney2(sol.atMax)}/hr — ${fmtMoney2(target-sol.atMax)}/hr short`; }
+    else if (!pass){ badge='NO-GO'; bcls='sc-no'; note=`${fmtMoney2(R.perHour)}/hr vs ${fmtMoney2(target)} target`; }
+    else if (capFail.length){ badge='GO IF WE HIRE'; bcls='sc-warn'; note=`economics clear, but ${capFail.map(c=>c.dept+' short '+fmtHrs(c.short)+'h').join(', ')}`; }
+    else { badge='GO'; bcls='sc-yes'; note='economics and capacity both clear'; }
+    h += '<div class="card"><div class="scope-verdict">';
+    h += `<div><span class="sc-badge ${bcls}">${badge}</span> <span class="muted" style="font-size:12px;">${escapeHtml(note)}</span></div>`;
+    h += `<div class="sc-big mono">${fmtMoney2(R.perHour)}<span class="sc-unit">/hr</span></div>`;
+    h += `<div class="muted mono" style="font-size:12px; line-height:1.8;">revenue ${fmtMoney(R.totRev)} − labor ${fmtHrs(R.totHours)}h × blended = ${fmtMoney(R.totCost)} → profit ${fmtMoney(R.profit)}</div>`;
+    h += '</div>';
+    /* programmatic instruction */
+    if (!sol.na && !sol.impossible){
+      h += `<div class="sc-instr"><strong>Instruction to programmatic: run backend margin at ${sol.clamped}%</strong>`;
+      h += `<div class="muted" style="font-size:12px; margin-top:2px;">minimum that clears ${fmtMoney2(target)}/hr campaign-wide · band ${cfg.progMarginMin}–${cfg.progMarginMax}% · at ${cfg.progMarginMax}%: ${fmtMoney2(sol.atMax)}/hr${sol.belowFloor?' · already clears at the '+cfg.progMarginMin+'% floor — cushion available':''}</div></div>`;
+    } else if (sol.impossible){
+      h += `<div class="sc-instr sc-instr-bad"><strong>No allowed programmatic margin makes this work.</strong><div class="muted" style="font-size:12px; margin-top:2px;">At the ${cfg.progMarginMax}% ceiling it still runs ${fmtMoney2(sol.atMax)}/hr. Raise a fee, cut a service, or drop channel complexity.</div></div>`;
+    }
+    /* monthly strip */
+    h += '<div class="sc-strip">';
+    const vals = R.months.map(mk => R.byMonth[mk].hours>0 ? (R.byMonth[mk].rev-R.byMonth[mk].cost)/R.byMonth[mk].hours : null);
+    const mx = Math.max(target, ...vals.filter(v=>v!==null).map(v=>Math.abs(v)), 1);
+    R.months.forEach((mk,i) => {
+      const v = vals[i];
+      const pct = v===null?0:Math.max(Math.min(Math.abs(v)/mx,1),0.04)*100;
+      const cls = v===null?'sc-bar-none':(v>=target?'sc-bar-ok':(v>=0?'sc-bar-warn':'sc-bar-bad'));
+      h += `<div class="sc-bar-wrap"><div class="sc-bar ${cls}" style="height:${pct}%"></div><div class="sc-bar-lbl mono">${mk.slice(5)}<br>${v===null?'—':fmtMoney2(v)}</div></div>`;
+    });
+    h += '</div>';
+    h += `<div class="muted" style="font-size:11px; margin-top:6px;">profit per hour by month · target ${fmtMoney2(target)} · first active months carry setup + ${cfg.frontLoadPct}% front-load</div>`;
+    h += '</div>';
+  }
+
+  /* channels */
+  h += '<div class="card"><h3 class="sc-h">Channels</h3>';
+  Object.keys(cfg.channels).forEach(key => { h += scopeChannelCard(key, R, sol); });
+  h += '</div>';
+
+  /* overlays + additional */
+  h += '<div class="card"><h3 class="sc-h">Always-on overlays <span class="muted" style="font-weight:400; font-size:11px;">unbilled — absorbed by the channels above</span></h3>';
+  h += '<div class="scope-row" style="flex-wrap:wrap;">';
+  (cfg.overlays||[]).forEach((o,i) => {
+    h += `<label class="sc-chk"><input type="checkbox" data-ov="${i}" ${o.on?'checked':''}> ${escapeHtml(o.label)}</label>`;
+    h += `<input class="scope-in mono" style="width:52px;" data-ovh="${i}" value="${o.hours}"><span class="scope-lbl">h/mo · ${escapeHtml(o.dept)}</span>`;
+  });
+  h += '</div></div>';
+
+  h += '<div class="card"><h3 class="sc-h">Additional work <button class="btn" id="sc-add-line" style="float:right; font-size:12px;">+ Add line</button></h3>';
+  if (!(scopeDeal.additional||[]).length) h += '<div class="muted" style="font-size:12px;">Anything the catalog doesn\'t cover — ad ops builds, custom analytics, one-off production. Billed or not, the hours are counted.</div>';
+  (scopeDeal.additional||[]).forEach((l,i) => {
+    h += '<div class="scope-row" style="margin-top:6px;">';
+    h += `<input class="scope-in" style="min-width:200px;" data-al="${i}" data-f="label" value="${escapeAttr(l.label||'')}" placeholder="Description">`;
+    h += `<select class="scope-in" data-al="${i}" data-f="dept">` + scopeDeptOptions(l.dept) + '</select>';
+    h += `<input class="scope-in mono" style="width:56px;" data-al="${i}" data-f="hours" value="${l.hours||0}">`;
+    h += `<select class="scope-in" data-al="${i}" data-f="cadence"><option value="monthly"${l.cadence!=='once'?' selected':''}>h/mo</option><option value="once"${l.cadence==='once'?' selected':''}>h once</option></select>`;
+    h += `<select class="scope-in" data-al="${i}" data-f="billed"><option value="0"${!l.billed?' selected':''}>Unbilled</option><option value="1"${l.billed?' selected':''}>Billed</option></select>`;
+    if (l.billed) h += `<input class="scope-in mono" style="width:80px;" data-al="${i}" data-f="amount" value="${l.amount||0}" placeholder="$">`;
+    h += `<button class="btn sc-x" data-aldel="${i}">×</button>`;
+    h += '</div>';
+  });
+  h += '</div>';
+
+  /* capacity */
+  if (anyOn && R.totHours>0){
+    h += '<div class="card"><h3 class="sc-h">Capacity check <span class="muted" style="font-weight:400; font-size:11px;">live from the ledger — spare = active capacity × '+cfg.targetUtil+'% − existing assignments</span></h3>';
+    h += '<table class="sc-tbl"><thead><tr><th>Department</th><th class="num">Deal hours</th><th class="num">Spare</th><th class="num">Blended rate</th><th>Status</th></tr></thead><tbody>';
+    Object.keys(R.deptHours).sort().forEach(d => {
+      let need=0, spare=0, tight=false, shortM=[];
+      R.months.forEach(mk => { const n=(R.deptMonth[d]||{})[mk]||0; if(n<=0) return; need+=n; const s=scopeDeptSpare(d,mk); spare+=s; if(n>s){tight=true; shortM.push(mk.slice(5)+' −'+fmtHrs(n-s)+'h');} });
+      h += `<tr><td>${escapeHtml(d)}</td><td class="num mono">${fmtHrs(need)}h</td><td class="num mono">${fmtHrs(spare)}h</td><td class="num mono">$${Math.round(R.rates[d]||0)}/hr</td>`;
+      h += `<td>${tight?'<span class="sc-pill sc-pill-warn">short: '+escapeHtml(shortM.join(', '))+'</span>':'<span class="sc-pill sc-pill-ok">fits</span>'}</td></tr>`;
+    });
+    h += '</tbody></table></div>';
+  }
+
+  host.innerHTML = h;
+  wireScoping();
+}
+
+function scopeCapacityFails(R){
+  const out=[];
+  Object.keys(R.deptHours).forEach(d => {
+    let short=0;
+    R.months.forEach(mk => { const n=(R.deptMonth[d]||{})[mk]||0; if(n<=0)return; const s=scopeDeptSpare(d,mk); if(n>s) short+=n-s; });
+    if (short>0.5) out.push({dept:d, short});
+  });
+  return out;
+}
+function scopeDeptOptions(sel){
+  const set=new Set(); state.staff.forEach(s=>{const d=normDept(s.department); if(d)set.add(d);});
+  return [...set].sort().map(d=>`<option value="${escapeAttr(d)}"${sel===d?' selected':''}>${escapeHtml(d)}</option>`).join('');
+}
+
+function scopeChannelCard(key, R, sol){
+  const cfg = scopeCfg(), ch = cfg.channels[key], cs = scopeChannelState(key);
+  const pc = (R.perChannel||{})[key];
+  let h = `<div class="sc-ch${cs.on?' sc-ch-on':''}">`;
+  h += '<div class="scope-row">';
+  h += `<label class="sc-chk"><input type="checkbox" data-ch="${key}" data-f="on" ${cs.on?'checked':''}> <strong>${escapeHtml(ch.label)}</strong></label>`;
+  if (!ch.verified) h += `<span class="sc-pill sc-pill-draft" title="Seeded by Claude — have the execution lead review these task hours">draft assumptions</span>`;
+  if (cs.on){
+    h += `<select class="scope-in" data-ch="${key}" data-f="tier">` + SCOPE_TIERS.map(t=>`<option value="${t}"${cs.tier===t?' selected':''}>${t[0].toUpperCase()+t.slice(1)}</option>`).join('') + '</select>';
+    h += `<span class="scope-lbl">flight</span><input class="scope-in mono" style="width:84px;" data-ch="${key}" data-f="from" value="${escapeAttr(cs.from)}">`;
+    h += `<span class="scope-lbl">→</span><input class="scope-in mono" style="width:84px;" data-ch="${key}" data-f="to" value="${escapeAttr(cs.to)}">`;
+    if (pc) h += `<span style="margin-left:auto;" class="mono muted">${fmtHrs(pc.hours)}h · ${fmtMoney(pc.rev)} · <span class="${pc.perHour>=cfg.targetPerHour?'pos':'neg'}">${fmtMoney2(pc.perHour)}/hr alone</span></span>`;
+  }
+  h += '</div>';
+  if (cs.on){
+    const months = scopeMonths(cs.from, cs.to);
+    /* commercial row */
+    h += '<div class="scope-row" style="margin-top:6px;">';
+    if (ch.model === 'retainer'){
+      h += `<span class="scope-lbl">retainer $/mo</span><input class="scope-in mono" style="width:96px;" data-ch="${key}" data-f="retainer" value="${cs.retainer||0}">`;
+    } else if (ch.model === 'prog'){
+      h += `<select class="scope-in" data-ch="${key}" data-f="cpmMode"><option value="0"${!cs.cpmMode?' selected':''}>% of spend</option><option value="1"${cs.cpmMode?' selected':''}>CPM buy</option></select>`;
+      if (cs.cpmMode){
+        h += `<span class="scope-lbl">client CPM $</span><input class="scope-in mono" style="width:64px;" data-ch="${key}" data-f="cpm" value="${cs.cpm||0}">`;
+        h += `<span class="scope-lbl">impressions (total)</span><input class="scope-in mono" style="width:110px;" data-ch="${key}" data-f="impressions" value="${cs.impressions||0}">`;
+        h += `<span class="scope-lbl">data $CPM</span><input class="scope-in mono" style="width:56px;" data-ch="${key}" data-f="dataCpm" value="${cs.dataCpm||0}">`;
+        h += `<span class="sc-pill sc-pill-ok">margin fixed ${cfg.cpmMargin}%</span>`;
+      } else {
+        h += `<span class="scope-lbl">fee %</span><input class="scope-in mono" style="width:52px;" data-ch="${key}" data-f="feePct" value="${cs.feePct||0}">`;
+        h += `<span class="scope-lbl">data cost % of media</span><input class="scope-in mono" style="width:52px;" data-ch="${key}" data-f="dataPct" value="${cs.dataPct||0}">`;
+        h += `<span class="scope-lbl">rebate</span><input class="scope-in mono" style="width:48px;" data-ch="${key}" data-f="rebatePct" value="${cs.rebatePct||0}"><span class="scope-lbl">% of</span>`;
+        h += `<select class="scope-in" data-ch="${key}" data-f="rebateBasis"><option value="fee"${cs.rebateBasis!=='margin'?' selected':''}>fee</option><option value="margin"${cs.rebateBasis==='margin'?' selected':''}>net media margin</option></select>`;
+      }
+    } else {
+      h += `<span class="scope-lbl">fee %</span><input class="scope-in mono" style="width:52px;" data-ch="${key}" data-f="feePct" value="${cs.feePct||0}">`;
+    }
+    h += `<span class="scope-lbl" style="margin-left:auto;">front-load</span><input class="scope-in mono" style="width:52px;" data-ch="${key}" data-f="frontLoad" value="${cs.frontLoad===null||cs.frontLoad===undefined?'':cs.frontLoad}" placeholder="${cfg.frontLoadPct}">`;
+    h += '</div>';
+    /* budget flighting */
+    if (ch.model !== 'retainer' && !cs.cpmMode){
+      h += '<div class="scope-row" style="margin-top:6px;">';
+      h += `<select class="scope-in" data-ch="${key}" data-f="spread"><option value="even"${cs.spread==='even'?' selected':''}>Spread evenly</option><option value="custom"${cs.spread==='custom'?' selected':''}>Custom per month</option></select>`;
+      if (cs.spread==='even') h += `<span class="scope-lbl">total budget $</span><input class="scope-in mono" style="width:110px;" data-ch="${key}" data-f="budgetTotal" value="${cs.budgetTotal||0}">`;
+      h += '</div>';
+      h += '<div class="sc-months">';
+      months.forEach(mk => {
+        const b = scopeChannelBudget(key, mk), hh = scopeChannelHours(key, mk);
+        h += `<div class="sc-mo"><div class="sc-mo-k mono">${mk.slice(2)}</div>`;
+        if (cs.spread==='custom') h += `<input class="scope-in mono sc-mo-in" data-chb="${key}" data-mk="${mk}" value="${Math.round(b)||''}">`;
+        else h += `<div class="sc-mo-v mono">${fmtMoney(b)}</div>`;
+        h += `<div class="sc-mo-h mono">${fmtHrs(hh)}h</div></div>`;
+      });
+      h += '</div>';
+    }
+  }
+  h += '</div>';
+  return h;
+}
+
+function wireScoping(){
+  const host = document.getElementById('scoping-body'); if(!host) return;
+  const re = () => renderScoping();
+  const bind = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('change', fn); };
+  bind('sc-name', e => { scopeDeal.name = e.target.value; });
+  bind('sc-mode', e => { scopeDeal.mode = e.target.value; re(); });
+  bind('sc-acct', e => { scopeDeal.accountId = e.target.value; re(); });
+  bind('sc-from', e => { scopeDeal.from = e.target.value.trim(); re(); });
+  bind('sc-to',   e => { scopeDeal.to = e.target.value.trim(); re(); });
+  bind('sc-target', e => { scopeCfg().targetPerHour = scopeNum(e.target.value); scheduleSave(); re(); });
+  bind('sc-fl', e => { scopeCfg().frontLoadPct = scopeNum(e.target.value); scheduleSave(); re(); });
+  const ab = document.getElementById('sc-assump'); if (ab) ab.addEventListener('click', openAssumptions);
+  const al = document.getElementById('sc-add-line'); if (al) al.addEventListener('click', () => {
+    const depts = [...new Set(state.staff.map(s=>normDept(s.department)).filter(Boolean))].sort();
+    scopeDeal.additional.push({ label:'', dept:depts[0]||'', hours:0, cadence:'monthly', billed:false, amount:0 });
+    re();
+  });
+  host.querySelectorAll('[data-ch]').forEach(el => {
+    el.addEventListener('change', () => {
+      const cs = scopeChannelState(el.dataset.ch), f = el.dataset.f;
+      if (f === 'on') cs.on = el.checked;
+      else if (f === 'cpmMode') cs.cpmMode = el.value === '1';
+      else if (['tier','from','to','spread','rebateBasis'].indexOf(f) >= 0) cs[f] = el.value;
+      else if (f === 'frontLoad') cs.frontLoad = el.value.trim()==='' ? null : scopeNum(el.value);
+      else cs[f] = scopeNum(el.value);
+      re();
+    });
+  });
+  host.querySelectorAll('[data-chb]').forEach(el => {
+    el.addEventListener('change', () => {
+      const cs = scopeChannelState(el.dataset.chb);
+      cs.budgets[el.dataset.mk] = scopeNum(el.value);
+      re();
+    });
+  });
+  host.querySelectorAll('[data-ov]').forEach(el => el.addEventListener('change', () => { scopeCfg().overlays[+el.dataset.ov].on = el.checked; scheduleSave(); re(); }));
+  host.querySelectorAll('[data-ovh]').forEach(el => el.addEventListener('change', () => { scopeCfg().overlays[+el.dataset.ovh].hours = scopeNum(el.value); scheduleSave(); re(); }));
+  host.querySelectorAll('[data-al]').forEach(el => el.addEventListener('change', () => {
+    const l = scopeDeal.additional[+el.dataset.al], f = el.dataset.f;
+    if (f==='billed') l.billed = el.value==='1';
+    else if (f==='label'||f==='dept'||f==='cadence') l[f] = el.value;
+    else l[f] = scopeNum(el.value);
+    re();
+  }));
+  host.querySelectorAll('[data-aldel]').forEach(el => el.addEventListener('click', () => { scopeDeal.additional.splice(+el.dataset.aldel,1); re(); }));
+}
+
+/* --- assumptions editor: the shared foundation, persisted in the workspace --- */
+function openAssumptions(){
+  const cfg = scopeCfg();
+  let h = '<div class="sc-modal-inner">';
+  h += '<div class="scope-row"><h3 class="sc-h" style="margin:0;">Scoping assumptions</h3><button class="btn" id="sc-close" style="margin-left:auto;">Close</button></div>';
+  h += '<div class="muted" style="font-size:12px; margin:6px 0 10px;">These are the shared foundation for every scope — edits persist for the whole workspace. Task hours are per active month; quarterly work is already averaged into a monthly figure.</div>';
+  h += '<div class="scope-row" style="flex-wrap:wrap; margin-bottom:10px;">';
+  h += `<span class="scope-lbl">target $/hr</span><input class="scope-in mono" style="width:64px;" data-cfg="targetPerHour" value="${cfg.targetPerHour}">`;
+  h += `<span class="scope-lbl">front-load %</span><input class="scope-in mono" style="width:56px;" data-cfg="frontLoadPct" value="${cfg.frontLoadPct}">`;
+  h += `<span class="scope-lbl">prog margin band</span><input class="scope-in mono" style="width:48px;" data-cfg="progMarginMin" value="${cfg.progMarginMin}">–<input class="scope-in mono" style="width:48px;" data-cfg="progMarginMax" value="${cfg.progMarginMax}">%`;
+  h += `<span class="scope-lbl">CPM margin %</span><input class="scope-in mono" style="width:52px;" data-cfg="cpmMargin" value="${cfg.cpmMargin}">`;
+  h += `<span class="scope-lbl">target utilization %</span><input class="scope-in mono" style="width:52px;" data-cfg="targetUtil" value="${cfg.targetUtil}">`;
+  h += '</div>';
+  /* tier multipliers */
+  h += '<h4 class="sc-h4">Complexity tiers <span class="muted" style="font-weight:400; font-size:11px;">multipliers on each task category</span></h4>';
+  const cats = ['Planning','Activation','Optimization','Reporting','Client Management'];
+  h += '<table class="sc-tbl"><thead><tr><th>Tier</th>' + cats.map(c=>`<th class="num">${c}</th>`).join('') + '</tr></thead><tbody>';
+  SCOPE_TIERS.forEach(t => {
+    h += `<tr><td>${t}</td>` + cats.map(c=>`<td class="num"><input class="scope-in mono sc-tiny" data-tier="${t}" data-cat="${escapeAttr(c)}" value="${(cfg.tierMult[t]||{})[c]!==undefined?cfg.tierMult[t][c]:1}"></td>`).join('') + '</tr>';
+  });
+  h += '</tbody></table>';
+  /* channel task catalogs */
+  Object.keys(cfg.channels).forEach(key => {
+    const ch = cfg.channels[key];
+    let tot = 0; (ch.tasks||[]).forEach(t => tot += (t.o||0)*(t.h||0));
+    h += `<h4 class="sc-h4">${escapeHtml(ch.label)} <span class="muted" style="font-weight:400; font-size:11px;">${escapeHtml(ch.dept)} · ${fmtHrs(tot)}h/mo at Standard${ch.verified?'':' · draft — review with the execution lead'}</span>`;
+    h += ` <button class="btn sc-mini" data-taskadd="${key}">+ task</button></h4>`;
+    h += '<table class="sc-tbl"><thead><tr><th>Category</th><th>Task</th><th>Frequency</th><th class="num">Occ/mo</th><th class="num">Hrs each</th><th class="num">Total</th><th></th></tr></thead><tbody>';
+    (ch.tasks||[]).forEach((t,i) => {
+      h += `<tr><td><select class="scope-in sc-tiny2" data-tk="${key}" data-i="${i}" data-f="c">` + cats.map(c=>`<option${t.c===c?' selected':''}>${c}</option>`).join('') + '</select></td>';
+      h += `<td><input class="scope-in" style="width:100%;" data-tk="${key}" data-i="${i}" data-f="t" value="${escapeAttr(t.t)}"></td>`;
+      h += `<td><input class="scope-in sc-tiny2" data-tk="${key}" data-i="${i}" data-f="f" value="${escapeAttr(t.f||'')}"></td>`;
+      h += `<td class="num"><input class="scope-in mono sc-tiny" data-tk="${key}" data-i="${i}" data-f="o" value="${t.o}"></td>`;
+      h += `<td class="num"><input class="scope-in mono sc-tiny" data-tk="${key}" data-i="${i}" data-f="h" value="${t.h}"></td>`;
+      h += `<td class="num mono">${fmtHrs((t.o||0)*(t.h||0))}</td>`;
+      h += `<td><button class="btn sc-x" data-tkdel="${key}" data-i="${i}">×</button></td></tr>`;
+    });
+    h += '</tbody></table>';
+  });
+  h += '<div class="scope-row" style="margin-top:12px;"><button class="btn" id="sc-reset">Reset to defaults</button><span class="muted" style="font-size:11px;">restores the seeded catalog — your edits are lost</span></div>';
+  h += '</div>';
+  const m = document.getElementById('scoping-modal');
+  m.innerHTML = h; m.style.display = 'block';
+  const close = () => { m.style.display='none'; renderScoping(); };
+  document.getElementById('sc-close').addEventListener('click', close);
+  document.getElementById('sc-reset').addEventListener('click', () => { if(confirm('Reset all scoping assumptions to the seeded defaults?')){ state.scoping = scopeDefaults(); scheduleSave(); m.style.display='none'; renderScoping(); } });
+  m.querySelectorAll('[data-cfg]').forEach(el => el.addEventListener('change', () => { scopeCfg()[el.dataset.cfg] = scopeNum(el.value); scheduleSave(); }));
+  m.querySelectorAll('[data-tier]').forEach(el => el.addEventListener('change', () => {
+    const c = scopeCfg(); c.tierMult[el.dataset.tier] = c.tierMult[el.dataset.tier]||{};
+    c.tierMult[el.dataset.tier][el.dataset.cat] = scopeNum(el.value); scheduleSave();
+  }));
+  m.querySelectorAll('[data-tk]').forEach(el => el.addEventListener('change', () => {
+    const t = scopeCfg().channels[el.dataset.tk].tasks[+el.dataset.i], f = el.dataset.f;
+    if (f==='o'||f==='h') t[f] = scopeNum(el.value); else t[f] = el.value;
+    scheduleSave(); openAssumptions();
+  }));
+  m.querySelectorAll('[data-tkdel]').forEach(el => el.addEventListener('click', () => {
+    scopeCfg().channels[el.dataset.tkdel].tasks.splice(+el.dataset.i,1); scheduleSave(); openAssumptions();
+  }));
+  m.querySelectorAll('[data-taskadd]').forEach(el => el.addEventListener('click', () => {
+    scopeCfg().channels[el.dataset.taskadd].tasks.push({c:'Planning',t:'New task',f:'Monthly',o:1,h:1}); scheduleSave(); openAssumptions();
+  }));
+}
+
 </script>
 </body>
 </html>
