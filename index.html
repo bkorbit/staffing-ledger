@@ -195,6 +195,14 @@ button.confirm-armed { background: var(--rust) !important; color: #fff !importan
 .sc-empty { text-align: center; padding: 30px 20px; color: var(--slate); font-size: 12.5px; line-height: 1.7; }
 .sc-empty strong { display: block; font-family: var(--font-display); font-size: 14px; color: var(--ink); margin-bottom: 5px; font-weight: 600; }
 
+
+.sc-calc { margin-top: 12px; padding: 10px 12px; background: #fff; border: 1px solid var(--line); border-radius: 5px; font-family: var(--font-mono); font-size: 12px; line-height: 1.7; }
+.sc-calc strong { color: var(--brand); font-weight: 500; }
+.sc-calc-x { color: var(--slate); font-size: 11px; margin-left: 6px; }
+.sc-pill-new { background: var(--amber-bg); color: var(--amber); }
+.sc-ovt td { padding: 9px 8px; font-size: 13px; vertical-align: middle; }
+.sc-ovt input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--brand); cursor: pointer; }
+.sc-drv { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 /* line table */
 .sc-lt { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .sc-lt-hd, .sc-lt-row { display: grid; grid-template-columns: 30px minmax(180px,2.2fr) 132px minmax(96px,1fr) 78px minmax(90px,1fr) 92px 36px; align-items: center; gap: 4px; }
@@ -622,7 +630,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
   <header>
     <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0731-1923 · updated 2026-07-31</span></div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0731-2036 · updated 2026-07-31</span></div>
       <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
@@ -4840,6 +4848,13 @@ function scopeDefaults(){ return {
     standard: { 'Planning':1,    'Activation':1,   'Optimization':1,   'Reporting':1,   'Client Management':1 },
     heavy:    { 'Planning':1.3,  'Activation':2.0, 'Optimization':1.2, 'Reporting':1.3, 'Client Management':1.4 }
   },
+  hourMode: 'drivers',
+  drivers: {
+    social:       { base:5,  perCampaign:1.5, perLine:0.5,  perCreative:0.25, buildBase:12, buildCampaign:2,   buildLine:1,    creatives:true },
+    search:       { base:4,  perCampaign:1.0, perLine:0.35, perCreative:0,    buildBase:10, buildCampaign:2,   buildLine:0.75, creatives:false },
+    programmatic: { base:4,  perCampaign:1.5, perLine:0.4,  perCreative:0,    buildBase:10, buildCampaign:2,   buildLine:0.75, creatives:false },
+    creative:     { base:2,  perCampaign:1.0, perLine:1.5,  perCreative:0,    buildBase:6,  buildCampaign:1,   buildLine:0.5,  creatives:false }
+  },
   channels: {
     social: { label:'Paid social', dept:'Paid Media', model:'fee', feePct:15, verified:true, tasks:[
       {c:"Planning",t:"Targeting / persona strategy refresh",f:"Monthly",o:2.0,h:2.0},
@@ -4951,6 +4966,7 @@ function newScopeLine(type){
   const id = 'L' + Math.random().toString(36).slice(2,8);
   const base = { id, type, label: ch ? ch.label : '', from:scopeDeal.from, to:scopeDeal.to,
     tier:'standard', frontLoad:null,
+    campaigns:1, lines:1, creatives:0, isNew:false,
     spread:'even', budgetTotal:0, budgets:{},
     feePct: ch ? (ch.feePct||0) : 0, retainer:0,
     cpmMode:false, cpm:0, impressions:0, dataPct:0, dataCpm:0,
@@ -4969,13 +4985,40 @@ function scopeMonths(from,to){ const a=[]; let mk=from,g=0; while(mk&&to&&mk<=to
 function scopeLineMonths(line){ return scopeMonths(line.from||scopeDeal.from, line.to||scopeDeal.to); }
 
 /* ---------- hours ---------- */
+function scopeTierFactor(line){
+  // Complexity multiplies the whole estimate in driver mode. Averaged from the
+  // per-category multipliers so both modes stay roughly comparable.
+  const cfg = scopeCfg(), m = cfg.tierMult[line.tier] || cfg.tierMult.standard;
+  const vals = Object.keys(m).map(k=>+m[k]||0);
+  return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 1;
+}
+function scopeDrivers(type){
+  const cfg = scopeCfg();
+  return (cfg.drivers && cfg.drivers[type]) || { base:0, perCampaign:0, perLine:0, perCreative:0, buildBase:0, buildCampaign:0, buildLine:0, creatives:false };
+}
+// Steady-state hours for one active month, before front-load.
 function scopeLineBaseHours(line){
   if (!scopeLineIsCatalog(line)) return +line.hours||0;
-  const cfg = scopeCfg(), ch = cfg.channels[line.type];
-  const mult = cfg.tierMult[line.tier] || cfg.tierMult.standard;
-  let h = 0;
-  (ch.tasks||[]).forEach(t => { h += (t.o||0)*(t.h||0)*(mult[t.c]!==undefined?mult[t.c]:1); });
-  return h;
+  const cfg = scopeCfg();
+  if ((cfg.hourMode||'drivers') === 'tasks') {
+    const ch = cfg.channels[line.type];
+    const mult = cfg.tierMult[line.tier] || cfg.tierMult.standard;
+    let h = 0;
+    (ch.tasks||[]).forEach(t => { h += (t.o||0)*(t.h||0)*(mult[t.c]!==undefined?mult[t.c]:1); });
+    return h;
+  }
+  const d = scopeDrivers(line.type);
+  const h = (+d.base||0) + (+d.perCampaign||0)*(+line.campaigns||0)
+          + (+d.perLine||0)*(+line.lines||0) + (+d.perCreative||0)*(+line.creatives||0);
+  return h * scopeTierFactor(line);
+}
+// One-off hours to stand a brand-new build up, landing in the first active month.
+function scopeLineBuildHours(line){
+  if (!scopeLineIsCatalog(line) || !line.isNew) return 0;
+  const cfg = scopeCfg();
+  if ((cfg.hourMode||'drivers') === 'tasks') return scopeLineBaseHours(line) * 0.75;
+  const d = scopeDrivers(line.type);
+  return ((+d.buildBase||0) + (+d.buildCampaign||0)*(+line.campaigns||0) + (+d.buildLine||0)*(+line.lines||0)) * scopeTierFactor(line);
 }
 function scopeLineHours(line, mk){
   const months = scopeLineMonths(line);
@@ -4986,9 +5029,14 @@ function scopeLineHours(line, mk){
   }
   let h = scopeLineBaseHours(line);
   if (mk === months[0]) {
-    const cfg = scopeCfg();
-    const fl = (line.frontLoad === null || line.frontLoad === undefined) ? cfg.frontLoadPct : line.frontLoad;
-    h *= (1 + (fl||0)/100);
+    if (line.isNew) {
+      // A brand-new build IS the front-load — don't charge both.
+      h += scopeLineBuildHours(line);
+    } else {
+      const cfg = scopeCfg();
+      const fl = (line.frontLoad === null || line.frontLoad === undefined) ? cfg.frontLoadPct : line.frontLoad;
+      h *= (1 + (fl||0)/100);
+    }
   }
   return h;
 }
@@ -5189,14 +5237,14 @@ function renderScopingInner(host){
   /* ---------- overlays ---------- */
   h += '<div class="sc-panel"><div class="sc-panel-hd"><span class="sc-eyebrow">Always-on overlays</span>';
   h += '<span class="sc-panel-note" style="margin-left:auto;">Charged to no one — the billed lines have to absorb them. Applied in every month any line is live.</span></div>';
-  h += '<div class="sc-fields tight">';
+  h += '<table class="sc-tbl sc-ovt"><thead><tr><th style="width:34px;"></th><th>Work</th><th>Department</th><th class="num" style="width:120px;">Hours / month</th></tr></thead><tbody>';
   (cfg.overlays||[]).forEach((o,i) => {
-    h += '<div class="sc-field"><label>' + escapeHtml(o.dept) + '</label>'
-      + '<div style="display:flex; gap:8px; align-items:center;">'
-      + `<label class="sc-chk" style="flex:1; min-width:0;"><input type="checkbox" data-ov="${i}" ${o.on?'checked':''}><span style="font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(o.label)}</span></label>`
-      + `<input class="sc-ip num" style="width:62px;" data-ovh="${i}" value="${o.hours}"></div></div>`;
+    h += `<tr><td><input type="checkbox" class="sc-ovcb" data-ov="${i}" ${o.on?'checked':''}></td>`
+      + `<td${o.on?'':' class="sc-dim"'}>${escapeHtml(o.label)}</td>`
+      + `<td class="sc-mono"${o.on?'':' style="color:#b8b8b8;"'}>${escapeHtml(o.dept)}</td>`
+      + `<td class="num"><input class="sc-ip num" style="width:78px; display:inline-block;" data-ovh="${i}" value="${o.hours}"></td></tr>`;
   });
-  h += '</div></div>';
+  h += '</tbody></table></div>';
 
   /* ---------- capacity ---------- */
   if (hasWork) h += scopeCapacityHtml(R, cfg);
@@ -5305,9 +5353,17 @@ function scopeLineRow(line, i, R, target){
   let h = `<div class="sc-lt-row${open?' open':''}" data-lrow="${line.id}">`;
   h += `<div class="sc-tw"><span class="sc-caret">${open?'▾':'▸'}</span></div>`;
   h += '<div><span class="sc-lname">' + escapeHtml(line.label || (ch?ch.label:'Custom line')) + '</span>';
-  h += '<div class="sc-lmeta">' + escapeHtml(scopeLineDept(line) || 'no department')
-     + (cat ? ' · ' + escapeHtml(line.tier) : (line.cadence==='once'?' · one-off':' · monthly'))
-     + (cat && ch && !ch.verified ? ' · <span class="sc-pill sc-pill-draft">draft hours</span>' : '') + '</div></div>';
+  let meta = escapeHtml(scopeLineDept(line) || 'no department');
+  if (cat) {
+    const dv = scopeDrivers(line.type);
+    meta += ' · ' + escapeHtml(line.tier);
+    if ((cfg.hourMode||'drivers')==='drivers') {
+      meta += ' · ' + (+line.campaigns||0) + ' campaign' + ((+line.campaigns||0)===1?'':'s') + ', ' + (+line.lines||0) + ' line' + ((+line.lines||0)===1?'':'s');
+      if (dv.creatives) meta += ', ' + (+line.creatives||0) + ' creatives';
+    }
+    if (line.isNew) meta += ' · <span class="sc-pill sc-pill-new">new build</span>';
+  } else meta += (line.cadence==='once'?' · one-off':' · monthly');
+  h += '<div class="sc-lmeta">' + meta + '</div></div>';
   h += `<div class="sc-mono">${scMon(line.from)} – ${scMon(line.to)}</div>`;
   h += `<div class="r sc-mono">${priceCell}</div>`;
   h += `<div class="r sc-mono">${fmtHrs(pl.hours)}h</div>`;
@@ -5321,7 +5377,17 @@ function scopeLineRow(line, i, R, target){
     /* scope & flight */
     h += '<div class="sc-group-t">Scope &amp; flight</div><div class="sc-fields">';
     h += scField('Label', `<input class="sc-ip" data-ln="${line.id}" data-f="label" value="${escapeAttr(line.label||'')}" placeholder="${escapeAttr(ch?ch.label:'What is it?')}">`, 'wide');
-    if (cat) h += scField('Complexity', `<select class="sc-sel" data-ln="${line.id}" data-f="tier">` + SCOPE_TIERS.map(t=>`<option value="${t}"${line.tier===t?' selected':''}>${t[0].toUpperCase()+t.slice(1)}</option>`).join('') + '</select>');
+    if (cat) {
+      const dv = scopeDrivers(line.type);
+      const drv = (cfg.hourMode||'drivers')==='drivers';
+      if (drv) {
+        h += scField('Campaigns', `<input class="sc-ip num" data-ln="${line.id}" data-f="campaigns" value="${line.campaigns||0}">`);
+        h += scField(line.type==='creative'?'Assets':'Lines / ad groups', `<input class="sc-ip num" data-ln="${line.id}" data-f="lines" value="${line.lines||0}">`);
+        if (dv.creatives) h += scField('Creatives', `<input class="sc-ip num" data-ln="${line.id}" data-f="creatives" value="${line.creatives||0}">`);
+      }
+      h += scField('Complexity', `<select class="sc-sel" data-ln="${line.id}" data-f="tier">` + SCOPE_TIERS.map(t=>`<option value="${t}"${line.tier===t?' selected':''}>${t[0].toUpperCase()+t.slice(1)}</option>`).join('') + '</select>');
+      h += scField('Brand new build', `<select class="sc-sel" data-ln="${line.id}" data-f="isNew"><option value="0"${!line.isNew?' selected':''}>No — existing</option><option value="1"${line.isNew?' selected':''}>Yes — build from scratch</option></select>`);
+    }
     else {
       h += scField('Department', `<select class="sc-sel" data-ln="${line.id}" data-f="dept">` + scopeDeptOptions(line.dept) + '</select>');
       h += scField('Hours', `<input class="sc-ip num" data-ln="${line.id}" data-f="hours" value="${line.hours||0}">`);
@@ -5329,8 +5395,21 @@ function scopeLineRow(line, i, R, target){
     }
     h += scField('Starts', scMonthInput(`data-ln="${line.id}" data-f="from"`, line.from));
     h += scField('Ends', scMonthInput(`data-ln="${line.id}" data-f="to"`, line.to));
-    if (cat) h += scField('Front-load %', `<input class="sc-ip num" data-ln="${line.id}" data-f="frontLoad" value="${line.frontLoad===null||line.frontLoad===undefined?'':line.frontLoad}" placeholder="${cfg.frontLoadPct}">`);
+    if (cat && !line.isNew) h += scField('Front-load %', `<input class="sc-ip num" data-ln="${line.id}" data-f="frontLoad" value="${line.frontLoad===null||line.frontLoad===undefined?'':line.frontLoad}" placeholder="${cfg.frontLoadPct}">`);
     h += '</div>';
+    if (cat) {
+      const steady = scopeLineBaseHours(line), build = scopeLineBuildHours(line);
+      const dv = scopeDrivers(line.type), tf = scopeTierFactor(line);
+      let calc = '';
+      if ((cfg.hourMode||'drivers')==='drivers') {
+        calc = `${dv.base} base + ${dv.perCampaign}×${+line.campaigns||0} campaigns + ${dv.perLine}×${+line.lines||0} lines`
+             + (dv.creatives ? ` + ${dv.perCreative}×${+line.creatives||0} creatives` : '')
+             + (Math.abs(tf-1)>0.01 ? ` , ×${tf.toFixed(2)} for ${escapeHtml(line.tier)}` : '');
+      } else calc = 'from the task catalog at ' + escapeHtml(line.tier);
+      h += `<div class="sc-calc"><strong>${fmtHrs(steady)}h</strong> per active month <span class="sc-calc-x">${escapeHtml(calc)}</span>`;
+      if (build>0) h += `<br><strong>+ ${fmtHrs(build)}h</strong> one-off build in the first month <span class="sc-calc-x">brand-new build replaces the front-load</span>`;
+      h += '</div>';
+    }
 
     /* commercial */
     h += '<div class="sc-group"><div class="sc-group-t">Commercial model</div><div class="sc-fields">';
@@ -5422,6 +5501,7 @@ function wireScoping(){
     const line = scopeDeal.lines.find(l => l.id === el.dataset.ln); if (!line) return;
     const f = el.dataset.f;
     if (f === 'cpmMode') line.cpmMode = el.value === '1';
+    else if (f === 'isNew') line.isNew = el.value === '1';
     else if (f === 'billed') line.billed = el.value === '1';
     else if (f === 'frontLoad') line.frontLoad = el.value.trim()==='' ? null : scopeNum(el.value);
     else if (['label','tier','from','to','spread','rebateBasis','dept','cadence'].indexOf(f) >= 0) line[f] = el.value;
@@ -5456,8 +5536,29 @@ function openAssumptions(){
   h += scField('Target utilization %', `<input class="sc-ip num" data-cfg="targetUtil" value="${cfg.targetUtil}">`);
   h += '</div></div>';
 
+  h += '<div class="sc-panel" style="margin-bottom:14px;"><div class="sc-panel-hd"><span class="sc-eyebrow">How hours are estimated</span>';
+  h += '<span class="sc-panel-note" style="margin-left:auto;">Driver rates are a rough starting point — tune them as real hours come in</span></div>';
+  h += '<div class="sc-fields" style="margin-bottom:14px; max-width:420px;">';
+  h += scField('Method', `<select class="sc-sel" data-cfg-s="hourMode"><option value="drivers"${(cfg.hourMode||'drivers')==='drivers'?' selected':''}>Drivers — campaigns &amp; lines</option><option value="tasks"${cfg.hourMode==='tasks'?' selected':''}>Task catalog — detailed</option></select>`);
+  h += '</div>';
+  if ((cfg.hourMode||'drivers')==='drivers') {
+    h += '<table class="sc-tbl"><thead><tr><th>Channel</th><th class="num">Base h/mo</th><th class="num">Per campaign</th><th class="num">Per line</th><th class="num">Per creative</th><th class="num">Build base</th><th class="num">Build / campaign</th><th class="num">Build / line</th></tr></thead><tbody>';
+    Object.keys(cfg.channels).forEach(k => {
+      const d = scopeDrivers(k);
+      const f = (fld) => `<td class="num"><input class="sc-tiny" data-drv="${k}" data-f="${fld}" value="${d[fld]!==undefined?d[fld]:0}"></td>`;
+      h += `<tr><td>${escapeHtml(cfg.channels[k].label)}</td>` + f('base') + f('perCampaign') + f('perLine')
+         + (d.creatives ? f('perCreative') : '<td class="num sc-dim">n/a</td>')
+         + f('buildBase') + f('buildCampaign') + f('buildLine') + '</tr>';
+    });
+    h += '</tbody></table>';
+    h += '<div class="sc-panel-note" style="margin-top:10px;">Steady state = base + per-campaign × campaigns + per-line × lines (+ per-creative), then × the complexity factor. A brand-new line also charges the build rates once, in its first month, instead of the front-load.</div>';
+    h += '<div class="sc-panel-note" style="margin-top:6px;"><strong>Calibration point:</strong> USTA Community Tennis — 8 campaigns, 22 ad groups — logged 19.6h/month. The search defaults above reproduce that. Everything else is an educated guess until real hours land beside it.</div>';
+  } else {
+    h += '<div class="sc-panel-note">Hours come from the task catalogs below. Note these were written as a picture of thorough service: the paid-search catalog totals 83.1h/month, where the one account we have real hours for ran 19.6h/month.</div>';
+  }
+  h += '</div>';
   h += '<div class="sc-panel" style="margin-bottom:14px;"><div class="sc-panel-hd"><span class="sc-eyebrow">Complexity tiers</span>';
-  h += '<span class="sc-panel-note" style="margin-left:auto;">Multiplier applied to each task category. Reporting and planning compress first; optimization barely does.</span></div>';
+  h += '<span class="sc-panel-note" style="margin-left:auto;">In task mode these apply per category. In driver mode their average scales the whole estimate.</span></div>';
   h += '<table class="sc-tbl"><thead><tr><th>Tier</th>' + cats.map(c=>`<th class="num">${c}</th>`).join('') + '</tr></thead><tbody>';
   SCOPE_TIERS.forEach(t => {
     h += `<tr><td style="text-transform:capitalize;">${t}</td>` + cats.map(c=>`<td class="num"><input class="sc-tiny" data-tier="${t}" data-cat="${escapeAttr(c)}" value="${(cfg.tierMult[t]||{})[c]!==undefined?cfg.tierMult[t][c]:1}"></td>`).join('') + '</tr>';
@@ -5470,6 +5571,7 @@ function openAssumptions(){
     h += '<div class="sc-panel" style="margin-bottom:14px;"><div class="sc-panel-hd">';
     h += `<span class="sc-eyebrow">${escapeHtml(ch.label)}</span>`;
     h += `<span class="sc-panel-note">${escapeHtml(ch.dept)} · <strong>${fmtHrs(tot)}h</strong> per active month at Standard</span>`;
+    if ((cfg.hourMode||'drivers')==='drivers') h += '<span class="sc-pill sc-pill-draft">reference only — drivers are active</span>';
     if (!ch.verified) h += '<span class="sc-pill sc-pill-draft">draft — review with the execution lead</span>';
     h += `<button class="sc-btn" data-taskadd="${key}" style="margin-left:auto;">+ Add task</button></div>`;
     h += '<table class="sc-tbl"><thead><tr><th>Category</th><th>Task</th><th>Frequency</th><th class="num">Times / mo</th><th class="num">Hours each</th><th class="num">Total</th><th></th></tr></thead><tbody>';
@@ -5495,6 +5597,12 @@ function openAssumptions(){
   document.getElementById('sc-close').addEventListener('click', close);
   document.getElementById('sc-reset').addEventListener('click', () => { if(confirm('Reset all scoping assumptions to the seeded defaults?')){ state.scoping = scopeDefaults(); scheduleSave(); m.style.display='none'; renderScoping(); } });
   m.querySelectorAll('[data-cfg]').forEach(el => el.addEventListener('change', () => { scopeCfg()[el.dataset.cfg] = scopeNum(el.value); scheduleSave(); }));
+  m.querySelectorAll('[data-cfg-s]').forEach(el => el.addEventListener('change', () => { scopeCfg()[el.dataset.cfgS] = el.value; scheduleSave(); openAssumptions(); }));
+  m.querySelectorAll('[data-drv]').forEach(el => el.addEventListener('change', () => {
+    const c = scopeCfg(); c.drivers = c.drivers || {};
+    c.drivers[el.dataset.drv] = c.drivers[el.dataset.drv] || {};
+    c.drivers[el.dataset.drv][el.dataset.f] = scopeNum(el.value); scheduleSave();
+  }));
   m.querySelectorAll('[data-tier]').forEach(el => el.addEventListener('change', () => {
     const c = scopeCfg(); c.tierMult[el.dataset.tier] = c.tierMult[el.dataset.tier]||{};
     c.tierMult[el.dataset.tier][el.dataset.cat] = scopeNum(el.value); scheduleSave();
