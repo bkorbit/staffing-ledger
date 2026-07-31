@@ -194,6 +194,28 @@ button.confirm-armed { background: var(--rust) !important; color: #fff !importan
 .sc-x:hover { color: var(--rust); }
 .sc-empty { text-align: center; padding: 30px 20px; color: var(--slate); font-size: 12.5px; line-height: 1.7; }
 .sc-empty strong { display: block; font-family: var(--font-display); font-size: 14px; color: var(--ink); margin-bottom: 5px; font-weight: 600; }
+
+/* line table */
+.sc-lt { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.sc-lt-hd, .sc-lt-row { display: grid; grid-template-columns: 30px minmax(180px,2.2fr) 132px minmax(96px,1fr) 78px minmax(90px,1fr) 92px 36px; align-items: center; gap: 4px; }
+.sc-lt-hd { background: #f6f6f6; border-bottom: 1px solid var(--line); font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--slate); padding: 8px 10px; }
+.sc-lt-hd .r, .sc-lt-row .r { text-align: right; }
+.sc-lt-row { padding: 10px; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
+.sc-lt-row:last-child { border-bottom: none; }
+.sc-lt-row:hover { background: #fafafa; }
+.sc-lt-row.open { background: var(--mint); border-bottom-color: transparent; }
+.sc-caret { color: var(--slate); font-size: 11px; }
+.sc-lname { font-size: 13.5px; font-weight: 500; }
+.sc-lmeta { font-family: var(--font-mono); font-size: 10px; color: var(--slate); margin-top: 2px; text-transform: capitalize; }
+.sc-mono { font-family: var(--font-mono); font-size: 12.5px; }
+.sc-u { color: var(--slate); font-size: 10px; }
+.sc-dim { color: #b8b8b8; }
+.sc-lt-detail { padding: 16px 18px 18px; background: #fbfdfc; border-bottom: 1px solid var(--line); border-left: 3px solid var(--brand-3); }
+.sc-lt-empty { padding: 28px 20px; text-align: center; color: var(--slate); font-size: 12.5px; line-height: 1.7; }
+.sc-lt-empty strong { display: block; font-family: var(--font-display); font-size: 14px; color: var(--ink); margin-bottom: 4px; font-weight: 600; }
+.sc-addbar { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
+.sc-static { height: 34px; display: flex; align-items: center; }
+input[type="month"].sc-ip { font-family: var(--font-mono); }
 .sc-modal { position: fixed; inset: 28px; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 16px 48px rgba(0,0,0,.2); overflow: auto; z-index: 900; }
 .sc-modal-inner { padding: 22px 26px; }
 .sc-h4 { font-family: var(--font-display); font-size: 13px; margin: 20px 0 8px; font-weight: 600; }
@@ -600,7 +622,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
   <header>
     <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0731-1913 · updated 2026-07-31</span></div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0731-1923 · updated 2026-07-31</span></div>
       <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
@@ -4797,10 +4819,10 @@ init();
 
 
 /* ==================== SCOPING TOOL ====================
-   Pre-sale profitability scoping. Reads the ledger (never writes to it) for live
-   blended department rates and real spare capacity. The assumptions catalog IS the
-   product: task-level hour estimates per channel, editable and persisted under
-   state.scoping so every scope is built on the same foundation.
+   Pre-sale profitability scoping, built like a quote: a table of LINES you add.
+   Each line has a type — a catalog channel (hours come from the shared task
+   catalog) or a custom line (you enter the hours). Reads the ledger for live
+   blended department rates and real spare capacity; writes nothing to it.
 
    Verdict currency matches the recalibration work: profit per hour of team time,
    = (revenue - hours x blended loaded rate) / hours, against an editable target.
@@ -4911,91 +4933,101 @@ function scopeCfg(){
   return state.scoping;
 }
 
+/* ---------- the deal: a list of lines ---------- */
 let scopeDeal = null;
+let scopeOpenLine = null;
 function newScopeDeal(){
   const start = currentMonth || monthKey(new Date());
-  return { name:'', mode:'new', accountId:'', from:start, to:shiftMonth(start,3),
-    channels:{}, additional:[] };
+  return { name:'', mode:'new', accountId:'', from:start, to:shiftMonth(start,3), lines:[] };
 }
-function scopeChannelState(key){
-  if (!scopeDeal.channels[key]) {
-    const c = scopeCfg().channels[key];
-    scopeDeal.channels[key] = { on:false, tier:'standard', from:scopeDeal.from, to:scopeDeal.to,
-      spread:'even', budgetTotal:0, budgets:{}, feePct:c.feePct||0, retainer:0,
-      progMargin:null, dataCpm:0, rebatePct:0, rebateBasis:'fee',
-      cpmMode:false, cpm:0, impressions:0, frontLoad:null };
+function scopeLineTypes(){
+  const cfg = scopeCfg(), out = [];
+  Object.keys(cfg.channels).forEach(k => out.push({ key:k, label:cfg.channels[k].label, dept:cfg.channels[k].dept, catalog:true, verified:cfg.channels[k].verified }));
+  out.push({ key:'custom', label:'Custom line', dept:'', catalog:false, verified:true });
+  return out;
+}
+function newScopeLine(type){
+  const cfg = scopeCfg(), ch = cfg.channels[type];
+  const id = 'L' + Math.random().toString(36).slice(2,8);
+  const base = { id, type, label: ch ? ch.label : '', from:scopeDeal.from, to:scopeDeal.to,
+    tier:'standard', frontLoad:null,
+    spread:'even', budgetTotal:0, budgets:{},
+    feePct: ch ? (ch.feePct||0) : 0, retainer:0,
+    cpmMode:false, cpm:0, impressions:0, dataPct:0, dataCpm:0,
+    rebatePct:0, rebateBasis:'fee',
+    dept:'', hours:0, cadence:'monthly', billed:false, amount:0 };
+  if (type === 'custom') {
+    const depts = [...new Set(state.staff.map(s=>normDept(s.department)).filter(Boolean))].sort();
+    base.dept = depts[0] || '';
   }
-  return scopeDeal.channels[key];
+  return base;
 }
+function scopeLineModel(line){ const ch = scopeCfg().channels[line.type]; return ch ? ch.model : 'custom'; }
+function scopeLineDept(line){ const ch = scopeCfg().channels[line.type]; return ch ? ch.dept : (line.dept||''); }
+function scopeLineIsCatalog(line){ return !!scopeCfg().channels[line.type]; }
+function scopeMonths(from,to){ const a=[]; let mk=from,g=0; while(mk&&to&&mk<=to&&g<36){a.push(mk);mk=shiftMonth(mk,1);g++;} return a; }
+function scopeLineMonths(line){ return scopeMonths(line.from||scopeDeal.from, line.to||scopeDeal.to); }
 
-function scopeMonths(from,to){ const a=[]; let mk=from,g=0; while(mk<=to&&g<36){a.push(mk);mk=shiftMonth(mk,1);g++;} return a; }
-
-/* --- hours: catalog tasks x tier multiplier, front-loaded in first active month --- */
-function scopeChannelHours(key, mk){
-  const cs = scopeDeal.channels[key]; if(!cs||!cs.on) return 0;
-  const months = scopeMonths(cs.from, cs.to);
-  if (months.indexOf(mk) < 0) return 0;
-  const cfg = scopeCfg(), ch = cfg.channels[key];
-  const mult = cfg.tierMult[cs.tier] || cfg.tierMult.standard;
+/* ---------- hours ---------- */
+function scopeLineBaseHours(line){
+  if (!scopeLineIsCatalog(line)) return +line.hours||0;
+  const cfg = scopeCfg(), ch = cfg.channels[line.type];
+  const mult = cfg.tierMult[line.tier] || cfg.tierMult.standard;
   let h = 0;
-  (ch.tasks||[]).forEach(t => { h += (t.o||0) * (t.h||0) * (mult[t.c] !== undefined ? mult[t.c] : 1); });
+  (ch.tasks||[]).forEach(t => { h += (t.o||0)*(t.h||0)*(mult[t.c]!==undefined?mult[t.c]:1); });
+  return h;
+}
+function scopeLineHours(line, mk){
+  const months = scopeLineMonths(line);
+  if (months.indexOf(mk) < 0) return 0;
+  if (!scopeLineIsCatalog(line)) {
+    if (line.cadence === 'once') return mk === months[0] ? (+line.hours||0) : 0;
+    return +line.hours||0;
+  }
+  let h = scopeLineBaseHours(line);
   if (mk === months[0]) {
-    const fl = (cs.frontLoad === null || cs.frontLoad === undefined) ? cfg.frontLoadPct : cs.frontLoad;
+    const cfg = scopeCfg();
+    const fl = (line.frontLoad === null || line.frontLoad === undefined) ? cfg.frontLoadPct : line.frontLoad;
     h *= (1 + (fl||0)/100);
   }
   return h;
 }
 
-/* --- budget for a channel-month: even spread or per-month entry --- */
-function scopeChannelBudget(key, mk){
-  const cs = scopeDeal.channels[key]; if(!cs||!cs.on) return 0;
-  const months = scopeMonths(cs.from, cs.to);
+/* ---------- budget & revenue ---------- */
+function scopeLineBudget(line, mk){
+  const months = scopeLineMonths(line);
   if (months.indexOf(mk) < 0) return 0;
-  if (cs.spread === 'even') return months.length ? (cs.budgetTotal||0)/months.length : 0;
-  return +(cs.budgets[mk]||0);
+  if (line.spread === 'even') return months.length ? (+line.budgetTotal||0)/months.length : 0;
+  return +(line.budgets[mk]||0);
 }
-
-/* --- revenue for a channel-month. progMargin is the backend margin % (programmatic). --- */
-function scopeChannelRevenue(key, mk, progMarginPct){
-  const cs = scopeDeal.channels[key]; if(!cs||!cs.on) return 0;
-  const ch = scopeCfg().channels[key];
-  const months = scopeMonths(cs.from, cs.to);
+function scopeLineRevenue(line, mk, progMarginPct){
+  const months = scopeLineMonths(line);
   if (months.indexOf(mk) < 0) return 0;
-  if (ch.model === 'retainer') return +(cs.retainer||0);
-  const budget = scopeChannelBudget(key, mk);
-  if (ch.model === 'fee') return budget * ((cs.feePct||0)/100);
-  // programmatic
-  if (cs.cpmMode) {
-    const imps = months.length ? (+(cs.impressions||0))/months.length : 0;
-    const billing = (imps/1000) * (+(cs.cpm||0));
+  const model = scopeLineModel(line);
+  if (model === 'custom') {
+    if (!line.billed) return 0;
+    if (line.cadence === 'once') return mk === months[0] ? (+line.amount||0) : 0;
+    return +line.amount||0;
+  }
+  if (model === 'retainer') return +line.retainer||0;
+  const budget = scopeLineBudget(line, mk);
+  if (model === 'fee') return budget * ((+line.feePct||0)/100);
+  if (line.cpmMode) {
+    const imps = months.length ? (+line.impressions||0)/months.length : 0;
+    const billing = (imps/1000) * (+line.cpm||0);
     const gp = billing * (scopeCfg().cpmMargin/100);
-    const data = (imps/1000) * (+(cs.dataCpm||0));
+    const data = (imps/1000) * (+line.dataCpm||0);
     return Math.max(gp - data, 0);
   }
-  const fee = budget * ((cs.feePct||0)/100);
+  const fee = budget * ((+line.feePct||0)/100);
   const margin = budget * ((progMarginPct||0)/100);
-  const dataCost = budget * ((+(cs.dataPct||0))/100);   // external data as % of media
-  const rebateBase = cs.rebateBasis === 'margin' ? margin : fee;
-  const rebate = rebateBase * ((+(cs.rebatePct||0))/100);
+  const dataCost = budget * ((+line.dataPct||0)/100);
+  const rebateBase = line.rebateBasis === 'margin' ? margin : fee;
+  const rebate = rebateBase * ((+line.rebatePct||0)/100);
   return fee + margin - dataCost - rebate;
 }
 
-/* --- additional work lines --- */
-function scopeAdditionalHours(line, mk){
-  const months = scopeMonths(line.from||scopeDeal.from, line.to||scopeDeal.to);
-  if (months.indexOf(mk) < 0) return 0;
-  if (line.cadence === 'once') return mk === months[0] ? (+line.hours||0) : 0;
-  return +line.hours||0;
-}
-function scopeAdditionalRevenue(line, mk){
-  if (!line.billed) return 0;
-  const months = scopeMonths(line.from||scopeDeal.from, line.to||scopeDeal.to);
-  if (months.indexOf(mk) < 0) return 0;
-  if (line.cadence === 'once') return mk === months[0] ? (+line.amount||0) : 0;
-  return +line.amount||0;
-}
-
-/* --- live blended loaded rate per department, from active ledger staff --- */
+/* ---------- live ledger reads ---------- */
 function scopeDeptRate(dept, months){
   let cap=0, cost=0;
   state.staff.forEach(s => {
@@ -5009,8 +5041,6 @@ function scopeDeptRate(dept, months){
   });
   return cap > 0 ? cost/cap : 0;
 }
-
-/* --- real spare capacity per dept-month: active capacity x targetUtil - existing assignments --- */
 function scopeDeptSpare(dept, mk){
   const util = (scopeCfg().targetUtil||85)/100;
   let spare = 0;
@@ -5026,39 +5056,34 @@ function scopeDeptSpare(dept, mk){
   return spare;
 }
 
-/* --- the whole computation for a given programmatic margin --- */
+/* ---------- the computation ---------- */
 function scopeCompute(progMarginPct){
   const cfg = scopeCfg();
   const months = scopeMonths(scopeDeal.from, scopeDeal.to);
-  const byMonth = {}, deptHours = {}, deptMonth = {};
+  const byMonth = {}, deptHours = {}, deptMonth = {}, perLine = {};
   months.forEach(mk => { byMonth[mk] = { rev:0, hours:0, cost:0 }; });
   const addH = (dept, mk, h) => {
-    if (h <= 0) return;
+    if (h <= 0 || !byMonth[mk]) return;
     deptHours[dept] = (deptHours[dept]||0) + h;
     deptMonth[dept] = deptMonth[dept]||{}; deptMonth[dept][mk] = (deptMonth[dept][mk]||0) + h;
     byMonth[mk].hours += h;
   };
-  const perChannel = {};
-  Object.keys(cfg.channels).forEach(key => {
-    const cs = scopeDeal.channels[key]; if (!cs || !cs.on) return;
-    const dept = cfg.channels[key].dept;
-    perChannel[key] = { hours:0, rev:0, dept };
+  (scopeDeal.lines||[]).forEach(line => {
+    const dept = scopeLineDept(line);
+    perLine[line.id] = { hours:0, rev:0, dept };
     months.forEach(mk => {
-      const h = scopeChannelHours(key, mk), r = scopeChannelRevenue(key, mk, progMarginPct);
-      addH(dept, mk, h); byMonth[mk].rev += r;
-      perChannel[key].hours += h; perChannel[key].rev += r;
+      const h = scopeLineHours(line, mk), r = scopeLineRevenue(line, mk, progMarginPct);
+      addH(dept, mk, h);
+      if (byMonth[mk]) byMonth[mk].rev += r;
+      perLine[line.id].hours += h; perLine[line.id].rev += r;
     });
   });
   (cfg.overlays||[]).forEach(o => { if (!o.on) return;
     months.forEach(mk => {
-      const anyLive = Object.keys(cfg.channels).some(k => scopeChannelHours(k, mk) > 0);
+      const anyLive = (scopeDeal.lines||[]).some(l => scopeLineHours(l, mk) > 0);
       if (anyLive) addH(o.dept, mk, +o.hours||0);
     });
   });
-  (scopeDeal.additional||[]).forEach(line => {
-    months.forEach(mk => { addH(line.dept, mk, scopeAdditionalHours(line, mk)); byMonth[mk].rev += scopeAdditionalRevenue(line, mk); });
-  });
-  // cost at live blended dept rates
   const rates = {};
   Object.keys(deptHours).forEach(d => { rates[d] = scopeDeptRate(d, months); });
   months.forEach(mk => {
@@ -5068,24 +5093,25 @@ function scopeCompute(progMarginPct){
   });
   let totRev=0, totHours=0, totCost=0;
   months.forEach(mk => { totRev+=byMonth[mk].rev; totHours+=byMonth[mk].hours; totCost+=byMonth[mk].cost; });
-  Object.keys(perChannel).forEach(k => {
-    const pc = perChannel[k];
-    pc.rate = rates[pc.dept]||0;
-    pc.perHour = pc.hours>0 ? (pc.rev - pc.hours*pc.rate)/pc.hours : 0;
+  Object.keys(perLine).forEach(id => {
+    const pl = perLine[id];
+    pl.rate = rates[pl.dept]||0;
+    pl.perHour = pl.hours>0 ? (pl.rev - pl.hours*pl.rate)/pl.hours : null;
   });
-  return { months, byMonth, deptHours, deptMonth, rates, perChannel,
+  return { months, byMonth, deptHours, deptMonth, rates, perLine,
     totRev, totHours, totCost, profit: totRev-totCost,
     perHour: totHours>0 ? (totRev-totCost)/totHours : 0 };
 }
 
-/* --- solve: minimum programmatic backend margin that clears the target --- */
+/* ---------- solve the programmatic backend margin ---------- */
+function scopeHasProgrammatic(){
+  return (scopeDeal.lines||[]).some(l => scopeLineModel(l)==='prog' && !l.cpmMode);
+}
 function scopeSolveMargin(){
-  const cfg = scopeCfg();
-  const prog = scopeDeal.channels.programmatic;
-  const target = +cfg.targetPerHour||0;
-  if (!prog || !prog.on || prog.cpmMode) {
+  const cfg = scopeCfg(), target = +cfg.targetPerHour||0;
+  if (!scopeHasProgrammatic()) {
     const r = scopeCompute(0);
-    return { needed:null, clamped:null, atMax:r.perHour, atMin:r.perHour, result:r, na:true };
+    return { na:true, needed:null, clamped:null, atMin:r.perHour, atMax:r.perHour, result:r };
   }
   const lo = cfg.progMarginMin, hi = cfg.progMarginMax;
   const atMin = scopeCompute(lo), atMax = scopeCompute(hi);
@@ -5094,15 +5120,15 @@ function scopeSolveMargin(){
     if (scopeCompute(m).perHour >= target) { needed = Math.round(m*10)/10; break; }
   }
   const use = needed !== null ? needed : hi;
-  return { needed, clamped:use, atMin:atMin.perHour, atMax:atMax.perHour,
-    result: scopeCompute(use), belowFloor: needed !== null && needed <= lo,
-    impossible: needed === null };
+  return { na:false, needed, clamped:use, atMin:atMin.perHour, atMax:atMax.perHour,
+    result: scopeCompute(use), belowFloor: needed !== null && needed <= lo, impossible: needed === null };
 }
 
 /* ==================== SCOPING UI ==================== */
 function scopeNum(v){ const n = parseFloat(String(v).replace(/[^0-9.\-]/g,'')); return isNaN(n)?0:n; }
-function scMonLabel(mk){ const [y,m]=mk.split('-'); return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m-1]+" '"+y.slice(2); }
+function scMon(mk){ if(!mk) return '—'; const [y,m]=mk.split('-'); return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m-1]+" '"+y.slice(2); }
 function scField(label, inner, cls){ return '<div class="sc-field'+(cls?' '+cls:'')+'"><label>'+escapeHtml(label)+'</label>'+inner+'</div>'; }
+function scMonthInput(attrs, val){ return `<input type="month" class="sc-ip" ${attrs} value="${escapeAttr(val||'')}">`; }
 
 function renderScoping(){
   const host = document.getElementById('scoping-body'); if (!host) return;
@@ -5117,11 +5143,11 @@ function renderScoping(){
 
 function renderScopingInner(host){
   if (!scopeDeal) scopeDeal = newScopeDeal();
+  if (!scopeDeal.lines) scopeDeal.lines = [];
   const cfg = scopeCfg();
   const sol = scopeSolveMargin();
   const R = sol.result;
   const target = +cfg.targetPerHour || 0;
-  const live = Object.keys(cfg.channels).filter(k => (scopeDeal.channels[k]||{}).on);
   const hasWork = R.totHours > 0.01;
 
   let h = '<div class="sc-wrap">';
@@ -5135,80 +5161,34 @@ function renderScopingInner(host){
     h += scField('Existing account', `<select id="sc-acct" class="sc-sel"><option value="">— pick —</option>` +
       state.projects.map(p=>`<option value="${escapeAttr(p.id)}"${scopeDeal.accountId===p.id?' selected':''}>${escapeHtml(p.name||'Untitled')}</option>`).join('') + `</select>`, 'wide');
   }
-  h += scField('Starts', `<input id="sc-from" class="sc-ip" value="${escapeAttr(scopeDeal.from)}">`);
-  h += scField('Ends', `<input id="sc-to" class="sc-ip" value="${escapeAttr(scopeDeal.to)}">`);
+  h += scField('Starts', scMonthInput('id="sc-from"', scopeDeal.from));
+  h += scField('Ends', scMonthInput('id="sc-to"', scopeDeal.to));
   h += scField('Target $/hr', `<input id="sc-target" class="sc-ip num" value="${target}">`);
   h += scField('Front-load %', `<input id="sc-fl" class="sc-ip num" value="${cfg.frontLoadPct}">`);
   h += scField('\u00a0', `<button class="sc-btn" id="sc-assump" style="height:34px;">Edit assumptions</button>`);
   h += '</div></div>';
 
   /* ---------- verdict ---------- */
-  if (!hasWork) {
-    h += '<div class="sc-panel"><div class="sc-empty"><strong>Turn on a channel to scope this deal</strong>'
-      + 'Hours come from the shared assumptions catalog, costed at live department rates from the ledger.<br>'
-      + 'The verdict is profit per hour of team time against your ' + fmtMoney2(target) + '/hr target.</div></div>';
-  } else {
-    const pass = R.perHour >= target;
-    const capFail = scopeCapacityFails(R);
-    let badge, bcls, note;
-    if (sol.impossible) { badge='No-go'; bcls='sc-no'; note='even at the '+cfg.progMarginMax+'% programmatic ceiling'; }
-    else if (!pass) { badge='No-go'; bcls='sc-no'; note='below the '+fmtMoney2(target)+'/hr target'; }
-    else if (capFail.length) { badge='Go if we hire'; bcls='sc-warn'; note='economics clear — capacity does not'; }
-    else { badge='Go'; bcls='sc-yes'; note='economics and capacity both clear'; }
+  if (hasWork) h += scopeVerdictHtml(R, sol, target, cfg);
 
-    h += '<div class="sc-hero"><div class="sc-hero-top">';
-    h += '<div class="sc-hero-l">';
-    h += `<span class="sc-badge ${bcls}">${badge}</span>`;
-    h += `<div class="sc-hero-num ${R.perHour>=target?'pos':'neg'}">${fmtMoney2(R.perHour)}<span class="sc-hero-unit"> /hr</span></div>`;
-    h += `<div class="sc-hero-note">profit per hour of team time · target ${fmtMoney2(target)} · ${escapeHtml(note)}</div>`;
-    h += '</div>';
-    h += '<div class="sc-hero-r"><div class="sc-wf">';
-    h += `<div class="sc-wf-row"><span class="sc-wf-k">Revenue over ${R.months.length} months</span><span>${fmtMoney(R.totRev)}</span></div>`;
-    h += `<div class="sc-wf-row"><span class="sc-wf-k">Labor · ${fmtHrs(R.totHours)}h at live rates</span><span>−${fmtMoney(R.totCost)}</span></div>`;
-    h += `<div class="sc-wf-row tot"><span class="sc-wf-k">Profit after labor</span><span class="${R.profit>=0?'pos':'neg'}">${fmtMoney(R.profit)}</span></div>`;
-    h += '</div></div></div>';
-
-    /* monthly strip */
-    const vals = R.months.map(mk => R.byMonth[mk].hours>0 ? (R.byMonth[mk].rev-R.byMonth[mk].cost)/R.byMonth[mk].hours : null);
-    const live2 = vals.filter(v=>v!==null);
-    if (live2.length) {
-      const mx = Math.max(target, ...live2.map(v=>Math.abs(v))) * 1.12;
-      h += '<div class="sc-strip-wrap"><div class="sc-eyebrow" style="margin-bottom:14px;">Profit per hour by month</div><div class="sc-strip">';
-      h += `<div class="sc-tline" style="bottom:${(target/mx)*100}%"><span>${fmtMoney2(target)} target</span></div>`;
-      R.months.forEach((mk,i) => {
-        const v = vals[i];
-        const pct = v===null ? 0 : Math.max(Math.min(Math.abs(v)/mx,1),0.02)*100;
-        const cls = v===null?'sc-bar-none':(v>=target?'sc-bar-ok':(v>=0?'sc-bar-warn':'sc-bar-bad'));
-        h += `<div class="sc-bw"><div class="sc-bar ${cls}" style="height:${pct}%"></div><div class="sc-bl"><b>${v===null?'—':fmtMoney2(v)}</b>${scMonLabel(mk)}</div></div>`;
-      });
-      h += '</div></div>';
-    }
-
-    /* programmatic instruction */
-    if (!sol.na && !sol.impossible) {
-      h += '<div class="sc-instr"><div class="sc-instr-num">' + sol.clamped + '%</div><div>';
-      h += '<div class="sc-instr-k">Instruction to the programmatic team</div>';
-      h += `<div class="sc-instr-note">Run the backend at <strong>${sol.clamped}%</strong> — the lowest margin in your ${cfg.progMarginMin}–${cfg.progMarginMax}% band that clears ${fmtMoney2(target)}/hr campaign-wide. At ${cfg.progMarginMax}% this deal makes ${fmtMoney2(sol.atMax)}/hr${sol.belowFloor?'; it already clears at the '+cfg.progMarginMin+'% floor, so there is room to concede':''}.</div>`;
-      h += '</div></div>';
-    } else if (sol.impossible) {
-      h += '<div class="sc-instr bad"><div class="sc-instr-num">No margin works</div><div>';
-      h += '<div class="sc-instr-k">Programmatic cannot carry this deal</div>';
-      h += `<div class="sc-instr-note">At the ${cfg.progMarginMax}% ceiling it still runs ${fmtMoney2(sol.atMax)}/hr, ${fmtMoney2(target-sol.atMax)}/hr short. Raise a fee, drop a service, or lower channel complexity.</div>`;
-      h += '</div></div>';
-    }
-    h += '</div>';
+  /* ---------- the line table ---------- */
+  h += '<div class="sc-panel"><div class="sc-panel-hd"><span class="sc-eyebrow">Scope lines</span>';
+  h += '<span class="sc-panel-note" style="margin-left:auto;">Catalog lines take their hours from the assumptions; custom lines take the hours you enter</span></div>';
+  h += '<div class="sc-lt">';
+  h += '<div class="sc-lt-hd"><div></div><div>Line</div><div>Flight</div><div class="r">Budget / price</div><div class="r">Hours</div><div class="r">Revenue</div><div class="r">$/hr alone</div><div></div></div>';
+  if (!scopeDeal.lines.length) {
+    h += '<div class="sc-lt-empty"><strong>No lines yet</strong>Add a channel or a custom line to start scoping. Hours are costed at live department rates from the ledger, and the verdict is profit per hour of team time.</div>';
   }
-
-  /* ---------- channels ---------- */
-  h += '<div class="sc-panel"><div class="sc-panel-hd"><span class="sc-eyebrow">Channels</span>';
-  h += '<span class="sc-panel-note" style="margin-left:auto;">Hours per active month from the catalog · complexity sets the multiplier, budget does not</span></div>';
-  Object.keys(cfg.channels).forEach(key => { h += scopeChannelCard(key, R, sol, target); });
+  scopeDeal.lines.forEach((line, i) => { h += scopeLineRow(line, i, R, target); });
   h += '</div>';
+  h += '<div class="sc-addbar">';
+  h += '<select class="sc-sel" id="sc-newtype" style="width:190px;">' + scopeLineTypes().map(t=>`<option value="${t.key}">${escapeHtml(t.label)}${t.catalog&&!t.verified?' (draft hours)':''}</option>`).join('') + '</select>';
+  h += '<button class="sc-btn go" id="sc-addline">+ Add line</button>';
+  h += '</div></div>';
 
-  /* ---------- overlays + additional ---------- */
-  h += '<div class="sc-panel"><div class="sc-panel-hd"><span class="sc-eyebrow">Unbilled &amp; extra work</span>';
-  h += '<span class="sc-panel-note" style="margin-left:auto;">Real hours with no invoice line — the billed channels have to absorb them</span></div>';
-  h += '<div class="sc-group-t">Always-on overlays</div>';
+  /* ---------- overlays ---------- */
+  h += '<div class="sc-panel"><div class="sc-panel-hd"><span class="sc-eyebrow">Always-on overlays</span>';
+  h += '<span class="sc-panel-note" style="margin-left:auto;">Charged to no one — the billed lines have to absorb them. Applied in every month any line is live.</span></div>';
   h += '<div class="sc-fields tight">';
   (cfg.overlays||[]).forEach((o,i) => {
     h += '<div class="sc-field"><label>' + escapeHtml(o.dept) + '</label>'
@@ -5216,48 +5196,82 @@ function renderScopingInner(host){
       + `<label class="sc-chk" style="flex:1; min-width:0;"><input type="checkbox" data-ov="${i}" ${o.on?'checked':''}><span style="font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(o.label)}</span></label>`
       + `<input class="sc-ip num" style="width:62px;" data-ovh="${i}" value="${o.hours}"></div></div>`;
   });
-  h += '</div>';
-
-  h += '<div class="sc-group"><div class="sc-group-t">Additional work</div>';
-  if (!(scopeDeal.additional||[]).length) {
-    h += '<div class="sc-panel-note" style="margin-bottom:10px;">Anything the catalog does not cover — ad ops builds, custom dashboards, one-off production. Billed or not, the hours count against the deal.</div>';
-  }
-  (scopeDeal.additional||[]).forEach((l,i) => {
-    h += '<div class="sc-fields" style="margin-bottom:10px; grid-template-columns: minmax(180px,2fr) minmax(120px,1fr) 92px 96px 100px 110px 32px;">';
-    h += scField('Description', `<input class="sc-ip" data-al="${i}" data-f="label" value="${escapeAttr(l.label||'')}" placeholder="What is it?">`);
-    h += scField('Department', `<select class="sc-sel" data-al="${i}" data-f="dept">` + scopeDeptOptions(l.dept) + '</select>');
-    h += scField('Hours', `<input class="sc-ip num" data-al="${i}" data-f="hours" value="${l.hours||0}">`);
-    h += scField('Cadence', `<select class="sc-sel" data-al="${i}" data-f="cadence"><option value="monthly"${l.cadence!=='once'?' selected':''}>Monthly</option><option value="once"${l.cadence==='once'?' selected':''}>One-off</option></select>`);
-    h += scField('Billing', `<select class="sc-sel" data-al="${i}" data-f="billed"><option value="0"${!l.billed?' selected':''}>Unbilled</option><option value="1"${l.billed?' selected':''}>Billed</option></select>`);
-    h += scField(l.billed?'Amount $':'\u00a0', l.billed?`<input class="sc-ip num" data-al="${i}" data-f="amount" value="${l.amount||0}">`:'<span></span>');
-    h += scField('\u00a0', `<button class="sc-x" data-aldel="${i}" title="Remove">×</button>`);
-    h += '</div>';
-  });
-  h += `<button class="sc-btn" id="sc-add-line">+ Add a line</button></div></div>`;
+  h += '</div></div>';
 
   /* ---------- capacity ---------- */
-  if (hasWork) {
-    const capFail = scopeCapacityFails(R);
-    h += '<div class="sc-panel"><div class="sc-panel-hd"><span class="sc-eyebrow">Capacity</span>';
-    h += `<span class="sc-panel-note" style="margin-left:auto;">Live from the ledger · spare = active capacity × ${cfg.targetUtil}% − hours already assigned</span></div>`;
-    h += '<table class="sc-tbl"><thead><tr><th>Department</th><th class="num">Deal needs</th><th class="num">Spare</th><th class="num">Blended rate</th><th>Verdict</th></tr></thead><tbody>';
-    Object.keys(R.deptHours).sort().forEach(d => {
-      let need=0, spare=0, shortM=[];
-      R.months.forEach(mk => { const n=(R.deptMonth[d]||{})[mk]||0; if(n<=0) return; need+=n; const s=scopeDeptSpare(d,mk); spare+=s; if(n>s) shortM.push(scMonLabel(mk)+' short '+fmtHrs(n-s)+'h'); });
-      h += `<tr><td>${escapeHtml(d)}</td><td class="num">${fmtHrs(need)}h</td><td class="num">${fmtHrs(spare)}h</td><td class="num">$${Math.round(R.rates[d]||0)}/hr</td>`;
-      h += `<td>${shortM.length?'<span class="sc-pill sc-pill-warn">'+escapeHtml(shortM.join(' · '))+'</span>':'<span class="sc-pill sc-pill-ok">fits</span>'}</td></tr>`;
-    });
-    h += '</tbody></table>';
-    if (capFail.length) {
-      const tot = capFail.reduce((s,c)=>s+c.short,0);
-      h += `<div class="sc-panel-note" style="margin-top:10px;">Short ${fmtHrs(tot)}h overall. A full-time hire covers roughly 125 billable hours a month — this gap is about ${(tot/125/Math.max(R.months.length,1)).toFixed(2)} FTE across the flight.</div>`;
-    }
-    h += '</div>';
-  }
+  if (hasWork) h += scopeCapacityHtml(R, cfg);
 
   h += '</div>';
   host.innerHTML = h;
   wireScoping();
+}
+
+function scopeVerdictHtml(R, sol, target, cfg){
+  const pass = R.perHour >= target;
+  const capFail = scopeCapacityFails(R);
+  let badge, bcls, note;
+  if (sol.impossible) { badge='No-go'; bcls='sc-no'; note='even at the '+cfg.progMarginMax+'% programmatic ceiling'; }
+  else if (!pass) { badge='No-go'; bcls='sc-no'; note='below the '+fmtMoney2(target)+'/hr target'; }
+  else if (capFail.length) { badge='Go if we hire'; bcls='sc-warn'; note='economics clear — capacity does not'; }
+  else { badge='Go'; bcls='sc-yes'; note='economics and capacity both clear'; }
+
+  let h = '<div class="sc-hero"><div class="sc-hero-top">';
+  h += '<div class="sc-hero-l">';
+  h += `<span class="sc-badge ${bcls}">${badge}</span>`;
+  h += `<div class="sc-hero-num ${pass?'pos':'neg'}">${fmtMoney2(R.perHour)}<span class="sc-hero-unit"> /hr</span></div>`;
+  h += `<div class="sc-hero-note">profit per hour of team time · target ${fmtMoney2(target)} · ${escapeHtml(note)}</div>`;
+  h += '</div><div class="sc-hero-r"><div class="sc-wf">';
+  h += `<div class="sc-wf-row"><span class="sc-wf-k">Revenue over ${R.months.length} months</span><span>${fmtMoney(R.totRev)}</span></div>`;
+  h += `<div class="sc-wf-row"><span class="sc-wf-k">Labor · ${fmtHrs(R.totHours)}h at live rates</span><span>−${fmtMoney(R.totCost)}</span></div>`;
+  h += `<div class="sc-wf-row tot"><span class="sc-wf-k">Profit after labor</span><span class="${R.profit>=0?'pos':'neg'}">${fmtMoney(R.profit)}</span></div>`;
+  h += '</div></div></div>';
+
+  const vals = R.months.map(mk => R.byMonth[mk].hours>0 ? (R.byMonth[mk].rev-R.byMonth[mk].cost)/R.byMonth[mk].hours : null);
+  const live = vals.filter(v=>v!==null);
+  if (live.length) {
+    const mx = Math.max(target, ...live.map(v=>Math.abs(v))) * 1.12;
+    h += '<div class="sc-strip-wrap"><div class="sc-eyebrow" style="margin-bottom:14px;">Profit per hour by month</div><div class="sc-strip">';
+    h += `<div class="sc-tline" style="bottom:${(target/mx)*100}%"><span>${fmtMoney2(target)} target</span></div>`;
+    R.months.forEach((mk,i) => {
+      const v = vals[i];
+      const pct = v===null ? 0 : Math.max(Math.min(Math.abs(v)/mx,1),0.02)*100;
+      const cls = v===null?'sc-bar-none':(v>=target?'sc-bar-ok':(v>=0?'sc-bar-warn':'sc-bar-bad'));
+      h += `<div class="sc-bw"><div class="sc-bar ${cls}" style="height:${pct}%"></div><div class="sc-bl"><b>${v===null?'—':fmtMoney2(v)}</b>${scMon(mk)}</div></div>`;
+    });
+    h += '</div></div>';
+  }
+
+  if (!sol.na && !sol.impossible) {
+    h += '<div class="sc-instr"><div class="sc-instr-num">' + sol.clamped + '%</div><div>';
+    h += '<div class="sc-instr-k">Instruction to the programmatic team</div>';
+    h += `<div class="sc-instr-note">Run the backend at <strong>${sol.clamped}%</strong> — the lowest margin in your ${cfg.progMarginMin}–${cfg.progMarginMax}% band that clears ${fmtMoney2(target)}/hr campaign-wide. At ${cfg.progMarginMax}% this deal makes ${fmtMoney2(sol.atMax)}/hr${sol.belowFloor?'; it already clears at the '+cfg.progMarginMin+'% floor, so there is room to concede':''}.</div>`;
+    h += '</div></div>';
+  } else if (sol.impossible) {
+    h += '<div class="sc-instr bad"><div class="sc-instr-num">No margin works</div><div>';
+    h += '<div class="sc-instr-k">Programmatic cannot carry this deal</div>';
+    h += `<div class="sc-instr-note">At the ${cfg.progMarginMax}% ceiling it still runs ${fmtMoney2(sol.atMax)}/hr, ${fmtMoney2(target-sol.atMax)}/hr short. Raise a fee, drop a service, or lower a line's complexity.</div>`;
+    h += '</div></div>';
+  }
+  return h + '</div>';
+}
+
+function scopeCapacityHtml(R, cfg){
+  const capFail = scopeCapacityFails(R);
+  let h = '<div class="sc-panel"><div class="sc-panel-hd"><span class="sc-eyebrow">Capacity</span>';
+  h += `<span class="sc-panel-note" style="margin-left:auto;">Live from the ledger · spare = active capacity × ${cfg.targetUtil}% − hours already assigned</span></div>`;
+  h += '<table class="sc-tbl"><thead><tr><th>Department</th><th class="num">Deal needs</th><th class="num">Spare</th><th class="num">Blended rate</th><th>Verdict</th></tr></thead><tbody>';
+  Object.keys(R.deptHours).sort().forEach(d => {
+    let need=0, spare=0, shortM=[];
+    R.months.forEach(mk => { const n=(R.deptMonth[d]||{})[mk]||0; if(n<=0) return; need+=n; const s=scopeDeptSpare(d,mk); spare+=s; if(n>s) shortM.push(scMon(mk)+' short '+fmtHrs(n-s)+'h'); });
+    h += `<tr><td>${escapeHtml(d)}</td><td class="num">${fmtHrs(need)}h</td><td class="num">${fmtHrs(spare)}h</td><td class="num">$${Math.round(R.rates[d]||0)}/hr</td>`;
+    h += `<td>${shortM.length?'<span class="sc-pill sc-pill-warn">'+escapeHtml(shortM.join(' · '))+'</span>':'<span class="sc-pill sc-pill-ok">fits</span>'}</td></tr>`;
+  });
+  h += '</tbody></table>';
+  if (capFail.length) {
+    const tot = capFail.reduce((s,c)=>s+c.short,0);
+    h += `<div class="sc-panel-note" style="margin-top:10px;">Short ${fmtHrs(tot)}h overall — roughly ${(tot/125/Math.max(R.months.length,1)).toFixed(2)} FTE across the flight, at 125 billable hours a month per person.</div>`;
+  }
+  return h + '</div>';
 }
 
 function scopeCapacityFails(R){
@@ -5274,136 +5288,153 @@ function scopeDeptOptions(sel){
   return [...set].sort().map(d=>`<option value="${escapeAttr(d)}"${sel===d?' selected':''}>${escapeHtml(d)}</option>`).join('');
 }
 
-function scopeChannelCard(key, R, sol, target){
-  const cfg = scopeCfg(), ch = cfg.channels[key], cs = scopeChannelState(key);
-  const pc = (R.perChannel||{})[key];
-  let base = 0; (ch.tasks||[]).forEach(t => base += (t.o||0)*(t.h||0));
+/* ---------- one row of the line table, plus its expanded detail ---------- */
+function scopeLineRow(line, i, R, target){
+  const cfg = scopeCfg(), pl = (R.perLine||{})[line.id] || {hours:0,rev:0,perHour:null};
+  const open = scopeOpenLine === line.id;
+  const model = scopeLineModel(line);
+  const cat = scopeLineIsCatalog(line);
+  const ch = cfg.channels[line.type];
 
-  let h = `<div class="sc-ch${cs.on?' on':''}">`;
-  h += '<div class="sc-ch-hd">';
-  h += `<label class="sc-chk"><input type="checkbox" data-ch="${key}" data-f="on" ${cs.on?'checked':''}><span class="sc-ch-name">${escapeHtml(ch.label)}</span></label>`;
-  if (!ch.verified) h += `<span class="sc-pill sc-pill-draft" title="Seeded by Claude — have the execution lead review these hours">draft hours</span>`;
-  if (cs.on && pc) {
-    h += '<div class="sc-ch-stats">';
-    h += `<span><span class="sc-stat-v">${fmtHrs(pc.hours)}h</span><span class="sc-stat-k">hours</span></span>`;
-    h += `<span><span class="sc-stat-v">${fmtMoney(pc.rev)}</span><span class="sc-stat-k">revenue</span></span>`;
-    h += `<span><span class="sc-stat-v ${pc.perHour>=target?'pos':'neg'}">${fmtMoney2(pc.perHour)}</span><span class="sc-stat-k">/hr alone</span></span>`;
-    h += '</div>';
-  } else if (!cs.on) {
-    h += `<span class="sc-hint">${fmtHrs(base)}h per active month at Standard · ${escapeHtml(ch.dept)}</span>`;
-  }
+  let priceCell;
+  if (model === 'retainer') priceCell = fmtMoney(line.retainer||0) + '<span class="sc-u">/mo</span>';
+  else if (model === 'custom') priceCell = line.billed ? fmtMoney(line.amount||0) + '<span class="sc-u">' + (line.cadence==='once'?' once':'/mo') + '</span>' : '<span class="sc-dim">unbilled</span>';
+  else if (line.cpmMode) priceCell = '$' + (line.cpm||0) + '<span class="sc-u"> CPM</span>';
+  else priceCell = fmtMoney(line.budgetTotal||0);
+
+  let h = `<div class="sc-lt-row${open?' open':''}" data-lrow="${line.id}">`;
+  h += `<div class="sc-tw"><span class="sc-caret">${open?'▾':'▸'}</span></div>`;
+  h += '<div><span class="sc-lname">' + escapeHtml(line.label || (ch?ch.label:'Custom line')) + '</span>';
+  h += '<div class="sc-lmeta">' + escapeHtml(scopeLineDept(line) || 'no department')
+     + (cat ? ' · ' + escapeHtml(line.tier) : (line.cadence==='once'?' · one-off':' · monthly'))
+     + (cat && ch && !ch.verified ? ' · <span class="sc-pill sc-pill-draft">draft hours</span>' : '') + '</div></div>';
+  h += `<div class="sc-mono">${scMon(line.from)} – ${scMon(line.to)}</div>`;
+  h += `<div class="r sc-mono">${priceCell}</div>`;
+  h += `<div class="r sc-mono">${fmtHrs(pl.hours)}h</div>`;
+  h += `<div class="r sc-mono">${pl.rev?fmtMoney(pl.rev):'<span class="sc-dim">—</span>'}</div>`;
+  h += `<div class="r sc-mono ${pl.perHour===null?'':(pl.perHour>=target?'pos':'neg')}">${pl.perHour===null?'<span class="sc-dim">—</span>':fmtMoney2(pl.perHour)}</div>`;
+  h += `<div class="r"><button class="sc-x" data-ldel="${line.id}" title="Remove line">×</button></div>`;
   h += '</div>';
 
-  if (cs.on) {
-    const months = scopeMonths(cs.from, cs.to);
-    h += '<div class="sc-ch-body">';
-
-    /* setup group */
+  if (open) {
+    h += '<div class="sc-lt-detail">';
+    /* scope & flight */
     h += '<div class="sc-group-t">Scope &amp; flight</div><div class="sc-fields">';
-    h += scField('Complexity', `<select class="sc-sel" data-ch="${key}" data-f="tier">` + SCOPE_TIERS.map(t=>`<option value="${t}"${cs.tier===t?' selected':''}>${t[0].toUpperCase()+t.slice(1)}</option>`).join('') + '</select>');
-    h += scField('Starts', `<input class="sc-ip" data-ch="${key}" data-f="from" value="${escapeAttr(cs.from)}">`);
-    h += scField('Ends', `<input class="sc-ip" data-ch="${key}" data-f="to" value="${escapeAttr(cs.to)}">`);
-    h += scField('Front-load %', `<input class="sc-ip num" data-ch="${key}" data-f="frontLoad" value="${cs.frontLoad===null||cs.frontLoad===undefined?'':cs.frontLoad}" placeholder="${cfg.frontLoadPct}">`);
+    h += scField('Label', `<input class="sc-ip" data-ln="${line.id}" data-f="label" value="${escapeAttr(line.label||'')}" placeholder="${escapeAttr(ch?ch.label:'What is it?')}">`, 'wide');
+    if (cat) h += scField('Complexity', `<select class="sc-sel" data-ln="${line.id}" data-f="tier">` + SCOPE_TIERS.map(t=>`<option value="${t}"${line.tier===t?' selected':''}>${t[0].toUpperCase()+t.slice(1)}</option>`).join('') + '</select>');
+    else {
+      h += scField('Department', `<select class="sc-sel" data-ln="${line.id}" data-f="dept">` + scopeDeptOptions(line.dept) + '</select>');
+      h += scField('Hours', `<input class="sc-ip num" data-ln="${line.id}" data-f="hours" value="${line.hours||0}">`);
+      h += scField('Cadence', `<select class="sc-sel" data-ln="${line.id}" data-f="cadence"><option value="monthly"${line.cadence!=='once'?' selected':''}>Per month</option><option value="once"${line.cadence==='once'?' selected':''}>One-off</option></select>`);
+    }
+    h += scField('Starts', scMonthInput(`data-ln="${line.id}" data-f="from"`, line.from));
+    h += scField('Ends', scMonthInput(`data-ln="${line.id}" data-f="to"`, line.to));
+    if (cat) h += scField('Front-load %', `<input class="sc-ip num" data-ln="${line.id}" data-f="frontLoad" value="${line.frontLoad===null||line.frontLoad===undefined?'':line.frontLoad}" placeholder="${cfg.frontLoadPct}">`);
     h += '</div>';
 
-    /* commercial group */
+    /* commercial */
     h += '<div class="sc-group"><div class="sc-group-t">Commercial model</div><div class="sc-fields">';
-    if (ch.model === 'retainer') {
-      h += scField('Retainer $/mo', `<input class="sc-ip num" data-ch="${key}" data-f="retainer" value="${cs.retainer||0}">`);
-    } else if (ch.model === 'prog') {
-      h += scField('Buying model', `<select class="sc-sel" data-ch="${key}" data-f="cpmMode"><option value="0"${!cs.cpmMode?' selected':''}>% of spend</option><option value="1"${cs.cpmMode?' selected':''}>CPM buy</option></select>`);
-      if (cs.cpmMode) {
-        h += scField('Client CPM $', `<input class="sc-ip num" data-ch="${key}" data-f="cpm" value="${cs.cpm||0}">`);
-        h += scField('Impressions', `<input class="sc-ip num" data-ch="${key}" data-f="impressions" value="${cs.impressions||0}">`);
-        h += scField('Data cost $CPM', `<input class="sc-ip num" data-ch="${key}" data-f="dataCpm" value="${cs.dataCpm||0}">`);
-        h += scField('Margin', `<div style="height:34px; display:flex; align-items:center;"><span class="sc-pill sc-pill-ok">fixed at ${cfg.cpmMargin}%</span></div>`);
+    if (model === 'custom') {
+      h += scField('Billing', `<select class="sc-sel" data-ln="${line.id}" data-f="billed"><option value="0"${!line.billed?' selected':''}>Unbilled</option><option value="1"${line.billed?' selected':''}>Billed</option></select>`);
+      if (line.billed) h += scField(line.cadence==='once'?'Amount $ (once)':'Amount $/mo', `<input class="sc-ip num" data-ln="${line.id}" data-f="amount" value="${line.amount||0}">`);
+    } else if (model === 'retainer') {
+      h += scField('Retainer $/mo', `<input class="sc-ip num" data-ln="${line.id}" data-f="retainer" value="${line.retainer||0}">`);
+    } else if (model === 'prog') {
+      h += scField('Buying model', `<select class="sc-sel" data-ln="${line.id}" data-f="cpmMode"><option value="0"${!line.cpmMode?' selected':''}>% of spend</option><option value="1"${line.cpmMode?' selected':''}>CPM buy</option></select>`);
+      if (line.cpmMode) {
+        h += scField('Client CPM $', `<input class="sc-ip num" data-ln="${line.id}" data-f="cpm" value="${line.cpm||0}">`);
+        h += scField('Impressions', `<input class="sc-ip num" data-ln="${line.id}" data-f="impressions" value="${line.impressions||0}">`);
+        h += scField('Data cost $CPM', `<input class="sc-ip num" data-ln="${line.id}" data-f="dataCpm" value="${line.dataCpm||0}">`);
+        h += scField('Margin', `<div class="sc-static"><span class="sc-pill sc-pill-ok">fixed at ${cfg.cpmMargin}%</span></div>`);
       } else {
-        h += scField('Fee %', `<input class="sc-ip num" data-ch="${key}" data-f="feePct" value="${cs.feePct||0}">`);
-        h += scField('Data cost % of media', `<input class="sc-ip num" data-ch="${key}" data-f="dataPct" value="${cs.dataPct||0}">`);
-        h += scField('Rebate %', `<input class="sc-ip num" data-ch="${key}" data-f="rebatePct" value="${cs.rebatePct||0}">`);
-        h += scField('Rebate taken from', `<select class="sc-sel" data-ch="${key}" data-f="rebateBasis"><option value="fee"${cs.rebateBasis!=='margin'?' selected':''}>The fee</option><option value="margin"${cs.rebateBasis==='margin'?' selected':''}>Net media margin</option></select>`);
-        h += scField('Backend margin', `<div style="height:34px; display:flex; align-items:center;">${sol && !sol.na && !sol.impossible ? '<span class="sc-pill sc-pill-ok">solved: '+sol.clamped+'%</span>' : '<span class="sc-pill sc-pill-warn">no margin clears</span>'}</div>`);
+        h += scField('Fee %', `<input class="sc-ip num" data-ln="${line.id}" data-f="feePct" value="${line.feePct||0}">`);
+        h += scField('Data cost % of media', `<input class="sc-ip num" data-ln="${line.id}" data-f="dataPct" value="${line.dataPct||0}">`);
+        h += scField('Rebate %', `<input class="sc-ip num" data-ln="${line.id}" data-f="rebatePct" value="${line.rebatePct||0}">`);
+        h += scField('Rebate taken from', `<select class="sc-sel" data-ln="${line.id}" data-f="rebateBasis"><option value="fee"${line.rebateBasis!=='margin'?' selected':''}>The fee</option><option value="margin"${line.rebateBasis==='margin'?' selected':''}>Net media margin</option></select>`);
       }
     } else {
-      h += scField('Fee %', `<input class="sc-ip num" data-ch="${key}" data-f="feePct" value="${cs.feePct||0}">`);
+      h += scField('Fee %', `<input class="sc-ip num" data-ln="${line.id}" data-f="feePct" value="${line.feePct||0}">`);
     }
     h += '</div></div>';
 
-    /* budget flighting */
-    if (ch.model !== 'retainer' && !cs.cpmMode) {
+    /* budget by month */
+    if (model === 'fee' || (model === 'prog' && !line.cpmMode)) {
+      const months = scopeLineMonths(line);
       h += '<div class="sc-group"><div class="sc-group-t">Budget by month</div><div class="sc-fields" style="max-width:420px;">';
-      h += scField('Entry', `<select class="sc-sel" data-ch="${key}" data-f="spread"><option value="even"${cs.spread==='even'?' selected':''}>Spread evenly</option><option value="custom"${cs.spread==='custom'?' selected':''}>Enter per month</option></select>`);
-      if (cs.spread === 'even') h += scField('Total budget $', `<input class="sc-ip num" data-ch="${key}" data-f="budgetTotal" value="${cs.budgetTotal||0}">`);
+      h += scField('Entry', `<select class="sc-sel" data-ln="${line.id}" data-f="spread"><option value="even"${line.spread==='even'?' selected':''}>Spread evenly</option><option value="custom"${line.spread==='custom'?' selected':''}>Enter per month</option></select>`);
+      if (line.spread === 'even') h += scField('Total budget $', `<input class="sc-ip num" data-ln="${line.id}" data-f="budgetTotal" value="${line.budgetTotal||0}">`);
       h += '</div>';
-      const cols = `108px repeat(${months.length}, minmax(76px, 1fr))`;
-      h += '<div class="sc-flight">';
-      h += `<div class="sc-frow hd" style="grid-template-columns:${cols}"><div class="sc-fl-lbl"></div>` + months.map(mk=>`<div class="sc-fc hd">${scMonLabel(mk)}</div>`).join('') + '</div>';
-      h += `<div class="sc-frow" style="grid-template-columns:${cols}"><div class="sc-fl-lbl">Budget</div>`;
-      months.forEach(mk => {
-        const b = scopeChannelBudget(key, mk);
-        h += '<div class="sc-fc">' + (cs.spread==='custom'
-          ? `<input data-chb="${key}" data-mk="${mk}" value="${Math.round(b)||''}" placeholder="0">`
-          : fmtMoney(b)) + '</div>';
-      });
-      h += '</div>';
-      h += `<div class="sc-frow" style="grid-template-columns:${cols}"><div class="sc-fl-lbl">Hours</div>`;
-      months.forEach(mk => { const hh = scopeChannelHours(key, mk); h += `<div class="sc-fc hrs${hh<=0?' dim':''}">${hh>0?fmtHrs(hh)+'h':'—'}</div>`; });
-      h += '</div></div>';
-      const fl = (cs.frontLoad===null||cs.frontLoad===undefined) ? cfg.frontLoadPct : cs.frontLoad;
-      if (fl>0 && months.length) h += `<div class="sc-panel-note" style="margin-top:7px;">${scMonLabel(months[0])} carries a ${fl}% front-load — setup and finding the rhythm.</div>`;
+      if (months.length) {
+        const cols = `108px repeat(${months.length}, minmax(76px, 1fr))`;
+        h += '<div class="sc-flight">';
+        h += `<div class="sc-frow hd" style="grid-template-columns:${cols}"><div class="sc-fl-lbl"></div>` + months.map(mk=>`<div class="sc-fc hd">${scMon(mk)}</div>`).join('') + '</div>';
+        h += `<div class="sc-frow" style="grid-template-columns:${cols}"><div class="sc-fl-lbl">Budget</div>`;
+        months.forEach(mk => {
+          const b = scopeLineBudget(line, mk);
+          h += '<div class="sc-fc">' + (line.spread==='custom'
+            ? `<input data-lb="${line.id}" data-mk="${mk}" value="${Math.round(b)||''}" placeholder="0">` : fmtMoney(b)) + '</div>';
+        });
+        h += '</div>';
+        h += `<div class="sc-frow" style="grid-template-columns:${cols}"><div class="sc-fl-lbl">Hours</div>`;
+        months.forEach(mk => { const hh = scopeLineHours(line, mk); h += `<div class="sc-fc hrs${hh<=0?' dim':''}">${hh>0?fmtHrs(hh)+'h':'—'}</div>`; });
+        h += '</div></div>';
+        const fl = (line.frontLoad===null||line.frontLoad===undefined) ? cfg.frontLoadPct : line.frontLoad;
+        if (cat && fl>0) h += `<div class="sc-panel-note" style="margin-top:7px;">${scMon(months[0])} carries a ${fl}% front-load — setup and finding the rhythm.</div>`;
+      }
       h += '</div>';
     }
     h += '</div>';
   }
-  h += '</div>';
   return h;
 }
 
 function wireScoping(){
   const host = document.getElementById('scoping-body'); if(!host) return;
   const re = () => renderScoping();
-  const bind = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('change', fn); };
-  bind('sc-name', e => { scopeDeal.name = e.target.value; });
-  bind('sc-mode', e => { scopeDeal.mode = e.target.value; re(); });
-  bind('sc-acct', e => { scopeDeal.accountId = e.target.value; re(); });
-  bind('sc-from', e => { scopeDeal.from = e.target.value.trim(); re(); });
-  bind('sc-to',   e => { scopeDeal.to = e.target.value.trim(); re(); });
-  bind('sc-target', e => { scopeCfg().targetPerHour = scopeNum(e.target.value); scheduleSave(); re(); });
-  bind('sc-fl', e => { scopeCfg().frontLoadPct = scopeNum(e.target.value); scheduleSave(); re(); });
-  const ab = document.getElementById('sc-assump'); if (ab) ab.addEventListener('click', openAssumptions);
-  const al = document.getElementById('sc-add-line'); if (al) al.addEventListener('click', () => {
-    const depts = [...new Set(state.staff.map(s=>normDept(s.department)).filter(Boolean))].sort();
-    scopeDeal.additional.push({ label:'', dept:depts[0]||'', hours:0, cadence:'monthly', billed:false, amount:0 });
+  const bind = (id, ev, fn) => { const el = document.getElementById(id); if (el) el.addEventListener(ev, fn); };
+  bind('sc-name','change', e => { scopeDeal.name = e.target.value; });
+  bind('sc-mode','change', e => { scopeDeal.mode = e.target.value; re(); });
+  bind('sc-acct','change', e => { scopeDeal.accountId = e.target.value; re(); });
+  bind('sc-from','change', e => { scopeDeal.from = e.target.value; re(); });
+  bind('sc-to','change', e => { scopeDeal.to = e.target.value; re(); });
+  bind('sc-target','change', e => { scopeCfg().targetPerHour = scopeNum(e.target.value); scheduleSave(); re(); });
+  bind('sc-fl','change', e => { scopeCfg().frontLoadPct = scopeNum(e.target.value); scheduleSave(); re(); });
+  bind('sc-assump','click', openAssumptions);
+  bind('sc-addline','click', () => {
+    const t = (document.getElementById('sc-newtype')||{}).value || 'social';
+    const line = newScopeLine(t);
+    scopeDeal.lines.push(line);
+    scopeOpenLine = line.id;
     re();
   });
-  host.querySelectorAll('[data-ch]').forEach(el => {
-    el.addEventListener('change', () => {
-      const cs = scopeChannelState(el.dataset.ch), f = el.dataset.f;
-      if (f === 'on') cs.on = el.checked;
-      else if (f === 'cpmMode') cs.cpmMode = el.value === '1';
-      else if (['tier','from','to','spread','rebateBasis'].indexOf(f) >= 0) cs[f] = el.value;
-      else if (f === 'frontLoad') cs.frontLoad = el.value.trim()==='' ? null : scopeNum(el.value);
-      else cs[f] = scopeNum(el.value);
-      re();
-    });
-  });
-  host.querySelectorAll('[data-chb]').forEach(el => {
-    el.addEventListener('change', () => {
-      const cs = scopeChannelState(el.dataset.chb);
-      cs.budgets[el.dataset.mk] = scopeNum(el.value);
-      re();
-    });
-  });
-  host.querySelectorAll('[data-ov]').forEach(el => el.addEventListener('change', () => { scopeCfg().overlays[+el.dataset.ov].on = el.checked; scheduleSave(); re(); }));
-  host.querySelectorAll('[data-ovh]').forEach(el => el.addEventListener('change', () => { scopeCfg().overlays[+el.dataset.ovh].hours = scopeNum(el.value); scheduleSave(); re(); }));
-  host.querySelectorAll('[data-al]').forEach(el => el.addEventListener('change', () => {
-    const l = scopeDeal.additional[+el.dataset.al], f = el.dataset.f;
-    if (f==='billed') l.billed = el.value==='1';
-    else if (f==='label'||f==='dept'||f==='cadence') l[f] = el.value;
-    else l[f] = scopeNum(el.value);
+  host.querySelectorAll('[data-lrow]').forEach(el => el.addEventListener('click', ev => {
+    if (ev.target.closest('button, input, select')) return;
+    scopeOpenLine = (scopeOpenLine === el.dataset.lrow) ? null : el.dataset.lrow;
     re();
   }));
-  host.querySelectorAll('[data-aldel]').forEach(el => el.addEventListener('click', () => { scopeDeal.additional.splice(+el.dataset.aldel,1); re(); }));
+  host.querySelectorAll('[data-ldel]').forEach(el => el.addEventListener('click', ev => {
+    ev.stopPropagation();
+    scopeDeal.lines = scopeDeal.lines.filter(l => l.id !== el.dataset.ldel);
+    if (scopeOpenLine === el.dataset.ldel) scopeOpenLine = null;
+    re();
+  }));
+  host.querySelectorAll('[data-ln]').forEach(el => el.addEventListener('change', () => {
+    const line = scopeDeal.lines.find(l => l.id === el.dataset.ln); if (!line) return;
+    const f = el.dataset.f;
+    if (f === 'cpmMode') line.cpmMode = el.value === '1';
+    else if (f === 'billed') line.billed = el.value === '1';
+    else if (f === 'frontLoad') line.frontLoad = el.value.trim()==='' ? null : scopeNum(el.value);
+    else if (['label','tier','from','to','spread','rebateBasis','dept','cadence'].indexOf(f) >= 0) line[f] = el.value;
+    else line[f] = scopeNum(el.value);
+    re();
+  }));
+  host.querySelectorAll('[data-lb]').forEach(el => el.addEventListener('change', () => {
+    const line = scopeDeal.lines.find(l => l.id === el.dataset.lb); if (!line) return;
+    line.budgets[el.dataset.mk] = scopeNum(el.value);
+    re();
+  }));
+  host.querySelectorAll('[data-ov]').forEach(el => el.addEventListener('change', () => { scopeCfg().overlays[+el.dataset.ov].on = el.checked; scheduleSave(); re(); }));
+  host.querySelectorAll('[data-ovh]').forEach(el => el.addEventListener('change', () => { scopeCfg().overlays[+el.dataset.ovh].hours = scopeNum(el.value); scheduleSave(); re(); }));
 }
 
 /* --- assumptions editor: the shared foundation, persisted in the workspace --- */
