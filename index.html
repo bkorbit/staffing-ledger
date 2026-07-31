@@ -531,7 +531,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
   <header>
     <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0731-1902 · updated 2026-07-31</span></div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0731-1906 · updated 2026-07-31</span></div>
       <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
@@ -4844,7 +4844,7 @@ function scopeCfg(){
 
 let scopeDeal = null;
 function newScopeDeal(){
-  const start = activeMonth || monthKey(new Date());
+  const start = currentMonth || monthKey(new Date());
   return { name:'', mode:'new', accountId:'', from:start, to:shiftMonth(start,3),
     channels:{}, additional:[] };
 }
@@ -5035,6 +5035,15 @@ function scopeNum(v){ const n = parseFloat(String(v).replace(/[^0-9.\-]/g,'')); 
 
 function renderScoping(){
   const host = document.getElementById('scoping-body'); if (!host) return;
+  try { renderScopingInner(host); }
+  catch (err) {
+    console.error('Scoping render failed', err);
+    host.innerHTML = '<div class="card" style="border-left:4px solid #b0472b;"><strong>The scoping tool hit an error and could not render.</strong>'
+      + '<div class="muted" style="font-size:12px; margin-top:6px; font-family:ui-monospace,monospace;">' + escapeHtml(String(err && err.message || err)) + '</div>'
+      + '<div class="muted" style="font-size:12px; margin-top:6px;">Nothing was saved or changed. Reload the page; if it persists, send this message along.</div></div>';
+  }
+}
+function renderScopingInner(host){
   if (!scopeDeal) scopeDeal = newScopeDeal();
   const cfg = scopeCfg();
   const sol = scopeSolveMargin();
