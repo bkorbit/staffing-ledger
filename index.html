@@ -653,7 +653,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
   <header>
     <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0801-1421 · updated 2026-08-01</span></div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0801-1425 · updated 2026-08-01</span></div>
       <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
@@ -1014,7 +1014,8 @@ let state = {
 };
 
 let ui = {
-  tab: 'dashboard',
+  tab: (function(){ const h = String(location.hash||'').replace(/^#\/?/, '').trim();
+    return ['dashboard','team','projects','plan','forecast','scoping'].indexOf(h) >= 0 ? h : 'dashboard'; })(),
   period: {mode: 'month', start: '', end: ''},
   teamSearch: '', teamDept: '', teamSort: {key: null, dir: 1},
   demandSearch: '',
@@ -1102,7 +1103,7 @@ const PAGES = {
   team:      { title: 'Team',       sub: 'People, cost and capacity',               month: true  },
   projects:  { title: 'Projects',   sub: 'Accounts, billing and profitability',     month: true  },
   plan:      { title: 'Planner',    sub: 'Who is on what, month by month',          month: true  },
-  forecast:  { title: 'Forecast',   sub: 'Revenue and labour ahead',                month: true  },
+  forecast:  { title: 'Forecast',   sub: 'Revenue and labour ahead — set the range below',  month: false },
   scoping:   { title: 'Scoping',    sub: 'Will a new deal pay for itself?',         month: false }
 };
 function pageFromHash(){
@@ -4340,7 +4341,7 @@ function render() {
   document.getElementById('range-summary').textContent = isRange() ? viewMonths().length + ' months in view' : '';
   document.getElementById('count-team').textContent = state.staff.length ? '(' + state.staff.length + ')' : '';
   document.getElementById('count-projects').textContent = state.projects.length ? '(' + state.projects.length + ')' : '';
-  setTab(pageFromHash(), true);
+  setTab(ui.tab, true);
   renderSummary();
   renderDashboard();
   renderForecast();
@@ -4785,7 +4786,7 @@ document.getElementById('toggle-margin-chart').addEventListener('click', () => {
 
 // Sidebar links change the hash natively, which gives real back/forward history.
 // hashchange is the single entry point that switches page.
-window.addEventListener('hashchange', () => { setTab(pageFromHash(), true); render(); });
+window.addEventListener('hashchange', () => { ui.tab = pageFromHash(); setTab(ui.tab, true); render(); });
 
 document.getElementById('add-staff-btn').addEventListener('click', addStaff);
 document.getElementById('add-project-btn').addEventListener('click', addProject);
