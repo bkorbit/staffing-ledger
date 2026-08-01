@@ -229,6 +229,29 @@ input[type="month"].sc-ip { font-family: var(--font-mono); }
 .sc-h4 { font-family: var(--font-display); font-size: 13px; margin: 20px 0 8px; font-weight: 600; }
 .sc-tiny { width: 56px; height: 28px; text-align: right; border: 1px solid var(--line); border-radius: 3px; font-family: var(--font-mono); font-size: 12px; padding: 0 6px; }
 .sc-tiny2 { width: 118px; height: 28px; border: 1px solid var(--line); border-radius: 3px; font-family: var(--font-mono); font-size: 12px; padding: 0 6px; }
+
+/* ===== app shell: sidebar navigation ===== */
+.shell { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 30px; align-items: start; }
+.sidebar { position: sticky; top: 18px; display: flex; flex-direction: column; gap: 4px; }
+.nav-group { margin-top: 16px; }
+.nav-group-t { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--slate); padding: 0 10px 7px; }
+.nav-item { display: flex; align-items: center; gap: 9px; padding: 8px 11px; border-radius: 5px; font-family: var(--font-body); font-size: 13.5px; color: var(--ink); text-decoration: none; cursor: pointer; line-height: 1.3; transition: background 0.12s; }
+.nav-item:hover { background: #e2e2e2; }
+.nav-item.active { background: var(--brand); color: #fff; font-weight: 600; }
+.nav-item.active .nav-count { color: rgba(255,255,255,0.7); }
+.nav-ico { font-size: 11px; opacity: 0.7; }
+.nav-count { margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--slate); }
+.content { min-width: 0; }
+.page-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 18px; }
+.page-title { font-family: var(--font-display); font-size: 24px; font-weight: 700; color: var(--brand); margin: 0; letter-spacing: -0.01em; }
+.page-sub { font-family: var(--font-mono); font-size: 11px; color: var(--slate); }
+#month-context.hide { display: none; }
+@media (max-width: 900px) {
+  .shell { grid-template-columns: 1fr; gap: 16px; }
+  .sidebar { position: static; flex-direction: row; flex-wrap: wrap; gap: 6px; border-bottom: 2px solid var(--brand); padding-bottom: 10px; }
+  .nav-group { margin-top: 0; display: flex; align-items: center; gap: 4px; }
+  .nav-group-t { padding: 0 6px 0 4px; }
+}
 .tab-section { display: none; }
 .tab-section.active { display: block; }
 
@@ -630,7 +653,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
   <header>
     <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0731-2036 · updated 2026-07-31</span></div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0801-1421 · updated 2026-08-01</span></div>
       <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
@@ -680,6 +703,29 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
     </div>
   </div>
 
+
+
+  <div class="shell">
+  <nav class="sidebar" id="sidebar">
+    <a class="nav-item" data-tab="dashboard" href="#/dashboard"><span class="nav-ico">◈</span>Home</a>
+    <div class="nav-group">
+      <div class="nav-group-t">Staffing</div>
+      <a class="nav-item" data-tab="team" href="#/team">Team <span class="nav-count" id="count-team"></span></a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-t">Projects</div>
+      <a class="nav-item" data-tab="projects" href="#/projects">Projects <span class="nav-count" id="count-projects"></span></a>
+      <a class="nav-item" data-tab="plan" href="#/plan">Planner</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-t">Operations</div>
+      <a class="nav-item" data-tab="forecast" href="#/forecast">Forecast</a>
+      <a class="nav-item" data-tab="scoping" href="#/scoping">Scoping</a>
+    </div>
+  </nav>
+  <div class="content" id="content">
+  <div class="page-head"><h2 class="page-title" id="page-title">Dashboard</h2><span class="page-sub" id="page-sub"></span></div>
+  <div id="month-context">
   <div class="month-nav">
     <div class="mode-toggle">
       <button class="mode-btn active" data-mode="month" id="mode-month">Single month</button>
@@ -702,14 +748,6 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
   </div>
 
   <div class="summary-strip" id="summary-strip"></div>
-
-  <div class="tab-bar" id="tab-bar">
-    <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
-    <button class="tab-btn" data-tab="plan">Planner</button>
-    <button class="tab-btn" data-tab="forecast">Forecast</button>
-    <button class="tab-btn" data-tab="team">Team <span class="tab-count" id="count-team"></span></button>
-    <button class="tab-btn" data-tab="projects">Projects <span class="tab-count" id="count-projects"></span></button>
-    <button class="tab-btn" data-tab="scoping">Scoping</button>
   </div>
 
   <div class="tab-section active" id="tab-dashboard">
@@ -864,6 +902,8 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
     </section>
   </div>
 
+  </div><!-- /content -->
+  </div><!-- /shell -->
   <footer>Data is saved automatically to your account and reloads next time you open this tool.</footer>
 </div>
 
@@ -1057,12 +1097,32 @@ function armToConfirm(btn, actionId, armedLabel, onConfirm) {
   }, 4000) };
 }
 
-function setTab(tab) {
-  ui.tab = tab;
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-  document.querySelectorAll('.tab-section').forEach(s => s.classList.toggle('active', s.id === 'tab-' + tab));
-  if (tab === 'scoping') renderScoping();
+const PAGES = {
+  dashboard: { title: 'Dashboard',  sub: 'Where the month stands',                  month: true  },
+  team:      { title: 'Team',       sub: 'People, cost and capacity',               month: true  },
+  projects:  { title: 'Projects',   sub: 'Accounts, billing and profitability',     month: true  },
+  plan:      { title: 'Planner',    sub: 'Who is on what, month by month',          month: true  },
+  forecast:  { title: 'Forecast',   sub: 'Revenue and labour ahead',                month: true  },
+  scoping:   { title: 'Scoping',    sub: 'Will a new deal pay for itself?',         month: false }
+};
+function pageFromHash(){
+  const h = String(location.hash || '').replace(/^#\/?/, '').trim();
+  return PAGES[h] ? h : 'dashboard';
 }
+function setTab(tab, skipHash) {
+  if (!PAGES[tab]) tab = 'dashboard';
+  ui.tab = tab;
+  const meta = PAGES[tab];
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.tab-section').forEach(s => s.classList.toggle('active', s.id === 'tab-' + tab));
+  const t = document.getElementById('page-title'); if (t) t.textContent = meta.title;
+  const sb = document.getElementById('page-sub'); if (sb) sb.textContent = meta.sub;
+  const mc = document.getElementById('month-context'); if (mc) mc.classList.toggle('hide', !meta.month);
+  if (!skipHash) { const want = '#/' + tab; if (location.hash !== want) location.hash = want; }
+  if (tab === 'scoping') renderScoping();
+  window.scrollTo(0, 0);
+}
+
 
 function normalizeState(raw) {
   const s = Object.assign({staff: [], projects: [], assignments: {}, actuals: {}, demand: {}}, raw || {});
@@ -4280,7 +4340,7 @@ function render() {
   document.getElementById('range-summary').textContent = isRange() ? viewMonths().length + ' months in view' : '';
   document.getElementById('count-team').textContent = state.staff.length ? '(' + state.staff.length + ')' : '';
   document.getElementById('count-projects').textContent = state.projects.length ? '(' + state.projects.length + ')' : '';
-  setTab(ui.tab);
+  setTab(pageFromHash(), true);
   renderSummary();
   renderDashboard();
   renderForecast();
@@ -4723,10 +4783,9 @@ document.getElementById('toggle-margin-chart').addEventListener('click', () => {
   buildMarginChart();
 });
 
-document.getElementById('tab-bar').addEventListener('click', (e) => {
-  const btn = e.target.closest('.tab-btn');
-  if (btn) { setTab(btn.dataset.tab); render(); }
-});
+// Sidebar links change the hash natively, which gives real back/forward history.
+// hashchange is the single entry point that switches page.
+window.addEventListener('hashchange', () => { setTab(pageFromHash(), true); render(); });
 
 document.getElementById('add-staff-btn').addEventListener('click', addStaff);
 document.getElementById('add-project-btn').addEventListener('click', addProject);
