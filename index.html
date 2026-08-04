@@ -340,6 +340,10 @@ input.rev-input { min-width: 90px; flex: 1; }
 .cap-int { display: block; line-height: 1.5; }
 .numfield.mini-int { display: inline-block; width: 34px; padding: 0 3px; font-size: 10.5px; text-align: center; vertical-align: baseline; margin: 0 2px 0 0; border: 1px solid var(--line); border-radius: 3px; background: #fff; }
 .numfield.mini-int:focus { outline: none; border-color: var(--brand); }
+body.ro #content input:not([data-role="team-search"]), body.ro #content select, body.ro #content textarea,
+body.ro #content button.assign, body.ro #content button.primary, body.ro #content .expand-btn ~ input { pointer-events: none; opacity: 0.75; }
+body.ro .header-actions #clear-month-btn { display: none; }
+.ro-banner { background: var(--gold); color: #3a2c00; font-family: var(--font-mono); font-size: 11px; padding: 7px 12px; border-radius: 5px; margin-bottom: 12px; }
 .sub-sort { color: var(--slate); opacity: 0.75; }
 .sub-sort:hover { opacity: 1; color: var(--ink); }
 #tab-team th.edit-col { width: 40px; }
@@ -711,13 +715,12 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
   <header>
     <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0804-0221 · updated 2026-08-04</span></div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0804-0231 · updated 2026-08-04</span></div>
       <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
       <span class="user-chip" id="user-chip"></span>
-      <button class="primary" id="open-import-btn">Import hour tracking data</button>
-      <button class="ghost" id="reset-btn">Clear all data</button>
+      <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear this month's assignments</button>
       <button class="ghost" id="signout-btn">Sign out</button>
     </div>
   </header>
@@ -780,6 +783,10 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
       <div class="nav-group-t">Operations</div>
       <a class="nav-item" data-tab="forecast" href="#/forecast" title="Forecast"><span class="nav-ico">◐</span><span class="nav-label">Forecast</span></a>
       <a class="nav-item" data-tab="scoping" href="#/scoping" title="Scoping"><span class="nav-ico">◇</span><span class="nav-label">Scoping</span></a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-t">Admin</div>
+      <a class="nav-item" data-tab="settings" href="#/settings" title="Settings"><span class="nav-ico">⚙</span><span class="nav-label">Settings</span></a>
     </div>
   </nav>
   <div class="content" id="content">
@@ -916,6 +923,13 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
     <div id="scoping-body"></div>
     <div id="scoping-modal" class="sc-modal" style="display:none;"></div>
   </div>
+  <div class="tab-section" id="tab-settings">
+    <section class="panel">
+      <div class="panel-head"><h3>Workspace access</h3></div>
+      <div id="settings-body"></div>
+    </section>
+  </div>
+
   <div class="tab-section" id="tab-projects">
     <section class="panel">
       <div class="panel-head">
@@ -1183,7 +1197,8 @@ const PAGES = {
   projects:  { title: 'Projects',   sub: 'Accounts, billing and profitability',     month: true  },
   plan:      { title: 'Planner',    sub: 'Who is on what, month by month',          month: true  },
   forecast:  { title: 'Forecast',   sub: 'Revenue and labour ahead — set the range below',  month: false },
-  scoping:   { title: 'Scoping',    sub: 'Will a new deal pay for itself?',         month: false }
+  scoping:   { title: 'Scoping',    sub: 'Will a new deal pay for itself?',         month: false },
+  settings:  { title: 'Settings',   sub: 'People who can use this workspace',       month: false }
 };
 function pageFromHash(){
   const h = String(location.hash || '').replace(/^#\/?/, '').trim();
@@ -1200,6 +1215,7 @@ function setTab(tab, skipHash) {
   const mc = document.getElementById('month-context'); if (mc) mc.classList.toggle('hide', !meta.month);
   if (!skipHash) { const want = '#/' + tab; if (location.hash !== want) location.hash = want; }
   if (tab === 'scoping') renderScoping();
+  if (tab === 'settings') renderSettings();
   window.scrollTo(0, 0);
 }
 
@@ -1371,14 +1387,48 @@ let personEditId = null;
 // Salary visibility: driven by Supabase user metadata. A user whose
 // app_metadata.role or user_metadata.role is 'restricted' (or hide_salaries: true)
 // cannot see per-person profit or the salary field. Everyone else sees everything.
-let canSeeSalaries = true;
+let canSeeSalaries = true, canManageUsers = true, canEdit = true, currentUserEmail = '', myRole = '', lastSession = null;
+const ROLES = {
+  admin:      { label: 'Admin',      salaries: true,  edit: true,  users: true,  hint: 'Everything, including managing who has access' },
+  manager:    { label: 'Manager',    salaries: true,  edit: true,  users: false, hint: 'All data including salaries and profit; cannot manage users' },
+  restricted: { label: 'Restricted', salaries: false, edit: true,  users: false, hint: 'Can plan and assign, but no salary, cost or profit figures' },
+  viewer:     { label: 'Viewer',     salaries: false, edit: false, users: false, hint: 'Read-only, and no salary, cost or profit figures' }
+};
+function rosterEntryFor(email) {
+  const e = String(email || '').trim().toLowerCase();
+  if (!e) return null;
+  return (state.users || []).find(u => String(u.email || '').trim().toLowerCase() === e) || null;
+}
+// Access comes from the workspace roster when the signed-in user is listed there.
+// If the roster is empty, or they are not on it, fall back to Supabase user metadata
+// so nobody is locked out by a partially configured roster.
 function computeSalaryAccess(session) {
   const u = (session && session.user) || {};
-  const am = u.app_metadata || {}, um = u.user_metadata || {};
-  const role = String(am.role || um.role || '').toLowerCase();
-  const restricted = role === 'restricted' || role === 'viewer' || am.hide_salaries === true || um.hide_salaries === true;
-  canSeeSalaries = !restricted;
+  currentUserEmail = u.email || currentUserEmail || '';
+  const entry = rosterEntryFor(currentUserEmail);
+  if (entry && ROLES[entry.role]) {
+    myRole = entry.role;
+    const r = ROLES[entry.role];
+    canSeeSalaries = r.salaries; canEdit = r.edit; canManageUsers = r.users;
+  } else {
+    const am = u.app_metadata || {}, um = u.user_metadata || {};
+    const role = String(am.role || um.role || '').toLowerCase();
+    const restricted = role === 'restricted' || role === 'viewer' || am.hide_salaries === true || um.hide_salaries === true;
+    // Once the roster is genuinely configured (someone is an admin), anyone not on it
+    // gets the safe default rather than full access. Before that, fall back to metadata
+    // so a half-set-up roster can't lock the owner out of their own workspace.
+    const configured = (state.users || []).some(x => x.role === 'admin');
+    if (configured) {
+      myRole = 'restricted';
+      canSeeSalaries = false; canEdit = true; canManageUsers = false;
+    } else {
+      myRole = role || '';
+      canSeeSalaries = !restricted; canEdit = role !== 'viewer'; canManageUsers = !restricted;
+    }
+  }
+  document.body.classList.toggle('ro', !canEdit);
 }
+function refreshAccess() { computeSalaryAccess(lastSession); }
 function personBeingEdited() { return state.staff.find(x => x.id === personEditId); }
 // Materialize the implicit legacy period so it can be edited.
 function ensureCompPeriods(s) {
@@ -1572,6 +1622,100 @@ function printReport() {
   setTimeout(() => { w.focus(); w.print(); }, 250);
 }
 
+/* ===== Workspace access (Settings) =====
+   The roster lives in the ledger, so roles are managed here rather than by hand in SQL.
+   Account creation itself still happens in Supabase - a browser page cannot hold the
+   admin key needed to create accounts without handing that key to everyone. */
+function ensureUsers() { if (!Array.isArray(state.users)) state.users = []; return state.users; }
+
+function renderSettings() {
+  const el = document.getElementById('settings-body');
+  if (!el) return;
+  const users = ensureUsers();
+  const mine = String(currentUserEmail || '').toLowerCase();
+
+  if (!canManageUsers) {
+    el.innerHTML = '<div class="ro-banner">You are signed in as ' + escapeHtml(currentUserEmail) +
+      (myRole && ROLES[myRole] ? ' with ' + escapeHtml(ROLES[myRole].label.toLowerCase()) + ' access' : '') +
+      '. Only an admin can manage who has access to this workspace.</div>';
+    return;
+  }
+
+  let h = '';
+  if (!users.length) {
+    h += '<div class="ro-banner">No roles assigned yet — everyone who can sign in currently has full access. ' +
+         'Add yourself as an Admin first, then add the rest of the team.</div>';
+  }
+  h += '<table><thead><tr><th>Email</th><th>Name</th><th>Access</th><th>Added</th><th class="remove-col"></th></tr></thead><tbody>';
+  users.forEach((u, i) => {
+    const isMe = String(u.email || '').toLowerCase() === mine;
+    h += '<tr>' +
+      '<td><input type="text" value="' + escapeAttr(u.email || '') + '" data-role="usr-email" data-i="' + i + '" placeholder="name@elitemedia.group">' +
+        (isMe ? '<span class="chip" style="background:var(--mint);color:var(--brand);margin-left:6px;">you</span>' : '') + '</td>' +
+      '<td><input type="text" value="' + escapeAttr(u.name || '') + '" data-role="usr-name" data-i="' + i + '" placeholder="optional"></td>' +
+      '<td><select data-role="usr-role" data-i="' + i + '">' +
+        Object.keys(ROLES).map(r => '<option value="' + r + '"' + (u.role === r ? ' selected' : '') + '>' + ROLES[r].label + '</option>').join('') +
+      '</select><div class="computed-sub">' + escapeHtml((ROLES[u.role] || {}).hint || '') + '</div></td>' +
+      '<td class="computed-sub">' + escapeHtml(u.addedAt || '—') + '</td>' +
+      '<td class="remove-col"><button class="icon-btn" data-role="usr-remove" data-i="' + i + '" title="Remove from the roster">×</button></td>' +
+      '</tr>';
+  });
+  h += '</tbody></table>';
+
+  h += '<div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; margin-top:14px;">' +
+    '<label style="font-family:var(--font-mono); font-size:10px; color:var(--slate); text-transform:uppercase; letter-spacing:.06em;">Email' +
+      '<input type="text" id="usr-new-email" placeholder="name@elitemedia.group" style="display:block; margin-top:4px; min-width:250px; border:1px solid var(--line); border-radius:5px; padding:7px 9px; font-family:var(--font-mono); font-size:12px;"></label>' +
+    '<label style="font-family:var(--font-mono); font-size:10px; color:var(--slate); text-transform:uppercase; letter-spacing:.06em;">Access' +
+      '<select id="usr-new-role" style="display:block; margin-top:4px; border:1px solid var(--line); border-radius:5px; padding:7px 9px; font-family:var(--font-mono); font-size:12px;">' +
+      Object.keys(ROLES).map(r => '<option value="' + r + '"' + (r === 'restricted' ? ' selected' : '') + '>' + ROLES[r].label + '</option>').join('') +
+      '</select></label>' +
+    '<button class="primary" data-role="usr-add">Add person</button></div>';
+
+  h += '<div class="ro-banner" style="background:var(--mint); color:var(--ink); margin-top:16px;">' +
+    '<strong>How access works.</strong> Roles here control what the app shows and lets someone change. ' +
+    'Creating the login itself happens in Supabase — a public web page cannot safely hold the admin key required to create accounts. ' +
+    'Add the person here, then have them sign up at this URL with the same email (or invite them from Supabase → Authentication → Users). ' +
+    'Their role applies the moment they sign in. ' +
+    '<em>This is interface-level access control: it decides what the app renders, not what the database will hand out. ' +
+    'For access someone cannot bypass, the ledger table needs row-level security in Supabase.</em></div>';
+
+  el.innerHTML = h;
+}
+
+function addUserRow() {
+  const emailEl = document.getElementById('usr-new-email');
+  const roleEl = document.getElementById('usr-new-role');
+  const email = String(emailEl ? emailEl.value : '').trim();
+  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast('Enter a valid email address.'); return; }
+  const users = ensureUsers();
+  if (users.some(u => String(u.email || '').toLowerCase() === email.toLowerCase())) { toast('That email is already on the roster.'); return; }
+  users.push({ id: uid(), email, name: '', role: (roleEl && roleEl.value) || 'restricted',
+               addedAt: new Date().toISOString().slice(0, 10) });
+  scheduleSave(); refreshAccess(); render();
+  toast('Added ' + email + '. They need a Supabase login with this exact email — have them sign up at this URL, or invite them from the Supabase dashboard.', 9000);
+}
+function updateUserRow(i, field, value) {
+  const users = ensureUsers();
+  if (!users[i]) return;
+  users[i][field] = field === 'email' ? String(value).trim() : value;
+  scheduleSave(); refreshAccess();
+  if (field === 'role') render(); else renderSettings();
+}
+function removeUserRow(i) {
+  const users = ensureUsers();
+  const u = users[i];
+  if (!u) return;
+  const isMe = String(u.email || '').toLowerCase() === String(currentUserEmail || '').toLowerCase();
+  const admins = users.filter(x => x.role === 'admin').length;
+  if (isMe && u.role === 'admin' && admins < 2) {
+    toast('That would remove the only admin — add another admin before removing yourself.');
+    return;
+  }
+  users.splice(i, 1);
+  scheduleSave(); refreshAccess(); render();
+  toast('Removed ' + (u.email || 'that person') + ' from the roster. Their Supabase login still exists — delete it there to block sign-in entirely.', 9000);
+}
+
 function openPersonModal(id) {
   const s = state.staff.find(x => x.id === id);
   if (!s) return;
@@ -1727,9 +1871,13 @@ async function enterApp(session) {
   document.getElementById('auth-overlay').style.display = 'none';
   document.getElementById('app-root').style.display = '';
   const email = session && session.user ? session.user.email : '';
+  lastSession = session;
   computeSalaryAccess(session);
-  document.getElementById('user-chip').textContent = email + (canSeeSalaries ? '' : ' · salaries hidden');
   await loadState();
+  // The roster lives in the ledger, so roles can only be resolved once state is loaded.
+  computeSalaryAccess(session);
+  document.getElementById('user-chip').textContent = email +
+    (myRole && ROLES[myRole] ? ' · ' + ROLES[myRole].label.toLowerCase() : (canSeeSalaries ? '' : ' · salaries hidden'));
   subscribeRealtime();
 }
 
@@ -1796,6 +1944,7 @@ function seedExample() {
 
 let saveInFlight = false;
 function scheduleSave() {
+  if (!canEdit) { toast('Your access is read-only, so that change was not saved.'); return; }
   clearTimeout(saveTimer);
   saveTimer = setTimeout(runSave, 400);
 }
@@ -3583,7 +3732,7 @@ function renderDashboard() {
       </div>
       <div class="dash-card">${projRows || '<div class="empty-note">No projects match.</div>'}</div>
     </div>
-    ${!showActual ? '<div class="dash-note">Actual bars will fill in once you import hour tracking data for this month (Import button, top right).</div>' : ''}
+    ${!showActual ? '<div class="dash-note">Actual bars will fill in once the nightly hour-tracking sync has run for this month.</div>' : ''}
   `;
   buildDashCharts(projs, deptData, showActual);
 }
@@ -4722,6 +4871,7 @@ let suppressRender = false; // true while typing in a field: state updates, UI w
 
 function render() {
   if (suppressRender) return;
+  if (ui.tab === 'settings') renderSettings();
   const active = document.activeElement;
   let focusKey = null, focusValue = null, selStart = null;
   if (active && active.tagName === 'INPUT' && (active.dataset.role || active.id)) {
@@ -5026,6 +5176,8 @@ document.addEventListener('change', (e) => {
   if (t.id === 'team-show-inactive') { ui.teamShowInactive = t.checked; render(); return; }
   if (t.id === 'team-client-only') { ui.teamClientOnly = t.checked; render(); return; }
   if (t.id === 'dash-proj-filter') { ui.dashProjFilter = t.value; render(); return; }
+  if (t.dataset.role === 'usr-email') { updateUserRow(+t.dataset.i, 'email', t.value); return; }
+  if (t.dataset.role === 'usr-name') { updateUserRow(+t.dataset.i, 'name', t.value); return; }
   if (t.dataset.role === 'tm-picker-input') {
     // Filter the styled dropdown locally in the DOM — no table re-render, so typing stays smooth.
     const menu = document.getElementById('tm-menu-' + t.dataset.id);
@@ -5111,6 +5263,8 @@ document.addEventListener('click', (e) => {
     if (pr) { setRevenueOverride(t.dataset.id, t.dataset.mk, String(Math.round(billingGP(pr, t.dataset.mk)))); render(); }
   }
   else if (role === 'fc-cost-remove') { state.fixedCosts.splice(+t.dataset.i, 1); scheduleSave(); render(); }
+  else if (role === 'usr-add') { addUserRow(); }
+  else if (role === 'usr-remove') { removeUserRow(+t.dataset.i); }
   else if (role === 'pm-comp-add') { addCompPeriod(personEditId); }
   else if (role === 'pm-comp-remove') { removeCompPeriod(personEditId, +t.dataset.i); }
   else if (role === 'fc-clear-correction') {
@@ -5255,9 +5409,6 @@ document.getElementById('copy-prev-btn').addEventListener('click', () => {
   if (isRange()) { toast('Switch to single-month view to copy a plan between months.'); return; }
   copyFromPreviousMonth();
 });
-document.getElementById('open-import-btn').addEventListener('click', () => {
-  document.getElementById('import-panel').classList.toggle('open');
-});
 document.getElementById('import-file').addEventListener('change', (e) => {
   if (e.target.files && e.target.files[0]) handleFileChosen(e.target.files[0]);
 });
@@ -5291,6 +5442,7 @@ document.addEventListener('change', (e) => {
   if (dRole === 'flight-end') { setFlightDate(e.target.dataset.id, 'end', e.target.value); return; }
   if (dRole === 'pj-start') { setFlightDate(projectEditId, 'start', e.target.value); rebuildBillingSection(); rebuildProjectModalMonths(); return; }
   if (dRole === 'pj-end') { setFlightDate(projectEditId, 'end', e.target.value); rebuildBillingSection(); rebuildProjectModalMonths(); return; }
+  if (dRole === 'usr-role') { updateUserRow(+e.target.dataset.i, 'role', e.target.value); return; }
   if (dRole === 'pm-start') { setStaffDate(personEditId, 'start', e.target.value); return; }
   if (dRole === 'pm-end') { setStaffDate(personEditId, 'end', e.target.value); return; }
   if (dRole === 'pm-nolayoff') { updateStaffField(personEditId, 'layoffProtected', e.target.checked); return; }
@@ -5332,13 +5484,28 @@ document.getElementById('fc-cost-add').addEventListener('click', () => {
   scheduleSave(); renderFixedCostsMenu();
 });
 
-document.getElementById('reset-btn').addEventListener('click', (e) => {
-  armToConfirm(e.target, 'reset-all', 'Click again to erase everything', async () => {
-    state = {staff: [], projects: [], assignments: {}, actuals: {}, demand: {}};
-    try { await saveToSupabase(state); } catch (err) { console.error(err); }
-    render();
-    toast('All data cleared for everyone in the workspace.');
+document.getElementById('clear-month-btn').addEventListener('click', (e) => {
+  const months = viewMonths();
+  const scope = months.length > 1
+    ? monthLabel(months[0]) + ' – ' + monthLabel(months[months.length - 1])
+    : monthLabel(months[0]);
+  // Count first so the confirmation says exactly what is about to go.
+  let nAssign = 0, nDemand = 0;
+  months.forEach(mk => {
+    nAssign += Object.keys(state.assignments[mk] || {}).length;
+    Object.values(state.demand[mk] || {}).forEach(d => { nDemand += Object.keys(d || {}).length; });
   });
+  if (!nAssign && !nDemand) { toast('Nothing to clear — no assignments or department demand in ' + scope + '.'); return; }
+  armToConfirm(e.target, 'clear-month',
+    'Click again to clear ' + nAssign + ' assignment' + (nAssign === 1 ? '' : 's') + ' in ' + scope,
+    () => {
+      months.forEach(mk => { delete state.assignments[mk]; delete state.demand[mk]; });
+      scheduleSave();
+      render();
+      toast('Cleared ' + nAssign + ' assignment' + (nAssign === 1 ? '' : 's') +
+            (nDemand ? ' and ' + nDemand + ' demand entr' + (nDemand === 1 ? 'y' : 'ies') : '') +
+            ' in ' + scope + '. Logged hours and everything in other months are untouched.');
+    });
 });
 
 init();
