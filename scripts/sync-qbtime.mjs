@@ -68,12 +68,34 @@ function rootJobcodeName(id, jobcodes) {
   return String(jc.name || '').trim();
 }
 
+// Pull every jobcode up front. Relying on each page's supplemental_data means a child
+// jobcode whose parent happens not to appear on that page resolves to the sub-jobcode
+// name instead of the customer, splitting one account across several names.
+async function fetchJobcodes() {
+  const map = {};
+  let page = 1;
+  try {
+    for (;;) {
+      const data = await qbFetch('/jobcodes', { page, per_page: 200, active: 'both' });
+      const list = Object.values((data.results || {}).jobcodes || {});
+      for (const jc of list) map[jc.id] = jc;
+      if (!data.more) break;
+      page++;
+      if (page > 200) { console.log('  ⚠ jobcode pagination hit the 200-page guard.'); break; }
+    }
+    console.log(`  Loaded ${Object.keys(map).length} jobcodes.`);
+  } catch (e) {
+    console.log('  (jobcode prefetch failed, falling back to per-page data:', e.message + ')');
+  }
+  return map;
+}
+
 async function fetchGroups() {
   const map = {}; // group_id -> group name
   let page = 1;
   try {
     for (;;) {
-      const data = await qbFetch('/groups', { page });
+      const data = await qbFetch('/groups', { page, per_page: 200 });
       const groups = Object.values((data.results || {}).groups || {});
       for (const g of groups) map[g.id] = String(g.name || '').trim();
       if (!data.more) break;
@@ -89,29 +111,55 @@ async function fetchGroups() {
 async function pullTimesheets(startDate, endDate) {
   const entries = []; // {person, customer, month, week, hours, dept}
   const users = {};
-  const jobcodes = {};
+  const jobcodes = Object.assign({}, JOBCODES);
   let page = 1;
+  // Every hour QuickBooks Time returned, and every hour we dropped and why. Without this
+  // the sync can silently under-report and look like it worked.
+  const stat = { sheets: 0, rawHours: 0, kept: 0, keptHours: 0,
+                 noPerson: 0, noPersonHours: 0, noCustomer: 0, noCustomerHours: 0,
+                 zero: 0, excluded: 0, excludedHours: 0, noDate: 0,
+                 unknownJobcodes: new Set(), unknownUsers: new Set(), truncated: false };
 
   for (;;) {
-    const data = await qbFetch('/timesheets', { start_date: startDate, end_date: endDate, page });
+    // per_page must be explicit: the API defaults to 50 rows, so without it the old
+    // 50-page guard capped the entire window at ~2,500 timesheets.
+    const data = await qbFetch('/timesheets', { start_date: startDate, end_date: endDate, page, per_page: 200 });
     const sup = data.supplemental_data || {};
     Object.assign(users, sup.users || {});
     Object.assign(jobcodes, sup.jobcodes || {});
     const sheets = Object.values((data.results || {}).timesheets || {});
     for (const ts of sheets) {
+      const hours = (ts.duration || 0) / 3600;
+      stat.sheets++; stat.rawHours += hours;
       const u = users[ts.user_id];
       const person = u ? `${u.first_name || ''} ${u.last_name || ''}`.trim() : '';
       const dept = u && u.group_id ? (GROUP_NAMES[u.group_id] || '') : '';
       const customer = rootJobcodeName(ts.jobcode_id, jobcodes);
-      const hours = (ts.duration || 0) / 3600;
-      if (!person || !customer || hours <= 0 || !ts.date) continue;
-      if (EXCLUDED_PEOPLE.has(person.toLowerCase())) continue;   // blocked user — never imported
+      if (!ts.date) { stat.noDate++; continue; }
+      if (!person) { stat.noPerson++; stat.noPersonHours += hours; stat.unknownUsers.add(String(ts.user_id)); continue; }
+      if (EXCLUDED_PEOPLE.has(person.toLowerCase())) { stat.excluded++; stat.excludedHours += hours; continue; }
+      if (!customer) { stat.noCustomer++; stat.noCustomerHours += hours; stat.unknownJobcodes.add(String(ts.jobcode_id)); continue; }
+      if (hours <= 0) { stat.zero++; continue; }
+      stat.kept++; stat.keptHours += hours;
       entries.push({ person, customer, month: monthKeyOf(ts.date), week: weekKeyOf(ts.date), hours, dept });
     }
     if (!data.more) break;
     page++;
-    if (page > 50) break; // safety valve
+    if (page > 400) { stat.truncated = true; break; }
   }
+
+  console.log(`  Pages read: ${page}. Timesheets seen: ${stat.sheets} (${stat.rawHours.toFixed(2)}h raw).`);
+  console.log(`  Imported: ${stat.kept} entries (${stat.keptHours.toFixed(2)}h).`);
+  const dropped = stat.rawHours - stat.keptHours;
+  if (dropped > 0.01) {
+    console.log(`  ⚠ Dropped ${dropped.toFixed(2)}h:`);
+    if (stat.excludedHours > 0) console.log(`      ${stat.excludedHours.toFixed(2)}h — excluded people (${[...EXCLUDED_PEOPLE].join(', ')})`);
+    if (stat.noCustomerHours > 0) console.log(`      ${stat.noCustomerHours.toFixed(2)}h — jobcode did not resolve to a customer (ids: ${[...stat.unknownJobcodes].slice(0, 15).join(', ')})`);
+    if (stat.noPersonHours > 0) console.log(`      ${stat.noPersonHours.toFixed(2)}h — unknown user (ids: ${[...stat.unknownUsers].slice(0, 15).join(', ')})`);
+    if (stat.zero) console.log(`      ${stat.zero} entries with zero duration (still running, or deleted)`);
+    if (stat.noDate) console.log(`      ${stat.noDate} entries with no date`);
+  }
+  if (stat.truncated) console.log('  ✖ PAGINATION GUARD HIT — results were truncated. Raise the page limit.');
   return entries;
 }
 
@@ -163,16 +211,21 @@ async function saveLedger(state, rowExists) {
 // ---------- Sync ----------
 
 let GROUP_NAMES = {};
+let JOBCODES = {};
 
 async function main() {
   GROUP_NAMES = await fetchGroups();
+  JOBCODES = await fetchJobcodes();
   const now = new Date();
   const startDate = SYNC_FROM;
   const endDate = isoDate(now);
   console.log(`Pulling QuickBooks Time timesheets ${startDate} → ${endDate}…`);
 
   const entries = await pullTimesheets(startDate, endDate);
-  console.log(`Fetched ${entries.length} timesheet entries.`);
+  const byMonth = {};
+  for (const e of entries) byMonth[e.month] = (byMonth[e.month] || 0) + e.hours;
+  console.log('Hours per month (compare these against the QuickBooks Time report):');
+  Object.keys(byMonth).sort().forEach(mk => console.log(`    ${mk}: ${byMonth[mk].toFixed(2)}h`));
 
   // Aggregate: month -> personName|customer -> hours (and the same by week)
   const agg = {};
