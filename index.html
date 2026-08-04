@@ -385,6 +385,12 @@ input.rev-input { min-width: 90px; flex: 1; }
 .fc-correct-input { width: 92px; border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; font-family: var(--font-mono); font-size: 12px; text-align: right; background: var(--paper-raised); }
 .fc-correct-input:focus { outline: none; border-color: var(--brand); }
 .fc-clear { border: none; background: none; color: var(--rust); cursor: pointer; font-size: 13px; padding: 0 2px; }
+.pm-comp-head { font-family: var(--font-display); font-size: 12px; font-weight: 600; color: var(--ink); margin-bottom: 6px; display: flex; flex-direction: column; gap: 2px; }
+.pm-comp-row { display: grid; grid-template-columns: 1.15fr 1.15fr 0.9fr 0.95fr 0.7fr 20px; gap: 6px; align-items: end; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.pm-comp-row:last-of-type { border-bottom: none; }
+.pm-comp-row label { display: flex; flex-direction: column; gap: 2px; font-family: var(--font-mono); font-size: 9px; color: var(--slate); text-transform: uppercase; letter-spacing: 0.04em; }
+.pm-comp-row input, .pm-comp-row select { border: 1px solid var(--line); border-radius: 4px; padding: 5px 6px; font-family: var(--font-mono); font-size: 11px; background: var(--paper-raised); width: 100%; box-sizing: border-box; }
+.pm-comp-row input:focus, .pm-comp-row select:focus { outline: none; border-color: var(--brand); }
 .mini-track.split .seg { height: 100%; flex-shrink: 0; }
 .mini-track.split .seg-int { background: #0a493c; }
 .mini-track.split .seg-proj { background: var(--accent); }
@@ -653,7 +659,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
   <header>
     <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0801-1425 · updated 2026-08-01</span></div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0804-0110 · updated 2026-08-04</span></div>
       <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
@@ -923,12 +929,13 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
       <div class="pm-grid">
         <label class="pm-full">Name<input type="text" data-role="pm-name" id="pm-name" placeholder="Name"></label>
         <label>Department<input type="text" list="dept-datalist" data-role="pm-dept" id="pm-dept" placeholder="e.g. Design"></label>
-        <label>Employment type<select data-role="pm-type" id="pm-type">
-          <option value="fulltime">Full-time (salaried)</option>
-          <option value="hourly">Hourly</option>
-        </select></label>
-        <label><span id="pm-cost-caption">Annual cost ($)</span><input type="text" inputmode="decimal" data-role="pm-cost" id="pm-cost"><span class="pm-hint" id="pm-rate-hint"></span></label>
-        <label>Weekly capacity (hrs)<input type="text" inputmode="decimal" data-role="pm-cap" id="pm-cap"></label>
+        <div class="pm-full" id="pm-comp-section">
+          <div class="pm-comp-head">Compensation &amp; availability
+            <span class="pm-hint" style="margin:0;">one row per arrangement — a new row starting on a date automatically ends the previous one the day before</span>
+          </div>
+          <div id="pm-comp-list"></div>
+          <button class="ghost" data-role="pm-comp-add" style="margin-top:6px;">+ Add period</button>
+        </div>
         <label>Start date<input type="date" data-role="pm-start" id="pm-start"><span class="pm-hint">capacity prorates from this day · blank = always</span></label>
         <label>End date<input type="date" data-role="pm-end" id="pm-end"><span class="pm-hint">last day worked · blank = ongoing</span></label>
         <label class="pm-full" style="flex-direction:row; align-items:center; gap:8px;"><input type="checkbox" data-role="pm-nolayoff" id="pm-nolayoff" style="width:auto;"> Protected from layoff (dept head / key role)<span class="pm-hint" style="margin:0;">scenario planner always retains this person</span></label>
@@ -1301,13 +1308,34 @@ function computeSalaryAccess(session) {
   canSeeSalaries = !restricted;
 }
 function personBeingEdited() { return state.staff.find(x => x.id === personEditId); }
-function refreshPersonCostUI(keepValue) {
+// Materialize the implicit legacy period so it can be edited.
+function ensureCompPeriods(s) {
+  if (!Array.isArray(s.compPeriods) || !s.compPeriods.length) {
+    s.compPeriods = compPeriodsOf(s).map(p => ({ ...p, id: uid() }));
+  }
+  return s.compPeriods;
+}
+function renderCompPeriods() {
   const s = personBeingEdited();
-  if (!s) return;
-  const ft = empType(s) === 'fulltime';
-  document.getElementById('pm-cost-caption').textContent = ft ? 'Annual cost ($)' : 'Hourly rate ($)';
-  if (!keepValue) document.getElementById('pm-cost').value = ft ? (s.annualCost || 0) : s.hourlyCost;
-  document.getElementById('pm-rate-hint').textContent = ft ? '≈ ' + fmtMoney2(s.hourlyCost) + '/hr at ' + fmtHrs(s.weeklyCapacity || 0) + 'h/wk' : '';
+  const el = document.getElementById('pm-comp-list');
+  if (!s || !el) return;
+  const periods = compPeriodsOf(s);       // read-only view (with implied end dates filled in)
+  const stored = Array.isArray(s.compPeriods) ? s.compPeriods : null;
+  el.innerHTML = periods.map((p, i) => {
+    const ft = periodType(p) === 'fulltime';
+    const impliedEnd = stored && !(stored[i] || {}).end && p.end;
+    return `<div class="pm-comp-row">
+      <label>From<input type="date" data-role="pm-comp" data-i="${i}" data-field="start" value="${p.start || ''}"></label>
+      <label>To<input type="date" data-role="pm-comp" data-i="${i}" data-field="end" value="${(stored ? (stored[i] || {}).end : p.end) || ''}" placeholder="ongoing">${impliedEnd ? `<span class="pm-hint" style="margin:0;">ends ${p.end}</span>` : ''}</label>
+      <label>Type<select data-role="pm-comp" data-i="${i}" data-field="type">
+        <option value="fulltime"${ft ? ' selected' : ''}>Salaried</option>
+        <option value="hourly"${!ft ? ' selected' : ''}>Hourly</option>
+      </select></label>
+      <label>${ft ? 'Annual ($)' : 'Rate ($/hr)'}<input type="text" inputmode="decimal" data-role="pm-comp" data-i="${i}" data-field="${ft ? 'annualCost' : 'hourlyCost'}" value="${ft ? (p.annualCost || 0) : (p.hourlyCost || 0)}"></label>
+      <label>Hrs/wk<input type="text" inputmode="decimal" data-role="pm-comp" data-i="${i}" data-field="weeklyCapacity" value="${p.weeklyCapacity || 0}"></label>
+      <button class="fc-clear" data-role="pm-comp-remove" data-i="${i}" title="Remove this period"${periods.length < 2 ? ' style="visibility:hidden;"' : ''}>×</button>
+    </div>`;
+  }).join('') || '<div class="computed-sub">No periods yet.</div>';
 }
 function openPersonModal(id) {
   const s = state.staff.find(x => x.id === id);
@@ -1316,15 +1344,11 @@ function openPersonModal(id) {
   document.getElementById('person-modal-title').textContent = s.name || 'Team member';
   document.getElementById('pm-name').value = s.name || '';
   document.getElementById('pm-dept').value = s.department || '';
-  document.getElementById('pm-type').value = empType(s);
-  document.getElementById('pm-cap').value = s.weeklyCapacity;
   document.getElementById('pm-start').value = s.startDate || (s.startMonth ? s.startMonth + '-01' : '');
   document.getElementById('pm-end').value = s.endDate || (s.endMonth ? lastDayOf(s.endMonth) : '');
   document.getElementById('pm-nolayoff').checked = !!s.layoffProtected;
-  refreshPersonCostUI(false);
-  const costLabel = document.getElementById('pm-cost').closest('label');
-  if (costLabel) costLabel.style.display = canSeeSalaries ? '' : 'none';
-  document.getElementById('pm-type').closest('label').style.display = canSeeSalaries ? '' : 'none';
+  renderCompPeriods();
+  document.getElementById('pm-comp-section').style.display = canSeeSalaries ? '' : 'none';
   document.getElementById('pm-nolayoff').closest('label').style.display = canSeeSalaries ? '' : 'none';
   document.getElementById('person-modal').classList.add('open');
 }
@@ -1613,39 +1637,143 @@ function weekdaysInMonthBetween(mk, from, to) {
   }
   return n;
 }
-// Monthly capacity, prorated for the person's start/end DATES when they fall mid-month.
-// A person starting the 15th only gets the working days from the 15th onward that month.
-// Salaried monthly cost: flat (annual / 12) for a full month, prorated by CALENDAR
-// days when the person's start/end date falls mid-month. Independent of capacity,
-// weekly hours, and hourly rate — only the salary and the start/end dates matter.
-function salariedMonthlyCost(s, mk) {
-  const annual = s.annualCost || 0;
-  if (annual <= 0) return 0;
-  const monthly = annual / 12;
-  const [y, m] = mk.split('-').map(Number);
-  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  // active calendar days this month, bounded by start/end dates
-  const monthStart = mk + '-01';
-  const monthEnd = mk + '-' + String(daysInMonth).padStart(2, '0');
-  const startDate = s.startDate || (s.startMonth ? s.startMonth + '-01' : null);
-  const endDate = s.endDate || (s.endMonth ? lastDayOf(s.endMonth) : null);
-  const from = startDate && startDate > monthStart ? startDate : monthStart;
-  const to = endDate && endDate < monthEnd ? endDate : monthEnd;
-  if (to < from) return 0;
-  const activeDays = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;   // inclusive
-  return monthly * (activeDays / daysInMonth);
+/* ===== COMPENSATION PERIODS =====
+   A person's pay and availability change over time (e.g. salaried 40h/wk until Jul 31,
+   then contracting at $100/hr for 10h/wk from Aug 1). Each person carries a list of
+   periods; every cost and capacity figure resolves which period(s) applied to the month
+   being computed. A month spanning two periods is split exactly by calendar date. */
+function addDays(ds, n) {
+  const t = Date.parse(ds) + n * 86400000;
+  return new Date(t).toISOString().slice(0, 10);
 }
-function monthlyCapacityFor(s, mk) {
-  const perDay = (s.weeklyCapacity || 0) / 5;
-  const startDate = s.startDate || (s.startMonth ? s.startMonth + '-01' : null);
-  const endDate = s.endDate || (s.endMonth ? lastDayOf(s.endMonth) : null);
-  // Only the boundary months need day-level proration; interior months are full.
-  const startMk = startDate ? startDate.slice(0, 7) : null;
-  const endMk = endDate ? endDate.slice(0, 7) : null;
-  if ((startMk && mk === startMk) || (endMk && mk === endMk)) {
-    return weekdaysInMonthBetween(mk, startDate, endDate) * perDay;
+function tenureBounds(s) {
+  return {
+    start: s.startDate || (s.startMonth ? s.startMonth + '-01' : null),
+    end: s.endDate || (s.endMonth ? lastDayOf(s.endMonth) : null)
+  };
+}
+// Normalized, sorted, non-overlapping periods. Falls back to a single period built from
+// the legacy flat fields so existing people keep working untouched.
+function compPeriodsOf(s) {
+  let list = Array.isArray(s.compPeriods) ? s.compPeriods.filter(Boolean) : [];
+  if (!list.length) {
+    const t = tenureBounds(s);
+    return [{ id: 'legacy', start: t.start || '', end: t.end || '', type: empType(s),
+              annualCost: s.annualCost || 0, hourlyCost: s.hourlyCost || 0,
+              weeklyCapacity: s.weeklyCapacity || 0 }];
   }
-  return weekdaysInMonth(mk) * perDay;
+  list = [...list].sort((a, b) => String(a.start || '').localeCompare(String(b.start || '')));
+  // An open-ended period is implicitly closed the day before the next one starts, so
+  // adding "from Aug 1" automatically ends the previous arrangement on Jul 31.
+  return list.map((p, i) => {
+    const next = list[i + 1];
+    let end = p.end || '';
+    if (!end && next && next.start) end = addDays(next.start, -1);
+    return { ...p, end };
+  });
+}
+// The slices of month `mk` covered by each period, clipped to the person's tenure.
+function compSegmentsInMonth(s, mk) {
+  const [y, m] = mk.split('-').map(Number);
+  const dim = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const monthStart = mk + '-01', monthEnd = mk + '-' + String(dim).padStart(2, '0');
+  const t = tenureBounds(s);
+  const segs = [];
+  compPeriodsOf(s).forEach(p => {
+    let from = monthStart, to = monthEnd;
+    if (p.start && p.start > from) from = p.start;
+    if (p.end && p.end < to) to = p.end;
+    if (t.start && t.start > from) from = t.start;
+    if (t.end && t.end < to) to = t.end;
+    if (to < from) return;
+    const days = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
+    segs.push({ from, to, days, p, daysInMonth: dim });
+  });
+  return segs;
+}
+function periodType(p) { return p.type === 'hourly' ? 'hourly' : 'fulltime'; }
+// What kind of arrangement was this person on in this month?
+function empTypeIn(s, mk) {
+  const segs = compSegmentsInMonth(s, mk);
+  if (!segs.length) return empType(s);
+  const kinds = new Set(segs.map(x => periodType(x.p)));
+  return kinds.size > 1 ? 'mixed' : [...kinds][0];
+}
+// Salaried cost for the month: each salaried slice contributes (annual / 12) scaled by
+// its share of the month's calendar days. A full salaried month = exactly annual / 12.
+function salariedMonthlyCost(s, mk) {
+  return compSegmentsInMonth(s, mk).reduce((sum, seg) => {
+    if (periodType(seg.p) !== 'fulltime') return sum;
+    const annual = seg.p.annualCost || 0;
+    if (annual <= 0) return sum;
+    return sum + (annual / 12) * (seg.days / seg.daysInMonth);
+  }, 0);
+}
+// Capacity for the month: weekdays in each slice at that period's weekly hours.
+function monthlyCapacityFor(s, mk) {
+  return compSegmentsInMonth(s, mk).reduce((sum, seg) =>
+    sum + weekdaysInMonthBetween(mk, seg.from, seg.to) * ((seg.p.weeklyCapacity || 0) / 5), 0);
+}
+// Share of the month's active days spent on an hourly arrangement, and the day-weighted
+// hourly rate across those slices. Hours are logged per month, not per day, so in a
+// mixed month we attribute hours to the hourly stretch in proportion to its length.
+function hourlyPortionOfMonth(s, mk) {
+  const segs = compSegmentsInMonth(s, mk);
+  let hourlyDays = 0, totalDays = 0, rateWeighted = 0;
+  segs.forEach(seg => {
+    totalDays += seg.days;
+    if (periodType(seg.p) === 'hourly') { hourlyDays += seg.days; rateWeighted += (seg.p.hourlyCost || 0) * seg.days; }
+  });
+  return { share: totalDays > 0 ? hourlyDays / totalDays : 0,
+           rate: hourlyDays > 0 ? rateWeighted / hourlyDays : 0 };
+}
+// Total cost of a person for one month, given the hours they worked that month.
+// Salaried slices cost salary regardless of hours; hourly slices cost rate x hours.
+function personMonthCost(s, mk, hours) {
+  const hp = hourlyPortionOfMonth(s, mk);
+  return salariedMonthlyCost(s, mk) + (hours || 0) * hp.share * hp.rate;
+}
+// A single per-hour cost for the month, used where work is costed by the hour
+// (project attribution). Salaried people are expressed as salary / capacity.
+function rateFor(s, mk) {
+  const segs = compSegmentsInMonth(s, mk);
+  if (!segs.length) return s.hourlyCost || 0;
+  let cost = 0, hrs = 0;
+  segs.forEach(seg => {
+    const wd = weekdaysInMonthBetween(mk, seg.from, seg.to);
+    const cap = wd * ((seg.p.weeklyCapacity || 0) / 5);
+    hrs += cap;
+    cost += periodType(seg.p) === 'fulltime'
+      ? (seg.p.annualCost || 0) / 12 * (seg.days / seg.daysInMonth)
+      : cap * (seg.p.hourlyCost || 0);
+  });
+  return hrs > 0 ? cost / hrs : (s.hourlyCost || 0);
+}
+// Blended per-hour cost across the months currently in view. Memoized per render pass
+// because it's called inside staff x project loops.
+let _rateCache = { sig: '', map: {} };
+function blendedRate(s) {
+  const ms = viewMonths();
+  if (!ms.length) return s.hourlyCost || 0;
+  const sig = ms[0] + '..' + ms[ms.length - 1] + ':' + ms.length;
+  if (_rateCache.sig !== sig) _rateCache = { sig, map: {} };
+  if (_rateCache.map[s.id] !== undefined) return _rateCache.map[s.id];
+  const vals = ms.map(mk => rateFor(s, mk)).filter(v => v > 0);
+  const out = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : (s.hourlyCost || 0);
+  _rateCache.map[s.id] = out;
+  return out;
+}
+// Keep the legacy flat fields pointing at the period in effect today, so anything not
+// yet period-aware (and the standalone scenario page) still reads sensible values.
+function syncFlatCompFields(s) {
+  const today = new Date().toISOString().slice(0, 10);
+  const ps = compPeriodsOf(s);
+  const cur = ps.find(p => (!p.start || p.start <= today) && (!p.end || p.end >= today)) || ps[ps.length - 1];
+  if (!cur) return;
+  s.employmentType = periodType(cur);
+  s.weeklyCapacity = cur.weeklyCapacity || 0;
+  if (periodType(cur) === 'fulltime') { s.annualCost = cur.annualCost || 0; recomputeSalariedRate(s); }
+  else { s.hourlyCost = cur.hourlyCost || 0; }
 }
 
 /* ===== PERIOD (single month or range) ===== */
@@ -1896,6 +2024,45 @@ function setStaffDate(id, side, value) {
   if (sd && ed && ed < sd) toast('Heads up: the end date is before the start date — fix one of them.', 6000);
   scheduleSave(); render();
 }
+function updateCompPeriod(id, i, field, value, rerender) {
+  const s = state.staff.find(x => x.id === id);
+  if (!s) return;
+  const list = ensureCompPeriods(s);
+  const p = list[i];
+  if (!p) return;
+  if (field === 'start' || field === 'end') p[field] = value || '';
+  else if (field === 'type') {
+    p.type = value === 'hourly' ? 'hourly' : 'fulltime';
+  } else {
+    p[field] = parseFloat(String(value).replace(/[^0-9.\-]/g, '')) || 0;
+  }
+  syncFlatCompFields(s);
+  scheduleSave();
+  if (rerender) renderCompPeriods();
+  render();
+}
+function addCompPeriod(id) {
+  const s = state.staff.find(x => x.id === id);
+  if (!s) return;
+  const list = ensureCompPeriods(s);
+  const last = list[list.length - 1] || {};
+  // Default the new period to start the day after the previous one ends, or today.
+  const base = last.end ? addDays(last.end, 1) : new Date().toISOString().slice(0, 10);
+  list.push({ id: uid(), start: base, end: '', type: periodType(last) || 'fulltime',
+              annualCost: last.annualCost || 0, hourlyCost: last.hourlyCost || 0,
+              weeklyCapacity: last.weeklyCapacity || 0 });
+  syncFlatCompFields(s);
+  scheduleSave(); renderCompPeriods(); render();
+}
+function removeCompPeriod(id, i) {
+  const s = state.staff.find(x => x.id === id);
+  if (!s) return;
+  const list = ensureCompPeriods(s);
+  if (list.length < 2) { toast('A person needs at least one compensation period.'); return; }
+  list.splice(i, 1);
+  syncFlatCompFields(s);
+  scheduleSave(); renderCompPeriods(); render();
+}
 function updateStaffCost(id, raw) {
   const s = state.staff.find(x => x.id === id);
   if (!s) return;
@@ -2016,8 +2183,8 @@ function demandDeptsForProject(pid) {
 }
 
 function projectHours(projectId, useActuals) { return state.staff.reduce((sum, s) => sum + (useActuals ? getActual(s.id, projectId) : getAssignment(s.id, projectId)), 0); }
-function projectCost(projectId, useActuals) { return state.staff.reduce((sum, s) => sum + (useActuals ? getActual(s.id, projectId) : getAssignment(s.id, projectId)) * s.hourlyCost, 0); }
-function internalCost(useActuals) { return state.staff.reduce((sum, s) => sum + (useActuals ? getActual(s.id, INTERNAL_ID) : getAssignment(s.id, INTERNAL_ID)) * s.hourlyCost, 0); }
+function projectCost(projectId, useActuals) { return state.staff.reduce((sum, s) => sum + (useActuals ? getActual(s.id, projectId) : getAssignment(s.id, projectId)) * blendedRate(s), 0); }
+function internalCost(useActuals) { return state.staff.reduce((sum, s) => sum + (useActuals ? getActual(s.id, INTERNAL_ID) : getAssignment(s.id, INTERNAL_ID)) * blendedRate(s), 0); }
 function internalHoursTotal(useActuals) { return state.staff.reduce((sum, s) => sum + (useActuals ? getActual(s.id, INTERNAL_ID) : getAssignment(s.id, INTERNAL_ID)), 0); }
 function timeOffLogged(sid) { return getActual(sid, TIMEOFF_ID); }
 function timeOffTotal() { return state.staff.reduce((sum, s) => sum + timeOffLogged(s.id), 0); }
@@ -2272,7 +2439,7 @@ function renderCandidates() {
     const monthsApplied = res.months.filter(mk => vm.includes(mk)).length || res.months.length;
     const totalAdd = perMonth * monthsApplied;
     const overBy = totalAdd - open;
-    const addedCost = totalAdd * s.hourlyCost;
+    const addedCost = totalAdd * blendedRate(s);
     const afterCost = before.cost + addedCost;
     const rev = getRevenue(project);
     const afterProfit = rev - afterCost;
@@ -2287,7 +2454,7 @@ function renderCandidates() {
       <div class="candidate ${match ? 'dept-match' : ''}">
         <div>
           <div class="c-name">${escapeHtml(s.name) || 'Unnamed'}</div>
-          <div class="c-meta">${escapeHtml(deptLabelOf(s))}${canSeeSalaries ? ' · ' + fmtMoney(s.hourlyCost) + '/hr' : ''}</div>
+          <div class="c-meta">${escapeHtml(deptLabelOf(s))}${canSeeSalaries ? ' · ' + fmtMoney(blendedRate(s)) + '/hr' : ''}</div>
         </div>
         <div class="c-capacity ${overBy > 0.01 ? 'over' : 'ok'}">
           ${fmtHrs(Math.max(open,0))}h open
@@ -2677,8 +2844,8 @@ function flightTotals(p) {
     state.staff.forEach(st => {
       const a = assignFor(mk, st.id, p.id);
       const ac = actualFor(mk, st.id, p.id);
-      planH += a; planC += a * st.hourlyCost;
-      actH += ac; actC += ac * st.hourlyCost;
+      planH += a; planC += a * blendedRate(st);
+      actH += ac; actC += ac * blendedRate(st);
     });
   });
   return {months: flight.length, rev, planH, planC, actH, actC, planProfit: rev - planC, actProfit: rev - actC};
@@ -2698,7 +2865,7 @@ function monthProjectCost(pid, mk, useActuals) {
   // Build keys from known ids (same as actualFor/assignFor) instead of parsing
   // stored keys apart — parsing breaks silently on ids containing '__'.
   const bucket = (useActuals ? state.actuals : state.assignments)[mk] || {};
-  return state.staff.reduce((sum, st) => sum + ((bucket[st.id + '__' + pid] || 0) * st.hourlyCost), 0);
+  return state.staff.reduce((sum, st) => sum + ((bucket[st.id + '__' + pid] || 0) * blendedRate(st)), 0);
 }
 function staffMonthHours(sid, mk, useActuals) {
   const bucket = (useActuals ? state.actuals : state.assignments)[mk] || {};
@@ -2740,8 +2907,7 @@ function monthTotalPayroll(mk) {
   const hasAct = Object.keys(state.actuals[mk] || {}).length > 0;
   return state.staff.reduce((sum, s) => {
     if (!staffActiveInMonth(s, mk)) return sum;
-    if (empType(s) === 'fulltime') return sum + salariedMonthlyCost(s, mk);
-    return sum + staffMonthHours(s.id, mk, hasAct) * s.hourlyCost;
+    return sum + personMonthCost(s, mk, staffMonthHours(s.id, mk, hasAct));
   }, 0);
 }
 function revenueByMonthSplit() {
@@ -3194,7 +3360,7 @@ function destroyDashCharts() { dashCharts.forEach(c => { try { c.destroy(); } ca
 function monthLaborCost(store, mk) {
   return Object.entries(store[mk] || {}).reduce((sum, [key, hrs]) => {
     const st = state.staff.find(x => x.id === key.split('__')[0]);
-    return sum + (st ? hrs * st.hourlyCost : 0);
+    return sum + (st ? hrs * blendedRate(st) : 0);
   }, 0);
 }
 
@@ -3456,7 +3622,7 @@ function summaryActualLabor() {
   // hourly staff cost exactly what they logged.
   return state.staff.reduce((sum, s) => {
     const hrs = empType(s) === 'fulltime' ? periodCapacity(s) : staffTotalHours(s.id, true);
-    return sum + hrs * s.hourlyCost;
+    return sum + hrs * blendedRate(s);
   }, 0);
 }
 
@@ -3488,8 +3654,7 @@ function personEconomicsBlended() {
       if (!staffActiveInMonth(st, mk)) return;
       const h = staffMonthHours(st.id, mk, hasAct);
       map[st.id].hours += h;
-      if (empType(st) === 'fulltime') map[st.id].cost += salariedMonthlyCost(st, mk);
-      else map[st.id].cost += h * st.hourlyCost;
+      map[st.id].cost += personMonthCost(st, mk, h);
       if (hasAct) map[st.id].monthsAct++; else map[st.id].monthsPlan++;
     });
   });
@@ -3515,9 +3680,8 @@ function personEconomics(useActuals) {
   state.staff.forEach(s => {
     const attributed = projs.reduce((sum, p) => sum + (revPerHour[p.id] ? get(s.id, p.id) * revPerHour[p.id] : 0), 0);
     const hours = staffTotalHours(s.id, useActuals);
-    const cost = empType(s) === 'fulltime'
-      ? viewMonths().filter(mk => staffActiveInMonth(s, mk)).reduce((c, mk) => c + salariedMonthlyCost(s, mk), 0)
-      : hours * s.hourlyCost;
+    const cost = viewMonths().filter(mk => staffActiveInMonth(s, mk))
+      .reduce((c, mk) => c + personMonthCost(s, mk, staffMonthHours(s.id, mk, useActuals)), 0);
     map[s.id] = { attributed, cost, profit: attributed - cost, hours };
   });
   return map;
@@ -3722,8 +3886,8 @@ function renderStaffTable() {
         const rev = getRevenue(p);
         const projPlanH = projectHours(p.id, false);
         const projActH = projectHours(p.id, true);
-        const planContrib = projPlanH > 0 ? rev * (hrs / projPlanH) - hrs * s.hourlyCost : -hrs * s.hourlyCost;
-        const actContrib = projActH > 0 ? rev * (act / projActH) - act * s.hourlyCost : null;
+        const planContrib = projPlanH > 0 ? rev * (hrs / projPlanH) - hrs * blendedRate(s) : -hrs * blendedRate(s);
+        const actContrib = projActH > 0 ? rev * (act / projActH) - act * blendedRate(s) : null;
         return `
           <div class="tm-row">
             <div>
@@ -3732,7 +3896,7 @@ function renderStaffTable() {
               ${canSeeSalaries ? `<div class="tm-meta">their profit: <span style="color:${planContrib >= 0 ? 'var(--teal)' : 'var(--rust)'}">${fmtMoney(planContrib)}</span> plan${actContrib !== null && showActual && act > 0 ? ' · <span style="color:' + (actContrib >= 0 ? 'var(--teal)' : 'var(--rust)') + '">' + fmtMoney(actContrib) + '</span> act' : ''}</div>` : ''}
             </div>
             <div><input type="text" inputmode="decimal" class="numfield" ${hourInputAttrs(uniformOver(mk => assignFor(mk, s.id, p.id)))} data-role="assignment" data-staff="${s.id}" data-project="${p.id}"> <span class="tm-meta">hrs/mo${isRange() ? ' · ' + fmtHrs(hrs) + 'h total' : ''}</span></div>
-            <div class="tm-meta">${canSeeSalaries ? fmtMoney(hrs * s.hourlyCost) + ' cost' : ''}</div>
+            <div class="tm-meta">${canSeeSalaries ? fmtMoney(hrs * blendedRate(s)) + ' cost' : ''}</div>
             <div class="tm-meta">${showActual && act ? 'logged ' + fmtHrs(act) + 'h ' + deltaHtml(hrs, act, false) : ''}</div>
             <div>${showActual ? pvPairHtml(hrs, act, 'h', true).replace('>plan<', '>asgn<').replace('>act<', '>log<') : ''}</div>
           </div>`;
@@ -3773,12 +3937,12 @@ function renderStaffTable() {
               <div class="tm-meta">logged time, not assigned${projectActiveInMonth(p, currentMonth) ? '' : ' · flight ended'}</div>
             </div>
             <div class="tm-meta">— no assignment</div>
-            <div class="tm-meta">${fmtMoney(act * s.hourlyCost)} cost</div>
+            <div class="tm-meta">${fmtMoney(act * blendedRate(s))} cost</div>
             <div class="tm-meta">logged ${fmtHrs(act)}h</div>
             <div>${pvPairHtml(0, act, 'h', true).replace('>plan<', '>asgn<').replace('>act<', '>log<')}</div>
           </div>`;
       }).join('');
-      const intRow = (intHrs > 0 || (showActual && intAct > 0)) ? `<div class="tm-row"><div><div class="tm-name" style="color:var(--internal)">Internal (non-billable)</div>${intHrs <= 0 ? '<div class="tm-meta">logged only — no internal hours planned</div>' : ''}</div><div class="tm-meta">${intHrs > 0 ? fmtHrs(intHrs) + ' hrs' : '—'}</div><div class="tm-meta">${canSeeSalaries ? fmtMoney((intHrs || intAct) * s.hourlyCost) + ' cost' : ''}</div><div class="tm-meta">${showActual && intAct ? 'logged ' + fmtHrs(intAct) + 'h' : ''}</div><div>${showActual && intAct ? pvPairHtml(intHrs, intAct, 'h', true).replace('>plan<', '>asgn<').replace('>act<', '>log<') : ''}</div></div>` : '';
+      const intRow = (intHrs > 0 || (showActual && intAct > 0)) ? `<div class="tm-row"><div><div class="tm-name" style="color:var(--internal)">Internal (non-billable)</div>${intHrs <= 0 ? '<div class="tm-meta">logged only — no internal hours planned</div>' : ''}</div><div class="tm-meta">${intHrs > 0 ? fmtHrs(intHrs) + ' hrs' : '—'}</div><div class="tm-meta">${canSeeSalaries ? fmtMoney((intHrs || intAct) * blendedRate(s)) + ' cost' : ''}</div><div class="tm-meta">${showActual && intAct ? 'logged ' + fmtHrs(intAct) + 'h' : ''}</div><div>${showActual && intAct ? pvPairHtml(intHrs, intAct, 'h', true).replace('>plan<', '>asgn<').replace('>act<', '>log<') : ''}</div></div>` : '';
       breakout = `
         <tr class="team-breakout"><td colspan="10">
           ${rows || '<div class="tm-empty">No project assignments this month.</div>'}
@@ -3893,7 +4057,7 @@ function renderProjectTable() {
           <div><span class="pb-name">${escapeHtml(c.st.name) || 'Unnamed'}</span>${c.st.department ? ` <span class="lg-dept">${escapeHtml(c.st.department)}</span>` : ''}</div>
           <div class="pb-num"><strong>${fmtHrs(c.logged)}h</strong> logged${c.assigned > 0 ? ' ' + deltaHtml(c.assigned, c.logged, false) : ''}</div>
           <div class="pb-num">${fmtHrs(c.assigned)}h assigned</div>
-          <div class="pb-num">${canSeeSalaries ? fmtMoney((c.logged || c.assigned) * c.st.hourlyCost) + ' cost' : ''}</div>
+          <div class="pb-num">${canSeeSalaries ? fmtMoney((c.logged || c.assigned) * blendedRate(c.st)) + ' cost' : ''}</div>
         </div>`).join('');
       const hasAnyActuals = contributors.some(c => c.logged > 0);
       const revMonths = billingActive(p)
@@ -4234,11 +4398,11 @@ function renderDemand() {
             <div></div>
             <div>
               <div class="p-name">${escapeHtml(s.name) || 'Unnamed'}</div>
-              <div class="p-meta">${fmtMoney(s.hourlyCost)}/hr · ${fmtHrs(Math.max(periodCapacity(s) - staffTotalHours(s.id, false), 0))}h open</div>
+              <div class="p-meta">${fmtMoney(blendedRate(s))}/hr · ${fmtHrs(Math.max(periodCapacity(s) - staffTotalHours(s.id, false), 0))}h open</div>
             </div>
             <div><input type="text" inputmode="decimal" class="numfield" ${hourInputAttrs(uniformOver(mk => assignFor(mk, s.id, p.id)))} data-role="assignment" data-staff="${s.id}" data-project="${p.id}"> <span class="p-meta">hrs/mo${isRange() ? ' · ' + fmtHrs(hrs) + 'h total' : ''}</span></div>
             <div class="p-meta">${showActual && act ? 'act ' + fmtHrs(act) + 'h' : ''}</div>
-            <div class="p-meta">${hrs > 0 ? fmtMoney(hrs * s.hourlyCost) + ' cost' : ''}</div>
+            <div class="p-meta">${hrs > 0 ? fmtMoney(hrs * blendedRate(s)) + ' cost' : ''}</div>
           </div>`;
       }).join('') + (members.length === 0 ? '<div class="person-row"><div></div><div class="p-meta">No one assigned yet — use the Assign button to staff this line.</div></div>' : '') : '';
 
@@ -4373,7 +4537,7 @@ function render() {
    jump around mid-edit. */
 const TYPED_ROLES = new Set(['staff-name','staff-dept','staff-cost','staff-cap','staff-internal',
   'project-name','project-revenue-month','assignment','demand-hours',
-  'pm-name','pm-dept','pm-cost','pm-cap','pj-rev-month','fc-rev-month','pb-rev-month',
+  'pm-name','pm-dept','pm-comp','pj-rev-month','fc-rev-month','pb-rev-month',
   'bl-amount','bl-fee','bl-rate','bl-margin','bl-hours','bl-budget','bl-mmargin','bl-mhours','bl-caph','bl-label']);
 let typedFieldDirty = false;
 
@@ -4490,9 +4654,7 @@ document.addEventListener('input', (e) => {
     else if (role === 'demand-hours') setDemand(t.dataset.project, t.dataset.dept, parseFloat(t.value) || 0);
     else if (role === 'pm-name') { updateStaffField(personEditId, 'name', t.value); document.getElementById('person-modal-title').textContent = t.value || 'Team member'; }
     else if (role === 'pm-dept') updateStaffField(personEditId, 'department', t.value);
-    else if (role === 'pm-cost') { updateStaffCost(personEditId, t.value); refreshPersonCostUI(true); }
-    else if (role === 'pm-cap') { updateStaffField(personEditId, 'weeklyCapacity', t.value); refreshPersonCostUI(true); }
-    else if (role === 'pm-type') { setStaffType(personEditId, t.value); refreshPersonCostUI(false); }
+    else if (role === 'pm-comp') { updateCompPeriod(personEditId, +t.dataset.i, t.dataset.field, t.value, t.dataset.field === 'type'); }
     else if (role === 'pj-rev-month') setRevenueOverride(projectEditId, t.dataset.mk, t.value);
     else if (role === 'pb-rev-month') setRevenueOverride(t.dataset.id, t.dataset.mk, t.value);
     else if (role === 'fc-rev-month') setRevenueOverride(t.dataset.pid, t.dataset.mk, t.value);
@@ -4836,6 +4998,8 @@ document.addEventListener('change', (e) => {
   if (dRole === 'pm-start') { setStaffDate(personEditId, 'start', e.target.value); return; }
   if (dRole === 'pm-end') { setStaffDate(personEditId, 'end', e.target.value); return; }
   if (dRole === 'pm-nolayoff') { updateStaffField(personEditId, 'layoffProtected', e.target.checked); return; }
+  if (dRole === 'pm-comp-add') { addCompPeriod(personEditId); return; }
+  if (dRole === 'pm-comp-remove') { removeCompPeriod(personEditId, +e.target.dataset.i); return; }
   if (e.target && e.target.dataset && e.target.dataset.role === 'bl-mode') {
     const p = state.projects.find(x => x.id === projectEditId);
     const line = p && p.billing && p.billing.lines[+e.target.dataset.line];

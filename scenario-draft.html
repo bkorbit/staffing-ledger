@@ -113,24 +113,41 @@ function normDept(d){ return String(d||'').trim() || 'No department'; }
 function fmtMoney(n){ const neg=n<0; n=Math.abs(Math.round(n)); return (neg?'-':'')+'$'+n.toLocaleString(); }
 function fmtH(n){ return (Math.round(n*10)/10).toLocaleString(); }
 function weekdaysInMonth(mk){ const [y,m]=mk.split('-').map(Number); const dim=new Date(y,m,0).getDate(); let n=0; for(let d=1;d<=dim;d++){const dow=new Date(y,m-1,d).getDay(); if(dow>=1&&dow<=5)n++;} return n; }
-function monthlyCapacityFor(s,mk){ return weekdaysInMonth(mk)*((s.weeklyCapacity||0)/5); }
+
 function lastDayOf(mk){ const [y,m]=mk.split('-').map(Number); return mk+'-'+String(new Date(Date.UTC(y,m,0)).getUTCDate()).padStart(2,'0'); }
-// Salaried monthly cost: annual/12 for a full month, calendar-day prorated for partial
-// boundary months. Independent of capacity/rate — only salary + start/end dates.
-function salariedMonthlyCost(s,mk){
-  const annual=s.annualCost||0; if(annual<=0) return 0;
-  const monthly=annual/12;
+function weekdaysInMonthBetween(mk,from,to){ const [y,m]=mk.split('-').map(Number); const dim=new Date(Date.UTC(y,m,0)).getUTCDate(); let n=0; for(let d=1;d<=dim;d++){ const dow=new Date(Date.UTC(y,m-1,d)).getUTCDay(); if(dow<1||dow>5)continue; const ds=mk+'-'+String(d).padStart(2,'0'); if(from&&ds<from)continue; if(to&&ds>to)continue; n++; } return n; }
+function addDays(ds,n){ return new Date(Date.parse(ds)+n*86400000).toISOString().slice(0,10); }
+function tenureBounds(s){ return { start: s.startDate||(s.startMonth?s.startMonth+'-01':null), end: s.endDate||(s.endMonth?lastDayOf(s.endMonth):null) }; }
+// Compensation periods: pay + availability change over time. Mirrors index.html.
+function compPeriodsOf(s){
+  let list=Array.isArray(s.compPeriods)? s.compPeriods.filter(Boolean):[];
+  if(!list.length){ const t=tenureBounds(s); return [{start:t.start||'',end:t.end||'',type:empType(s),annualCost:s.annualCost||0,hourlyCost:s.hourlyCost||0,weeklyCapacity:s.weeklyCapacity||0}]; }
+  list=[...list].sort((a,b)=>String(a.start||'').localeCompare(String(b.start||'')));
+  return list.map((p,i)=>{ const next=list[i+1]; let end=p.end||''; if(!end&&next&&next.start) end=addDays(next.start,-1); return {...p,end}; });
+}
+function periodType(p){ return p.type==='hourly'?'hourly':'fulltime'; }
+function compSegmentsInMonth(s,mk){
   const [y,m]=mk.split('-').map(Number);
   const dim=new Date(Date.UTC(y,m,0)).getUTCDate();
   const monthStart=mk+'-01', monthEnd=mk+'-'+String(dim).padStart(2,'0');
-  const startDate=s.startDate||(s.startMonth?s.startMonth+'-01':null);
-  const endDate=s.endDate||(s.endMonth?lastDayOf(s.endMonth):null);
-  const from=startDate&&startDate>monthStart?startDate:monthStart;
-  const to=endDate&&endDate<monthEnd?endDate:monthEnd;
-  if(to<from) return 0;
-  const activeDays=Math.round((Date.parse(to)-Date.parse(from))/86400000)+1;
-  return monthly*(activeDays/dim);
+  const t=tenureBounds(s); const segs=[];
+  compPeriodsOf(s).forEach(p=>{
+    let from=monthStart,to=monthEnd;
+    if(p.start&&p.start>from) from=p.start;
+    if(p.end&&p.end<to) to=p.end;
+    if(t.start&&t.start>from) from=t.start;
+    if(t.end&&t.end<to) to=t.end;
+    if(to<from) return;
+    segs.push({from,to,days:Math.round((Date.parse(to)-Date.parse(from))/86400000)+1,p,daysInMonth:dim});
+  });
+  return segs;
 }
+function monthlyCapacityFor(s,mk){ return compSegmentsInMonth(s,mk).reduce((sum,seg)=> sum + weekdaysInMonthBetween(mk,seg.from,seg.to)*((seg.p.weeklyCapacity||0)/5), 0); }
+function salariedMonthlyCost(s,mk){ return compSegmentsInMonth(s,mk).reduce((sum,seg)=>{ if(periodType(seg.p)!=='fulltime') return sum; const a=seg.p.annualCost||0; return a>0? sum+(a/12)*(seg.days/seg.daysInMonth) : sum; },0); }
+function hourlyPortionOfMonth(s,mk){ const segs=compSegmentsInMonth(s,mk); let hd=0,td=0,rw=0; segs.forEach(seg=>{ td+=seg.days; if(periodType(seg.p)==='hourly'){ hd+=seg.days; rw+=(seg.p.hourlyCost||0)*seg.days; } }); return { share: td>0?hd/td:0, rate: hd>0?rw/hd:0 }; }
+function personMonthCost(s,mk,hours){ const hp=hourlyPortionOfMonth(s,mk); return salariedMonthlyCost(s,mk)+(hours||0)*hp.share*hp.rate; }
+function empTypeIn(s,mk){ const segs=compSegmentsInMonth(s,mk); if(!segs.length) return empType(s); const k=new Set(segs.map(x=>periodType(x.p))); return k.size>1?'mixed':[...k][0]; }
+function hourlyRateIn(s,mk){ const hp=hourlyPortionOfMonth(s,mk); return hp.rate || (s.hourlyCost||0); }
 function staffActiveInMonth(s,mk){ const sm=(s.startDate||'').slice(0,7)||s.startMonth; const em=(s.endDate||'').slice(0,7)||s.endMonth; if(sm&&mk<sm)return false; if(em&&mk>em)return false; return true; }
 function projectActiveInMonth(p,mk){ if(p.startMonth&&mk<p.startMonth)return false; if(p.endMonth&&mk>p.endMonth)return false; return true; }
 function billingActive(p){ return !!(p.billing&&p.billing.lines&&p.billing.lines.length); }
@@ -191,13 +208,26 @@ function projectHours(pid,mk){ let sum=0; STATE.staff.forEach(s=>{ sum+=personPr
 // Fully-loaded hourly cost of a person: salaried -> monthly salary / their monthly
 // capacity that month (so it tracks workdays); hourly -> their stored rate.
 function loadedRate(s, mk){
-  if(empType(s)==='hourly') return s.hourlyCost||0;
+  const t=empTypeIn(s,mk);
+  if(t==='hourly') return hourlyRateIn(s,mk);
   const cap=monthlyCapacityFor(s,mk);
+  if(t==='mixed'){
+    // Blend: salary slice spread over its capacity, plus the hourly slice's rate.
+    const hp=hourlyPortionOfMonth(s,mk);
+    const sal=salariedMonthlyCost(s,mk);
+    return cap>0 ? (sal + cap*hp.share*hp.rate)/cap : hp.rate;
+  }
   return cap>0 ? salariedMonthlyCost(s,mk)/cap : 0;
 }
 // Marginal (cash) hourly cost: salaried hours are already paid -> ~$0 at the margin;
 // hourly hours are real cash out.
-function marginalRate(s){ return empType(s)==='hourly' ? (s.hourlyCost||0) : 0; }
+function marginalRate(s, mk){
+  // Salaried time is already paid (no marginal cash); hourly time is real cash out.
+  // In a mixed month only the hourly slice is marginal.
+  if(!mk) return empType(s)==='hourly' ? (s.hourlyCost||0) : 0;
+  const hp=hourlyPortionOfMonth(s,mk);
+  return hp.share>0 ? hp.rate*hp.share : 0;
+}
 function staffById(sid){ return STATE.staff.find(x=>x.id===sid); }
 
 // Delivery cost of an account over the window: each contributor's hours x their rate.
@@ -209,7 +239,7 @@ function accountDelivery(p, months){
   months.forEach(mk=>{
     STATE.staff.forEach(s=>{
       const h=personProjectHours(s.id,p.id,mk); if(h<=0) return;
-      const lr=loadedRate(s,mk), mr=marginalRate(s);
+      const lr=loadedRate(s,mk), mr=marginalRate(s,mk);
       hours+=h; loaded+=h*lr; marginal+=h*mr;
       const e=perPerson[s.id]||(perPerson[s.id]={sid:s.id,name:s.name||'Unnamed',type:empType(s),hours:0,loaded:0});
       e.hours+=h; e.loaded+=h*lr;
@@ -301,7 +331,7 @@ function personEfficiency(months){
       STATE.projects.forEach(p=>{
         const h=personProjectHours(s.id,p.id,mk); if(h<=0) return;
         booked+=h;
-        if(empType(s)==='hourly') cost+=h*(s.hourlyCost||0);
+        { const hp=hourlyPortionOfMonth(s,mk); if(hp.share>0) cost+=h*hp.share*hp.rate; }
         const tot=projectHours(p.id,mk); if(tot<=0) return;
         gp += revenueFor(p,mk) * (h/tot);
       });
@@ -465,9 +495,9 @@ function solveStaffing(accounts, keptIds, months, P){
   }); });
 
   const people=STATE.staff.filter(s=>months.some(mk=>staffActiveInMonth(s,mk))).map(s=>({
-    s, id:s.id, name:s.name||'Unnamed', dept:normDept(s.department), type:empType(s),
-    protected:!!s.layoffProtected, rate:s.hourlyCost,
-    monthSalary:Object.fromEntries(months.map(mk=>[mk, empType(s)==='fulltime'&&staffActiveInMonth(s,mk)?salariedMonthlyCost(s,mk):0])),
+    s, id:s.id, name:s.name||'Unnamed', dept:normDept(s.department), type:empTypeIn(s,months[0]),
+    protected:!!s.layoffProtected, rate:hourlyRateIn(s,months[0]),
+    monthSalary:Object.fromEntries(months.map(mk=>[mk, staffActiveInMonth(s,mk)?salariedMonthlyCost(s,mk):0])),
     cap:Object.fromEntries(months.map(mk=>[mk, staffActiveInMonth(s,mk)?monthlyCapacityFor(s,mk):0])),
     internal:Object.fromEntries(months.map(mk=>[mk, staffActiveInMonth(s,mk)?personInternalHours(s.id,mk):0]))
   }));
