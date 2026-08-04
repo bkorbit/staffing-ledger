@@ -331,11 +331,15 @@ input.rev-input { min-width: 90px; flex: 1; }
 .seg-off { background: #fabf4d; }
 #tab-team table { table-layout: fixed; }
 #tab-team th.col-name { width: 13%; }
-#tab-team th.col-dept { width: 8%; }
-#tab-team th.col-capy { width: 128px; min-width: 128px; }
-#tab-team th.col-int { width: 78px; min-width: 78px; }
-#tab-team th.col-name { min-width: 144px; }
-#tab-team th.col-dept { min-width: 96px; }
+#tab-team th.col-capy, #tab-team td.cap-readout { width: 172px; min-width: 172px; }
+#tab-team th.col-name, #tab-team td.col-name { width: 196px; min-width: 196px; }
+.dept-inline { display: block; width: 100%; box-sizing: border-box; margin-top: 3px; border: 1px solid transparent; border-radius: 4px; padding: 2px 5px; font-family: var(--font-mono); font-size: 10.5px; color: var(--slate); background: transparent; }
+.dept-inline:hover { border-color: var(--line); background: var(--paper-raised); }
+.dept-inline:focus { outline: none; border-color: var(--brand); background: #fff; color: var(--ink); }
+.cap-int { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
+.numfield.mini-int { width: 42px; padding: 1px 4px; font-size: 10.5px; text-align: right; }
+.sub-sort { color: var(--slate); opacity: 0.75; }
+.sub-sort:hover { opacity: 1; color: var(--ink); }
 #tab-team th.edit-col { width: 40px; }
 .edit-btn { background: none; border: none; color: var(--slate); cursor: pointer; font-size: 14px; line-height: 1; padding: 4px; }
 .edit-btn:hover { color: var(--brand); }
@@ -422,11 +426,13 @@ input.rev-input { min-width: 90px; flex: 1; }
 /* Wide tables keep their column widths and scroll inside the panel rather than
    letting the browser crush columns into each other when the window is narrow. */
 #tab-team .panel, #tab-projects .panel, #tab-forecast .panel, #tab-plan .panel, #tab-scoping .panel { overflow-x: auto; }
-#tab-team table { min-width: 1300px; }
+#tab-team table { min-width: 1130px; }
 /* Tighter gutters on the team table - it carries the most columns of any view. */
 #team-table th, #team-table td { padding-left: 8px; padding-right: 8px; }
 #tab-projects table { min-width: 960px; }
-#team-table th.col-bar, #team-table td.col-bar { width: 168px; min-width: 168px; max-width: 168px; }
+/* Bars share whatever space is left instead of being pinned, so the table fits the
+   window at common sizes and the bars simply get roomier on a large screen. */
+#team-table th.col-bar, #team-table td.col-bar { min-width: 150px; width: auto; }
 #team-table td.col-bar { vertical-align: bottom; }
 #team-table td.col-bar .mini-track { margin-top: 6px; }   /* consistent gap; bar sits at the cell bottom */
 #team-table td.col-bar .computed-sub { white-space: normal; line-height: 1.45; }
@@ -680,7 +686,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
   <header>
     <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0804-0121 · updated 2026-08-04</span></div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0804-0138 · updated 2026-08-04</span></div>
       <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
@@ -861,10 +867,8 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
       <table id="team-table">
         <thead>
           <tr id="team-head">
-            <th class="col-name sortable" data-sort="name">Name <span class="sort-ind" data-ind="name"></span></th>
-            <th class="col-dept sortable" data-sort="department">Department <span class="sort-ind" data-ind="department"></span></th>
-            <th class="col-capy sortable" data-sort="weeklyCapacity">Capacity <span class="sort-ind" data-ind="weeklyCapacity"></span></th>
-            <th class="col-int sortable" data-sort="internalHrs">Internal hrs <span class="sort-ind" data-ind="internalHrs"></span></th>
+            <th class="col-name sortable" data-sort="name">Name <span class="sort-ind" data-ind="name"></span><span class="sub-sort" data-sort="department"> · dept<span class="sort-ind" data-ind="department"></span></span></th>
+            <th class="col-capy sortable" data-sort="weeklyCapacity">Capacity <span class="sort-ind" data-ind="weeklyCapacity"></span><span class="sub-sort" data-sort="internalHrs"> · int<span class="sort-ind" data-ind="internalHrs"></span></span></th>
             <th class="sortable col-bar" data-sort="utilization">Utilization (plan) <span class="sort-ind" data-ind="utilization"></span></th>
             <th class="sortable col-bar" data-sort="loggedHrs">Logged vs assigned <span class="sort-ind" data-ind="loggedHrs"></span></th>
             <th class="sortable col-bar" data-sort="loggedUtil">Logged vs capacity <span class="sort-ind" data-ind="loggedUtil"></span></th>
@@ -3815,11 +3819,11 @@ function renderStaffTable() {
   const tbody = document.getElementById('staff-tbody');
   const list = sortedFilteredStaff();
   if (state.staff.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="10" class="empty-note">No one on the roster yet — add a person or import your tracking data.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-note">No one on the roster yet — add a person or import your tracking data.</td></tr>`;
     return;
   }
   if (list.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="10" class="empty-note">No people match the current filters.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-note">No people match the current filters.</td></tr>`;
     return;
   }
   const showActual = hasActualsThisMonth();
@@ -3966,7 +3970,7 @@ function renderStaffTable() {
       }).join('');
       const intRow = (intHrs > 0 || (showActual && intAct > 0)) ? `<div class="tm-row"><div><div class="tm-name" style="color:var(--internal)">Internal (non-billable)</div>${intHrs <= 0 ? '<div class="tm-meta">logged only — no internal hours planned</div>' : ''}</div><div class="tm-meta">${intHrs > 0 ? fmtHrs(intHrs) + ' hrs' : '—'}</div><div class="tm-meta">${canSeeSalaries ? fmtMoney((intHrs || intAct) * blendedRate(s)) + ' cost' : ''}</div><div class="tm-meta">${showActual && intAct ? 'logged ' + fmtHrs(intAct) + 'h' : ''}</div><div>${showActual && intAct ? pvPairHtml(intHrs, intAct, 'h', true).replace('>plan<', '>asgn<').replace('>act<', '>log<') : ''}</div></div>` : '';
       breakout = `
-        <tr class="team-breakout"><td colspan="10">
+        <tr class="team-breakout"><td colspan="8">
           ${rows || '<div class="tm-empty">No project assignments this month.</div>'}
           ${loggedOnlyRows}
           ${intRow}
@@ -3976,16 +3980,14 @@ function renderStaffTable() {
 
     return `
     <tr>
-      <td><div class="name-cell"><button class="expand-btn" data-role="team-toggle" data-id="${s.id}">${expanded ? '▾' : '▸'}</button><input type="text" value="${escapeAttr(s.name)}" placeholder="Name" data-role="staff-name" data-id="${s.id}"></div></td>
-      <td><input type="text" list="dept-datalist" value="${escapeAttr(s.department || '')}" placeholder="e.g. Design" data-role="staff-dept" data-id="${s.id}"></td>
-      <td class="cap-readout">
-        ${isRange() ? fmtHrs(cap) + 'h period' : fmtHrs(monthlyCapacityFor(s, currentMonth)) + 'h/mo'} <span class="cap-tag">${empType(s) === 'hourly' ? 'hourly' : 'salaried'}</span>
-        ${intHrsEarly > 0 && cap > 0 ? `<div class="computed-sub">− ${fmtHrs(intHrsEarly)}h internal = ${fmtHrs(avail)}h avail</div>` : ''}
-        ${(s.startDate || s.endDate || s.startMonth || s.endMonth) ? `<div class="computed-sub">${(s.startDate || s.startMonth) ? 'from ' + (s.startDate ? fmtDate(s.startDate) : monthShort(s.startMonth)) : ''}${(s.startDate || s.startMonth) && (s.endDate || s.endMonth) ? ' ' : ''}${(s.endDate || s.endMonth) ? 'until ' + (s.endDate ? fmtDate(s.endDate) : monthShort(s.endMonth)) : ''}</div>` : ''}
+      <td class="col-name">
+        <div class="name-cell"><button class="expand-btn" data-role="team-toggle" data-id="${s.id}">${expanded ? '▾' : '▸'}</button><input type="text" value="${escapeAttr(s.name)}" placeholder="Name" data-role="staff-name" data-id="${s.id}"></div>
+        <input class="dept-inline" type="text" list="dept-datalist" value="${escapeAttr(s.department || '')}" placeholder="department" data-role="staff-dept" data-id="${s.id}">
       </td>
-      <td class="internal-cell">
-        <input type="text" inputmode="decimal" class="numfield" ${hourInputAttrs(uniformOver(mk => assignFor(mk, s.id, INTERNAL_ID)))} data-role="staff-internal" data-id="${s.id}">
-        <div class="computed-sub">${showActual && intAct ? 'act ' + fmtHrs(intAct) + 'h' : '&nbsp;'}</div>
+      <td class="cap-readout">
+        ${isRange() ? fmtHrs(cap) + 'h period' : fmtHrs(monthlyCapacityFor(s, currentMonth)) + 'h/mo'} <span class="cap-tag">${empTypeIn(s, currentMonth) === 'hourly' ? 'hourly' : empTypeIn(s, currentMonth) === 'mixed' ? 'mixed' : 'salaried'}</span>
+        <div class="computed-sub cap-int">− <input type="text" inputmode="decimal" class="numfield mini-int" ${hourInputAttrs(uniformOver(mk => assignFor(mk, s.id, INTERNAL_ID)))} data-role="staff-internal" data-id="${s.id}" title="Internal (non-billable) hours">h int${cap > 0 ? ' = ' + fmtHrs(avail) + 'h avail' : ''}${showActual && intAct ? ' · act ' + fmtHrs(intAct) + 'h' : ''}</div>
+        ${(s.startDate || s.endDate || s.startMonth || s.endMonth) ? `<div class="computed-sub">${(s.startDate || s.startMonth) ? 'from ' + (s.startDate ? fmtDate(s.startDate) : monthShort(s.startMonth)) : ''}${(s.startDate || s.startMonth) && (s.endDate || s.endMonth) ? ' ' : ''}${(s.endDate || s.endMonth) ? 'until ' + (s.endDate ? fmtDate(s.endDate) : monthShort(s.endMonth)) : ''}</div>` : ''}
       </td>
       <td class="col-bar">
         ${cap <= 0
@@ -4965,7 +4967,8 @@ document.addEventListener('click', (e) => {
 document.getElementById('team-head').addEventListener('click', (e) => {
   const th = e.target.closest('th.sortable');
   if (!th) return;
-  const key = th.dataset.sort;
+  const sub = e.target.closest('[data-sort]');
+  const key = (sub && sub !== th) ? sub.dataset.sort : th.dataset.sort;
   if (ui.teamSort.key === key) ui.teamSort.dir *= -1;
   else ui.teamSort = {key, dir: 1};
   render();
