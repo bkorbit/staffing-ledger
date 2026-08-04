@@ -337,8 +337,8 @@ input.rev-input { min-width: 90px; flex: 1; }
 .dept-inline { display: block; width: 100%; box-sizing: border-box; margin-top: 3px; border: 1px solid transparent; border-radius: 4px; padding: 2px 5px; font-family: var(--font-mono); font-size: 10.5px; color: var(--slate); background: transparent; }
 .dept-inline:hover { border-color: var(--line); background: var(--paper-raised); }
 .dept-inline:focus { outline: none; border-color: var(--brand); background: #fff; color: var(--ink); }
-.cap-int { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
-.numfield.mini-int { width: 42px; padding: 1px 4px; font-size: 10.5px; text-align: right; }
+.cap-int { display: block; line-height: 1.5; }
+.numfield.mini-int { display: inline-block; width: 38px; padding: 0 3px; font-size: 10.5px; text-align: right; vertical-align: baseline; margin: 0 1px; }
 .sub-sort { color: var(--slate); opacity: 0.75; }
 .sub-sort:hover { opacity: 1; color: var(--ink); }
 #tab-team th.edit-col { width: 40px; }
@@ -428,6 +428,27 @@ input.rev-input { min-width: 90px; flex: 1; }
    letting the browser crush columns into each other when the window is narrow. */
 #tab-team .panel, #tab-projects .panel, #tab-forecast .panel, #tab-plan .panel, #tab-scoping .panel { overflow-x: auto; }
 #tab-team table { min-width: 1130px; }
+/* Progressive compression - bars shrink first, then the fixed columns and gutters,
+   so the table keeps fitting instead of forcing a horizontal scroll. */
+@media (max-width: 1560px) {
+  #team-table th, #team-table td { padding-left: 6px; padding-right: 6px; }
+  #team-table th.col-bar, #team-table td.col-bar { min-width: 126px; }
+  #tab-team th.col-name, #tab-team td.col-name { width: 178px; min-width: 178px; }
+  #tab-team th.col-capy, #tab-team td.cap-readout { width: 158px; min-width: 158px; }
+  #team-table th.col-profit, #team-table td.col-profit { width: 122px; min-width: 122px; max-width: 122px; }
+  #tab-team table { min-width: 0; }
+}
+@media (max-width: 1320px) {
+  #team-table th, #team-table td { padding-left: 5px; padding-right: 5px; font-size: 12px; }
+  #team-table th { font-size: 9px; letter-spacing: 0.05em; }
+  #team-table th.col-bar, #team-table td.col-bar { min-width: 104px; }
+  #tab-team th.col-name, #tab-team td.col-name { width: 158px; min-width: 158px; }
+  #tab-team th.col-capy, #tab-team td.cap-readout { width: 142px; min-width: 142px; }
+  #team-table th.col-profit, #team-table td.col-profit { width: 108px; min-width: 108px; max-width: 108px; }
+  #team-table .util-pct { font-size: 12px; }
+  #team-table .computed-sub, #team-table .cap-int { font-size: 9.5px; }
+  #team-table .name-cell input { font-size: 12px; }
+}
 /* Tighter gutters on the team table - it carries the most columns of any view. */
 #team-table th, #team-table td { padding-left: 8px; padding-right: 8px; }
 #tab-projects table { min-width: 960px; }
@@ -687,7 +708,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
   <header>
     <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0804-0141 · updated 2026-08-04</span></div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0804-0143 · updated 2026-08-04</span></div>
       <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
