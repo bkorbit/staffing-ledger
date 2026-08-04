@@ -711,7 +711,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
   <header>
     <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0804-0218 · updated 2026-08-04</span></div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0804-0221 · updated 2026-08-04</span></div>
       <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
@@ -888,6 +888,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
         <label title="Flight end dates aren't always correct — this lets you assign to accounts whose flight has technically ended"><input type="checkbox" id="team-show-ended"> include ended flights in assign list</label>
         <label title="Hide internal and time-off segments in the logged bars"><input type="checkbox" id="team-client-only"> client hours only</label>
         <label title="By default, people whose start/end dates put them outside the selected month/period are hidden"><input type="checkbox" id="team-show-inactive"> show inactive this period</label>
+        <button class="ghost" id="team-report-btn" title="Build a shareable assigned-vs-logged hours report for the selected department and period">Hours report</button>
       </div>
       <table id="team-table">
         <thead>
@@ -966,6 +967,26 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
 <datalist id="dept-datalist"></datalist>
 <div class="toast" id="toast"></div>
+
+<div class="modal-overlay" id="report-modal">
+  <div class="modal" style="max-width:960px;">
+    <div class="modal-head">
+      <div>
+        <h3>Hours report</h3>
+        <div class="context" id="report-context">Assigned vs logged hours by account and person</div>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <button class="ghost" id="report-copy">Copy as CSV</button>
+        <button class="ghost" id="report-download">Download</button>
+        <button class="ghost" id="report-print">Print / PDF</button>
+        <button class="ghost" id="report-close">Close</button>
+      </div>
+    </div>
+    <div class="modal-body" style="max-height:78vh; overflow-y:auto;">
+      <div id="report-preview"></div>
+    </div>
+  </div>
+</div>
 
 <div class="modal-overlay" id="person-modal">
   <div class="modal" style="max-width:880px;">
@@ -1388,6 +1409,169 @@ function renderCompPeriods() {
     </div>`;
   }).join('') || '<div class="computed-sub">No periods yet.</div>';
 }
+/* ===== Shareable hours report =====
+   Assigned vs logged hours, grouped by account then person, for the selected
+   department(s) and period. Deliberately hours-only - no salary, cost or profit -
+   so it can be sent to anyone on the team regardless of their access level. */
+function buildHoursReport() {
+  const months = viewMonths();
+  const people = state.staff.filter(s => months.some(mk => staffActiveInMonth(s, mk)));
+  const deptNames = ui.teamDept
+    ? [ui.teamDept]
+    : [...new Set(people.map(deptLabelOf))].sort((a, b) => a.localeCompare(b));
+
+  const pseudo = [{ id: INTERNAL_ID, name: 'Internal (non-billable)' }, { id: TIMEOFF_ID, name: 'Time off' }];
+  const allAccounts = state.projects.concat(pseudo);
+
+  const depts = deptNames.map(dept => {
+    const members = people.filter(s => deptLabelOf(s).toLowerCase() === String(dept).toLowerCase());
+    const accounts = [];
+    allAccounts.forEach(p => {
+      const contributors = [];
+      let aTot = 0, lTot = 0;
+      members.forEach(s => {
+        let a = 0, l = 0;
+        months.forEach(mk => { a += assignFor(mk, s.id, p.id); l += actualFor(mk, s.id, p.id); });
+        if (a > 0 || l > 0) { contributors.push({ name: s.name || 'Unnamed', assigned: a, logged: l }); aTot += a; lTot += l; }
+      });
+      if (!contributors.length) return;
+      contributors.sort((x, y) => (y.assigned + y.logged) - (x.assigned + x.logged));
+      accounts.push({ name: p.name || 'Untitled', assigned: aTot, logged: lTot, contributors,
+                      isPseudo: p.id === INTERNAL_ID || p.id === TIMEOFF_ID });
+    });
+    // real accounts first (by size), then internal / time off
+    accounts.sort((a, b) => (a.isPseudo - b.isPseudo) || ((b.assigned + b.logged) - (a.assigned + a.logged)));
+    const byPerson = members.map(s => {
+      let a = 0, l = 0;
+      months.forEach(mk => {
+        allAccounts.forEach(p => { a += assignFor(mk, s.id, p.id); l += actualFor(mk, s.id, p.id); });
+      });
+      return { name: s.name || 'Unnamed', assigned: a, logged: l };
+    }).filter(x => x.assigned > 0 || x.logged > 0).sort((x, y) => y.assigned - x.assigned);
+    return { dept, accounts, byPerson,
+             assigned: accounts.reduce((t, a) => t + a.assigned, 0),
+             logged: accounts.reduce((t, a) => t + a.logged, 0) };
+  }).filter(d => d.accounts.length);
+
+  const period = months.length > 1
+    ? monthLabel(months[0]) + ' – ' + monthLabel(months[months.length - 1])
+    : monthLabel(months[0]);
+  const anyLogged = depts.some(d => d.logged > 0);
+  return { depts, period, months, anyLogged, generated: new Date().toLocaleDateString('en-US',
+    { year: 'numeric', month: 'long', day: 'numeric' }) };
+}
+
+function reportDiffCell(assigned, logged) {
+  if (assigned <= 0 && logged <= 0) return '<td class="r-num r-muted">—</td>';
+  if (assigned <= 0) return '<td class="r-num r-over">+' + fmtHrs(logged) + '</td>';
+  if (logged <= 0) return '<td class="r-num r-muted">not logged</td>';
+  const d = logged - assigned;
+  if (Math.abs(d) < 0.05) return '<td class="r-num">on plan</td>';
+  return '<td class="r-num ' + (d > 0 ? 'r-over' : 'r-under') + '">' + (d > 0 ? '+' : '−') + fmtHrs(Math.abs(d)) + '</td>';
+}
+
+// The report body is shared by the in-app preview and the downloaded file.
+function reportBodyHtml(R) {
+  let h = '<div class="r-head"><h1>Assigned vs logged hours</h1>' +
+    '<div class="r-meta">' + escapeHtml(R.depts.map(d => d.dept).join(' · ')) +
+    ' &nbsp;·&nbsp; ' + escapeHtml(R.period) + ' &nbsp;·&nbsp; generated ' + escapeHtml(R.generated) + '</div></div>';
+  if (!R.anyLogged) h += '<div class="r-note">No hours have been logged for this period yet — the logged column will fill in once tracking data is imported.</div>';
+  R.depts.forEach(d => {
+    h += '<h2 class="r-dept">' + escapeHtml(d.dept) + '</h2>';
+    h += '<table class="r-table"><thead><tr><th>Account / person</th><th class="r-num">Assigned</th><th class="r-num">Logged</th><th class="r-num">Difference</th></tr></thead><tbody>';
+    d.accounts.forEach(a => {
+      h += '<tr class="r-acct"><td>' + escapeHtml(a.name) + '</td><td class="r-num">' + fmtHrs(a.assigned) +
+           'h</td><td class="r-num">' + (a.logged > 0 ? fmtHrs(a.logged) + 'h' : '—') + '</td>' +
+           reportDiffCell(a.assigned, a.logged) + '</tr>';
+      a.contributors.forEach(c => {
+        h += '<tr class="r-person"><td>' + escapeHtml(c.name) + '</td><td class="r-num">' + fmtHrs(c.assigned) +
+             'h</td><td class="r-num">' + (c.logged > 0 ? fmtHrs(c.logged) + 'h' : '—') + '</td>' +
+             reportDiffCell(c.assigned, c.logged) + '</tr>';
+      });
+    });
+    h += '<tr class="r-total"><td>Total — ' + escapeHtml(d.dept) + '</td><td class="r-num">' + fmtHrs(d.assigned) +
+         'h</td><td class="r-num">' + (d.logged > 0 ? fmtHrs(d.logged) + 'h' : '—') + '</td>' +
+         reportDiffCell(d.assigned, d.logged) + '</tr>';
+    h += '</tbody></table>';
+    if (d.byPerson.length) {
+      h += '<table class="r-table r-summary"><thead><tr><th>Person — all accounts</th><th class="r-num">Assigned</th><th class="r-num">Logged</th><th class="r-num">Difference</th></tr></thead><tbody>';
+      d.byPerson.forEach(pp => {
+        h += '<tr><td>' + escapeHtml(pp.name) + '</td><td class="r-num">' + fmtHrs(pp.assigned) +
+             'h</td><td class="r-num">' + (pp.logged > 0 ? fmtHrs(pp.logged) + 'h' : '—') + '</td>' +
+             reportDiffCell(pp.assigned, pp.logged) + '</tr>';
+      });
+      h += '</tbody></table>';
+    }
+  });
+  return h;
+}
+
+const REPORT_CSS = `
+:root { --brand:#0a493c; --teal:#3bc9ac; --ink:#1a1a1a; --slate:#6b7280; --line:#e0e0e0; --rust:#d1453b; --mint:#dcf4e9; }
+body { margin:0; padding:32px; background:#fff; color:var(--ink); font-family:'Montserrat',-apple-system,Segoe UI,sans-serif; }
+.r-head h1 { font-size:20px; margin:0 0 4px; color:var(--brand); }
+.r-meta { font-family:'DM Mono',ui-monospace,monospace; font-size:11px; color:var(--slate); }
+.r-note { margin:14px 0; padding:9px 12px; background:var(--mint); border-radius:5px; font-family:'DM Mono',ui-monospace,monospace; font-size:11px; }
+.r-dept { font-size:14px; margin:26px 0 8px; color:var(--brand); border-bottom:2px solid var(--brand); padding-bottom:5px; }
+.r-table { width:100%; border-collapse:collapse; margin-bottom:10px; }
+.r-table th { text-align:left; font-family:'DM Mono',ui-monospace,monospace; font-size:9px; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); padding:7px 10px; border-bottom:1px solid var(--line); }
+.r-table td { padding:6px 10px; border-bottom:1px solid #f0f0f0; font-family:'DM Mono',ui-monospace,monospace; font-size:11.5px; }
+.r-num { text-align:right; white-space:nowrap; }
+.r-acct td { font-weight:700; background:#fafafa; }
+.r-acct td:first-child { font-family:'Montserrat',sans-serif; font-size:12px; }
+.r-person td:first-child { padding-left:28px; color:var(--slate); }
+.r-total td { font-weight:700; border-top:2px solid var(--brand); background:var(--mint); }
+.r-over { color:var(--rust); font-weight:700; }
+.r-under { color:var(--slate); }
+.r-muted { color:#9ca3af; }
+.r-summary { margin-top:4px; }
+.r-summary th { background:#f7f7f7; }
+@media print { body { padding:0; } .r-dept { page-break-after:avoid; } tr { page-break-inside:avoid; } }
+`;
+
+function reportCsv(R) {
+  const rows = [['Department', 'Account', 'Person', 'Assigned hours', 'Logged hours', 'Difference']];
+  R.depts.forEach(d => d.accounts.forEach(a => {
+    rows.push([d.dept, a.name, '(all)', fmtHrs(a.assigned), fmtHrs(a.logged), fmtHrs(a.logged - a.assigned)]);
+    a.contributors.forEach(c => rows.push([d.dept, a.name, c.name, fmtHrs(c.assigned), fmtHrs(c.logged), fmtHrs(c.logged - c.assigned)]));
+  }));
+  return rows.map(r => r.map(v => /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : v).join(',')).join('\n');
+}
+
+let lastReport = null;
+function openHoursReport() {
+  lastReport = buildHoursReport();
+  if (!lastReport.depts.length) { toast('Nothing to report — no assigned or logged hours for this department and period.'); return; }
+  document.getElementById('report-context').textContent =
+    lastReport.depts.map(d => d.dept).join(' · ') + ' · ' + lastReport.period + ' · hours only, no cost data';
+  document.getElementById('report-preview').innerHTML = '<style>' + REPORT_CSS + '</style>' + reportBodyHtml(lastReport);
+  document.getElementById('report-modal').classList.add('open');
+}
+function downloadReport() {
+  if (!lastReport) return;
+  const title = 'EMG hours report — ' + lastReport.depts.map(d => d.dept).join(', ') + ' — ' + lastReport.period;
+  const doc = '<!doctype html><html><head><meta charset="utf-8"><title>' + escapeHtml(title) + '</title>' +
+    '<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">' +
+    '<style>' + REPORT_CSS + '</style></head><body>' + reportBodyHtml(lastReport) + '</body></html>';
+  const blob = new Blob([doc], { type: 'text/html' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'emg-hours-' + lastReport.depts.map(d => d.dept.toLowerCase().replace(/[^a-z0-9]+/g, '-')).join('-') +
+               '-' + lastReport.months[0] + '.html';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  toast('Report downloaded — it is a self-contained file you can email or open in any browser.');
+}
+function printReport() {
+  if (!lastReport) return;
+  const w = window.open('', '_blank');
+  if (!w) { toast('Your browser blocked the print window — allow pop-ups for this site.'); return; }
+  w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Hours report</title><style>' +
+    REPORT_CSS + '</style></head><body>' + reportBodyHtml(lastReport) + '</body></html>');
+  w.document.close();
+  setTimeout(() => { w.focus(); w.print(); }, 250);
+}
+
 function openPersonModal(id) {
   const s = state.staff.find(x => x.id === id);
   if (!s) return;
@@ -4614,7 +4798,23 @@ function applyNavCollapsed(on) {
   if (shell) shell.classList.toggle('nav-collapsed', !!on);
   const ico = document.getElementById('nav-toggle-ico');
   if (ico) ico.textContent = on ? '\u203A' : '\u2039';
-  const btn = document.getElementById('nav-toggle');
+  const btn = document.getElementById('team-report-btn').addEventListener('click', openHoursReport);
+document.getElementById('report-close').addEventListener('click', () => document.getElementById('report-modal').classList.remove('open'));
+document.getElementById('report-download').addEventListener('click', downloadReport);
+document.getElementById('report-print').addEventListener('click', printReport);
+document.getElementById('report-copy').addEventListener('click', () => {
+  if (!lastReport) return;
+  const csv = reportCsv(lastReport);
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(csv).then(
+      () => toast('Report copied as CSV — paste it straight into a spreadsheet.'),
+      () => toast('Could not reach the clipboard. Use Download instead.'));
+  } else { toast('Clipboard unavailable in this browser. Use Download instead.'); }
+});
+document.getElementById('report-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'report-modal') document.getElementById('report-modal').classList.remove('open');
+});
+document.getElementById('nav-toggle');
   if (btn) btn.title = on ? 'Expand the sidebar' : 'Collapse the sidebar';
   // charts need to re-measure after the content column changes width
   if (typeof render === 'function') setTimeout(() => { try { render(); } catch (e) {} }, 160);
