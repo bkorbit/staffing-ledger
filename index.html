@@ -338,7 +338,8 @@ input.rev-input { min-width: 90px; flex: 1; }
 .dept-inline:hover { border-color: var(--line); background: var(--paper-raised); }
 .dept-inline:focus { outline: none; border-color: var(--brand); background: #fff; color: var(--ink); }
 .cap-int { display: block; line-height: 1.5; }
-.numfield.mini-int { display: inline-block; width: 38px; padding: 0 3px; font-size: 10.5px; text-align: right; vertical-align: baseline; margin: 0 1px; }
+.numfield.mini-int { display: inline-block; width: 34px; padding: 0 3px; font-size: 10.5px; text-align: center; vertical-align: baseline; margin: 0 2px 0 0; border: 1px solid var(--line); border-radius: 3px; background: #fff; }
+.numfield.mini-int:focus { outline: none; border-color: var(--brand); }
 .sub-sort { color: var(--slate); opacity: 0.75; }
 .sub-sort:hover { opacity: 1; color: var(--ink); }
 #tab-team th.edit-col { width: 40px; }
@@ -457,6 +458,8 @@ input.rev-input { min-width: 90px; flex: 1; }
 #team-table th.col-bar, #team-table td.col-bar { min-width: 150px; width: auto; }
 #team-table td.col-bar { vertical-align: bottom; }
 #team-table td.col-bar .mini-track { margin-top: 6px; }   /* consistent gap; bar sits at the cell bottom */
+#team-table td .computed-sub, #team-table td .cap-int { white-space: normal; line-height: 1.45; overflow-wrap: anywhere; }
+#team-table td, #team-table th { overflow: hidden; }
 #team-table td.col-bar .computed-sub { white-space: normal; line-height: 1.45; }
 #team-table td.col-bar .offplan-note { white-space: normal; display: inline; }
 #team-table th.col-profit, #team-table td.col-profit { width: 132px; min-width: 132px; max-width: 132px; }
@@ -708,7 +711,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
   <header>
     <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0804-0143 · updated 2026-08-04</span></div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0804-0147 · updated 2026-08-04</span></div>
       <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
@@ -4008,14 +4011,14 @@ function renderStaffTable() {
       </td>
       <td class="cap-readout">
         ${isRange() ? fmtHrs(cap) + 'h period' : fmtHrs(monthlyCapacityFor(s, currentMonth)) + 'h/mo'} <span class="cap-tag">${empTypeIn(s, currentMonth) === 'hourly' ? 'hourly' : empTypeIn(s, currentMonth) === 'mixed' ? 'mixed' : 'salaried'}</span>
-        <div class="computed-sub cap-int">− <input type="text" inputmode="decimal" class="numfield mini-int" ${hourInputAttrs(uniformOver(mk => assignFor(mk, s.id, INTERNAL_ID)))} data-role="staff-internal" data-id="${s.id}" title="Internal (non-billable) hours">h int${cap > 0 ? ' = ' + fmtHrs(avail) + 'h avail' : ''}${showActual && intAct ? ' · act ' + fmtHrs(intAct) + 'h' : ''}</div>
+        <div class="computed-sub cap-int"><input type="text" inputmode="decimal" class="numfield mini-int" ${hourInputAttrs(uniformOver(mk => assignFor(mk, s.id, INTERNAL_ID)))} data-role="staff-internal" data-id="${s.id}" title="Internal (non-billable) hours">h int${cap > 0 ? ' · ' + fmtHrs(avail) + 'h avail' : ''}${showActual && intAct ? ' · act ' + fmtHrs(intAct) + 'h' : ''}</div>
         ${(s.startDate || s.endDate || s.startMonth || s.endMonth) ? `<div class="computed-sub">${(s.startDate || s.startMonth) ? 'from ' + (s.startDate ? fmtDate(s.startDate) : monthShort(s.startMonth)) : ''}${(s.startDate || s.startMonth) && (s.endDate || s.endMonth) ? ' ' : ''}${(s.endDate || s.endMonth) ? 'until ' + (s.endDate ? fmtDate(s.endDate) : monthShort(s.endMonth)) : ''}</div>` : ''}
       </td>
       <td class="col-bar">
         ${cap <= 0
           ? `<span class="computed-sub">not active this period</span>${total > 0 ? `<div class="util-pct over">${fmtHrs(total)}h assigned!</div>` : ''}`
           : `<span class="util-pct ${pctCls}">${Math.round(pct)}%</span>
-        <span class="computed-sub"> · ${fmtHrs(projHrs)} / ${fmtHrs(avail)}h avail${intHrsEarly > 0 ? ' · ' + fmtHrs(intHrsEarly) + 'h int' : ''}${pto > 0 ? ' · ' + fmtHrs(pto) + 'h PTO' : ''}</span>
+        <span class="computed-sub"> · ${fmtHrs(projHrs)} / ${fmtHrs(avail)}h${pto > 0 ? ' · ' + fmtHrs(pto) + 'h PTO' : ''}</span>
         <div class="mini-track split">${(() => {
           // Project portion is split per-account so an evenly-loaded person reads
           // differently from one who's over-scope on one account and under on others.
