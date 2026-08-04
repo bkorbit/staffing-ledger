@@ -39,7 +39,7 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; font-family: var(--font-body); background: var(--paper); color: var(--ink); }
-.app { max-width: none; margin: 0; padding: 28px clamp(20px, 3vw, 48px) 60px; }
+.app { max-width: none; margin: 0; padding: 22px clamp(12px, 1.3vw, 24px) 48px; }
 
 header { border-bottom: 2px solid var(--brand); padding-bottom: 16px; margin-bottom: 20px; display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:12px; }
 .eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; color: var(--slate); margin-bottom: 6px; }
@@ -231,10 +231,11 @@ input[type="month"].sc-ip { font-family: var(--font-mono); }
 .sc-tiny2 { width: 118px; height: 28px; border: 1px solid var(--line); border-radius: 3px; font-family: var(--font-mono); font-size: 12px; padding: 0 6px; }
 
 /* ===== app shell: sidebar navigation ===== */
-.shell { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 30px; align-items: start; transition: grid-template-columns 0.15s ease; }
-.shell.nav-collapsed { grid-template-columns: 48px minmax(0, 1fr); gap: 16px; }
+.shell { display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 22px; align-items: start; transition: grid-template-columns 0.15s ease; }
+.shell.nav-collapsed { grid-template-columns: 40px minmax(0, 1fr); gap: 12px; }
 .shell.nav-collapsed .nav-label, .shell.nav-collapsed .nav-count, .shell.nav-collapsed .nav-group-t { display: none; }
-.shell.nav-collapsed .nav-item { justify-content: center; padding: 9px 0; }
+.shell.nav-collapsed .nav-item { justify-content: center; padding: 8px 0; }
+.shell.nav-collapsed .nav-toggle { padding: 5px 0; }
 .shell.nav-collapsed .nav-ico { font-size: 14px; opacity: 1; }
 .shell.nav-collapsed .nav-group { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
 .nav-toggle { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin-bottom: 10px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--paper-raised); color: var(--slate); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
@@ -686,7 +687,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
   <header>
     <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0804-0138 · updated 2026-08-04</span></div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0804-0141 · updated 2026-08-04</span></div>
       <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
