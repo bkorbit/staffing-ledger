@@ -711,7 +711,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
   <header>
     <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0804-0147 · updated 2026-08-04</span></div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0804-0218 · updated 2026-08-04</span></div>
       <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
@@ -4911,6 +4911,8 @@ document.addEventListener('click', (e) => {
     if (pr) { setRevenueOverride(t.dataset.id, t.dataset.mk, String(Math.round(billingGP(pr, t.dataset.mk)))); render(); }
   }
   else if (role === 'fc-cost-remove') { state.fixedCosts.splice(+t.dataset.i, 1); scheduleSave(); render(); }
+  else if (role === 'pm-comp-add') { addCompPeriod(personEditId); }
+  else if (role === 'pm-comp-remove') { removeCompPeriod(personEditId, +t.dataset.i); }
   else if (role === 'fc-clear-correction') {
     const mk = t.dataset.mk;
     if ((state.monthCorrections || {})[mk]) { delete state.monthCorrections[mk]; scheduleSave(); renderForecast(); }
@@ -5092,8 +5094,6 @@ document.addEventListener('change', (e) => {
   if (dRole === 'pm-start') { setStaffDate(personEditId, 'start', e.target.value); return; }
   if (dRole === 'pm-end') { setStaffDate(personEditId, 'end', e.target.value); return; }
   if (dRole === 'pm-nolayoff') { updateStaffField(personEditId, 'layoffProtected', e.target.checked); return; }
-  if (dRole === 'pm-comp-add') { addCompPeriod(personEditId); return; }
-  if (dRole === 'pm-comp-remove') { removeCompPeriod(personEditId, +e.target.dataset.i); return; }
   if (e.target && e.target.dataset && e.target.dataset.role === 'bl-mode') {
     const p = state.projects.find(x => x.id === projectEditId);
     const line = p && p.billing && p.billing.lines[+e.target.dataset.line];
