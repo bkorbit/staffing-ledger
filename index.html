@@ -231,7 +231,14 @@ input[type="month"].sc-ip { font-family: var(--font-mono); }
 .sc-tiny2 { width: 118px; height: 28px; border: 1px solid var(--line); border-radius: 3px; font-family: var(--font-mono); font-size: 12px; padding: 0 6px; }
 
 /* ===== app shell: sidebar navigation ===== */
-.shell { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 30px; align-items: start; }
+.shell { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 30px; align-items: start; transition: grid-template-columns 0.15s ease; }
+.shell.nav-collapsed { grid-template-columns: 48px minmax(0, 1fr); gap: 16px; }
+.shell.nav-collapsed .nav-label, .shell.nav-collapsed .nav-count, .shell.nav-collapsed .nav-group-t { display: none; }
+.shell.nav-collapsed .nav-item { justify-content: center; padding: 9px 0; }
+.shell.nav-collapsed .nav-ico { font-size: 14px; opacity: 1; }
+.shell.nav-collapsed .nav-group { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+.nav-toggle { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin-bottom: 10px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--paper-raised); color: var(--slate); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
+.nav-toggle:hover { background: #e2e2e2; color: var(--ink); }
 .sidebar { position: sticky; top: 18px; display: flex; flex-direction: column; gap: 4px; }
 .nav-group { margin-top: 16px; }
 .nav-group-t { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--slate); padding: 0 10px 7px; }
@@ -247,7 +254,11 @@ input[type="month"].sc-ip { font-family: var(--font-mono); }
 .page-sub { font-family: var(--font-mono); font-size: 11px; color: var(--slate); }
 #month-context.hide { display: none; }
 @media (max-width: 900px) {
-  .shell { grid-template-columns: 1fr; gap: 16px; }
+  .shell, .shell.nav-collapsed { grid-template-columns: 1fr; gap: 16px; }
+  .shell.nav-collapsed .nav-label, .shell.nav-collapsed .nav-count, .shell.nav-collapsed .nav-group-t { display: inline; }
+  .shell.nav-collapsed .nav-item { justify-content: flex-start; padding: 8px 11px; }
+  .shell.nav-collapsed .nav-group { border-top: none; padding-top: 0; }
+  .nav-toggle { display: none; }
   .sidebar { position: static; flex-direction: row; flex-wrap: wrap; gap: 6px; border-bottom: 2px solid var(--brand); padding-bottom: 10px; }
   .nav-group { margin-top: 0; display: flex; align-items: center; gap: 4px; }
   .nav-group-t { padding: 0 6px 0 4px; }
@@ -288,7 +299,6 @@ td.sel-col input, th.sel-col input { width: auto; margin: 0; cursor: pointer; }
 @media (max-width: 860px) { .fc-row { grid-template-columns: 1fr 1fr; row-gap: 2px; } }
 
 table { width: 100%; border-collapse: collapse; background: var(--paper-raised); border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
-#team-table, #team-table tbody, #team-table tr, #team-table td, #team-table .team-breakout td { overflow: visible; }
 th { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
 th.sortable { cursor: pointer; user-select: none; }
 th.sortable:hover { color: var(--ink); }
@@ -322,9 +332,10 @@ input.rev-input { min-width: 90px; flex: 1; }
 #tab-team table { table-layout: fixed; }
 #tab-team th.col-name { width: 13%; }
 #tab-team th.col-dept { width: 8%; }
-#tab-team th.col-capy { width: 12%; }
-#tab-team th.col-int { width: 7%; }
-#tab-team th.col-profit { width: 12%; }
+#tab-team th.col-capy { width: 128px; min-width: 128px; }
+#tab-team th.col-int { width: 78px; min-width: 78px; }
+#tab-team th.col-name { min-width: 144px; }
+#tab-team th.col-dept { min-width: 96px; }
 #tab-team th.edit-col { width: 40px; }
 .edit-btn { background: none; border: none; color: var(--slate); cursor: pointer; font-size: 14px; line-height: 1; padding: 4px; }
 .edit-btn:hover { color: var(--brand); }
@@ -408,12 +419,19 @@ input.rev-input { min-width: 90px; flex: 1; }
 .mini-track { position: relative; width: 100%; max-width: 100%; height: 10px; background: #dedede; border-radius: 2px; overflow: hidden; margin-top: 3px; }
 /* The three utilization/logged bars share a fixed, equal column so long sub-text wraps
    inside its column instead of bleeding across the row. */
-#team-table th.col-bar, #team-table td.col-bar { width: 190px; min-width: 190px; max-width: 190px; }
+/* Wide tables keep their column widths and scroll inside the panel rather than
+   letting the browser crush columns into each other when the window is narrow. */
+#tab-team .panel, #tab-projects .panel, #tab-forecast .panel, #tab-plan .panel, #tab-scoping .panel { overflow-x: auto; }
+#tab-team table { min-width: 1300px; }
+/* Tighter gutters on the team table - it carries the most columns of any view. */
+#team-table th, #team-table td { padding-left: 8px; padding-right: 8px; }
+#tab-projects table { min-width: 960px; }
+#team-table th.col-bar, #team-table td.col-bar { width: 168px; min-width: 168px; max-width: 168px; }
 #team-table td.col-bar { vertical-align: bottom; }
 #team-table td.col-bar .mini-track { margin-top: 6px; }   /* consistent gap; bar sits at the cell bottom */
 #team-table td.col-bar .computed-sub { white-space: normal; line-height: 1.45; }
 #team-table td.col-bar .offplan-note { white-space: normal; display: inline; }
-#team-table th.col-profit, #team-table td.col-profit { width: 150px; min-width: 150px; max-width: 150px; }
+#team-table th.col-profit, #team-table td.col-profit { width: 132px; min-width: 132px; max-width: 132px; }
 #team-table td.col-profit .computed-sub { white-space: normal; line-height: 1.45; }
 .mini-bar { position: absolute; top: 0; bottom: 0; left: 0; background: var(--accent); }
 .mini-bar.over { background: var(--rust); }
@@ -444,9 +462,8 @@ input.rev-input { min-width: 90px; flex: 1; }
 .tm-picker { position: relative; min-width: 240px; }
 .tm-picker-input { width: 100%; box-sizing: border-box; border: 1px solid var(--line); border-radius: 4px; padding: 6px 9px; font-family: var(--font-mono); font-size: 11px; background: var(--paper-raised); }
 .tm-picker-input:focus { outline: none; border-color: var(--brand); }
-.tm-picker-menu { display: none; position: absolute; z-index: 200; top: calc(100% + 3px); left: 0; right: 0; background: #fff; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(10,73,60,0.16); max-height: 260px; overflow-y: auto; }
+.tm-picker-menu { display: none; position: fixed; z-index: 900; background: #fff; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(10,73,60,0.16); max-height: 260px; overflow-y: auto; }
 .tm-picker.open .tm-picker-menu { display: block; }
-.tm-picker.up .tm-picker-menu { top: auto; bottom: calc(100% + 3px); }
 .tm-picker-opt { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 11px; cursor: pointer; border-bottom: 1px solid #eee; }
 .tm-picker-opt:last-of-type { border-bottom: none; }
 .tm-picker-opt:hover, .tm-picker-opt.active { background: var(--mint); }
@@ -506,10 +523,6 @@ input.rev-input { min-width: 90px; flex: 1; }
   .dash-row { grid-template-columns: 240px 1fr 170px 130px; gap: 12px; }
 }
 @media (max-width: 1100px) {
-  /* wide tables scroll inside their panel instead of blowing out the page */
-  #tab-team .panel, #tab-projects .panel { overflow-x: auto; }
-  #tab-team table { min-width: 1040px; }
-  #tab-projects table { min-width: 960px; }
   .demand-row { grid-template-columns: 22px 150px 90px 1fr 170px 80px 30px; gap: 8px; }
   .pb-row { grid-template-columns: 220px 160px 130px 1fr; }
   .tm-row { grid-template-columns: 200px 120px 100px 100px 1fr; }
@@ -667,7 +680,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
   <header>
     <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0804-0117 · updated 2026-08-04</span></div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0804-0121 · updated 2026-08-04</span></div>
       <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
@@ -721,20 +734,21 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
   <div class="shell">
   <nav class="sidebar" id="sidebar">
-    <a class="nav-item" data-tab="dashboard" href="#/dashboard"><span class="nav-ico">◈</span>Home</a>
+    <button class="nav-toggle" id="nav-toggle" title="Collapse or expand the sidebar (also hidden on narrow screens)"><span id="nav-toggle-ico">‹</span><span class="nav-label">Collapse</span></button>
+    <a class="nav-item" data-tab="dashboard" href="#/dashboard" title="Home"><span class="nav-ico">◈</span><span class="nav-label">Home</span></a>
     <div class="nav-group">
       <div class="nav-group-t">Staffing</div>
-      <a class="nav-item" data-tab="team" href="#/team">Team <span class="nav-count" id="count-team"></span></a>
+      <a class="nav-item" data-tab="team" href="#/team" title="Team"><span class="nav-ico">◉</span><span class="nav-label">Team</span> <span class="nav-count" id="count-team"></span></a>
     </div>
     <div class="nav-group">
       <div class="nav-group-t">Projects</div>
-      <a class="nav-item" data-tab="projects" href="#/projects">Projects <span class="nav-count" id="count-projects"></span></a>
-      <a class="nav-item" data-tab="plan" href="#/plan">Planner</a>
+      <a class="nav-item" data-tab="projects" href="#/projects" title="Projects"><span class="nav-ico">▦</span><span class="nav-label">Projects</span> <span class="nav-count" id="count-projects"></span></a>
+      <a class="nav-item" data-tab="plan" href="#/plan" title="Planner"><span class="nav-ico">▧</span><span class="nav-label">Planner</span></a>
     </div>
     <div class="nav-group">
       <div class="nav-group-t">Operations</div>
-      <a class="nav-item" data-tab="forecast" href="#/forecast">Forecast</a>
-      <a class="nav-item" data-tab="scoping" href="#/scoping">Scoping</a>
+      <a class="nav-item" data-tab="forecast" href="#/forecast" title="Forecast"><span class="nav-ico">◐</span><span class="nav-label">Forecast</span></a>
+      <a class="nav-item" data-tab="scoping" href="#/scoping" title="Scoping"><span class="nav-ico">◇</span><span class="nav-label">Scoping</span></a>
     </div>
   </nav>
   <div class="content" id="content">
@@ -4550,7 +4564,48 @@ const TYPED_ROLES = new Set(['staff-name','staff-dept','staff-cost','staff-cap',
 let typedFieldDirty = false;
 
 /* ===== Team assignment picker (styled, self-contained; no re-render on keystroke) ===== */
-// Open + position on focus
+// The menu is position:fixed and placed against the viewport, so the horizontally
+// scrolling table panel can't clip it the way an absolutely-positioned menu would.
+function positionPickerMenu(picker) {
+  const inp = picker.querySelector('.tm-picker-input');
+  const menu = picker.querySelector('.tm-picker-menu');
+  if (!inp || !menu) return;
+  const r = inp.getBoundingClientRect();
+  menu.style.width = r.width + 'px';
+  menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - r.width - 8)) + 'px';
+  const h = menu.offsetHeight || 240;
+  const roomBelow = window.innerHeight - r.bottom;
+  menu.style.top = (roomBelow < h + 12 && r.top > h + 12 ? r.top - h - 3 : r.bottom + 3) + 'px';
+}
+function closeAllPickers() {
+  document.querySelectorAll('.tm-picker.open').forEach(p => p.classList.remove('open'));
+}
+/* ===== Sidebar collapse ===== */
+function navCollapsed() { try { return localStorage.getItem('emg-nav-collapsed') === '1'; } catch (e) { return false; } }
+function applyNavCollapsed(on) {
+  const shell = document.querySelector('.shell');
+  if (shell) shell.classList.toggle('nav-collapsed', !!on);
+  const ico = document.getElementById('nav-toggle-ico');
+  if (ico) ico.textContent = on ? '\u203A' : '\u2039';
+  const btn = document.getElementById('nav-toggle');
+  if (btn) btn.title = on ? 'Expand the sidebar' : 'Collapse the sidebar';
+  // charts need to re-measure after the content column changes width
+  if (typeof render === 'function') setTimeout(() => { try { render(); } catch (e) {} }, 160);
+}
+(function initNav() {
+  const btn = document.getElementById('nav-toggle');
+  if (!btn) return;
+  // Default to collapsed on tighter screens where the wide tables need the room.
+  let on = navCollapsed();
+  try { if (localStorage.getItem('emg-nav-collapsed') === null && window.innerWidth < 1500) on = true; } catch (e) {}
+  applyNavCollapsed(on);
+  btn.addEventListener('click', () => {
+    const next = !document.querySelector('.shell').classList.contains('nav-collapsed');
+    try { localStorage.setItem('emg-nav-collapsed', next ? '1' : '0'); } catch (e) {}
+    applyNavCollapsed(next);
+  });
+})();
+
 document.addEventListener('focusin', (e) => {
   const inp = e.target.closest && e.target.closest('.tm-picker-input');
   if (!inp) return;
@@ -4560,9 +4615,11 @@ document.addEventListener('focusin', (e) => {
   const menu = picker.querySelector('.tm-picker-menu');
   if (menu) { menu.querySelectorAll('.tm-picker-opt').forEach(o => { o.style.display = ''; o.classList.remove('active'); }); const n = menu.querySelector('.tm-picker-none'); if (n) n.style.display = 'none'; }
   picker.classList.add('open');
-  const r = inp.getBoundingClientRect();
-  picker.classList.toggle('up', (window.innerHeight - r.bottom) < 280);
+  positionPickerMenu(picker);
 });
+// A fixed menu would detach from its input on scroll, so close it instead.
+window.addEventListener('scroll', () => { if (document.querySelector('.tm-picker.open')) closeAllPickers(); }, true);
+window.addEventListener('resize', closeAllPickers);
 // Pick on mousedown (fires before blur, so selection always lands)
 document.addEventListener('mousedown', (e) => {
   const opt = e.target.closest && e.target.closest('.tm-picker-opt');
@@ -4758,6 +4815,7 @@ document.addEventListener('change', (e) => {
     });
     const none = menu.querySelector('.tm-picker-none');
     if (none) none.style.display = shown ? 'none' : '';
+    positionPickerMenu(picker);
     return;
   }
   if (t.id === 'proj-active-only') { ui.projActiveOnly = t.checked; render(); return; }
