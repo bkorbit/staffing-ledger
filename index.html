@@ -331,7 +331,7 @@ input.rev-input { min-width: 90px; flex: 1; }
 .cap-tag { font-family: var(--font-mono); font-size: 9px; color: var(--slate); border: 1px solid var(--line); border-radius: 3px; padding: 1px 5px; }
 .pm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .pm-grid label { display: block; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--slate); }
-.pm-grid label.pm-full { grid-column: 1 / -1; }
+.pm-grid .pm-full { grid-column: 1 / -1; }
 .pm-grid input, .pm-grid select { display: block; width: 100%; border: 1px solid var(--line); border-radius: 5px; padding: 8px 10px; margin-top: 5px; font-family: var(--font-mono); font-size: 13px; background: var(--paper-raised); color: var(--ink); text-transform: none; }
 .pm-grid input:focus, .pm-grid select:focus { outline: none; border-color: var(--brand); }
 .pm-hint { display: block; font-family: var(--font-mono); font-size: 10px; color: var(--slate); margin-top: 4px; text-transform: none; letter-spacing: 0; }
@@ -339,6 +339,7 @@ input.rev-input { min-width: 90px; flex: 1; }
 .pj-months-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; color: var(--slate); margin-bottom: 8px; }
 .pj-months { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
 #project-modal .modal-body { max-height: 85vh; overflow-y: auto; }
+#person-modal .modal-body { max-height: 82vh; overflow-y: auto; }
 .pj-computed[data-role] { cursor: pointer; }
 .pj-cbadge { font-size: 8px; color: var(--slate); border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; vertical-align: middle; }
 .bl-line { border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; margin-bottom: 10px; background: var(--paper-raised); }
@@ -385,12 +386,19 @@ input.rev-input { min-width: 90px; flex: 1; }
 .fc-correct-input { width: 92px; border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; font-family: var(--font-mono); font-size: 12px; text-align: right; background: var(--paper-raised); }
 .fc-correct-input:focus { outline: none; border-color: var(--brand); }
 .fc-clear { border: none; background: none; color: var(--rust); cursor: pointer; font-size: 13px; padding: 0 2px; }
-.pm-comp-head { font-family: var(--font-display); font-size: 12px; font-weight: 600; color: var(--ink); margin-bottom: 6px; display: flex; flex-direction: column; gap: 2px; }
-.pm-comp-row { display: grid; grid-template-columns: 1.15fr 1.15fr 0.9fr 0.95fr 0.7fr 20px; gap: 6px; align-items: end; padding: 7px 0; border-bottom: 1px solid var(--line); }
+#pm-comp-section { border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; background: var(--paper-raised); }
+.pm-comp-head { font-family: var(--font-display); font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 10px; display: flex; flex-direction: column; gap: 3px; }
+.pm-comp-row { display: grid; grid-template-columns: minmax(130px,1.1fr) minmax(130px,1.1fr) minmax(96px,0.8fr) minmax(96px,0.85fr) minmax(70px,0.55fr) 22px; gap: 8px; align-items: end; padding: 9px 0; border-bottom: 1px solid var(--line); }
 .pm-comp-row:last-of-type { border-bottom: none; }
-.pm-comp-row label { display: flex; flex-direction: column; gap: 2px; font-family: var(--font-mono); font-size: 9px; color: var(--slate); text-transform: uppercase; letter-spacing: 0.04em; }
-.pm-comp-row input, .pm-comp-row select { border: 1px solid var(--line); border-radius: 4px; padding: 5px 6px; font-family: var(--font-mono); font-size: 11px; background: var(--paper-raised); width: 100%; box-sizing: border-box; }
-.pm-comp-row input:focus, .pm-comp-row select:focus { outline: none; border-color: var(--brand); }
+.pm-comp-row > label { display: flex; flex-direction: column; gap: 3px; font-family: var(--font-mono); font-size: 9px; color: var(--slate); text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; min-width: 0; }
+.pm-grid .pm-comp-row input, .pm-grid .pm-comp-row select { display: block; margin-top: 0; border: 1px solid var(--line); border-radius: 4px; padding: 6px 7px; font-family: var(--font-mono); font-size: 12px; background: #fff; width: 100%; box-sizing: border-box; min-width: 0; }
+.pm-grid .pm-comp-row input:focus, .pm-grid .pm-comp-row select:focus { outline: none; border-color: var(--brand); }
+.pm-comp-row .fc-clear { align-self: center; font-size: 15px; line-height: 1; }
+.pm-comp-sub { font-family: var(--font-mono); font-size: 9px; color: var(--slate); text-transform: none; letter-spacing: 0; }
+@media (max-width: 760px) {
+  .pm-comp-row { grid-template-columns: 1fr 1fr 1fr; }
+  .pm-comp-row .fc-clear { grid-column: 3; justify-self: end; }
+}
 .mini-track.split .seg { height: 100%; flex-shrink: 0; }
 .mini-track.split .seg-int { background: #0a493c; }
 .mini-track.split .seg-proj { background: var(--accent); }
@@ -659,7 +667,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
   <header>
     <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0804-0110 · updated 2026-08-04</span></div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0804-0117 · updated 2026-08-04</span></div>
       <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
@@ -917,7 +925,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 <div class="toast" id="toast"></div>
 
 <div class="modal-overlay" id="person-modal">
-  <div class="modal" style="max-width:540px;">
+  <div class="modal" style="max-width:880px;">
     <div class="modal-head">
       <div>
         <h3 id="person-modal-title">Team member</h3>
@@ -928,16 +936,16 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
     <div class="modal-body">
       <div class="pm-grid">
         <label class="pm-full">Name<input type="text" data-role="pm-name" id="pm-name" placeholder="Name"></label>
-        <label>Department<input type="text" list="dept-datalist" data-role="pm-dept" id="pm-dept" placeholder="e.g. Design"></label>
+        <label class="pm-full">Department<input type="text" list="dept-datalist" data-role="pm-dept" id="pm-dept" placeholder="e.g. Design"></label>
+        <label>Start date<input type="date" data-role="pm-start" id="pm-start"><span class="pm-hint">first day at the company · blank = always</span></label>
+        <label>End date<input type="date" data-role="pm-end" id="pm-end"><span class="pm-hint">last day worked · blank = ongoing</span></label>
         <div class="pm-full" id="pm-comp-section">
           <div class="pm-comp-head">Compensation &amp; availability
-            <span class="pm-hint" style="margin:0;">one row per arrangement — a new row starting on a date automatically ends the previous one the day before</span>
+            <span class="pm-hint" style="margin:0;">One row per arrangement. Give a row a start date and the row above it ends automatically the day before — a mid-month change is split by exact date.</span>
           </div>
           <div id="pm-comp-list"></div>
-          <button class="ghost" data-role="pm-comp-add" style="margin-top:6px;">+ Add period</button>
+          <button class="ghost" data-role="pm-comp-add" style="margin-top:10px;">+ Add period</button>
         </div>
-        <label>Start date<input type="date" data-role="pm-start" id="pm-start"><span class="pm-hint">capacity prorates from this day · blank = always</span></label>
-        <label>End date<input type="date" data-role="pm-end" id="pm-end"><span class="pm-hint">last day worked · blank = ongoing</span></label>
         <label class="pm-full" style="flex-direction:row; align-items:center; gap:8px;"><input type="checkbox" data-role="pm-nolayoff" id="pm-nolayoff" style="width:auto;"> Protected from layoff (dept head / key role)<span class="pm-hint" style="margin:0;">scenario planner always retains this person</span></label>
       </div>
     </div>
@@ -1326,12 +1334,12 @@ function renderCompPeriods() {
     const impliedEnd = stored && !(stored[i] || {}).end && p.end;
     return `<div class="pm-comp-row">
       <label>From<input type="date" data-role="pm-comp" data-i="${i}" data-field="start" value="${p.start || ''}"></label>
-      <label>To<input type="date" data-role="pm-comp" data-i="${i}" data-field="end" value="${(stored ? (stored[i] || {}).end : p.end) || ''}" placeholder="ongoing">${impliedEnd ? `<span class="pm-hint" style="margin:0;">ends ${p.end}</span>` : ''}</label>
+      <label>To${impliedEnd ? ` <span class="pm-comp-sub">(auto: ${p.end})</span>` : ''}<input type="date" data-role="pm-comp" data-i="${i}" data-field="end" value="${(stored ? (stored[i] || {}).end : p.end) || ''}"></label>
       <label>Type<select data-role="pm-comp" data-i="${i}" data-field="type">
         <option value="fulltime"${ft ? ' selected' : ''}>Salaried</option>
         <option value="hourly"${!ft ? ' selected' : ''}>Hourly</option>
       </select></label>
-      <label>${ft ? 'Annual ($)' : 'Rate ($/hr)'}<input type="text" inputmode="decimal" data-role="pm-comp" data-i="${i}" data-field="${ft ? 'annualCost' : 'hourlyCost'}" value="${ft ? (p.annualCost || 0) : (p.hourlyCost || 0)}"></label>
+      <label>${ft ? 'Annual $' : '$ / hr'}<input type="text" inputmode="decimal" data-role="pm-comp" data-i="${i}" data-field="${ft ? 'annualCost' : 'hourlyCost'}" value="${ft ? (p.annualCost || 0) : (p.hourlyCost || 0)}"></label>
       <label>Hrs/wk<input type="text" inputmode="decimal" data-role="pm-comp" data-i="${i}" data-field="weeklyCapacity" value="${p.weeklyCapacity || 0}"></label>
       <button class="fc-clear" data-role="pm-comp-remove" data-i="${i}" title="Remove this period"${periods.length < 2 ? ' style="visibility:hidden;"' : ''}>×</button>
     </div>`;
