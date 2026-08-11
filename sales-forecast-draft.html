@@ -35,6 +35,9 @@ font-family:var(--fm);font-size:11px;background:#fff;color:var(--ink)}
 .seg.ghosty{margin-left:auto;color:var(--slate)}
 .csum{font-family:var(--fm);font-size:10px;color:var(--slate);margin-bottom:2px}
 .csvg.scroll{overflow-x:auto}
+.chartpanel.collapsed{padding-bottom:12px}
+.chartpanel.collapsed .range{margin-bottom:0}
+#chart-toggle{margin-left:6px}
 .chead h3{margin:0 0 6px;font-size:14px;color:var(--brand)}
 svg.chart{width:100%;height:auto;display:block}
 svg.chart .ax{font-family:var(--fm);font-size:10px;fill:var(--slate)}
@@ -121,6 +124,7 @@ ul.rules{margin:0;padding-left:16px;font-family:var(--fm);font-size:10px;color:v
         <button class="seg" data-span="24">24mo</button>
       </span>
       <button class="seg ghosty" data-jump="today">Back to today</button>
+      <button class="seg" id="chart-toggle" data-chart="1">Hide chart</button>
     </div>
     <div id="chart"></div>
   </div>
@@ -309,6 +313,7 @@ const LEDGER={};
 let weighted=true, mode='live', showAll=false;
 // Chart / grid window. Defaults to the next six months from the current month.
 let rangeFrom=TODAY.slice(0,7), rangeTo=null;   // resolved on first render
+let chartOn=(()=>{ try{ return localStorage.getItem('sf-chart')!=='0'; }catch(e){ return true; } })();
 
 const money=n=>(n<0?'-':'')+'$'+Math.round(Math.abs(n)).toLocaleString();
 const mk=d=>d.slice(0,7);
@@ -364,6 +369,11 @@ function build(){
 }
 
 function renderChart(cols,shown){
+  const panel=document.querySelector('.chartpanel');
+  const btn=document.getElementById('chart-toggle');
+  if(btn) btn.textContent = chartOn ? 'Hide chart' : 'Show chart';
+  if(panel) panel.classList.toggle('collapsed',!chartOn);
+  if(!chartOn){ document.getElementById('chart').innerHTML=''; return; }
   const n=cols.length;
   const W=Math.max(1080,Math.round(74*n)+90), H=300,PL=64,PR=14,PT=16,PB=52,IW=W-PL-PR,IH=H-PT-PB;
   const dense=n>10, verydense=n>16;
@@ -490,6 +500,8 @@ document.addEventListener('change',e=>{
 document.addEventListener('click',e=>{
   const j=e.target.closest('[data-jump]');
   if(j){ rangeFrom=TODAY.slice(0,7); rangeTo=shift(rangeFrom,5); render(); return; }
+  const ct=e.target.closest('[data-chart]');
+  if(ct){ chartOn=!chartOn; try{ localStorage.setItem('sf-chart',chartOn?'1':'0'); }catch(e2){} render(); return; }
   const sp=e.target.closest('[data-span]');
   if(sp){ rangeTo=shift(rangeFrom,+sp.dataset.span-1); render(); return; }
   const b=e.target.closest('.seg'); if(!b) return;
