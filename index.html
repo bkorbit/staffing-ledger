@@ -689,6 +689,67 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 .auth-msg.err { color: var(--rust); }
 .auth-msg.info { color: var(--slate); }
 .user-chip { font-family: var(--font-mono); font-size: 11px; color: var(--slate); display: flex; align-items: center; gap: 8px; }
+
+/* ===== Sales Forecast ===== */
+#tab-sales .chartpanel{padding:0;overflow:visible}
+#tab-sales .range{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:15px 22px;border-bottom:1px solid var(--line)}
+#tab-sales .chartpanel.collapsed .range{border-bottom:none}
+#tab-sales .rl{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.09em;color:var(--slate)}
+#tab-sales .rd{font-family:var(--font-mono);font-size:10px;color:var(--slate)}
+#tab-sales .range input[type=month]{border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-family:var(--font-mono);font-size:11px;background:#fff}
+#tab-sales .range input[type=month]:focus{outline:none;border-color:var(--brand)}
+#tab-sales .rp{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--paper-raised)}
+#tab-sales .rp .seg,#tab-sales .range .seg{font-family:var(--font-mono);font-size:10px;padding:6px 11px;border:none;background:transparent;cursor:pointer;color:var(--slate);border-left:1px solid var(--line)}
+#tab-sales .rp .seg:first-child{border-left:none}
+#tab-sales .seg.on{background:var(--brand);color:#fff}
+#tab-sales .range>.seg{border:1px solid var(--line);border-radius:6px;background:var(--paper-raised)}
+#tab-sales .seg.ghosty{margin-left:auto}
+.chead{padding:18px 22px 0}
+.chead h3{margin:0 0 5px;font-size:14px;color:var(--brand)}
+.csum{font-family:var(--font-mono);font-size:10px;color:var(--slate);margin:0 0 4px}
+.csvg{padding:6px 12px 0}
+.csvg.scroll{overflow-x:auto;padding-bottom:6px}
+svg.sf-chart{width:100%;height:auto;display:block}
+svg.sf-chart .sf-ax{font-family:var(--font-mono);font-size:10px;fill:var(--slate)}
+svg.sf-chart .sf-bt{font-family:var(--font-mono);font-size:10.5px;fill:var(--brand)}
+svg.sf-chart .sf-pl{font-family:var(--font-mono);font-size:9px;fill:var(--slate)}
+svg.sf-chart rect:hover{opacity:.82}
+#tab-sales .legend{display:flex;flex-wrap:wrap;gap:8px 20px;margin:14px 0 0;padding:14px 22px 18px;border-top:1px solid var(--line);background:#f2f4f3;border-radius:0 0 8px 8px}
+#tab-sales .legend span{display:flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:10px}
+#tab-sales .legend i{width:11px;height:11px;border-radius:2px;flex:none}
+#tab-sales .legend em{font-style:normal;color:var(--slate);font-size:9px}
+.cover{font-family:var(--font-mono);font-size:11px;padding:10px 13px;border-radius:6px;margin:0 0 12px;line-height:1.6}
+.cover.good{background:var(--mint)}.cover.warn{background:#fdf3dc}.cover.bad{background:#fbe7e4}
+table.sf{width:100%;border-collapse:collapse;min-width:900px}
+table.sf th{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:var(--slate);text-align:left;padding:9px 8px;border-bottom:1px solid var(--line)}
+table.sf td{padding:7px 8px;border-bottom:1px solid #efefef;font-family:var(--font-mono);font-size:11.5px;vertical-align:top}
+table.sf th.num,table.sf td.num{text-align:right;white-space:nowrap}
+table.sf th.cl,table.sf td.cl{min-width:220px}table.sf th.pr,table.sf td.pr{min-width:118px}table.sf th.fl,table.sf td.fl{min-width:130px}
+.sf-c td{background:#eef1f0;font-weight:700;font-family:var(--font-display);font-size:12.5px;border-top:1px solid var(--line)}
+.sf-c td.num{font-family:var(--font-mono);font-size:11.5px}
+.sf-d td.cl{padding-left:22px}.sf-d.dim td{opacity:.55}
+.sf-parts{font-size:9px;color:var(--slate);margin-top:2px}
+table.sf td.pr{font-size:10px;color:var(--slate)}
+.sf-p{display:inline-block;margin-left:5px;border-radius:3px;padding:0 4px;font-size:9px}
+table.sf td.tot{font-weight:700;color:var(--brand)}
+.sf-z{color:#c8c8c8}
+.sf-g td{background:var(--brand);color:#fff;font-weight:700}
+.sf-g td.tot{color:var(--teal)}
+.sf-flag{display:inline-block;font-size:8.5px;padding:1px 5px;border-radius:3px;margin:1px 2px 1px 0;white-space:nowrap}
+.sf-flag.t{background:var(--gold);color:#3a2c00}.sf-flag.w{background:#fbe7e4;color:var(--rust)}.sf-flag.i{background:#e6e6e6;color:var(--slate)}
+button.sf-copy{font-size:9.5px;padding:3px 8px}
+.hs-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+@media(max-width:900px){.hs-grid{grid-template-columns:1fr}}
+.hs-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-family:var(--font-mono);font-size:11px;color:var(--ink)}
+.hs-row>span:first-child{min-width:150px;color:var(--slate);font-size:10px;text-transform:uppercase;letter-spacing:.05em}
+.hs-row input[type=text]{border:1px solid var(--line);border-radius:4px;padding:4px 7px;font-family:var(--font-mono);font-size:11px}
+.hs-alias{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.hs-alias input{flex:1;border:1px solid var(--line);border-radius:4px;padding:4px 7px;font-family:var(--font-mono);font-size:10.5px;min-width:0}
+.hs-alias span{color:var(--slate)}
+table.hs-map{width:100%;border-collapse:collapse;max-width:620px}
+table.hs-map th{font-family:var(--font-mono);font-size:8.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--slate);text-align:left;padding:5px 7px;border-bottom:1px solid var(--line)}
+table.hs-map td{padding:4px 7px;border-bottom:1px solid #efefef;font-family:var(--font-mono);font-size:10.5px}
+table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6px;font-family:var(--font-mono);font-size:10.5px;background:#fff}
 </style>
 </head>
 <body>
@@ -715,7 +776,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
   <header>
     <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0804-0231 · updated 2026-08-04</span></div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0811-1644 · updated 2026-08-11</span></div>
       <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
@@ -782,6 +843,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
     <div class="nav-group">
       <div class="nav-group-t">Operations</div>
       <a class="nav-item" data-tab="forecast" href="#/forecast" title="Forecast"><span class="nav-ico">◐</span><span class="nav-label">Forecast</span></a>
+      <a class="nav-item" data-tab="sales" href="#/sales" title="Sales Forecast"><span class="nav-ico">◭</span><span class="nav-label">Sales Forecast</span></a>
       <a class="nav-item" data-tab="scoping" href="#/scoping" title="Scoping"><span class="nav-ico">◇</span><span class="nav-label">Scoping</span></a>
     </div>
     <div class="nav-group">
@@ -923,6 +985,15 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
     <div id="scoping-body"></div>
     <div id="scoping-modal" class="sc-modal" style="display:none;"></div>
   </div>
+  <div class="tab-section" id="tab-sales">
+    <section class="panel chartpanel" id="sales-chart-panel">
+      <div class="range" id="sales-range"></div>
+      <div id="sales-chart"></div>
+    </section>
+    <div id="sales-coverage"></div>
+    <section class="panel"><div id="sales-grid"></div></section>
+  </div>
+
   <div class="tab-section" id="tab-settings">
     <section class="panel">
       <div class="panel-head"><h3>Workspace access</h3></div>
@@ -1198,6 +1269,7 @@ const PAGES = {
   plan:      { title: 'Planner',    sub: 'Who is on what, month by month',          month: true  },
   forecast:  { title: 'Forecast',   sub: 'Revenue and labour ahead — set the range below',  month: false },
   scoping:   { title: 'Scoping',    sub: 'Will a new deal pay for itself?',         month: false },
+  sales:     { title: 'Sales Forecast', sub: 'Open pipeline from HubSpot, by client and month', month: false },
   settings:  { title: 'Settings',   sub: 'People who can use this workspace',       month: false }
 };
 function pageFromHash(){
@@ -1216,6 +1288,7 @@ function setTab(tab, skipHash) {
   if (!skipHash) { const want = '#/' + tab; if (location.hash !== want) location.hash = want; }
   if (tab === 'scoping') renderScoping();
   if (tab === 'settings') renderSettings();
+  if (tab === 'sales') renderSales();
   window.scrollTo(0, 0);
 }
 
@@ -1628,6 +1701,301 @@ function printReport() {
    admin key needed to create accounts without handing that key to everyone. */
 function ensureUsers() { if (!Array.isArray(state.users)) state.users = []; return state.users; }
 
+
+/* ===== Sales Forecast — HubSpot pipeline =====
+   state.hubspotConfig holds what the nightly sync should pull and how line items map
+   onto ledger billing types. state.salesPipeline holds what it last pulled, kept close
+   to raw so changing the mapping here takes effect immediately without a re-sync. */
+const HS_DEFAULT_MAP = {
+  'programmatic media':      ['programmatic','budget'],
+  'programmatic buying fee': ['programmatic','fee'],
+  'paid search media':       ['search','budget'],
+  'paid search fee':         ['search','fee'],
+  'paid social media':       ['social','budget'],
+  'paid social fee':         ['social','fee'],
+  'paid search hourly':      ['hourly','amount'],
+  'paid social hourly':      ['hourly','amount'],
+  'creative retainer':       ['retainer','flat'],
+  'creative services':       ['retainer','flat'],
+  'planning':                ['retainer','flat'],
+  'dashboard':               ['retainer','flat']
+};
+const HS_STAGE = {
+  qualifiedtobuy:        { n:'Prospecting',            p:0.10, c:'#e0d3ad' },
+  presentationscheduled: { n:'Proposal / RFP Received', p:0.40, c:'#fabf4d' },
+  '192867995':           { n:'Proposal Submitted',      p:0.50, c:'#7dd8bd' },
+  '233641553':           { n:'Positive Feedback',       p:0.70, c:'#3bc9ac' },
+  '1279041112':          { n:'Verbal Approval',         p:0.90, c:'#19a789' }
+};
+const HS_ORDER = ['1279041112','233641553','192867995','presentationscheduled','qualifiedtobuy'];
+const LEDGER_GREEN = '#0a493c';
+
+function todayISO() { return new Date().toISOString().slice(0, 10); }
+function hsConfig() {
+  if (!state.hubspotConfig) state.hubspotConfig = {};
+  const c = state.hubspotConfig;
+  if (!c.pipelines) c.pipelines = ['default'];
+  if (c.minProb === undefined) c.minProb = 0;
+  if (c.progMargin === undefined) c.progMargin = 35;
+  if (!c.mapping) c.mapping = Object.assign({}, HS_DEFAULT_MAP);
+  if (!c.aliases) c.aliases = {};
+  if (c.enabled === undefined) c.enabled = false;
+  return c;
+}
+function hsPipeline() { return state.salesPipeline || { deals: [], syncedAt: null }; }
+
+// Ledger-shaped GP for one deal, using the same rules as lineGP.
+function hsDealGP(items, cfg) {
+  const g = {}, flags = [], parts = [];
+  (items || []).forEach(it => {
+    const nm = Array.isArray(it) ? it[0] : it.name;
+    const amt = +(Array.isArray(it) ? it[1] : it.amount) || 0;
+    const key = String(nm || '').split(':').pop().trim().toLowerCase();
+    const m = cfg.mapping[key];
+    if (!m) { flags.push('unmapped: ' + nm); return; }
+    const [type, role] = m;
+    const b = (g[type] = g[type] || { budget: 0, fee: 0, flat: 0 });
+    b[role === 'budget' ? 'budget' : role === 'fee' ? 'fee' : 'flat'] += amt;
+  });
+  let gp = 0;
+  Object.entries(g).forEach(([type, v]) => {
+    if (type === 'search' || type === 'social') {
+      if (v.budget > 0) {
+        const pct = v.fee / v.budget * 100;
+        gp += v.budget * pct / 100;
+        parts.push(type + ' ' + pct.toFixed(1) + '% of ' + fmtMoney(v.budget));
+        if (v.fee <= 0) flags.push(type + ' media with no fee line');
+      } else if (v.fee > 0) { gp += v.fee; parts.push(type + ' fee ' + fmtMoney(v.fee)); }
+      gp += v.flat;
+    } else if (type === 'programmatic') {
+      if (v.budget > 0) {
+        const pct = v.fee > 0 ? v.fee / v.budget * 100 : 0;
+        const rate = pct + (+cfg.progMargin || 0);
+        gp += v.budget * rate / 100;
+        parts.push('programmatic ' + rate.toFixed(1) + '% of ' + fmtMoney(v.budget) + (v.fee > 0 ? '' : ' (margin only)'));
+      } else if (v.fee > 0) { gp += v.fee; parts.push('programmatic fee ' + fmtMoney(v.fee)); flags.push('programmatic fee with no media line'); }
+      gp += v.flat;
+    } else {
+      const t = v.flat + v.fee + v.budget;
+      gp += t; parts.push(type + ' ' + fmtMoney(t));
+    }
+  });
+  return { gp, parts, flags };
+}
+
+function hsClientOf(d, cfg) {
+  const raw = d.company || String(d.name || '').split(' - ')[0].trim();
+  const alias = cfg.aliases[String(raw).trim().toLowerCase()];
+  return alias || raw || 'Unknown';
+}
+
+function hsRows() {
+  const cfg = hsConfig(), today = todayISO();
+  return hsPipeline().deals.map(d => {
+    const st = HS_STAGE[d.stage] || { n: d.stageLabel || 'Unknown', p: +d.prob || 0, c: '#ccc' };
+    const { gp, parts, flags } = hsDealGP(d.items, cfg);
+    const f = [...flags];
+    if (!d.items || !d.items.length) f.push('no line items');
+    if (d.closeDate && d.closeDate < today) f.push('close date passed');
+    if (d.campaignStart && d.campaignStart < today) f.push('start date passed');
+    if (!d.campaignStart || !d.campaignEnd) f.push('no campaign dates');
+    if (d.campaignStart && d.campaignEnd && d.campaignEnd < d.campaignStart) f.push('campaign ends before it starts');
+    if (!d.company) f.push('no company on deal');
+    let months = [];
+    if (d.campaignStart && d.campaignEnd && d.campaignEnd >= d.campaignStart) {
+      let c = d.campaignStart.slice(0, 7); const e = d.campaignEnd.slice(0, 7); let g = 0;
+      while (c <= e && g < 60) { months.push(c); c = shiftMonth(c, 1); g++; }
+    } else if (d.closeDate) months = [d.closeDate.slice(0, 7)];
+    const bits = String(d.name || '').split(' - ');
+    return { id: d.id, client: hsClientOf(d, cfg), rest: bits.slice(1).join(' - ') || d.name,
+             stage: st.n, skey: d.stage, prob: st.p, colour: st.c, gp, parts, flags: f, months,
+             inLedger: !!d.inLedger, url: d.url,
+             forecastable: gp > 0 && months.length > 0 && st.p >= (cfg.minProb || 0) && !d.inLedger };
+  });
+}
+
+// Revenue already committed in the ledger for a month — the real baseline.
+function committedGP(mk) {
+  return state.projects.reduce((sum, p) => projectActiveInMonth(p, mk) ? sum + revenueFor(p, mk) : sum, 0);
+}
+
+
+let salesUI = { weighted: true, showAll: false, from: null, to: null, chart: true };
+
+function renderSales() {
+  const cfg = hsConfig(), pipe = hsPipeline();
+  const rows = hsRows();
+  if (!salesUI.from) { salesUI.from = currentMonth; salesUI.to = shiftMonth(currentMonth, 5); }
+  if (salesUI.to < salesUI.from) salesUI.to = salesUI.from;
+  const cols = []; { let c = salesUI.from, g = 0; while (c <= salesUI.to && g < 48) { cols.push(c); c = shiftMonth(c, 1); g++; } }
+  const shown = rows.filter(r => salesUI.showAll || r.forecastable);
+
+  // ---- controls ----
+  const span = cols.length;
+  document.getElementById('sales-range').innerHTML =
+    `<span class="rl">Range</span>
+     <input type="month" data-role="sf-from" value="${salesUI.from}">
+     <span class="rd">to</span>
+     <input type="month" data-role="sf-to" value="${salesUI.to}">
+     <span class="rp">${[3,6,12,18,24].map(n=>`<button class="seg${span===n?' on':''}" data-sf-span="${n}">${n}mo</button>`).join('')}</span>
+     <span class="rp" style="margin-left:14px;">
+       <button class="seg${salesUI.weighted?' on':''}" data-sf-w="1">Weighted</button>
+       <button class="seg${!salesUI.weighted?' on':''}" data-sf-w="0">Total</button>
+     </span>
+     <span class="rp" style="margin-left:8px;">
+       <button class="seg${!salesUI.showAll?' on':''}" data-sf-all="0">Forecastable</button>
+       <button class="seg${salesUI.showAll?' on':''}" data-sf-all="1">All deals</button>
+     </span>
+     <button class="seg ghosty" data-sf-today="1">Back to today</button>
+     <button class="seg" data-sf-chart="1">${salesUI.chart ? 'Hide chart' : 'Show chart'}</button>`;
+
+  // ---- empty state ----
+  if (!pipe.deals.length) {
+    document.getElementById('sales-chart-panel').classList.add('collapsed');
+    document.getElementById('sales-chart').innerHTML = '';
+    document.getElementById('sales-coverage').innerHTML =
+      `<div class="cover warn"><b>No pipeline data yet.</b> ${cfg.enabled
+        ? 'The HubSpot sync is switched on but has not written anything — check the last run under Settings.'
+        : 'Connect HubSpot under Settings → HubSpot pipeline sync to pull open deals in.'}</div>`;
+    document.getElementById('sales-grid').innerHTML =
+      '<div class="empty-note" style="padding:34px;text-align:center;">Nothing to show until the first sync runs.</div>';
+    return;
+  }
+
+  // ---- chart ----
+  const panel = document.getElementById('sales-chart-panel');
+  panel.classList.toggle('collapsed', !salesUI.chart);
+  document.getElementById('sales-chart').innerHTML = salesUI.chart ? salesChartSvg(cols, shown) : '';
+
+  // ---- coverage ----
+  const nF = rows.filter(r => r.forecastable).length;
+  const noLI = rows.filter(r => r.flags.includes('no line items')).length;
+  const stale = rows.filter(r => r.flags.includes('close date passed')).length;
+  const inLed = rows.filter(r => r.inLedger).length;
+  const pct = rows.length ? Math.round(nF / rows.length * 100) : 0;
+  const cv = document.getElementById('sales-coverage');
+  cv.className = 'cover ' + (pct < 25 ? 'bad' : pct < 75 ? 'warn' : 'good');
+  cv.innerHTML = `<b>${nF} of ${rows.length} deals can be forecast (${pct}%).</b> ` +
+    (noLI ? `${noLI} have no line items in HubSpot and contribute nothing until sales adds them. ` : '') +
+    (stale ? `${stale} are past their close date. ` : '') +
+    (inLed ? `${inLed} already copied to the ledger. ` : '') +
+    (pipe.syncedAt ? `Last synced ${new Date(pipe.syncedAt).toLocaleString()}.` : '');
+
+  // ---- grid ----
+  const by = {}; shown.forEach(r => (by[r.client] = by[r.client] || []).push(r));
+  const val = r => r.gp * (salesUI.weighted ? r.prob : 1);
+  const clients = Object.keys(by).sort((a, b) =>
+    by[b].reduce((s, r) => s + val(r), 0) - by[a].reduce((s, r) => s + val(r), 0));
+
+  let h = '<table class="sf"><thead><tr><th class="cl">Client / deal</th><th class="pr">Stage</th>' +
+    cols.map(c => `<th class="num">${monthShort(c)}</th>`).join('') +
+    '<th class="num tot">Total</th><th class="fl">Flags</th><th></th></tr></thead><tbody>';
+  const colTot = {}; let grand = 0;
+  clients.forEach(cn => {
+    const ds = by[cn], cT = {}; let cS = 0;
+    ds.forEach(r => { const per = r.months.length ? val(r) / r.months.length : 0;
+      r.months.forEach(m => { cT[m] = (cT[m] || 0) + per; }); cS += val(r); });
+    cols.forEach(c => { colTot[c] = (colTot[c] || 0) + (cT[c] || 0); }); grand += cS;
+    h += `<tr class="sf-c"><td class="cl">${escapeHtml(cn)}</td><td></td>` +
+      cols.map(c => `<td class="num">${cT[c] ? fmtMoney(cT[c]) : '<span class="sf-z">·</span>'}</td>`).join('') +
+      `<td class="num tot">${fmtMoney(cS)}</td><td></td><td></td></tr>`;
+    ds.sort((a, b) => val(b) - val(a)).forEach(r => {
+      const per = r.months.length ? val(r) / r.months.length : 0;
+      h += `<tr class="sf-d${r.forecastable ? '' : ' dim'}"><td class="cl">${escapeHtml(r.rest)}` +
+        (r.parts.length ? `<div class="sf-parts">${escapeHtml(r.parts.join(' · '))}</div>` : '') + `</td>` +
+        `<td class="pr">${escapeHtml(r.stage)}<span class="sf-p" style="background:${r.colour};color:${r.prob>=0.5?'#06342b':'#3a2c00'}">${Math.round(r.prob*100)}%</span></td>` +
+        cols.map(c => `<td class="num">${r.months.includes(c) && per ? fmtMoney(per) : '<span class="sf-z">·</span>'}</td>`).join('') +
+        `<td class="num tot">${val(r) ? fmtMoney(val(r)) : '—'}</td>` +
+        `<td class="fl">${r.flags.map(f => `<span class="sf-flag ${/passed|before/.test(f) ? 't' : /no line|unmapped|no company/.test(f) ? 'w' : 'i'}">${escapeHtml(f)}</span>`).join('')}</td>` +
+        `<td class="fl">${r.inLedger ? '<span class="sf-flag i">in ledger</span>'
+          : (r.forecastable ? `<button class="ghost sf-copy" data-role="sf-copy" data-id="${r.id}">Copy to ledger</button>` : '')}</td></tr>`;
+    });
+  });
+  h += `<tr class="sf-g"><td class="cl">Pipeline total — ${salesUI.weighted ? 'weighted' : 'unweighted'}</td><td></td>` +
+    cols.map(c => `<td class="num">${fmtMoney(colTot[c] || 0)}</td>`).join('') +
+    `<td class="num tot">${fmtMoney(grand)}</td><td></td><td></td></tr></tbody></table>`;
+  document.getElementById('sales-grid').innerHTML = shown.length ? h :
+    '<div class="empty-note" style="padding:34px;text-align:center;">No forecastable deals in this window. Switch to “All deals” to see what is blocking them.</div>';
+}
+
+function salesChartSvg(cols, shown) {
+  const n = cols.length;
+  const W = Math.max(1080, Math.round(74 * n) + 90), H = 318, PL = 74, PR = 22, PT = 26, PB = 56;
+  const IW = W - PL - PR, IH = H - PT - PB, dense = n > 10, verydense = n > 16;
+  const data = cols.map(c => {
+    const byS = {}; HS_ORDER.forEach(k => byS[k] = 0);
+    shown.forEach(r => { if (!r.months.includes(c) || !r.gp) return;
+      byS[r.skey] = (byS[r.skey] || 0) + r.gp * (salesUI.weighted ? r.prob : 1) / r.months.length; });
+    return { c, ledger: committedGP(c), byS, pipe: Object.values(byS).reduce((a, b) => a + b, 0) };
+  });
+  const max = Math.max(1, ...data.map(d => d.ledger + d.pipe));
+  const step = max > 1200000 ? 400000 : max > 600000 ? 200000 : max > 200000 ? 100000 : max > 60000 ? 20000 : 10000;
+  const top = Math.ceil(max / step) * step, y = v => PT + IH - (v / top) * IH;
+  const bw = Math.min(96, IW / n * 0.6), gap = IW / n;
+  let g = '';
+  for (let v = 0; v <= top; v += step)
+    g += `<line x1="${PL}" x2="${W-PR}" y1="${y(v)}" y2="${y(v)}" stroke="${v===0?'#c4c4c4':'#e6e6e6'}"/>` +
+         `<text x="${PL-12}" y="${y(v)+3.5}" text-anchor="end" class="sf-ax">$${(v/1000).toLocaleString()}k</text>`;
+  data.forEach((d, i) => {
+    const cx = PL + gap * i + gap / 2, x = cx - bw / 2; let acc = 0;
+    if (d.ledger > 0) { acc += d.ledger;
+      g += `<rect x="${x}" y="${y(acc)}" width="${bw}" height="${(d.ledger/top)*IH}" fill="${LEDGER_GREEN}"><title>Committed ${fmtMoney(d.ledger)}</title></rect>`; }
+    HS_ORDER.forEach(k => { const v = d.byS[k]; if (!v) return;
+      const yt = y(acc + v); acc += v;
+      g += `<rect x="${x}" y="${yt}" width="${bw}" height="${(v/top)*IH}" fill="${(HS_STAGE[k]||{}).c||'#ccc'}"><title>${(HS_STAGE[k]||{}).n} ${fmtMoney(v)}</title></rect>`; });
+    if (acc > 0 && !dense) g += `<text x="${cx}" y="${y(acc)-6}" text-anchor="middle" class="sf-bt">${fmtMoney(acc)}</text>`;
+    if (!verydense || i % 2 === 0) g += `<text x="${cx}" y="${H-33}" text-anchor="middle" class="sf-ax">${monthShort(d.c)}</text>`;
+    if (d.pipe > 0 && !dense) g += `<text x="${cx}" y="${H-18}" text-anchor="middle" class="sf-pl">+${fmtMoney(d.pipe)} pipeline</text>`;
+  });
+  const t = data.reduce((a, d) => ({ l: a.l + d.ledger, p: a.p + d.pipe }), { l: 0, p: 0 });
+  const wide = W > 1240;
+  return `<div class="chead"><h3>Committed revenue plus pipeline — ${salesUI.weighted ? 'weighted by stage' : 'total value at 100%'}</h3>` +
+    `<div class="csum">${n} months · committed ${fmtMoney(t.l)} · pipeline ${fmtMoney(t.p)} · total ${fmtMoney(t.l+t.p)}</div></div>` +
+    `<div class="csvg${wide?' scroll':''}"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" class="sf-chart"${wide?` style="width:${W}px"`:''}>${g}</svg></div>` +
+    `<div class="legend"><span><i style="background:${LEDGER_GREEN}"></i>Committed in ledger</span>` +
+    HS_ORDER.map(k => `<span><i style="background:${HS_STAGE[k].c}"></i>${HS_STAGE[k].n} <em>${Math.round(HS_STAGE[k].p*100)}%</em></span>`).join('') + '</div>';
+}
+
+// Turn a won deal into a real project with ledger-shaped billing lines.
+function salesCopyToLedger(id) {
+  const cfg = hsConfig();
+  const d = hsPipeline().deals.find(x => String(x.id) === String(id));
+  if (!d) return;
+  if (state.projects.some(p => String(p.hubspotDealId) === String(d.id))) { toast('That deal is already in the ledger.'); return; }
+  const months = [];
+  if (d.campaignStart && d.campaignEnd) { let c = d.campaignStart.slice(0,7); const e = d.campaignEnd.slice(0,7); let g=0;
+    while (c <= e && g < 60) { months.push(c); c = shiftMonth(c,1); g++; } }
+  const grp = {};
+  (d.items || []).forEach(it => {
+    const nm = Array.isArray(it) ? it[0] : it.name, amt = +(Array.isArray(it) ? it[1] : it.amount) || 0;
+    const m = cfg.mapping[String(nm||'').split(':').pop().trim().toLowerCase()];
+    if (!m) return;
+    const b = (grp[m[0]] = grp[m[0]] || { budget:0, fee:0, flat:0 });
+    b[m[1]==='budget'?'budget':m[1]==='fee'?'fee':'flat'] += amt;
+  });
+  const lines = [];
+  Object.entries(grp).forEach(([type, v]) => {
+    const spread = {}; months.forEach(mk => { spread[mk] = v.budget / (months.length || 1); });
+    if (type === 'search' || type === 'social') {
+      if (v.budget > 0) lines.push({ type, budgets: spread, feePct: +(v.fee / v.budget * 100).toFixed(2) });
+      if (v.flat > 0 || (v.budget <= 0 && v.fee > 0)) lines.push({ type:'retainer', amount: (v.flat + (v.budget<=0?v.fee:0)) / (months.length||1) });
+    } else if (type === 'programmatic') {
+      if (v.budget > 0) lines.push({ type, budgets: spread, feePct: +(v.fee>0 ? v.fee / v.budget * 100 : 0).toFixed(2), marginPct: +cfg.progMargin || 0 });
+      if (v.flat > 0 || (v.budget <= 0 && v.fee > 0)) lines.push({ type:'retainer', amount: (v.flat + (v.budget<=0?v.fee:0)) / (months.length||1) });
+    } else {
+      lines.push({ type:'retainer', amount: (v.flat + v.fee + v.budget) / (months.length || 1) });
+    }
+  });
+  const proj = { id: uid(), name: d.name || 'Untitled', monthlyRevenue: 0, revenueOverrides: {},
+    startMonth: months[0] || '', endMonth: months[months.length-1] || '',
+    hubspotDealId: d.id, billing: { lines } };
+  state.projects.push(proj);
+  d.inLedger = true;
+  scheduleSave(); render();
+  toast('Copied “' + proj.name + '” into the ledger with ' + lines.length + ' billing line' + (lines.length===1?'':'s') +
+        '. Check the flight and billing on the Projects tab before relying on it.', 9000);
+}
+
 function renderSettings() {
   const el = document.getElementById('settings-body');
   if (!el) return;
@@ -1679,7 +2047,57 @@ function renderSettings() {
     '<em>This is interface-level access control: it decides what the app renders, not what the database will hand out. ' +
     'For access someone cannot bypass, the ledger table needs row-level security in Supabase.</em></div>';
 
+  h += renderHubspotSettings();
   el.innerHTML = h;
+}
+
+function renderHubspotSettings() {
+  const c = hsConfig(), pipe = hsPipeline();
+  const LT = ['programmatic/budget','programmatic/fee','search/budget','search/fee','social/budget','social/fee','hourly/amount','retainer/flat'];
+  // every line-item type we have seen, mapped or not
+  const seen = new Set(Object.keys(c.mapping));
+  pipe.deals.forEach(d => (d.items || []).forEach(it => {
+    const nm = Array.isArray(it) ? it[0] : it.name;
+    seen.add(String(nm || '').split(':').pop().trim().toLowerCase());
+  }));
+  const rows = [...seen].sort().map(k => {
+    const cur = (c.mapping[k] || []).join('/');
+    return `<tr><td>${escapeHtml(k)}</td><td><select data-role="hs-map" data-k="${escapeAttr(k)}">` +
+      `<option value=""${cur?'':' selected'}>— unmapped (excluded) —</option>` +
+      LT.map(o => `<option value="${o}"${cur===o?' selected':''}>${o.replace('/',' · ')}</option>`).join('') +
+      `</select></td></tr>`;
+  }).join('');
+  const aliases = Object.entries(c.aliases);
+  return `
+  <div style="border-top:1px solid var(--line); margin:22px 0 14px;"></div>
+  <h3 style="margin:0 0 4px; font-size:15px; color:var(--brand);">HubSpot pipeline sync</h3>
+  <div class="computed-sub" style="margin-bottom:12px;">Feeds the Sales Forecast tab. The nightly job reads this configuration, so changes here take effect on the next run — and mapping changes apply to the existing data straight away.</div>
+  <div class="hs-grid">
+    <div>
+      <label class="hs-row"><input type="checkbox" data-role="hs-enabled"${c.enabled?' checked':''}> Sync enabled</label>
+      <div class="hs-row"><span>Pipelines</span>
+        <label><input type="checkbox" data-role="hs-pipe" value="default"${c.pipelines.includes('default')?' checked':''}> Agency</label>
+        <label><input type="checkbox" data-role="hs-pipe" value="106486358"${c.pipelines.includes('106486358')?' checked':''}> Recruiting</label>
+      </div>
+      <div class="hs-row"><span>Minimum probability</span><input type="text" inputmode="decimal" data-role="hs-minprob" value="${Math.round((c.minProb||0)*100)}" style="width:56px;"> %</div>
+      <div class="hs-row"><span>Programmatic margin</span><input type="text" inputmode="decimal" data-role="hs-margin" value="${c.progMargin}" style="width:56px;"> % on top of the derived fee</div>
+      <div class="computed-sub" style="margin-top:10px;">${pipe.syncedAt
+        ? 'Last sync ' + new Date(pipe.syncedAt).toLocaleString() + ' · ' + pipe.deals.length + ' deals'
+        : 'Never synced.'}</div>
+    </div>
+    <div>
+      <h4 style="margin:0 0 6px; font-size:12px;">Company aliases</h4>
+      <div class="computed-sub" style="margin-bottom:6px;">When the HubSpot company name differs from what the ledger calls the client.</div>
+      ${aliases.map(([f,t],i)=>`<div class="hs-alias" data-key="${escapeAttr(f)}">
+        <input type="text" data-role="hs-alias-from" value="${escapeAttr(f)}" placeholder="HubSpot company">
+        <span>→</span>
+        <input type="text" data-role="hs-alias-to" value="${escapeAttr(t)}" placeholder="Ledger client"></div>`).join('')}
+      <div class="hs-alias" data-key=""><input type="text" data-role="hs-alias-from" placeholder="HubSpot company"><span>→</span><input type="text" data-role="hs-alias-to" placeholder="Ledger client"></div>
+    </div>
+  </div>
+  <h4 style="margin:16px 0 6px; font-size:12px;">Line item mapping</h4>
+  <div class="computed-sub" style="margin-bottom:6px;">Media rows establish the budget and the fee rate; only the fee becomes gross profit. Unmapped types are excluded and flagged, never counted.</div>
+  <table class="hs-map"><thead><tr><th>HubSpot line item (last segment)</th><th>Ledger type · role</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function addUserRow() {
@@ -4872,6 +5290,7 @@ let suppressRender = false; // true while typing in a field: state updates, UI w
 function render() {
   if (suppressRender) return;
   if (ui.tab === 'settings') renderSettings();
+  if (ui.tab === 'sales') renderSales();
   const active = document.activeElement;
   let focusKey = null, focusValue = null, selStart = null;
   if (active && active.tagName === 'INPUT' && (active.dataset.role || active.id)) {
@@ -4948,7 +5367,44 @@ function applyNavCollapsed(on) {
   if (shell) shell.classList.toggle('nav-collapsed', !!on);
   const ico = document.getElementById('nav-toggle-ico');
   if (ico) ico.textContent = on ? '\u203A' : '\u2039';
-  const btn = document.getElementById('team-report-btn').addEventListener('click', openHoursReport);
+  const btn = document.addEventListener('click', (e) => {
+  const el = e.target.closest && e.target.closest('[data-sf-span],[data-sf-w],[data-sf-all],[data-sf-today],[data-sf-chart]');
+  if (!el) return;
+  const d = el.dataset;
+  if (d.sfSpan) salesUI.to = shiftMonth(salesUI.from, +d.sfSpan - 1);
+  if (d.sfW !== undefined) salesUI.weighted = d.sfW === '1';
+  if (d.sfAll !== undefined) salesUI.showAll = d.sfAll === '1';
+  if (d.sfToday) { salesUI.from = currentMonth; salesUI.to = shiftMonth(currentMonth, 5); }
+  if (d.sfChart) salesUI.chart = !salesUI.chart;
+  renderSales();
+});
+document.addEventListener('change', (e) => {
+  const t = e.target;
+  if (!t.dataset) return;
+  if (t.dataset.role === 'sf-from' && /^\d{4}-\d{2}$/.test(t.value)) { salesUI.from = t.value; if (salesUI.to < salesUI.from) salesUI.to = shiftMonth(salesUI.from, 5); renderSales(); }
+  if (t.dataset.role === 'sf-to' && /^\d{4}-\d{2}$/.test(t.value)) { salesUI.to = t.value; if (salesUI.to < salesUI.from) salesUI.from = salesUI.to; renderSales(); }
+  if (t.dataset.role === 'hs-pipe') { const c = hsConfig(); const v = t.value;
+    c.pipelines = t.checked ? [...new Set([...c.pipelines, v])] : c.pipelines.filter(x => x !== v); scheduleSave(); renderSettings(); }
+  if (t.dataset.role === 'hs-enabled') { hsConfig().enabled = t.checked; scheduleSave(); renderSettings(); }
+});
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (!t.dataset) return;
+  if (t.dataset.role === 'hs-minprob') { hsConfig().minProb = (parseFloat(t.value) || 0) / 100; scheduleSave(); }
+  if (t.dataset.role === 'hs-margin') { hsConfig().progMargin = parseFloat(t.value) || 0; scheduleSave(); }
+  if (t.dataset.role === 'hs-map') { const c = hsConfig(); const k = t.dataset.k;
+    if (!t.value) delete c.mapping[k]; else c.mapping[k] = t.value.split('/'); scheduleSave(); }
+  if (t.dataset.role === 'hs-alias-from' || t.dataset.role === 'hs-alias-to') {
+    const c = hsConfig(), rowEl = t.closest('.hs-alias');
+    const f = rowEl.querySelector('[data-role="hs-alias-from"]').value.trim().toLowerCase();
+    const to = rowEl.querySelector('[data-role="hs-alias-to"]').value.trim();
+    const old = rowEl.dataset.key;
+    if (old && old !== f) delete c.aliases[old];
+    if (f) { c.aliases[f] = to; rowEl.dataset.key = f; }
+    scheduleSave();
+  }
+});
+document.getElementById('team-report-btn').addEventListener('click', openHoursReport);
 document.getElementById('report-close').addEventListener('click', () => document.getElementById('report-modal').classList.remove('open'));
 document.getElementById('report-download').addEventListener('click', downloadReport);
 document.getElementById('report-print').addEventListener('click', printReport);
@@ -5263,6 +5719,7 @@ document.addEventListener('click', (e) => {
     if (pr) { setRevenueOverride(t.dataset.id, t.dataset.mk, String(Math.round(billingGP(pr, t.dataset.mk)))); render(); }
   }
   else if (role === 'fc-cost-remove') { state.fixedCosts.splice(+t.dataset.i, 1); scheduleSave(); render(); }
+  else if (role === 'sf-copy') { salesCopyToLedger(t.dataset.id); }
   else if (role === 'usr-add') { addUserRow(); }
   else if (role === 'usr-remove') { removeUserRow(+t.dataset.i); }
   else if (role === 'pm-comp-add') { addCompPeriod(personEditId); }
