@@ -24,6 +24,17 @@ h1{font-size:26px;margin:4px 0 2px;color:var(--brand)}
 background:var(--raised);border-radius:5px;cursor:pointer;color:var(--slate)}
 .seg.on{background:var(--brand);color:#fff;border-color:var(--brand)}
 .chartpanel{padding:14px 16px 10px}
+.range{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.rl{font-family:var(--fm);font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--slate)}
+.rd{font-family:var(--fm);font-size:10px;color:var(--slate)}
+.range input[type=month]{border:1px solid var(--line);border-radius:5px;padding:5px 8px;
+font-family:var(--fm);font-size:11px;background:#fff;color:var(--ink)}
+.range input[type=month]:focus{outline:none;border-color:var(--brand)}
+.rp{display:flex;gap:4px;margin-left:4px}
+.rp .seg{padding:5px 9px}
+.seg.ghosty{margin-left:auto;color:var(--slate)}
+.csum{font-family:var(--fm);font-size:10px;color:var(--slate);margin-bottom:2px}
+.csvg.scroll{overflow-x:auto}
 .chead h3{margin:0 0 6px;font-size:14px;color:var(--brand)}
 svg.chart{width:100%;height:auto;display:block}
 svg.chart .ax{font-family:var(--fm);font-size:10px;fill:var(--slate)}
@@ -96,7 +107,23 @@ ul.rules{margin:0;padding-left:16px;font-family:var(--fm);font-size:10px;color:v
     <div class="cfg">Agency pipeline · min probability 10% · programmatic margin 35%</div>
   </div>
 
-  <div class="panel chartpanel"><div id="chart"></div></div>
+  <div class="panel chartpanel">
+    <div class="range">
+      <span class="rl">Range</span>
+      <input type="month" id="r-from" data-role="from">
+      <span class="rd">to</span>
+      <input type="month" id="r-to" data-role="to">
+      <span class="rp">
+        <button class="seg" data-span="3">3mo</button>
+        <button class="seg on" data-span="6">6mo</button>
+        <button class="seg" data-span="12">12mo</button>
+        <button class="seg" data-span="18">18mo</button>
+        <button class="seg" data-span="24">24mo</button>
+      </span>
+      <button class="seg ghosty" data-jump="today">Back to today</button>
+    </div>
+    <div id="chart"></div>
+  </div>
   <div id="coverage"></div>
   <div class="panel"><div id="grid"></div></div>
 
@@ -280,11 +307,14 @@ const LEDGER={};
   LEDGER[new Date(Date.UTC(y,m-1+i,1)).toISOString().slice(0,7)]=v;
 });
 let weighted=true, mode='live', showAll=false;
+// Chart / grid window. Defaults to the next six months from the current month.
+let rangeFrom=TODAY.slice(0,7), rangeTo=null;   // resolved on first render
 
 const money=n=>(n<0?'-':'')+'$'+Math.round(Math.abs(n)).toLocaleString();
 const mk=d=>d.slice(0,7);
 const shift=(k,n)=>{const[y,m]=k.split('-').map(Number);const d=new Date(Date.UTC(y,m-1+n,1));return d.toISOString().slice(0,7);};
 const label=k=>{const[y,m]=k.split('-').map(Number);return new Date(Date.UTC(y,m-1,1)).toLocaleDateString('en-US',{month:'short',timeZone:'UTC'})+" '"+String(y).slice(2);};
+function monthsRange(a,b){const out=[];let c=a;let g=0;while(c<=b&&g<48){out.push(c);c=shift(c,1);g++;}return out;}
 function monthsBetween(a,b){const out=[];let c=mk(a);const e=mk(b);let g=0;while(c<=e&&g<60){out.push(c);c=shift(c,1);g++;}return out;}
 
 // Ledger's lineGP logic, applied to a deal's line items grouped by ledger type.
@@ -334,7 +364,9 @@ function build(){
 }
 
 function renderChart(cols,shown){
-  const W=1080,H=300,PL=64,PR=14,PT=16,PB=52,IW=W-PL-PR,IH=H-PT-PB;
+  const n=cols.length;
+  const W=Math.max(1080,Math.round(74*n)+90), H=300,PL=64,PR=14,PT=16,PB=52,IW=W-PL-PR,IH=H-PT-PB;
+  const dense=n>10, verydense=n>16;
   // month -> {ledger, byStage{}}
   const data=cols.map(c=>{
     const byStage={}; STAGE_ORDER.forEach(k=>byStage[k]=0);
@@ -369,26 +401,34 @@ function renderChart(cols,shown){
       const h=(v/top)*IH; const yTop=y(acc+v); acc+=v;
       g+=`<rect x="${x}" y="${yTop}" width="${bw}" height="${h}" fill="${STAGE_COLOR[k]}"><title>${STAGES[k].n} (${Math.round(STAGES[k].p*100)}%) ${money(v)}</title></rect>`;
     });
-    if(acc>0) g+=`<text x="${cx}" y="${y(acc)-6}" text-anchor="middle" class="bt">${money(acc)}</text>`;
-    g+=`<text x="${cx}" y="${H-30}" text-anchor="middle" class="ax">${label(d.c)}</text>`;
-    if(d.pipe>0) g+=`<text x="${cx}" y="${H-17}" text-anchor="middle" class="pl">+${money(d.pipe)} pipeline</text>`;
+    if(acc>0&&!dense) g+=`<text x="${cx}" y="${y(acc)-6}" text-anchor="middle" class="bt">${money(acc)}</text>`;
+    const showLbl=!verydense||i%2===0;
+    if(showLbl) g+=`<text x="${cx}" y="${H-30}" text-anchor="middle" class="ax">${label(d.c)}</text>`;
+    if(d.pipe>0&&!dense) g+=`<text x="${cx}" y="${H-17}" text-anchor="middle" class="pl">+${money(d.pipe)} pipeline</text>`;
   });
 
   const legend=`<div class="legend"><span><i style="background:${LEDGER_COLOR}"></i>Committed in ledger <em>illustrative</em></span>`+
     STAGE_ORDER.map(k=>`<span><i style="background:${STAGE_COLOR[k]}"></i>${STAGES[k].n} <em>${Math.round(STAGES[k].p*100)}%</em></span>`).join('')+'</div>';
+  const wide=W>1240;
+  const totals=data.reduce((a,d)=>({l:a.l+d.ledger,p:a.p+d.pipe}),{l:0,p:0});
   document.getElementById('chart').innerHTML=
-    `<div class="chead"><h3>Committed revenue plus pipeline — ${weighted?'weighted by stage':'total value at 100%'}</h3></div>`+
-    `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" class="chart">${g}</svg>${legend}`;
+    `<div class="chead"><h3>Committed revenue plus pipeline — ${weighted?'weighted by stage':'total value at 100%'}</h3>`+
+    `<div class="csum">${n} months · committed ${money(totals.l)} · pipeline ${money(totals.p)} · total ${money(totals.l+totals.p)}</div></div>`+
+    `<div class="csvg${wide?' scroll':''}"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" class="chart"`+
+    (wide?` style="width:${W}px"`:'')+`>${g}</svg></div>${legend}`;
 }
 
 function render(){
   const rows=build();
   const shown=rows.filter(r=>showAll||r.forecastable);
-  // month window
-  let all=[]; shown.forEach(r=>all.push(...r.months));
-  all=[...new Set(all)].sort();
-  let cols=all.filter(m=>m>=mk(TODAY)).slice(0,6);
-  if(!cols.length) cols=[mk(TODAY),shift(mk(TODAY),1),shift(mk(TODAY),2),shift(mk(TODAY),3),shift(mk(TODAY),4),shift(mk(TODAY),5)];
+  // month window — driven by the range selector
+  if(!rangeTo) rangeTo=shift(rangeFrom,5);
+  if(rangeTo<rangeFrom) rangeTo=rangeFrom;
+  const cols=monthsRange(rangeFrom,rangeTo);
+  const fi=document.getElementById('r-from'), ti=document.getElementById('r-to');
+  if(fi&&fi.value!==rangeFrom) fi.value=rangeFrom;
+  if(ti&&ti.value!==rangeTo) ti.value=rangeTo;
+  document.querySelectorAll('[data-span]').forEach(b=>b.classList.toggle('on',+b.dataset.span===cols.length));
 
   renderChart(cols,shown);
 
@@ -442,7 +482,16 @@ function render(){
   document.getElementById('grid').innerHTML=h;
 }
 
+document.addEventListener('change',e=>{
+  const t=e.target;
+  if(t.dataset.role==='from'&&/^\d{4}-\d{2}$/.test(t.value)){ rangeFrom=t.value; if(rangeTo<rangeFrom) rangeTo=shift(rangeFrom,5); render(); }
+  if(t.dataset.role==='to'&&/^\d{4}-\d{2}$/.test(t.value)){ rangeTo=t.value; if(rangeTo<rangeFrom) rangeFrom=rangeTo; render(); }
+});
 document.addEventListener('click',e=>{
+  const j=e.target.closest('[data-jump]');
+  if(j){ rangeFrom=TODAY.slice(0,7); rangeTo=shift(rangeFrom,5); render(); return; }
+  const sp=e.target.closest('[data-span]');
+  if(sp){ rangeTo=shift(rangeFrom,+sp.dataset.span-1); render(); return; }
   const b=e.target.closest('.seg'); if(!b) return;
   if(b.dataset.mode){ mode=b.dataset.mode; document.querySelectorAll('[data-mode]').forEach(x=>x.classList.toggle('on',x===b)); }
   if(b.dataset.w!==undefined){ weighted=b.dataset.w==='1'; document.querySelectorAll('[data-w]').forEach(x=>x.classList.toggle('on',x===b)); }
