@@ -743,7 +743,7 @@ table.sf th.num,table.sf td.num{text-align:right;white-space:nowrap}
 table.sf th.cl,table.sf td.cl{min-width:170px}
 table.sf th.pr,table.sf td.pr{min-width:88px;white-space:nowrap}
 table.sf th.fl,table.sf td.fl{min-width:64px;white-space:normal}
-table.sf th.num,table.sf td.num{min-width:66px}
+table.sf th.num,table.sf td.num{min-width:54px}
 .sf-c td{background:#eef1f0;font-weight:700;font-family:var(--font-display);font-size:12.5px;border-top:1px solid var(--line)}
 .sf-c td.num{font-family:var(--font-mono);font-size:11.5px}
 .sf-d td.cl{padding-left:22px}.sf-d.dim td{opacity:.55}
@@ -779,7 +779,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
   table.sf th,table.sf td{padding:6px 5px;font-size:11px}
   table.sf th.cl,table.sf td.cl{min-width:150px}
   table.sf th.pr,table.sf td.pr{min-width:80px}
-  table.sf th.num,table.sf td.num{min-width:60px}
+  table.sf th.num,table.sf td.num{min-width:50px}
 }
 @media (max-width:1200px){
   #tab-sales .rl{display:none}
@@ -792,7 +792,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
   table.sf th,table.sf td{padding:5px 4px;font-size:10.5px}
   table.sf th.cl,table.sf td.cl{min-width:130px}
   table.sf th.pr,table.sf td.pr{min-width:72px}
-  table.sf th.num,table.sf td.num{min-width:54px}
+  table.sf th.num,table.sf td.num{min-width:46px}
   .sf-parts{font-size:8.5px}
 }
 </style>
@@ -887,7 +887,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0811-1843 · updated 2026-08-11</div>
+      <div class="ver-tag">build b0811-1844 · updated 2026-08-11</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -1865,6 +1865,16 @@ function committedGP(mk) {
 
 let salesUI = { weighted: true, showAll: false, from: null, to: null, chart: true };
 
+// Condensed money for dense tables and charts — $172k, $1.2M. Exact value goes in the
+// cell's title so it is always one hover away.
+function fmtShort(n) {
+  const a = Math.abs(n);
+  if (a >= 1000000) return '$' + (n / 1000000).toFixed(a >= 10000000 ? 0 : 1).replace(/\.0$/, '') + 'M';
+  if (a >= 1000) return '$' + Math.round(n / 1000) + 'k';
+  return '$' + Math.round(n);
+}
+const cash = n => `<span title="${fmtMoney(n)}">${fmtShort(n)}</span>`;
+
 function renderSales() {
   const cfg = hsConfig(), pipe = hsPipeline();
   const rows = hsRows();
@@ -1937,7 +1947,7 @@ function renderSales() {
     '<table class="sf"><tbody>' + won.map(r =>
       `<tr class="sf-d"><td class="cl"><b>${escapeHtml(r.client)}</b> · ${escapeHtml(r.rest)}` +
       (r.parts.length ? `<div class="sf-parts">${escapeHtml(r.parts.join(' · '))}</div>` : '') + '</td>' +
-      `<td class="num tot">${r.gp ? fmtMoney(r.gp) : '—'}</td>` +
+      `<td class="num tot">${r.gp ? cash(r.gp) : '—'}</td>` +
       `<td class="fl">${r.campaignStart ? escapeHtml(r.campaignStart) + ' →' : '<span class="sf-flag w">no campaign dates</span>'}</td>` +
       `<td class="fl">${r.gp > 0
         ? `<button class="ghost sf-copy" data-role="sf-copy" data-id="${r.id}">Copy to ledger</button>`
@@ -1966,15 +1976,15 @@ function renderSales() {
       r.months.forEach(m => { cT[m] = (cT[m] || 0) + per; }); cS += val(r); });
     cols.forEach(c => { colTot[c] = (colTot[c] || 0) + (cT[c] || 0); }); grand += cS;
     h += `<tr class="sf-c"><td class="cl">${escapeHtml(cn)}</td><td></td>` +
-      cols.map(c => `<td class="num">${cT[c] ? fmtMoney(cT[c]) : '<span class="sf-z">·</span>'}</td>`).join('') +
-      `<td class="num tot">${fmtMoney(cS)}</td><td></td></tr>`;
+      cols.map(c => `<td class="num">${cT[c] ? cash(cT[c]) : '<span class="sf-z">·</span>'}</td>`).join('') +
+      `<td class="num tot">${cash(cS)}</td><td></td></tr>`;
     ds.sort((a, b) => val(b) - val(a)).forEach(r => {
       const per = r.months.length ? val(r) / r.months.length : 0;
       h += `<tr class="sf-d${r.forecastable ? '' : ' dim'}"><td class="cl">${escapeHtml(r.rest)}` +
         (r.parts.length ? `<div class="sf-parts">${escapeHtml(r.parts.join(' · '))}</div>` : '') + `</td>` +
         `<td class="pr">${escapeHtml(r.stage)}<span class="sf-p" style="background:${r.colour};color:${r.prob>=0.5?'#06342b':'#3a2c00'}">${Math.round(r.prob*100)}%</span></td>` +
-        cols.map(c => `<td class="num">${r.months.includes(c) && per ? fmtMoney(per) : '<span class="sf-z">·</span>'}</td>`).join('') +
-        `<td class="num tot">${val(r) ? fmtMoney(val(r)) : '—'}</td>` +
+        cols.map(c => `<td class="num">${r.months.includes(c) && per ? cash(per) : '<span class="sf-z">·</span>'}</td>`).join('') +
+        `<td class="num tot">${val(r) ? cash(val(r)) : '—'}</td>` +
         `<td class="fl">${r.inLedger ? '<span class="sf-flag i">in ledger</span>' : ''}` +
         r.flags.slice(0, 2).map(flagChip).join('') +
         (r.flags.length > 2 ? `<span class="sf-flag i" title="${escapeAttr(r.flags.slice(2).join(' · '))}">+${r.flags.length-2}</span>` : '') +
@@ -1982,18 +1992,12 @@ function renderSales() {
     });
   });
   h += `<tr class="sf-g"><td class="cl">Pipeline total — ${salesUI.weighted ? 'weighted' : 'unweighted'}</td><td></td>` +
-    cols.map(c => `<td class="num">${fmtMoney(colTot[c] || 0)}</td>`).join('') +
-    `<td class="num tot">${fmtMoney(grand)}</td><td></td></tr></tbody></table>`;
+    cols.map(c => `<td class="num">${cash(colTot[c] || 0)}</td>`).join('') +
+    `<td class="num tot">${cash(grand)}</td><td></td></tr></tbody></table>`;
   document.getElementById('sales-grid').innerHTML = shown.length ? h :
     '<div class="empty-note" style="padding:34px;text-align:center;">No forecastable deals in this window. Switch to “All deals” to see what is blocking them.</div>';
 }
 
-function fmtShort(n) {
-  const a = Math.abs(n);
-  if (a >= 1000000) return '$' + (n / 1000000).toFixed(a >= 10000000 ? 0 : 1).replace(/\.0$/, '') + 'M';
-  if (a >= 1000) return '$' + Math.round(n / 1000) + 'k';
-  return '$' + Math.round(n);
-}
 function salesChartSvg(cols, shown) {
   const n = cols.length;
   const W = Math.max(1080, Math.round(74 * n) + 90), H = 318, PL = 74, PR = 22, PT = 26, PB = 56;
