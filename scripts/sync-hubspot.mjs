@@ -15,6 +15,8 @@ const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SUPABASE_URL = 'https://bdtzpeazcjgnsxodwzpz.supabase.co';
 const WORKSPACE_ID = 'default';
 const HS = 'https://api.hubapi.com';
+// Won deals stay in the payload this long so they can still be copied to the ledger.
+const WON_WINDOW_DAYS = 120;
 
 if (!HS_TOKEN) fail('Missing HUBSPOT_TOKEN secret.');
 if (!SERVICE_KEY) fail('Missing SUPABASE_SERVICE_ROLE_KEY secret.');
@@ -44,14 +46,23 @@ async function searchDeals(pipelines) {
                  'campaign_start_date', 'campaign_end_date', 'hs_deal_stage_probability',
                  'hs_is_closed', 'hs_is_closed_won'];
   const out = [];
+  const wonSince = Date.now() - WON_WINDOW_DAYS * 86400000;
   for (const pl of pipelines) {
     let after;
     for (;;) {
       const body = {
-        filterGroups: [{ filters: [
-          { propertyName: 'pipeline', operator: 'EQ', value: pl },
-          { propertyName: 'hs_is_closed', operator: 'EQ', value: 'false' }
-        ]}],
+        // group 1: still open · group 2: won recently, so it stays available to copy
+        filterGroups: [
+          { filters: [
+            { propertyName: 'pipeline', operator: 'EQ', value: pl },
+            { propertyName: 'hs_is_closed', operator: 'EQ', value: 'false' }
+          ]},
+          { filters: [
+            { propertyName: 'pipeline', operator: 'EQ', value: pl },
+            { propertyName: 'hs_is_closed_won', operator: 'EQ', value: 'true' },
+            { propertyName: 'closedate', operator: 'GTE', value: String(wonSince) }
+          ]}
+        ],
         properties: props, limit: 100, ...(after ? { after } : {})
       };
       const d = await hs('/crm/v3/objects/deals/search', { method: 'POST', body: JSON.stringify(body) });
@@ -175,6 +186,7 @@ const clean = v => (v === undefined || v === null || v === '') ? '' : String(v).
       campaignStart: clean(p.campaign_start_date),
       campaignEnd: clean(p.campaign_end_date),
       items,
+      won: String(p.hs_is_closed_won) === 'true',
       url: `https://app.hubspot.com/contacts/45979252/record/0-3/${d.id}`,
       inLedger: !!prior[String(d.id)] || inLedgerFromProjects.has(String(d.id))
     };
@@ -184,7 +196,8 @@ const clean = v => (v === undefined || v === null || v === '') ? '' : String(v).
   await saveLedger(state);
 
   console.log('');
-  console.log(`✔ Wrote ${out.length} deals.`);
+  const nWon = out.filter(d => d.won).length;
+  console.log(`✔ Wrote ${out.length} deals (${out.length - nWon} open, ${nWon} won in the last ${WON_WINDOW_DAYS} days).`);
   console.log(`  ${withItems} have line items (${out.length - withItems} cannot be forecast until sales adds them).`);
   console.log(`  ${withCompany} have an associated company.`);
   const noDates = out.filter(d => !d.campaignStart || !d.campaignEnd).length;

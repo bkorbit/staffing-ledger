@@ -739,6 +739,9 @@ table.sf td.tot{font-weight:700;color:var(--brand)}
 .sf-flag{display:inline-block;font-size:8.5px;padding:1px 5px;border-radius:3px;margin:1px 2px 1px 0;white-space:nowrap}
 .sf-flag.t{background:var(--gold);color:#3a2c00}.sf-flag.w{background:#fbe7e4;color:var(--rust)}.sf-flag.i{background:#e6e6e6;color:var(--slate)}
 button.sf-copy{font-size:9.5px;padding:3px 8px}
+#sales-won-panel:has(#sales-won:empty){display:none}
+.won-head{font-family:var(--font-display);font-size:13px;font-weight:600;color:var(--brand);padding:12px 14px 8px;display:flex;align-items:center;gap:8px}
+.won-n{background:var(--gold);color:#3a2c00;border-radius:10px;padding:1px 8px;font-family:var(--font-mono);font-size:10px}
 .hs-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
 @media(max-width:900px){.hs-grid{grid-template-columns:1fr}}
 .hs-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-family:var(--font-mono);font-size:11px;color:var(--ink)}
@@ -798,7 +801,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
 
   <header>
     <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0811-1827 · updated 2026-08-11</span></div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0811-1828 · updated 2026-08-11</span></div>
       <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
@@ -1013,6 +1016,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <div id="sales-chart"></div>
     </section>
     <div id="sales-coverage"></div>
+    <section class="panel" id="sales-won-panel"><div id="sales-won"></div></section>
     <section class="panel"><div id="sales-grid"></div></section>
   </div>
 
@@ -1831,8 +1835,8 @@ function hsRows() {
     const bits = String(d.name || '').split(' - ');
     return { id: d.id, client: hsClientOf(d, cfg), rest: bits.slice(1).join(' - ') || d.name,
              stage: st.n, skey: d.stage, prob: st.p, colour: st.c, gp, parts, flags: f, months,
-             inLedger: !!d.inLedger, url: d.url,
-             forecastable: gp > 0 && months.length > 0 && st.p >= (cfg.minProb || 0) && !d.inLedger };
+             inLedger: !!d.inLedger, won: !!d.won, url: d.url, campaignStart: d.campaignStart,
+             forecastable: gp > 0 && months.length > 0 && st.p >= (cfg.minProb || 0) && !d.inLedger && !d.won };
   });
 }
 
@@ -1881,6 +1885,7 @@ function renderSales() {
       `<div class="cover warn"><b>No pipeline data yet.</b> ${cfg.enabled
         ? 'The HubSpot sync is switched on but has not written anything — check the last run under Settings.'
         : 'Connect HubSpot under Settings → HubSpot pipeline sync to pull open deals in.'}</div>`;
+    document.getElementById('sales-won').innerHTML = '';
     document.getElementById('sales-grid').innerHTML =
       '<div class="empty-note" style="padding:34px;text-align:center;">Nothing to show until the first sync runs.</div>';
     return;
@@ -1904,6 +1909,20 @@ function renderSales() {
     (stale ? `${stale} are past their close date. ` : '') +
     (inLed ? `${inLed} already copied to the ledger. ` : '') +
     (pipe.syncedAt ? `Last synced ${new Date(pipe.syncedAt).toLocaleString()}.` : '');
+
+  // ---- won deals waiting to be copied ----
+  const won = rows.filter(r => r.won && !r.inLedger);
+  document.getElementById('sales-won').innerHTML = won.length ? (
+    `<div class="won-head">Won — ready to copy into the ledger <span class="won-n">${won.length}</span></div>` +
+    '<table class="sf"><tbody>' + won.map(r =>
+      `<tr class="sf-d"><td class="cl"><b>${escapeHtml(r.client)}</b> · ${escapeHtml(r.rest)}` +
+      (r.parts.length ? `<div class="sf-parts">${escapeHtml(r.parts.join(' · '))}</div>` : '') + '</td>' +
+      `<td class="num tot">${r.gp ? fmtMoney(r.gp) : '—'}</td>` +
+      `<td class="fl">${r.campaignStart ? escapeHtml(r.campaignStart) + ' →' : '<span class="sf-flag w">no campaign dates</span>'}</td>` +
+      `<td class="fl">${r.gp > 0
+        ? `<button class="ghost sf-copy" data-role="sf-copy" data-id="${r.id}">Copy to ledger</button>`
+        : '<span class="sf-flag w">no line items — add them in HubSpot first</span>'}</td></tr>`
+    ).join('') + '</tbody></table>') : '';
 
   // ---- grid ----
   const by = {}; shown.forEach(r => (by[r.client] = by[r.client] || []).push(r));
