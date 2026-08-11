@@ -238,6 +238,18 @@ input[type="month"].sc-ip { font-family: var(--font-mono); }
 .shell.nav-collapsed .nav-toggle { padding: 5px 0; }
 .shell.nav-collapsed .nav-ico { font-size: 14px; opacity: 1; }
 .shell.nav-collapsed .nav-group { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+.nav-foot { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); display: flex; flex-direction: column; align-items: flex-start; gap: 7px; }
+.nav-foot .user-chip { font-family: var(--font-mono); font-size: 9.5px; color: var(--slate); word-break: break-all; line-height: 1.4; }
+.nav-foot .ghost { font-size: 10px; padding: 5px 9px; width: 100%; text-align: left; }
+.nav-foot .ver-tag { font-family: var(--font-mono); font-size: 8.5px; color: #9ca3af; line-height: 1.5; }
+.nav-foot .foot-ico { display: none; }
+/* collapsed rail: keep sign-out reachable, drop the rest */
+.shell.nav-collapsed .nav-foot { align-items: center; }
+.shell.nav-collapsed .nav-foot .user-chip,
+.shell.nav-collapsed .nav-foot #clear-month-btn,
+.shell.nav-collapsed .nav-foot .ver-tag { display: none; }
+.shell.nav-collapsed .nav-foot .ghost { width: auto; padding: 5px 8px; }
+.shell.nav-collapsed .nav-foot .foot-ico { display: inline; font-size: 13px; }
 .nav-toggle { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin-bottom: 10px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--paper-raised); color: var(--slate); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
 .nav-toggle:hover { background: #e2e2e2; color: var(--ink); }
 .sidebar { position: sticky; top: 18px; display: flex; flex-direction: column; gap: 4px; }
@@ -342,7 +354,7 @@ input.rev-input { min-width: 90px; flex: 1; }
 .numfield.mini-int:focus { outline: none; border-color: var(--brand); }
 body.ro #content input:not([data-role="team-search"]), body.ro #content select, body.ro #content textarea,
 body.ro #content button.assign, body.ro #content button.primary, body.ro #content .expand-btn ~ input { pointer-events: none; opacity: 0.75; }
-body.ro .header-actions #clear-month-btn { display: none; }
+body.ro .nav-foot #clear-month-btn { display: none; }
 .ro-banner { background: var(--gold); color: #3a2c00; font-family: var(--font-mono); font-size: 11px; padding: 7px 12px; border-radius: 5px; margin-bottom: 12px; }
 .sub-sort { color: var(--slate); opacity: 0.75; }
 .sub-sort:hover { opacity: 1; color: var(--ink); }
@@ -578,7 +590,9 @@ body.ro .header-actions #clear-month-btn { display: none; }
   .summary-strip { grid-template-columns: repeat(2, 1fr); }
   .dash-kpis { grid-template-columns: 1fr; }
   .flight-inline { flex-wrap: wrap; white-space: normal; }
-  .header-actions { flex-wrap: wrap; }
+  .nav-foot { flex-direction: row; flex-wrap: wrap; align-items: center; margin-top: 10px; padding-top: 10px; }
+  .nav-foot .ghost { width: auto; }
+  .nav-foot .ver-tag { width: 100%; }
 }
 
 /* Demand plan */
@@ -800,18 +814,6 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
 
 <div class="app" id="app-root" style="display:none;">
 
-  <header>
-    <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0811-1833 · updated 2026-08-11</span></div>
-      <h1>EMG Staffing Assignments</h1>
-    </div>
-    <div class="header-actions">
-      <span class="user-chip" id="user-chip"></span>
-      <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear this month's assignments</button>
-      <button class="ghost" id="signout-btn">Sign out</button>
-    </div>
-  </header>
-
   <div class="import-panel" id="import-panel">
     <h3>Import data</h3>
     <div class="import-step">
@@ -876,9 +878,14 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <div class="nav-group-t">Admin</div>
       <a class="nav-item" data-tab="settings" href="#/settings" title="Settings"><span class="nav-ico">⚙</span><span class="nav-label">Settings</span></a>
     </div>
+    <div class="nav-foot">
+      <span class="user-chip" id="user-chip"></span>
+      <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
+      <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
+      <div class="ver-tag">build b0811-1839 · updated 2026-08-11</div>
+    </div>
   </nav>
   <div class="content" id="content">
-  <div class="page-head"><h2 class="page-title" id="page-title">Dashboard</h2><span class="page-sub" id="page-sub"></span></div>
   <div id="month-context">
   <div class="month-nav">
     <div class="mode-toggle">
