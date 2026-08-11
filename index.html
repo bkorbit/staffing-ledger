@@ -432,6 +432,7 @@ body.ro .header-actions #clear-month-btn { display: none; }
 /* Wide tables keep their column widths and scroll inside the panel rather than
    letting the browser crush columns into each other when the window is narrow. */
 #tab-team .panel, #tab-projects .panel, #tab-forecast .panel, #tab-plan .panel, #tab-scoping .panel { overflow-x: auto; }
+#tab-sales .panel:not(.chartpanel) { overflow-x: auto; }
 #tab-team table { min-width: 1130px; }
 /* Progressive compression - bars shrink first, then the fixed columns and gutters,
    so the table keeps fitting instead of forcing a horizontal scroll. */
@@ -692,7 +693,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 
 /* ===== Sales Forecast ===== */
 #tab-sales .chartpanel{padding:0;overflow:visible}
-#tab-sales .range{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:11px 18px;border-bottom:1px solid var(--line)}
+#tab-sales .range{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--line)}
 #tab-sales .chartpanel.collapsed .range{border-bottom:none}
 #tab-sales .rl{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.09em;color:var(--slate);white-space:nowrap}
 #tab-sales .rd{font-family:var(--font-mono);font-size:10px;color:var(--slate)}
@@ -703,7 +704,7 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 #tab-sales .rp .seg:first-child{border-left:none}
 #tab-sales .seg.on{background:var(--brand);color:#fff}
 #tab-sales .range>.seg{border:1px solid var(--line);border-radius:6px;background:var(--paper-raised)}
-#tab-sales .seg.ghosty{margin-left:auto}
+#tab-sales .rsep{width:1px;height:20px;background:var(--line);margin:0 3px;flex:none}
 .chead{padding:18px 22px 0}
 .chead h3{margin:0 0 5px;font-size:14px;color:var(--brand)}
 .csum{font-family:var(--font-mono);font-size:10px;color:var(--slate);margin:0 0 4px}
@@ -750,6 +751,27 @@ table.hs-map{width:100%;border-collapse:collapse;max-width:620px}
 table.hs-map th{font-family:var(--font-mono);font-size:8.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--slate);text-align:left;padding:5px 7px;border-bottom:1px solid var(--line)}
 table.hs-map td{padding:4px 7px;border-bottom:1px solid #efefef;font-family:var(--font-mono);font-size:10.5px}
 table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6px;font-family:var(--font-mono);font-size:10.5px;background:#fff}
+@media (max-width:1500px){
+  #tab-sales .range input[type=month]{width:118px;min-width:118px;padding:4px 6px;font-size:10.5px}
+  #tab-sales .rp .seg,#tab-sales .range .seg{padding:5px 8px;font-size:9.5px}
+  table.sf{min-width:820px}
+  table.sf th,table.sf td{padding:6px 6px;font-size:11px}
+  table.sf th.cl,table.sf td.cl{min-width:180px}
+  table.sf th.pr,table.sf td.pr{min-width:96px}
+  table.sf th.fl,table.sf td.fl{min-width:112px}
+}
+@media (max-width:1200px){
+  #tab-sales .rl{display:none}
+  #tab-sales .range{padding:9px 12px;gap:6px}
+  #tab-sales .rsep{display:none}
+  #tab-sales .range input[type=month]{width:108px;min-width:108px}
+  #tab-sales .rp .seg,#tab-sales .range .seg{padding:4px 7px;font-size:9px}
+  .chead{padding:14px 16px 0}.csvg{padding:6px 8px 0}
+  #tab-sales .legend{padding:12px 16px 14px;gap:6px 14px}
+  table.sf{min-width:740px}
+  table.sf th,table.sf td{padding:5px 5px;font-size:10.5px}
+  .sf-parts{font-size:8.5px}
+}
 </style>
 </head>
 <body>
@@ -776,7 +798,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
 
   <header>
     <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0811-1823 · updated 2026-08-11</span></div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0811-1827 · updated 2026-08-11</span></div>
       <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
@@ -1838,15 +1860,17 @@ function renderSales() {
      <span class="rd">to</span>
      <input type="month" data-role="sf-to" value="${salesUI.to}">
      <span class="rp">${[3,6,12,18,24].map(n=>`<button class="seg${span===n?' on':''}" data-sf-span="${n}">${n}mo</button>`).join('')}</span>
-     <span class="rp" style="margin-left:14px;">
+     <span class="rsep"></span>
+     <span class="rp">
        <button class="seg${salesUI.weighted?' on':''}" data-sf-w="1">Weighted</button>
        <button class="seg${!salesUI.weighted?' on':''}" data-sf-w="0">Total</button>
      </span>
-     <span class="rp" style="margin-left:8px;">
+     <span class="rp">
        <button class="seg${!salesUI.showAll?' on':''}" data-sf-all="0">Forecastable</button>
        <button class="seg${salesUI.showAll?' on':''}" data-sf-all="1">All deals</button>
      </span>
-     <button class="seg ghosty" data-sf-today="1">Back to today</button>
+     <span class="rsep"></span>
+     <button class="seg" data-sf-today="1">Today</button>
      <button class="seg" data-sf-chart="1">${salesUI.chart ? 'Hide chart' : 'Show chart'}</button>`;
 
   // ---- empty state ----
