@@ -15,8 +15,11 @@ const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SUPABASE_URL = 'https://bdtzpeazcjgnsxodwzpz.supabase.co';
 const WORKSPACE_ID = 'default';
 const HS = 'https://api.hubapi.com';
-// Won deals stay in the payload this long so they can still be copied to the ledger.
-const WON_WINDOW_DAYS = 120;
+// Won deals stay in the payload for this long so they can still be copied to the ledger.
+const WON_RETAIN_DAYS = 60;
+// Deals won before the cutover were loaded into the ledger by hand, so pulling them in
+// would only create duplicates. Overridable from Settings via hubspotConfig.wonCutover.
+const WON_CUTOVER_DEFAULT = '2026-08-11';
 
 if (!HS_TOKEN) fail('Missing HUBSPOT_TOKEN secret.');
 if (!SERVICE_KEY) fail('Missing SUPABASE_SERVICE_ROLE_KEY secret.');
@@ -41,12 +44,12 @@ async function hs(path, opts = {}, tries = 0) {
 
 // ---------- HubSpot ----------
 
-async function searchDeals(pipelines) {
+async function searchDeals(pipelines, wonFrom) {
   const props = ['dealname', 'dealstage', 'pipeline', 'amount', 'closedate',
                  'campaign_start_date', 'campaign_end_date', 'hs_deal_stage_probability',
                  'hs_is_closed', 'hs_is_closed_won'];
   const out = [];
-  const wonSince = Date.now() - WON_WINDOW_DAYS * 86400000;
+  const wonSince = Date.parse(wonFrom + 'T00:00:00Z');
   for (const pl of pipelines) {
     let after;
     for (;;) {
@@ -142,7 +145,15 @@ const clean = v => (v === undefined || v === null || v === '') ? '' : String(v).
   const pipelines = (cfg.pipelines && cfg.pipelines.length) ? cfg.pipelines : ['default'];
   console.log('Pipelines:', pipelines.join(', '));
 
-  const deals = await searchDeals(pipelines);
+  // Retain won deals for 60 days, but never reach back past the cutover — whichever
+  // of the two is later wins, so the window slides forward once 60 days have elapsed.
+  const retainFrom = new Date(Date.now() - WON_RETAIN_DAYS * 86400000).toISOString().slice(0, 10);
+  const cutover = cfg.wonCutover || WON_CUTOVER_DEFAULT;
+  const wonFrom = retainFrom > cutover ? retainFrom : cutover;
+  console.log(`Won deals: keeping those closed on or after ${wonFrom} ` +
+    `(${WON_RETAIN_DAYS}-day retention, cutover ${cutover}).`);
+
+  const deals = await searchDeals(pipelines, wonFrom);
   console.log(`Fetched ${deals.length} open deals.`);
   if (!deals.length) { console.log('Nothing to write.'); return; }
 
@@ -197,7 +208,7 @@ const clean = v => (v === undefined || v === null || v === '') ? '' : String(v).
 
   console.log('');
   const nWon = out.filter(d => d.won).length;
-  console.log(`✔ Wrote ${out.length} deals (${out.length - nWon} open, ${nWon} won in the last ${WON_WINDOW_DAYS} days).`);
+  console.log(`✔ Wrote ${out.length} deals (${out.length - nWon} open, ${nWon} won since ${wonFrom}).`);
   console.log(`  ${withItems} have line items (${out.length - withItems} cannot be forecast until sales adds them).`);
   console.log(`  ${withCompany} have an associated company.`);
   const noDates = out.filter(d => !d.campaignStart || !d.campaignEnd).length;

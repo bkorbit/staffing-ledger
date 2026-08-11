@@ -742,6 +742,7 @@ button.sf-copy{font-size:9.5px;padding:3px 8px}
 #sales-won-panel:has(#sales-won:empty){display:none}
 .won-head{font-family:var(--font-display);font-size:13px;font-weight:600;color:var(--brand);padding:12px 14px 8px;display:flex;align-items:center;gap:8px}
 .won-n{background:var(--gold);color:#3a2c00;border-radius:10px;padding:1px 8px;font-family:var(--font-mono);font-size:10px}
+.won-sub{font-family:var(--font-mono);font-size:9.5px;color:var(--slate);font-weight:400}
 .hs-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
 @media(max-width:900px){.hs-grid{grid-template-columns:1fr}}
 .hs-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-family:var(--font-mono);font-size:11px;color:var(--ink)}
@@ -801,7 +802,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
 
   <header>
     <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0811-1828 · updated 2026-08-11</span></div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0811-1832 · updated 2026-08-11</span></div>
       <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
@@ -1766,6 +1767,8 @@ function hsConfig() {
   if (!c.mapping) c.mapping = Object.assign({}, HS_DEFAULT_MAP);
   if (!c.aliases) c.aliases = {};
   if (c.enabled === undefined) c.enabled = false;
+  if (!c.wonCutover) c.wonCutover = '2026-08-11';   // deals won earlier were loaded by hand
+  if (c.wonRetainDays === undefined) c.wonRetainDays = 60;
   return c;
 }
 function hsPipeline() { return state.salesPipeline || { deals: [], syncedAt: null }; }
@@ -1836,6 +1839,7 @@ function hsRows() {
     return { id: d.id, client: hsClientOf(d, cfg), rest: bits.slice(1).join(' - ') || d.name,
              stage: st.n, skey: d.stage, prob: st.p, colour: st.c, gp, parts, flags: f, months,
              inLedger: !!d.inLedger, won: !!d.won, url: d.url, campaignStart: d.campaignStart,
+             closeDate: d.closeDate,
              forecastable: gp > 0 && months.length > 0 && st.p >= (cfg.minProb || 0) && !d.inLedger && !d.won };
   });
 }
@@ -1911,9 +1915,12 @@ function renderSales() {
     (pipe.syncedAt ? `Last synced ${new Date(pipe.syncedAt).toLocaleString()}.` : '');
 
   // ---- won deals waiting to be copied ----
-  const won = rows.filter(r => r.won && !r.inLedger);
+  const retainFrom = new Date(Date.now() - (cfg.wonRetainDays || 60) * 86400000).toISOString().slice(0, 10);
+  const wonFrom = retainFrom > cfg.wonCutover ? retainFrom : cfg.wonCutover;
+  const won = rows.filter(r => r.won && !r.inLedger && (!r.closeDate || r.closeDate >= wonFrom));
   document.getElementById('sales-won').innerHTML = won.length ? (
-    `<div class="won-head">Won — ready to copy into the ledger <span class="won-n">${won.length}</span></div>` +
+    `<div class="won-head">Won — ready to copy into the ledger <span class="won-n">${won.length}</span>` +
+    `<span class="won-sub">won on or after ${wonFrom} · kept for ${cfg.wonRetainDays || 60} days</span></div>` +
     '<table class="sf"><tbody>' + won.map(r =>
       `<tr class="sf-d"><td class="cl"><b>${escapeHtml(r.client)}</b> · ${escapeHtml(r.rest)}` +
       (r.parts.length ? `<div class="sf-parts">${escapeHtml(r.parts.join(' · '))}</div>` : '') + '</td>' +
@@ -2124,6 +2131,9 @@ function renderHubspotSettings() {
       </div>
       <div class="hs-row"><span>Minimum probability</span><input type="text" inputmode="decimal" data-role="hs-minprob" value="${Math.round((c.minProb||0)*100)}" style="width:56px;"> %</div>
       <div class="hs-row"><span>Programmatic margin</span><input type="text" inputmode="decimal" data-role="hs-margin" value="${c.progMargin}" style="width:56px;"> % on top of the derived fee</div>
+      <div class="hs-row"><span>Ignore deals won before</span><input type="date" data-role="hs-cutover" value="${c.wonCutover}"></div>
+      <div class="hs-row"><span>Keep won deals for</span><input type="text" inputmode="decimal" data-role="hs-retain" value="${c.wonRetainDays}" style="width:56px;"> days after closing</div>
+      <div class="computed-sub" style="margin-top:-2px;">Anything won before the cutover was loaded into the ledger by hand, so it is skipped. Whichever of the two dates is later applies.</div>
       <div class="computed-sub" style="margin-top:10px;">${pipe.syncedAt
         ? 'Last sync ' + new Date(pipe.syncedAt).toLocaleString() + ' · ' + pipe.deals.length + ' deals'
         : 'Never synced.'}</div>
@@ -5435,6 +5445,8 @@ document.addEventListener('input', (e) => {
   if (!t.dataset) return;
   if (t.dataset.role === 'hs-minprob') { hsConfig().minProb = (parseFloat(t.value) || 0) / 100; scheduleSave(); }
   if (t.dataset.role === 'hs-margin') { hsConfig().progMargin = parseFloat(t.value) || 0; scheduleSave(); }
+  if (t.dataset.role === 'hs-cutover') { hsConfig().wonCutover = t.value || '2026-08-11'; scheduleSave(); if (ui.tab === 'sales') renderSales(); }
+  if (t.dataset.role === 'hs-retain') { hsConfig().wonRetainDays = Math.max(0, parseFloat(t.value) || 0); scheduleSave(); if (ui.tab === 'sales') renderSales(); }
   if (t.dataset.role === 'hs-map') { const c = hsConfig(); const k = t.dataset.k;
     if (!t.value) delete c.mapping[k]; else c.mapping[k] = t.value.split('/'); scheduleSave(); }
   if (t.dataset.role === 'hs-alias-from' || t.dataset.role === 'hs-alias-to') {
