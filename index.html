@@ -802,7 +802,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
 
   <header>
     <div>
-      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0811-1832 · updated 2026-08-11</span></div>
+      <div class="eyebrow">STAFFING &amp; PROFITABILITY <span class="ver-tag">build b0811-1833 · updated 2026-08-11</span></div>
       <h1>EMG Staffing Assignments</h1>
     </div>
     <div class="header-actions">
@@ -1772,6 +1772,7 @@ function hsConfig() {
   return c;
 }
 function hsPipeline() { return state.salesPipeline || { deals: [], syncedAt: null }; }
+function dealInLedger(id) { return (state.projects || []).some(p => String(p.hubspotDealId) === String(id)); }
 
 // Ledger-shaped GP for one deal, using the same rules as lineGP.
 function hsDealGP(items, cfg) {
@@ -1838,7 +1839,7 @@ function hsRows() {
     const bits = String(d.name || '').split(' - ');
     return { id: d.id, client: hsClientOf(d, cfg), rest: bits.slice(1).join(' - ') || d.name,
              stage: st.n, skey: d.stage, prob: st.p, colour: st.c, gp, parts, flags: f, months,
-             inLedger: !!d.inLedger, won: !!d.won, url: d.url, campaignStart: d.campaignStart,
+             inLedger: dealInLedger(d.id), won: !!d.won, url: d.url, campaignStart: d.campaignStart,
              closeDate: d.closeDate,
              forecastable: gp > 0 && months.length > 0 && st.p >= (cfg.minProb || 0) && !d.inLedger && !d.won };
   });
@@ -2040,7 +2041,6 @@ function salesCopyToLedger(id) {
     startMonth: months[0] || '', endMonth: months[months.length-1] || '',
     hubspotDealId: d.id, billing: { lines } };
   state.projects.push(proj);
-  d.inLedger = true;
   scheduleSave(); render();
   toast('Copied “' + proj.name + '” into the ledger with ' + lines.length + ' billing line' + (lines.length===1?'':'s') +
         '. Check the flight and billing on the Projects tab before relying on it.', 9000);

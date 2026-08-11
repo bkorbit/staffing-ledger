@@ -169,9 +169,8 @@ const clean = v => (v === undefined || v === null || v === '') ? '' : String(v).
   const lineItems = liIds.length ? await readBatch('line_items', liIds, ['name', 'amount', 'price', 'quantity']) : {};
   const companies = coIds.length ? await readBatch('companies', coIds, ['name']) : {};
 
-  // keep any inLedger flags already set by the app
-  const prior = {};
-  ((state.salesPipeline || {}).deals || []).forEach(d => { if (d.inLedger) prior[String(d.id)] = true; });
+  // "Already copied" is derived from the ledger's own projects, not a stored flag, so it
+  // stays true only while the project actually exists.
   const inLedgerFromProjects = new Set((state.projects || [])
     .filter(p => p.hubspotDealId).map(p => String(p.hubspotDealId)));
 
@@ -199,7 +198,7 @@ const clean = v => (v === undefined || v === null || v === '') ? '' : String(v).
       items,
       won: String(p.hs_is_closed_won) === 'true',
       url: `https://app.hubspot.com/contacts/45979252/record/0-3/${d.id}`,
-      inLedger: !!prior[String(d.id)] || inLedgerFromProjects.has(String(d.id))
+      inLedger: inLedgerFromProjects.has(String(d.id))
     };
   });
 
