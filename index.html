@@ -887,7 +887,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0811-1844 · updated 2026-08-11</div>
+      <div class="ver-tag">build b0817-1440 · updated 2026-08-17</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -952,7 +952,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       </div>
       <div class="chart-card" style="margin-bottom:16px;">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
-          <h4 style="margin:0;">Gross revenue · labor cost · profit after labor · line = expected profit</h4>
+          <h4 style="margin:0;">Revenue billed · gross profit · labor cost · profit after labor · line = expected profit</h4>
           <button class="ghost" id="fc-costs-toggle" style="display:none;">Fixed costs ▸</button>
         </div>
         <div id="fc-costs-panel" style="display:none; border:1px solid var(--line); border-radius:6px; padding:12px 14px; margin:10px 0 4px; background:var(--paper-raised);">
@@ -972,7 +972,8 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
           <th>Month</th>
           <th class="num-col">Actual</th>
           <th class="num-col">Forecasted</th>
-          <th class="num-col">Total gross revenue</th>
+          <th class="num-col">Revenue billed</th>
+          <th class="num-col">Total gross profit</th>
           <th class="num-col">Labor · projects</th>
           <th class="num-col">Labor · total payroll</th>
           <th class="num-col">Profit after labor</th>
@@ -2724,6 +2725,37 @@ function lineGP(p, line, mk) {
   return 0;
 }
 
+// What EMG invoices, as opposed to what it keeps. Search and social media is bought by
+// the client directly, so only the fee is billable; programmatic media runs through EMG
+// so the whole budget is. Retainers and hourly bill at face value.
+function lineBillable(p, line, mk) {
+  const flight = monthsOfFlight(p);
+  const inFlight = flight ? flight.includes(mk) : false;
+  const t = line.type;
+  const budget = (line.budgets || {})[mk] || 0;
+  if (t === 'search' || t === 'social') return budget * (line.feePct || 0) / 100;
+  if (t === 'programmatic') {
+    // Budget is what the client is invoiced for media; the margin is retained out of it
+    // (EMG buys below the billed rate), so only the buying fee is added on top.
+    return budget + budget * (line.feePct || 0) / 100;
+  }
+  if (t === 'retainer') return inFlight ? (line.amount || 0) : 0;
+  return lineGP(p, line, mk);            // hourly bills what it earns
+}
+function billingBillable(p, mk) {
+  if (!billingActive(p)) return null;
+  return p.billing.lines.reduce((s, l) => s + lineBillable(p, l, mk), 0);
+}
+// Falls back to gross profit for projects with no billing lines — without a media split
+// there is nothing better to say, and it keeps the bar from under-reporting.
+function billableFor(p, mk) {
+  const b = billingBillable(p, mk);
+  return b === null ? revenueFor(p, mk) : b;
+}
+function monthBillable(mk) {
+  return state.projects.reduce((s, p) => projectActiveInMonth(p, mk) ? s + billableFor(p, mk) : s, 0);
+}
+
 function billingGP(p, mk) {
   if (!billingActive(p)) return null;
   return p.billing.lines.reduce((s, l) => s + lineGP(p, l, mk), 0);
@@ -3868,6 +3900,7 @@ function revenueByMonthSplit() {
     return { mk: m, actual, forecast, labor, payroll, unattributed: payroll - labor, fixed,
       actualCorrected, payrollCorrected,
       internalCost, internalBasis: monthHasActuals ? 'logged' : 'planned',
+      billable: monthBillable(m),
       profit: total - labor, profitPayroll: total - payroll, expectedProfit: total - payroll - fixed, contributors };
   });
 }
@@ -3989,7 +4022,7 @@ function renderForecast() {
       });
       const ind = k => sk === k ? (sd === 1 ? ' ▲' : ' ▼') : '';
       breakout = `
-      <tr class="fc-breakout"><td colspan="9">
+      <tr class="fc-breakout"><td colspan="10">
         <div class="fc-head">
           <span>${withRev.length} project${withRev.length === 1 ? '' : 's'} contributing revenue</span>
           ${unconfirmed > 0 ? `<button class="ghost" data-role="fc-mark-all" data-mk="${r.mk}">Mark all ${unconfirmed} as actual</button>` : '<span class="pmeta">all confirmed</span>'}
@@ -4020,6 +4053,7 @@ function renderForecast() {
       <td style="font-family:var(--font-display); font-weight:600;">${monthLabel(r.mk)}</td>
       <td class="computed-cell" style="color:var(--brand); font-weight:700;">${r.actual ? fmtMoney(r.actual) : '—'}</td>
       <td class="computed-cell" style="color:#19a789;">${r.forecast ? fmtMoney(r.forecast) : '—'}</td>
+      <td class="computed-cell" style="color:#6b7f77;" title="What EMG invoices: search and social fees only, programmatic media plus fee, retainers and hourly at face value">${r.billable ? fmtMoney(r.billable) : '—'}</td>
       <td class="computed-cell" style="font-weight:700;">${fmtMoney(total)}</td>
       <td class="computed-cell">${r.labor ? fmtMoney(r.labor) : '—'}</td>
       <td class="computed-cell">${r.payroll ? fmtMoney(r.payroll) : '—'}${r.payroll && !r.payrollCorrected ? `<div class="computed-sub" title="Payroll not accounted for by project hours (salaried under-logging, unassigned time)">${r.unattributed >= 0 ? '+' : '−'}${fmtMoney(Math.abs(r.unattributed))} unattributed</div>` : ''}</td>
@@ -4036,6 +4070,7 @@ function renderForecast() {
     data: {
       labels: rows.map(r => monthShort(r.mk)),
       datasets: [
+        { label: 'Revenue billed', data: rows.map(r => Math.round(r.billable)), backgroundColor: '#b9c9c2', stack: 'billed', isBilled: true },
         { label: 'Actual', data: rows.map(r => Math.round(r.actual)), backgroundColor: '#0a493c', stack: 'rev' },
         { label: 'Forecasted', data: rows.map(r => Math.round(r.forecast)), backgroundColor: '#3bc9ac', stack: 'rev' },
         { label: 'Labor cost', data: rows.map(r => Math.round(r.payroll)), backgroundColor: '#c98a3b', stack: 'labor', isLabor: true },
@@ -4058,16 +4093,18 @@ function renderForecast() {
             if (ds.isPayLine) return false;
             if (ds.isProfit) return true;
             if (ds.isLabor) return true;
+            if (ds.isBilled) return true;
             const revSets = ctx.chart.data.datasets.filter(d => d.stack === 'rev');
             return ds === revSets[revSets.length - 1];
           },
           anchor: 'end', align: 'top', offset: 2, clip: false,
           font: { family: "'DM Mono', monospace", size: 9, weight: '700' },
-          color: ctx => ctx.dataset.isProfit ? (ctx.dataset.data[ctx.dataIndex] >= 0 ? '#7a9d54' : '#B5482A') : (ctx.dataset.isLabor ? '#c98a3b' : '#0a493c'),
+          color: ctx => ctx.dataset.isProfit ? (ctx.dataset.data[ctx.dataIndex] >= 0 ? '#7a9d54' : '#B5482A') : (ctx.dataset.isLabor ? '#c98a3b' : ctx.dataset.isBilled ? '#6b7f77' : '#0a493c'),
           formatter: (v, ctx) => {
             const i = ctx.dataIndex;
             if (ctx.dataset.isProfit) return v !== 0 ? '$' + Math.round(v / 1000) + 'k' : '';
             if (ctx.dataset.isLabor) return v !== 0 ? '$' + Math.round(v / 1000) + 'k' : '';
+            if (ctx.dataset.isBilled) return v !== 0 ? '$' + Math.round(v / 1000) + 'k' : '';
             const total = ctx.chart.data.datasets.filter(d => d.stack === 'rev').reduce((sum, ds) => sum + (ds.data[i] || 0), 0);
             return total !== 0 ? '$' + Math.round(total / 1000) + 'k' : '';
           }
