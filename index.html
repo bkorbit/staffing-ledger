@@ -875,33 +875,6 @@ color:var(--slate);margin:10px 0 5px}
 font-family:var(--font-mono);font-size:10.5px;text-align:right;background:#fff}
 .dl-m input:focus{outline:none;border-color:var(--brand)}
 .dl-m em{font-style:normal;color:var(--brand);font-weight:600}
-/* forecast by account */
-table#forecast-table,#tab-forecast table{table-layout:auto}
-th.fa-name,td.fa-name{min-width:210px}
-th.fa-fl,td.fa-fl{min-width:190px;white-space:nowrap}
-#tab-forecast th.num,#tab-forecast td.num{text-align:right;white-space:nowrap;min-width:64px}
-th.fa-settled{color:var(--brand)}
-.fa-tag{font-size:7.5px;letter-spacing:.06em;color:var(--slate);font-weight:400}
-.fa-client td{background:#eef1f0;font-family:var(--font-display);font-weight:700;font-size:12px;border-top:1px solid var(--line)}
-.fa-client td.num{font-family:var(--font-mono);font-size:11px}
-.fa-deal td{font-family:var(--font-mono);font-size:11px;padding:3px 6px}
-.fa-deal td.fa-name{padding-left:2px}
-td.fa-out{background:#fafafa}
-td.fa-act{color:var(--brand);font-weight:600}
-.fa-fc{font-size:8px;color:var(--slate);font-weight:400}
-.fa-total td{background:var(--brand);color:#fff;font-weight:700}
-.fa-total td.tot{color:var(--teal)}
-.fa-fl input[type=month]{width:90px;border:1px solid var(--line);border-radius:4px;padding:2px 4px;font-family:var(--font-mono);font-size:10px;background:#fff}
-.fa-fl input[type=month]:focus{outline:none;border-color:var(--brand)}
-.fa-edit>td{background:#f7f8f8;padding:9px 12px 12px 24px}
-table.fa-grid{width:100%;border-collapse:collapse;margin-bottom:8px}
-table.fa-grid th{font-family:var(--font-mono);font-size:8.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--slate);text-align:left;padding:4px 5px;border-bottom:1px solid var(--line)}
-table.fa-grid td{padding:3px 5px;border-bottom:1px solid #eee;font-family:var(--font-mono);font-size:10.5px}
-table.fa-grid th.num,table.fa-grid td.num{text-align:right}
-table.fa-grid select{border:1px solid var(--line);border-radius:4px;padding:2px 5px;font-family:var(--font-mono);font-size:10.5px;background:#fff}
-input.fa-b{width:70px;border:1px solid var(--line);border-radius:4px;padding:2px 4px;font-family:var(--font-mono);font-size:10px;text-align:right;background:#fff}
-input.fa-b:focus{outline:none;border-color:var(--brand);background:#fff}
-.fa-foot{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .fd-wrap{background:#fff;border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin-bottom:12px}
 .fd-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;
 font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.06em;
@@ -1013,7 +986,7 @@ font-family:var(--font-mono);font-size:10px;background:#fff}
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2131 · 27 Aug 2026 21:31 UTC</div>
+      <div class="ver-tag">build b0827-2136 · 27 Aug 2026 21:36 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -1094,7 +1067,18 @@ font-family:var(--font-mono);font-size:10px;background:#fff}
         <div class="chart-wrap" style="height:300px;"><canvas id="chart-forecast"></canvas></div>
       </div>
       <table>
-        <thead id="forecast-thead"></thead>
+        <thead><tr>
+          <th style="width:26px;"></th>
+          <th>Month</th>
+          <th class="num-col">Revenue billed</th>
+          <th class="num-col">COGS</th>
+          <th class="num-col">Forecast GP</th>
+          <th class="num-col">Actual GP</th>
+          <th class="num-col">Variance</th>
+          <th class="num-col">Expenses</th>
+          <th class="num-col">Net profit</th>
+          <th>Basis</th>
+        </tr></thead>
         <tbody id="forecast-tbody"></tbody>
       </table>
     </section>
@@ -4819,138 +4803,6 @@ function renderCorrectionsList() {
     }).join('');
 }
 
-
-/* ===== Forecast by account =====
-   Months across, accounts down. The P&L by month lives in the chart above; this table
-   answers the other question — which accounts make up the number and is each still
-   right. Budgets are editable per channel per month, because a campaign rarely changes
-   uniformly across its flight. */
-function forecastMonths() {
-  const out = [];
-  let c = ui.fcFrom || shiftMonth(currentMonth, -2);
-  const end = ui.fcTo || shiftMonth(c, 11);
-  let g = 0;
-  while (c <= end && g < 30) { out.push(c); c = shiftMonth(c, 1); g++; }
-  return out;
-}
-
-function renderForecastAccounts() {
-  const tbody = document.getElementById('forecast-tbody');
-  const thead = document.getElementById('forecast-thead');
-  if (!tbody) return;
-  const months = forecastMonths();
-  const all = deals();
-
-  if (thead) thead.innerHTML =
-    '<tr><th class="fa-name">Account</th><th class="fa-fl">Flight</th>' +
-    months.map(m => `<th class="num${qbCovers(m) ? ' fa-settled' : ''}">${monthShort(m)}${qbCovers(m) ? '<div class="fa-tag">actual</div>' : ''}</th>`).join('') +
-    '<th class="num tot">Total</th></tr>';
-
-  if (!all.length) {
-    tbody.innerHTML = `<tr><td colspan="${months.length + 3}" class="empty-note" style="padding:26px;">
-      No deals yet. <button class="ghost" data-role="deal-migrate">Set up deals from existing client billing</button></td></tr>`;
-    return;
-  }
-
-  const clientName = id => (state.projects.find(p => p.id === id) || {}).name || 'Unassigned';
-  const byClient = {};
-  all.forEach(d => (byClient[d.clientId] = byClient[d.clientId] || []).push(d));
-
-  // a settled month shows what QuickBooks billed; anything else shows the forecast
-  const cellValue = (d, m) => qbCovers(m) && d.qbProjectId
-    ? ((((qbActuals || {}).byProject || {})[String(d.qbProjectId)] || {})[m] || {}).revenue
-    : undefined;
-
-  let html = '';
-  const colTot = {}; let grand = 0;
-
-  Object.keys(byClient).sort((a, b) => clientName(a).localeCompare(clientName(b))).forEach(cid => {
-    const ds = byClient[cid];
-    const cT = {}; let cSum = 0;
-    ds.forEach(d => months.forEach(m => {
-      const v = cellValue(d, m); const fc = dealRevenue(d, m);
-      const use = v === undefined ? fc : v;
-      cT[m] = (cT[m] || 0) + use; cSum += use;
-    }));
-    months.forEach(m => { colTot[m] = (colTot[m] || 0) + (cT[m] || 0); }); grand += cSum;
-
-    html += `<tr class="fa-client"><td class="fa-name">${escapeHtml(clientName(cid))}<span class="pmeta"> · ${ds.length}</span></td><td></td>` +
-      months.map(m => `<td class="num">${cT[m] ? fmtShort(cT[m]) : '<span class="sf-z">·</span>'}</td>`).join('') +
-      `<td class="num tot">${fmtShort(cSum)}</td></tr>`;
-
-    ds.forEach(d => {
-      const open = !!dealOpen[d.id];
-      let dSum = 0;
-      const cells = months.map(m => {
-        const inFlight = dealMonths(d).includes(m);
-        const act = cellValue(d, m);
-        const fc = dealRevenue(d, m);
-        const use = act === undefined ? fc : act;
-        dSum += use;
-        if (!inFlight && !use) return '<td class="num fa-out"><span class="sf-z">·</span></td>';
-        const drift = act !== undefined && fc && Math.abs(act - fc) / fc > 0.02;
-        return `<td class="num${act !== undefined ? ' fa-act' : ''}">${fmtShort(use)}` +
-               (drift ? `<div class="fa-fc" title="Forecast was ${fmtMoney(fc)}">fc ${fmtShort(fc)}</div>` : '') + '</td>';
-      }).join('');
-      html += `<tr class="fa-deal"><td class="fa-name">
-          <button class="expand-btn" data-role="deal-toggle" data-id="${d.id}">${open ? '▾' : '▸'}</button>
-          <input class="dl-title" type="text" value="${escapeAttr(d.name || '')}" data-role="deal-name" data-id="${d.id}">
-        </td>
-        <td class="fa-fl">
-          <input type="month" data-role="deal-start" data-id="${d.id}" value="${d.startMonth || ''}">
-          <input type="month" data-role="deal-end" data-id="${d.id}" value="${d.endMonth || ''}">
-        </td>${cells}<td class="num tot">${fmtShort(dSum)}</td></tr>`;
-      if (open) html += `<tr class="fa-edit"><td colspan="${months.length + 3}">${dealChannelGrid(d, months)}</td></tr>`;
-    });
-  });
-
-  html += `<tr class="fa-total"><td class="fa-name">Total forecast</td><td></td>` +
-    months.map(m => `<td class="num">${fmtShort(colTot[m] || 0)}</td>`).join('') +
-    `<td class="num tot">${fmtShort(grand)}</td></tr>`;
-  tbody.innerHTML = html;
-}
-
-/* Channel by month. One row per channel, one editable budget per month, so a campaign
-   that shifts spend between months or channels can be corrected where it actually
-   changed rather than through a single deal-level figure. */
-function dealChannelGrid(d, months) {
-  const ach = dealAchievedMargin(d);
-  const fm = dealMonths(d);
-  let h = '<div class="dl-panel">';
-  if (ach !== null) h += `<div class="dl-note">Achieved <b>${ach}%</b> margin on settled months — used for programmatic lines left blank.</div>`;
-  h += '<table class="fa-grid"><thead><tr><th>Channel</th><th class="num">Fee %</th><th class="num">Margin %</th>' +
-    months.map(m => `<th class="num${fm.includes(m) ? '' : ' fa-out'}">${monthShort(m)}</th>`).join('') +
-    '<th class="num tot">Bills</th><th></th></tr></thead><tbody>';
-
-  (d.lines || []).forEach((l, i) => {
-    const isMedia = ['programmatic','search','social'].includes(l.type);
-    const total = months.reduce((s, m) => s + dealLineRevenue(d, l, m), 0);
-    h += `<tr><td><select data-role="dl-type" data-id="${d.id}" data-i="${i}">` +
-      ['programmatic','search','social','retainer','hourly'].map(t =>
-        `<option value="${t}"${l.type === t ? ' selected' : ''}>${BILLING_TYPES[t] || t}</option>`).join('') +
-      `</select></td>
-      <td class="num">${isMedia ? `<input class="dl-n sm" type="text" inputmode="decimal" value="${l.feePct || ''}" placeholder="0" data-role="dl-fee" data-id="${d.id}" data-i="${i}">` : ''}</td>
-      <td class="num">${l.type === 'programmatic'
-        ? `<input class="dl-n sm" type="text" inputmode="decimal" value="${l.marginPct !== undefined && l.marginPct !== null ? l.marginPct : ''}" placeholder="${ach !== null ? ach : (qbConf().progMargin || 35)}" data-role="dl-margin" data-id="${d.id}" data-i="${i}" title="Blank uses the achieved margin">`
-        : l.type === 'hourly' ? `<input class="dl-n sm" type="text" inputmode="decimal" value="${l.rate || ''}" placeholder="rate" data-role="dl-rate" data-id="${d.id}" data-i="${i}">` : ''}</td>` +
-      months.map(m => {
-        if (!fm.includes(m)) return '<td class="num fa-out"><span class="sf-z">·</span></td>';
-        if (isMedia) {
-          const v = (l.budgets || {})[m] !== undefined ? l.budgets[m] : '';
-          return `<td class="num"><input class="fa-b" type="text" inputmode="decimal" value="${v}" placeholder="${l.budget || 0}"
-            data-role="dl-mbudget" data-id="${d.id}" data-i="${i}" data-mk="${m}" title="Budget for ${monthShort(m)} — blank uses the default"></td>`;
-        }
-        return `<td class="num"><span class="pmeta">${fmtShort(dealLineRevenue(d, l, m))}</span></td>`;
-      }).join('') +
-      `<td class="num tot">${fmtShort(total)}</td>
-       <td><button class="icon-btn" data-role="dl-rm" data-id="${d.id}" data-i="${i}" title="Remove channel">×</button></td></tr>`;
-  });
-  h += '</tbody></table>';
-  h += `<div class="fa-foot"><button class="ghost" data-role="dl-add" data-id="${d.id}">+ Channel</button>
-    <span class="pmeta">Default budget per channel is used where a month is left blank. Flight dates set which months bill at all.</span></div>`;
-  return h + '</div>';
-}
-
 function renderForecast() {
   renderFixedCostsMenu();
   const tbody = document.getElementById('forecast-tbody');
@@ -4971,7 +4823,97 @@ function renderForecast() {
     return;
   }
 
-  renderForecastAccounts();
+  if (tbody) tbody.innerHTML = rows.map(r => {
+    const total = r.actual + r.forecast;
+    const pct = total !== 0 ? Math.round((r.actual / total) * 100) : 0;
+    const expanded = !!ui.forecastExpanded[r.mk];
+    let breakout = '';
+    if (expanded) {
+      // Editable rows: anything with revenue, plus any in-flight project (so a $0
+      // flight month can be typed back up). Only projects with labor cost but no
+      // revenue and no flight collapse into the summary line.
+      const withRev = r.contributors.filter(c => c.amount !== 0 || c.inFlight);
+      const costOnly = r.contributors.filter(c => c.amount === 0 && !c.inFlight);
+      const unconfirmed = withRev.filter(c => !c.isActual).length;
+      const sk = ui.fcSort.key, sd = ui.fcSort.dir;
+      const sortVal = c => sk === 'name' ? (c.name || '').toLowerCase()
+        : sk === 'amount' ? c.amount
+        : sk === 'cost' ? c.cost
+        : sk === 'status' ? (c.isActual ? 1 : 0)
+        : c.amount - c.cost;   // net
+      withRev.sort((a, b) => {
+        const va = sortVal(a), vb = sortVal(b);
+        return (typeof va === 'string' ? va.localeCompare(vb) : va - vb) * sd;
+      });
+      const ind = k => sk === k ? (sd === 1 ? ' ▲' : ' ▼') : '';
+      breakout = `
+      <tr class="fc-breakout"><td colspan="10">
+        <div class="fc-head">
+          <span>${withRev.length} project${withRev.length === 1 ? '' : 's'} contributing revenue</span>
+          ${qbCovers(r.mk) ? '<span class="pmeta">actual — from QuickBooks</span>'
+            : (unconfirmed > 0 ? `<span class="pmeta">${unconfirmed} not yet billed</span>` : '<span class="pmeta">all confirmed</span>')}
+        </div>
+        ${dealRowsForMonth(r.mk)}
+        <div class="fc-row fc-cols">
+          <div class="fc-col" data-role="fc-sort" data-key="name">Account${ind('name')}</div>
+          <div class="fc-col" data-role="fc-sort" data-key="amount">Revenue${ind('amount')}</div>
+          <div class="fc-col" data-role="fc-sort" data-key="cost">Labor cost${ind('cost')}</div>
+          <div class="fc-col" data-role="fc-sort" data-key="net">Net${ind('net')}</div>
+          <div class="fc-col" data-role="fc-sort" data-key="status">Status${ind('status')}</div>
+        </div>
+        ${withRev.map(c => `
+          <div class="fc-row${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? ' fc-billed' : ''; })()}"${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? ` data-role="fc-open-project" data-id="${c.pid}" title="Billing-scheduled — click to edit the campaign schedule"` : ''; })()}>
+            <div class="fc-name">${escapeHtml(c.name)}<button class="edit-btn" data-role="edit-project" data-id="${c.pid}" title="Edit billing & months">✎</button>${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? pp.billing.lines.map(l => `<span class="bl-chip">${BILLING_TYPES[l.type]}</span>`).join('') : ''; })()}${c.amount === 0 && c.inFlight ? '<span class="fc-basis"> · in flight</span>' : ''}</div>
+            <div class="pb-num">${(() => {
+              const pp = state.projects.find(x => x.id === c.pid);
+              if (qbCovers(r.mk)) return `<span style="font-weight:700;" title="Billed in QuickBooks — settled months are not editable">${fmtMoney(c.amount)}</span>`;
+              if (billingActive(pp)) return `<span style="font-weight:700;" title="${escapeAttr(billingBreakdown(pp, r.mk))}">${fmtMoney(c.amount)}</span>`;
+              return `<input type="text" inputmode="decimal" class="fc-rev-input" value="${c.amount ? '$' + Math.round(c.amount).toLocaleString() : ''}" placeholder="$0" data-role="fc-rev-month" data-pid="${c.pid}" data-mk="${r.mk}" title="Forecast for a month that is not over — edit to change the forecast">`;
+            })()} rev</div>
+            <div class="pb-num">${fmtMoney(c.cost)} cost <span class="fc-basis">${c.basis}</span></div>
+            <div class="pb-num" style="color:${c.amount - c.cost >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(c.amount - c.cost)} net</div>
+            <div class="pmeta">${c.isActual ? (qbCovers(r.mk) ? 'actual' : 'confirmed') : 'forecast'}</div>
+          </div>
+          ${(() => {
+            // The QuickBooks projects making up this client's month, nested underneath,
+            // so a client like On Location shows each piece of work rather than one total.
+            if (!qbActuals || !qbConf().useActuals || !qbCovers(r.mk)) return '';
+            const kids = qbClientProjects(c.pid, r.mk);
+            if (kids.length < 1) return '';
+            return kids.map(k => `<div class="fc-row fc-sub">
+              <div class="fc-name">${escapeHtml(k.name)}</div>
+              <div class="pb-num">${fmtMoney(k.revenue)} rev</div>
+              <div class="pb-num">${fmtMoney(k.cost)} media cost</div>
+              <div class="pb-num" style="color:${k.gp >= 0 ? 'var(--teal)' : 'var(--rust)'};">${fmtMoney(k.gp)} GP</div>
+              <div class="pmeta">${k.revenue > 0 ? Math.round(k.gp / k.revenue * 100) + '%' : ''}</div>
+            </div>`).join('');
+          })()}`).join('')}
+        ${costOnly.length ? `<div class="fc-row fc-dim"><div class="fc-name">Projects with labor but no revenue this month (${costOnly.map(c => escapeHtml(c.name)).join(', ')})</div><div class="pb-num"></div><div class="pb-num">${fmtMoney(costOnly.reduce((s, c) => s + c.cost, 0))} cost</div><div class="pb-num"></div><div></div></div>` : ''}
+        ${r.internalCost ? `<div class="fc-row fc-dim"><div class="fc-name" style="color:var(--internal);">Internal (non-billable)</div><div class="pb-num"></div><div class="pb-num">${fmtMoney(r.internalCost)} cost <span class="fc-basis">${r.internalBasis}</span></div><div class="pb-num"></div><div></div></div>` : ''}
+        <div class="fc-payroll">Labor ${fmtMoney(r.payroll)}${r.fixed ? ' · fixed costs ' + fmtMoney(r.fixed) : ''} <span class="fc-basis" title="Salaried staff cost their full monthly salary; hourly staff cost logged hours × rate (planned hours for future months). Expected profit subtracts the fixed-cost inputs on top of that.">salaried = full salary · hourly = hours × rate</span></div>
+      </td></tr>`;
+    }
+    return `
+    <tr ${r.mk === currentMonth ? 'style="background:var(--mint);"' : ''}>
+      <td><button class="expand-btn" data-role="forecast-toggle" data-mk="${r.mk}">${expanded ? '▾' : '▸'}</button></td>
+      <td style="font-family:var(--font-display); font-weight:600;">${monthLabel(r.mk)}</td>
+      <td class="computed-cell" style="color:#6b7f77;" title="${qbCovers(r.mk) ? 'Billed in QuickBooks, contra revenue excluded, including invoices with no project' : 'Modelled from billing lines'}">${r.billable ? fmtMoney(r.billable) : '—'}${r.noProject ? `<div class="computed-sub">incl. ${fmtMoney(r.noProject)} unmatched</div>` : ''}</td>
+      <td class="computed-cell" style="color:#8a6d3b;">${r.cogs ? fmtMoney(r.cogs) : '—'}</td>
+      <td class="computed-cell">${r.forecastGp ? fmtMoney(r.forecastGp) : '—'}</td>
+      <td class="computed-cell" style="font-weight:700;">${r.qbGp !== null ? fmtMoney(r.qbGp) : '—'}</td>
+      <td class="computed-cell">${(() => {
+        if (r.qbGp === null || !r.forecastGp) return '—';
+        const d = r.qbGp - r.forecastGp;
+        return `<span style="color:${d >= 0 ? 'var(--teal)' : 'var(--rust)'};">${d >= 0 ? '+' : '−'}${fmtMoney(Math.abs(d))}</span>` +
+               `<div class="computed-sub">${Math.round(d / r.forecastGp * 100)}%</div>`;
+      })()}</td>
+      <td class="computed-cell" style="color:#8a6d3b;" title="${r.expenseSrc === 'actual' ? 'Billed in QuickBooks — all operating expenses including labour'
+        : r.expenseSrc === 'average' ? 'Projected from a rolling ' + expenseAverageWindow() + '-month average of settled months'
+        : 'Entered by hand in the fixed-cost menu'}">${r.expenses ? fmtMoney(r.expenses) : '—'}<div class="computed-sub">${r.labourCost ? fmtMoney(r.labourCost) + ' labour · ' : ''}${r.expenseSrc}</div></td>
+      <td class="computed-cell" style="color:${r.netProfit >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(r.netProfit)}</td>
+      <td class="computed-sub">${qbCovers(r.mk) && r.qbGp !== null ? 'QuickBooks' : (total !== 0 ? 'forecast' : '')}</td>
+    </tr>${breakout}`;
+  }).join('');
 
   if (!el || !window.Chart) return;
   lastForecastMonths = rows.map(r => r.mk);
