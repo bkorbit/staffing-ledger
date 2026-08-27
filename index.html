@@ -761,6 +761,10 @@ button.sf-copy{font-size:9.5px;padding:3px 8px}
 .won-head{font-family:var(--font-display);font-size:13px;font-weight:600;color:var(--brand);padding:12px 14px 8px;display:flex;align-items:center;gap:8px}
 .won-n{background:var(--gold);color:#3a2c00;border-radius:10px;padding:1px 8px;font-family:var(--font-mono);font-size:10px}
 .won-sub{font-family:var(--font-mono);font-size:9.5px;color:var(--slate);font-weight:400}
+.won-act{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+button.sf-dismiss{font-size:9.5px;padding:3px 8px;color:var(--slate)}
+.won-hidden{padding:10px 14px;font-family:var(--font-mono);font-size:10px;color:var(--slate);border-top:1px solid var(--line)}
+button.linkish{border:none;background:none;color:var(--brand);text-decoration:underline;cursor:pointer;font-family:var(--font-mono);font-size:10px;padding:0 2px}
 .hs-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
 @media(max-width:900px){.hs-grid{grid-template-columns:1fr}}
 .hs-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-family:var(--font-mono);font-size:11px;color:var(--ink)}
@@ -887,7 +891,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0817-1440 · updated 2026-08-17</div>
+      <div class="ver-tag">build b0827-1613 · updated 2026-08-27</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -1786,6 +1790,16 @@ function hsConfig() {
 }
 function hsPipeline() { return state.salesPipeline || { deals: [], syncedAt: null }; }
 function dealInLedger(id) { return (state.projects || []).some(p => String(p.hubspotDealId) === String(id)); }
+// Deals marked as handled by hand. Kept outside state.salesPipeline because the sync
+// replaces that object every night — a flag on the deal itself would not survive.
+function dismissedDeals() { if (!state.salesDismissed) state.salesDismissed = {}; return state.salesDismissed; }
+function dismissDeal(id) {
+  const d = hsPipeline().deals.find(x => String(x.id) === String(id));
+  dismissedDeals()[String(id)] = { at: todayISO(), name: d ? d.name : '' };
+  scheduleSave(); renderSales();
+  toast('Removed from the list. It will stay off unless you restore it — use “show” under the list.', 7000);
+}
+function restoreDeal(id) { delete dismissedDeals()[String(id)]; scheduleSave(); renderSales(); }
 
 // Ledger-shaped GP for one deal, using the same rules as lineGP.
 function hsDealGP(items, cfg) {
@@ -1864,7 +1878,7 @@ function committedGP(mk) {
 }
 
 
-let salesUI = { weighted: true, showAll: false, from: null, to: null, chart: true };
+let salesUI = { weighted: true, showAll: false, from: null, to: null, chart: true, showDismissed: false };
 
 // Condensed money for dense tables and charts — $172k, $1.2M. Exact value goes in the
 // cell's title so it is always one hover away.
@@ -1941,19 +1955,31 @@ function renderSales() {
   // ---- won deals waiting to be copied ----
   const retainFrom = new Date(Date.now() - (cfg.wonRetainDays || 60) * 86400000).toISOString().slice(0, 10);
   const wonFrom = retainFrom > cfg.wonCutover ? retainFrom : cfg.wonCutover;
-  const won = rows.filter(r => r.won && !r.inLedger && (!r.closeDate || r.closeDate >= wonFrom));
-  document.getElementById('sales-won').innerHTML = won.length ? (
-    `<div class="won-head">Won — ready to copy into the ledger <span class="won-n">${won.length}</span>` +
-    `<span class="won-sub">won on or after ${wonFrom} · kept for ${cfg.wonRetainDays || 60} days</span></div>` +
-    '<table class="sf"><tbody>' + won.map(r =>
-      `<tr class="sf-d"><td class="cl"><b>${escapeHtml(r.client)}</b> · ${escapeHtml(r.rest)}` +
-      (r.parts.length ? `<div class="sf-parts">${escapeHtml(r.parts.join(' · '))}</div>` : '') + '</td>' +
-      `<td class="num tot">${r.gp ? cash(r.gp) : '—'}</td>` +
-      `<td class="fl">${r.campaignStart ? escapeHtml(r.campaignStart) + ' →' : '<span class="sf-flag w">no campaign dates</span>'}</td>` +
-      `<td class="fl">${r.gp > 0
-        ? `<button class="ghost sf-copy" data-role="sf-copy" data-id="${r.id}">Copy to ledger</button>`
-        : '<span class="sf-flag w">no line items — add them in HubSpot first</span>'}</td></tr>`
-    ).join('') + '</tbody></table>') : '';
+  const dism = dismissedDeals();
+  const inWindow = r => r.won && !r.inLedger && (!r.closeDate || r.closeDate >= wonFrom);
+  const won = rows.filter(r => inWindow(r) && !dism[String(r.id)]);
+  const hidden = rows.filter(r => inWindow(r) && dism[String(r.id)]);
+  const wonRow = r =>
+    `<tr class="sf-d"><td class="cl"><b>${escapeHtml(r.client)}</b> · ${escapeHtml(r.rest)}` +
+    (r.parts.length ? `<div class="sf-parts">${escapeHtml(r.parts.join(' · '))}</div>` : '') + '</td>' +
+    `<td class="num tot">${r.gp ? cash(r.gp) : '—'}</td>` +
+    `<td class="fl">${r.campaignStart ? escapeHtml(r.campaignStart) + ' →' : '<span class="sf-flag w">no campaign dates</span>'}</td>` +
+    `<td class="fl won-act">${r.gp > 0
+      ? `<button class="ghost sf-copy" data-role="sf-copy" data-id="${r.id}">Copy to ledger</button>`
+      : '<span class="sf-flag w">no line items — add them in HubSpot first</span>'}` +
+    `<button class="ghost sf-dismiss" data-role="sf-dismiss" data-id="${r.id}" title="Already added by hand — take it off this list">Already added</button></td></tr>`;
+  document.getElementById('sales-won').innerHTML = (won.length || hidden.length) ? (
+    (won.length ? `<div class="won-head">Won — ready to copy into the ledger <span class="won-n">${won.length}</span>` +
+      `<span class="won-sub">won on or after ${wonFrom} · kept for ${cfg.wonRetainDays || 60} days</span></div>` +
+      '<table class="sf"><tbody>' + won.map(wonRow).join('') + '</tbody></table>' : '') +
+    (hidden.length ? `<div class="won-hidden">${hidden.length} removed by hand ` +
+      `<button class="linkish" data-role="sf-show-dismissed">${salesUI.showDismissed ? 'hide' : 'show'}</button>` +
+      (salesUI.showDismissed ? '<table class="sf"><tbody>' + hidden.map(r =>
+        `<tr class="sf-d dim"><td class="cl">${escapeHtml(r.client)} · ${escapeHtml(r.rest)}</td>` +
+        `<td class="num tot">${r.gp ? cash(r.gp) : '—'}</td>` +
+        `<td class="fl"><span class="sf-flag i">removed ${escapeHtml((dism[String(r.id)] || {}).at || '')}</span></td>` +
+        `<td class="fl"><button class="ghost" data-role="sf-restore" data-id="${r.id}">Restore</button></td></tr>`
+      ).join('') + '</tbody></table>' : '') + '</div>' : '')) : '';
 
   // ---- grid ----
   const by = {}; shown.forEach(r => (by[r.client] = by[r.client] || []).push(r));
@@ -5844,6 +5870,9 @@ document.addEventListener('click', (e) => {
   }
   else if (role === 'fc-cost-remove') { state.fixedCosts.splice(+t.dataset.i, 1); scheduleSave(); render(); }
   else if (role === 'sf-copy') { salesCopyToLedger(t.dataset.id); }
+  else if (role === 'sf-dismiss') { dismissDeal(t.dataset.id); }
+  else if (role === 'sf-restore') { restoreDeal(t.dataset.id); }
+  else if (role === 'sf-show-dismissed') { salesUI.showDismissed = !salesUI.showDismissed; renderSales(); }
   else if (role === 'usr-add') { addUserRow(); }
   else if (role === 'usr-remove') { removeUserRow(+t.dataset.i); }
   else if (role === 'pm-comp-add') { addCompPeriod(personEditId); }
