@@ -1021,7 +1021,7 @@ td.bl-lockcell{background:#f2f4f3}
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2215 · 27 Aug 2026 22:15 UTC</div>
+      <div class="ver-tag">build b0827-2223 · 27 Aug 2026 22:23 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -3317,7 +3317,9 @@ function openDealModal(id) {
   dealEditId = id;
   projectEditId = d.clientId;                 // some shared handlers still key off it
   const client = state.projects.find(x => x.id === d.clientId);
-  document.getElementById('project-modal-title').textContent = d.name || 'Untitled deal';
+  const sameName = client && similarity(client.name, d.name) > 0.95;
+  document.getElementById('project-modal-title').textContent =
+    (d.name || 'Untitled deal') + (sameName ? ' — whole account' : '');
   const sub = document.getElementById('project-modal-sub');
   if (sub) sub.textContent = (client ? client.name + ' · ' : '') +
     (d.qbProjectId ? 'linked to QuickBooks' : 'not linked to a QuickBooks project') +
@@ -4855,13 +4857,26 @@ function monthTotalPayroll(mk) {
 }
 function revenueByMonthSplit() {
   const set = new Set();
-  state.projects.forEach(p => {
-    if (billingActive(p)) billingMonths(p).forEach(mk => set.add(mk));
-    else Object.keys(p.revenueOverrides || {}).forEach(mk => {
-      if ((p.revenueOverrides[mk] || 0) !== 0) set.add(mk);
+  // Deals hold the billing now, so the forecast window is the span of what they cover.
+  // Scanning clients alone collapsed the window to whatever was left after migration,
+  // which is why future months disappeared.
+  deals().forEach(d => {
+    dealMonths(d).forEach(mk => set.add(mk));
+    Object.keys(d.revenueOverrides || {}).forEach(mk => {
+      if ((d.revenueOverrides[mk] || 0) !== 0) set.add(mk);
     });
-    // A project with flight dates occupies those months even at $0 revenue,
-    // so it stays visible and can be edited back up from the forecast/projects view.
+    (d.lines || []).forEach(l => Object.keys(l.budgets || {}).forEach(mk => set.add(mk)));
+  });
+  state.projects.forEach(p => {
+    // Clients not yet migrated still contribute, so nothing vanishes mid-transition.
+    if (!dealsFor(p.id).length) {
+      if (billingActive(p)) billingMonths(p).forEach(mk => set.add(mk));
+      else Object.keys(p.revenueOverrides || {}).forEach(mk => {
+        if ((p.revenueOverrides[mk] || 0) !== 0) set.add(mk);
+      });
+    }
+    // A client with flight dates occupies those months even at zero revenue, so it
+    // stays visible and can be edited back up.
     const flight = monthsOfFlight(p);
     if (flight) flight.forEach(mk => set.add(mk));
   });
