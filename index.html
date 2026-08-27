@@ -894,6 +894,38 @@ font-family:var(--font-mono);font-size:10px;background:#fff}
 .fd-edit>td{background:#f7f8f8;padding:8px 12px 12px 24px}
 .dl-m.now input{border-color:var(--brand);font-weight:700}
 .dl-m.now span{color:var(--brand);font-weight:700}
+
+/* billing editor — channels down, months across */
+.bl-add2{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 11px;margin-bottom:10px;
+background:var(--paper-raised);border:1px solid var(--line);border-radius:6px}
+.bl-add2 select{border:1px solid var(--line);border-radius:5px;padding:5px 8px;font-family:var(--font-mono);font-size:11px;background:#fff}
+.bl-add2 label{display:flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:10px;color:var(--slate)}
+.bl-add2 input{width:52px;border:1px solid var(--line);border-radius:4px;padding:4px 6px;
+font-family:var(--font-mono);font-size:11px;text-align:right;background:#fff}
+.bl-add2 input:focus,.bl-add2 select:focus{outline:none;border-color:var(--brand)}
+.bl-empty{font-family:var(--font-mono);font-size:11px;color:var(--slate);padding:14px 4px}
+.bl-scroll{overflow-x:auto}
+table.bl-grid{width:100%;border-collapse:collapse;min-width:0}
+table.bl-grid th{font-family:var(--font-mono);font-size:8.5px;text-transform:uppercase;letter-spacing:.05em;
+color:var(--slate);text-align:left;padding:5px 5px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.bl-grid td{padding:3px 5px;border-bottom:1px solid #f0f0f0;font-family:var(--font-mono);font-size:10.5px;vertical-align:middle}
+table.bl-grid th.num,table.bl-grid td.num{text-align:right;min-width:62px}
+th.bl-ch,td.bl-ch{min-width:140px;white-space:nowrap}
+td.bl-ch strong{font-family:var(--font-display);font-size:11px}
+input.bl-label{display:block;width:100%;max-width:130px;margin-top:2px;border:1px solid transparent;
+border-radius:3px;padding:1px 4px;font-family:var(--font-mono);font-size:9px;color:var(--slate);background:transparent}
+input.bl-label:hover{border-color:var(--line);background:#fff}
+input.bl-label:focus{outline:none;border-color:var(--brand);background:#fff}
+input.bl-n{width:66px;border:1px solid var(--line);border-radius:4px;padding:2px 4px;
+font-family:var(--font-mono);font-size:10.5px;text-align:right;background:#fff}
+input.bl-n.sm{width:46px}
+input.bl-n:focus{outline:none;border-color:var(--brand)}
+th.bl-locked{color:var(--brand)}
+.bl-lk{font-size:7.5px;letter-spacing:.05em;color:var(--slate);font-weight:400}
+td.bl-lockcell{background:#f2f4f3}
+.bl-x{color:var(--slate)}
+.bl-sum td{background:var(--mint);font-weight:700;border-top:1px solid var(--line)}
+.bl-fc{font-size:8px;color:var(--slate);font-weight:400}
 </style>
 </head>
 <body>
@@ -986,7 +1018,7 @@ font-family:var(--font-mono);font-size:10px;background:#fff}
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2136 · 27 Aug 2026 21:36 UTC</div>
+      <div class="ver-tag">build b0827-2144 · 27 Aug 2026 21:44 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -3049,45 +3081,86 @@ function blMonthInputs(p, line, li) {
   }).join('') + '</div>' + (skipped ? `<div class="pm-hint" style="margin:6px 0 0;">${skipped} month${skipped === 1 ? '' : 's'} hidden — already marked actual (edit in the grid below)</div>` : '');
 }
 
+/* Billing editor: two layers.
+   Above, a strip to add a channel — pick the type, set fee and margin once, and the
+   line lands filled across the flight. Below, one table: channels down, months across.
+   Previously each channel was a card with its own month grid, so three channels meant
+   three large boxes and no way to compare a month across them. */
 function rebuildBillingSection() {
   const p = state.projects.find(x => x.id === projectEditId);
   const el = document.getElementById('pj-billing');
   if (!p || !el) return;
   const lines = (p.billing && p.billing.lines) || [];
-  const lineHtml = lines.map((l, i) => {
+  const months = monthsOfFlight(p) || [];
+  // Fee and margin carried from whichever line already has them, so a second channel
+  // inherits rather than being retyped. Falls back to the pipeline's assumption.
+  const seedFee = (lines.find(l => l.feePct) || {}).feePct || '';
+  const seedMargin = (lines.find(l => l.marginPct) || {}).marginPct || (qbConf().progMargin || 35);
+
+  let h = `<div class="bl-add2">
+    <select id="bl-add-type" title="Adds a channel filled across the flight">
+      <option value="">+ Channel…</option>
+      <option value="programmatic">Programmatic</option>
+      <option value="search">Paid Search</option>
+      <option value="social">Paid Social</option>
+      <option value="retainer">Retainer</option>
+      <option value="hourly">Hourly</option>
+    </select>
+    <label>fee %<input type="text" inputmode="decimal" id="bl-seed-fee" value="${seedFee}" placeholder="12"></label>
+    <label>margin %<input type="text" inputmode="decimal" id="bl-seed-margin" value="${seedMargin}" placeholder="35"></label>
+    <span class="pm-hint" style="margin:0;">applied to the new channel and filled across the flight</span>
+  </div>`;
+
+  if (!months.length) {
+    el.innerHTML = h + '<div class="bl-empty">Set flight dates above and the months will appear here.</div>';
+    return;
+  }
+  if (!lines.length) {
+    el.innerHTML = h + '<div class="bl-empty">No channels yet — add one above, or leave it and enter revenue by month below.</div>';
+    return;
+  }
+
+  h += '<div class="bl-scroll"><table class="bl-grid"><thead><tr><th class="bl-ch">Channel</th><th class="num">Fee</th><th class="num">Margin</th>' +
+    months.map(m => `<th class="num${qbCovers(m) ? ' bl-locked' : ''}">${monthShort(m)}${qbCovers(m) ? '<div class="bl-lk">actual</div>' : ''}</th>`).join('') +
+    '<th class="num tot">Total</th><th></th></tr></thead><tbody>';
+
+  lines.forEach((l, i) => {
     const t = l.type;
-    let params = '';
-    if (t === 'retainer') params = `<label>amount / flight month $<input type="text" inputmode="decimal" value="${l.amount || ''}" data-role="bl-amount" data-line="${i}"></label>`;
-    if (t === 'search' || t === 'social') params = `<label>fee %<input type="text" inputmode="decimal" value="${l.feePct || ''}" data-role="bl-fee" data-line="${i}"></label><span class="pm-hint" style="margin:0;">media is 1:1 pass-through — only the fee counts as gross profit</span>`;
-    if (t === 'programmatic') params = `<label>fee %<input type="text" inputmode="decimal" value="${l.feePct || ''}" data-role="bl-fee" data-line="${i}"></label><label>default margin %<input type="text" inputmode="decimal" value="${l.marginPct || ''}" data-role="bl-margin" data-line="${i}"></label>`;
-    if (t === 'hourly') params = `<label>rate $/h<input type="text" inputmode="decimal" value="${l.rate || ''}" data-role="bl-rate" data-line="${i}"></label>
-      <label>hours<select data-role="bl-mode" data-line="${i}"><option value="flight" ${(l.mode !== 'monthly' && l.mode !== 'scheduled') ? 'selected' : ''}>spread over flight</option><option value="monthly" ${l.mode === 'monthly' ? 'selected' : ''}>per month</option><option value="scheduled" ${l.mode === 'scheduled' ? 'selected' : ''}>billed from schedule</option></select></label>
-      ${(l.mode !== 'monthly' && l.mode !== 'scheduled') ? `<label>total hours<input type="text" inputmode="decimal" value="${l.hours || ''}" data-role="bl-hours" data-line="${i}"></label>` : ''}
-      ${l.mode === 'scheduled' ? `<label>cap h/mo (optional)<input type="text" inputmode="decimal" value="${l.capHours || ''}" data-role="bl-caph" data-line="${i}" title="Max billable hours per month. Scheduled hours above the cap still cost but don't bill — prevents padded schedules from inflating forecast revenue."></label>` : ''}`;
-    const needsMonths = (t !== 'retainer') && !(t === 'hourly' && l.mode !== 'monthly');   // scheduled falls under mode !== 'monthly' -> no month grid
-    return `
-      <div class="bl-line">
-        <div class="bl-top">
-          <strong style="font-family:var(--font-display); font-size:12px;">${BILLING_TYPES[t]}</strong>
-          <input type="text" class="bl-label" placeholder="label (optional)" value="${escapeAttr(l.label || '')}" data-role="bl-label" data-line="${i}">
-          ${params}
-          <button class="remove-btn" data-role="bl-remove" data-line="${i}" style="margin-left:auto;">×</button>
-        </div>
-        ${needsMonths ? blMonthInputs(p, l, i) : ''}
-      </div>`;
-  }).join('');
-  el.innerHTML = lineHtml + `
-    <div class="bl-add">
-      <select id="bl-add-type">
-        <option value="">+ Add billing line…</option>
-        <option value="retainer">Retainer (flat, no COGS)</option>
-        <option value="search">Paid Search (fee % of budget)</option>
-        <option value="social">Paid Social (fee % of budget)</option>
-        <option value="programmatic">Programmatic (fee % + media margin)</option>
-        <option value="hourly">Hourly (rate × scoped hours)</option>
-      </select>
-      ${lines.length ? '' : '<span class="pm-hint" style="margin:0;">no lines — the month amounts below stay hand-entered</span>'}
-    </div>`;
+    const isMedia = t === 'search' || t === 'social' || t === 'programmatic';
+    const total = months.reduce((sum, m) => sum + lineGP(p, l, m), 0);
+    h += `<tr><td class="bl-ch"><strong>${BILLING_TYPES[t] || t}</strong>` +
+      `<input type="text" class="bl-label" placeholder="label" value="${escapeAttr(l.label || '')}" data-role="bl-label" data-line="${i}"></td>` +
+      `<td class="num">${isMedia ? `<input class="bl-n sm" type="text" inputmode="decimal" value="${l.feePct || ''}" data-role="bl-fee" data-line="${i}">` : ''}</td>` +
+      `<td class="num">${t === 'programmatic' ? `<input class="bl-n sm" type="text" inputmode="decimal" value="${l.marginPct || ''}" data-role="bl-margin" data-line="${i}">`
+        : t === 'hourly' ? `<input class="bl-n sm" type="text" inputmode="decimal" value="${l.rate || ''}" placeholder="rate" data-role="bl-rate" data-line="${i}">` : ''}</td>` +
+      months.map(m => {
+        const locked = qbCovers(m);
+        if (t === 'retainer') {
+          return `<td class="num${locked ? ' bl-lockcell' : ''}">${locked ? '<span class="bl-x">locked</span>'
+            : `<input class="bl-n" type="text" inputmode="decimal" value="${l.amount || ''}" placeholder="0" data-role="bl-amount" data-line="${i}">`}</td>`;
+        }
+        if (!isMedia) return `<td class="num${locked ? ' bl-lockcell' : ''}"><span class="pmeta">${fmtShort(lineGP(p, l, m))}</span></td>`;
+        const v = (l.budgets || {})[m];
+        return `<td class="num${locked ? ' bl-lockcell' : ''}">${locked
+          ? `<span class="bl-x" title="Settled in QuickBooks — budgets for this month are no longer editable">${v ? fmtShort(v) : '—'}</span>`
+          : `<input class="bl-n" type="text" inputmode="decimal" value="${v !== undefined ? v : ''}" placeholder="0" data-role="bl-budget" data-line="${i}" data-mk="${m}">`}</td>`;
+      }).join('') +
+      `<td class="num tot">${fmtShort(total)}</td>` +
+      `<td><button class="icon-btn" data-role="bl-remove" data-line="${i}" title="Remove channel">×</button></td></tr>`;
+  });
+
+  // what each month actually bills, and the actual beside it once settled
+  h += '<tr class="bl-sum"><td class="bl-ch">Gross profit</td><td></td><td></td>' +
+    months.map(m => {
+      const fc = lines.reduce((sum, l) => sum + lineGP(p, l, m), 0);
+      const act = qbCovers(m) ? (qbClientMonth(p.id, m) || {}).revenue : null;
+      return `<td class="num">${act !== null && act !== undefined
+        ? `<strong>${fmtShort(act)}</strong><div class="bl-fc">fc ${fmtShort(fc)}</div>`
+        : fmtShort(fc)}</td>`;
+    }).join('') +
+    `<td class="num tot">${fmtShort(months.reduce((s, m) => s + lines.reduce((x, l) => x + lineGP(p, l, m), 0), 0))}</td><td></td></tr>`;
+  h += '</tbody></table></div>';
+  el.innerHTML = h;
 }
 
 function rebuildProjectModalMonths() {
@@ -6995,10 +7068,15 @@ document.addEventListener('change', (e) => {
     if (p) {
       if (!p.billing) p.billing = { lines: [] };
       const t = e.target.value;
+      // Fee and margin come from the strip above, so a second channel inherits the
+      // first rather than starting at zero and needing both retyped.
+      const numOf = id => { const el2 = document.getElementById(id); const n = parseFloat((el2 || {}).value); return isNaN(n) ? 0 : n; };
+      const fee = numOf('bl-seed-fee');
+      const margin = numOf('bl-seed-margin') || (qbConf().progMargin || 35);
       const line = { id: uid(), type: t, label: '' };
       if (t === 'retainer') line.amount = 0;
-      if (t === 'search' || t === 'social') { line.feePct = 0; line.budgets = {}; }
-      if (t === 'programmatic') { line.feePct = 0; line.marginPct = 0; line.budgets = {}; line.margins = {}; }
+      if (t === 'search' || t === 'social') { line.feePct = fee; line.budgets = {}; }
+      if (t === 'programmatic') { line.feePct = fee; line.marginPct = margin; line.budgets = {}; line.margins = {}; }
       if (t === 'hourly') { line.rate = 0; line.mode = 'flight'; line.hours = 0; line.hoursByMonth = {}; }
       p.billing.lines.push(line);
       scheduleSave(); render(); rebuildBillingSection(); rebuildProjectModalMonths();
