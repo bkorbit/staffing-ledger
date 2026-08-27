@@ -756,6 +756,9 @@ table.sf td.tot{font-weight:700;color:var(--brand)}
 .sf-g td.tot{color:var(--teal)}
 .sf-flag{display:inline-block;font-size:8.5px;padding:1px 5px;border-radius:3px;margin:1px 2px 1px 0;white-space:nowrap}
 .sf-flag.t{background:var(--gold);color:#3a2c00}.sf-flag.w{background:#fbe7e4;color:var(--rust)}.sf-flag.i{background:#e6e6e6;color:var(--slate)}
+.sf-flag.ok{background:var(--mint);color:var(--brand);font-weight:700}
+button.qb-ok{font-size:9.5px;padding:3px 9px;border-color:var(--brand);color:var(--brand);font-weight:600}
+button.qb-x{font-size:11px;padding:1px 6px;margin-left:4px;color:var(--slate)}
 button.sf-copy{font-size:9.5px;padding:3px 8px}
 #sales-won-panel:has(#sales-won:empty){display:none}
 .won-head{font-family:var(--font-display);font-size:13px;font-weight:600;color:var(--brand);padding:12px 14px 8px;display:flex;align-items:center;gap:8px}
@@ -905,7 +908,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-1827 · updated 2026-08-27</div>
+      <div class="ver-tag">build b0827-1906 · updated 2026-08-27</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -2275,8 +2278,9 @@ async function renderQbMatching() {
     ${suggested ? suggested + ' have a suggestion waiting. ' : ''}
     ${orphan ? orphan + ' need matching by hand. ' : ''}
     Projects are listed by revenue, so the money gets matched first.</div>`;
-  h += `<div style="display:flex;gap:8px;margin-bottom:10px;">
-    <button class="ghost" data-role="qb-accept-high">Accept all high-confidence</button>
+  h += `<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;">
+    <button class="primary" data-role="qb-accept-high">Accept ${rows.filter(r => !r.client && r.suggestion && r.suggestion.conf === 'high').length} high-confidence</button>
+    <button class="ghost" data-role="qb-accept-all">Accept all ${suggested} suggestions</button>
     <button class="ghost" data-role="qb-reload">Reload from QuickBooks</button>
     <label style="font-family:var(--font-mono);font-size:10px;display:flex;align-items:center;gap:5px;">
       <input type="checkbox" data-role="qb-hide-matched" ${qbHideMatched ? 'checked' : ''}> hide matched</label>
@@ -2284,13 +2288,19 @@ async function renderQbMatching() {
   h += '<table class="sf"><thead><tr><th class="cl">QuickBooks project</th><th class="num">Revenue</th>' +
        '<th class="num">GP</th><th class="cl">Ledger client</th><th class="fl">Basis</th></tr></thead><tbody>';
   rows.filter(r => !qbHideMatched || !r.client).slice(0, 300).forEach(r => {
+    // Pre-select a pending suggestion for convenience, but mark it clearly as unsaved —
+    // a filled-in dropdown must never imply the match has been stored.
+    const pending = !r.client && r.suggestion ? r.suggestion.client.id : '';
     const sel = `<select data-role="qb-pick" data-id="${r.p.id}">
       <option value="">— unmatched —</option>` +
-      clients.map(c => `<option value="${c.id}"${(r.client && r.client.id === c.id) || (!r.client && r.suggestion && r.suggestion.client.id === c.id) ? ' selected' : ''}>${escapeHtml(c.name || 'Untitled')}</option>`).join('') +
+      clients.map(c => `<option value="${c.id}"${(r.client && r.client.id === c.id) || (pending && pending === c.id) ? ' selected' : ''}>${escapeHtml(c.name || 'Untitled')}</option>`).join('') +
       '</select>';
-    const badge = r.client ? '<span class="sf-flag i">matched</span>'
-      : r.suggestion ? `<span class="sf-flag ${r.suggestion.conf === 'high' ? 't' : 'w'}">${r.suggestion.conf} · ${escapeHtml(r.suggestion.why)}</span>`
-      : '<span class="sf-flag w">no suggestion</span>';
+    const badge = r.client
+      ? `<span class="sf-flag ok">saved</span><button class="ghost qb-x" data-role="qb-unmatch" data-id="${r.p.id}" title="Remove this match">×</button>`
+      : r.suggestion
+        ? `<button class="ghost qb-ok" data-role="qb-accept" data-id="${r.p.id}" data-client="${r.suggestion.client.id}">Accept</button>` +
+          `<span class="sf-flag ${r.suggestion.conf === 'high' ? 't' : 'w'}" title="${escapeAttr(r.suggestion.why)}">${r.suggestion.conf}</span>`
+        : '<span class="sf-flag w">pick one</span>';
     const cleaned = qbCleanName(r.p);
     const shown = qbDisplayName(r.p);
     const overridden = !!(qbNames()[r.p.id]);
@@ -2308,7 +2318,7 @@ async function renderQbMatching() {
 }
 let qbHideMatched = false;
 
-function qbAcceptHighConfidence() {
+function qbAcceptSuggestions(scope) {
   const clients = state.projects;
   const dealIdx = dealsByQbProject();
   const map = qbMap();
@@ -2316,11 +2326,16 @@ function qbAcceptHighConfidence() {
   (qbProjects || []).forEach(p => {
     if (map[p.id]) return;
     const s = suggestMatch(p, clients, dealIdx);
-    if (s && s.conf === 'high') { map[p.id] = s.client.id; n++; }
+    if (!s) return;
+    if (scope === 'high' && s.conf !== 'high') return;
+    map[p.id] = s.client.id; n++;
   });
   scheduleSave(); renderQbMatching();
-  toast(n ? 'Matched ' + n + ' project' + (n === 1 ? '' : 's') + ' on an exact identifier. Name-based suggestions are left for you to confirm.'
-          : 'Nothing new to match with high confidence.', 8000);
+  if (!n) { toast('Nothing left to accept in that group.'); return; }
+  toast('Saved ' + n + ' match' + (n === 1 ? '' : 'es') + '. ' +
+    (scope === 'high'
+      ? 'These rest on an exact identifier; name-based suggestions are still waiting.'
+      : 'Name-based matches are guesses — worth a scan before relying on them.'), 9000);
 }
 
 function renderSettings() {
@@ -6170,7 +6185,10 @@ document.addEventListener('click', (e) => {
   }
   else if (role === 'fc-cost-remove') { state.fixedCosts.splice(+t.dataset.i, 1); scheduleSave(); render(); }
   else if (role === 'sf-copy') { salesCopyToLedger(t.dataset.id); }
-  else if (role === 'qb-accept-high') { qbAcceptHighConfidence(); }
+  else if (role === 'qb-accept-high') { qbAcceptSuggestions('high'); }
+  else if (role === 'qb-accept-all') { qbAcceptSuggestions('all'); }
+  else if (role === 'qb-accept') { qbMap()[t.dataset.id] = t.dataset.client; scheduleSave(); renderQbMatching(); }
+  else if (role === 'qb-unmatch') { delete qbMap()[t.dataset.id]; scheduleSave(); renderQbMatching(); }
   else if (role === 'qb-reload') { loadQbProjects(true).then(renderQbMatching); }
   else if (role === 'qb-reset-names') {
     const n = Object.keys(qbNames()).length;
