@@ -1021,7 +1021,7 @@ td.bl-lockcell{background:#f2f4f3}
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2206 · 27 Aug 2026 22:06 UTC</div>
+      <div class="ver-tag">build b0827-2215 · 27 Aug 2026 22:15 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -2647,9 +2647,11 @@ function dealLineBillable(d, line, mk) {
 // Reuses lineGP, the engine the forecast has always run on — a deal carries startMonth
 // and endMonth just as a project did, so the flight logic works unchanged.
 function dealRevenue(d, mk) {
-  if (!dealMonths(d).includes(mk)) return 0;
+  // A hand-entered amount stands on its own. Testing the flight first meant a deal
+  // carrying revenue but no flight dates returned nothing, silently.
   const man = (d.revenueOverrides || {})[mk];
   if (man !== undefined) return man;
+  if (!dealMonths(d).includes(mk)) return 0;
   return (d.lines || []).reduce((s, l) => s + lineGP(d, l, mk), 0);
 }
 
@@ -2704,6 +2706,24 @@ function clientDemand(clientId, mk) {
 /* Which clients still hold billing lines, and whether a near-identically named client
    already has deals — the common reason a count looks wrong is the same client existing
    twice, with billing on one and deals on the other. */
+/* The migration ran once before this fix, so any deal it made may be missing a flight.
+   Repair from the months it carries rather than leaving revenue unreachable. */
+function repairMigratedDeals() {
+  let fixed = 0;
+  deals().forEach(d => {
+    if (d.startMonth && d.endMonth) return;
+    const keys = Object.keys(d.revenueOverrides || {}).sort();
+    const budgetKeys = (d.lines || []).flatMap(l => Object.keys(l.budgets || {})).sort();
+    const all = [...keys, ...budgetKeys].sort();
+    if (!all.length) return;
+    if (!d.startMonth) d.startMonth = all[0];
+    if (!d.endMonth) d.endMonth = all[all.length - 1];
+    fixed++;
+  });
+  if (fixed) scheduleSave();
+  return fixed;
+}
+
 function clientsAwaitingDeals() {
   return state.projects
     .map(p => {
@@ -2724,9 +2744,14 @@ function migrateClientsToDeals() {
     const lines = ((p.billing || {}).lines || []).map(l => ({ ...l }));
     const hasRev = Object.keys(p.revenueOverrides || {}).length > 0;
     if ((!lines.length && !hasRev) || dealsFor(p.id).length) { stripClientBilling(p); return; }
+    // Fall back to the span of whatever months hold revenue, so a client that never had
+    // flight dates still produces a deal with a usable window.
+    const revMonths = Object.keys(p.revenueOverrides || {}).sort();
+    const start = p.startMonth || revMonths[0] || '';
+    const end = p.endMonth || revMonths[revMonths.length - 1] || '';
     deals().push({
       id: uid(), clientId: p.id, hubspotDealId: p.hubspotDealId || null, qbProjectId: null,
-      name: p.name || 'Untitled', startMonth: p.startMonth || '', endMonth: p.endMonth || '',
+      name: p.name || 'Untitled', startMonth: start, endMonth: end,
       lines, revenueOverrides: { ...(p.revenueOverrides || {}) }, fromMigration: true
     });
     stripClientBilling(p);
@@ -3343,6 +3368,8 @@ async function enterApp(session) {
   await loadState();
   // The roster lives in the ledger, so roles can only be resolved once state is loaded.
   computeSalaryAccess(session);
+  const repaired = repairMigratedDeals();
+  if (repaired) console.log('Repaired flight dates on ' + repaired + ' migrated deal(s).');
   loadQbActuals().then(() => { if (qbConf().useActuals) render(); });
   document.getElementById('user-chip').textContent = email +
     (myRole && ROLES[myRole] ? ' · ' + ROLES[myRole].label.toLowerCase() : (canSeeSalaries ? '' : ' · salaries hidden'));
