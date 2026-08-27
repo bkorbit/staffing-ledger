@@ -318,9 +318,13 @@ const lineProject = l => {
     `${costLines.length} cost lines (${attributed} attributed to a project)`);
 
   // ---- unmapped items, so nothing counts as revenue unnoticed ----
-  const mapped = new Set((await sbGet('qb_item_map?select=item_name')).map(m => String(m.item_name).toLowerCase()));
+  // Compare trailing segments on BOTH sides, as the views do. Comparing the stored
+  // full path against a trailing segment matched nothing, so every item was reported
+  // unmapped on every run while revenue was in fact being classified correctly.
+  const seg = x => String(x || '').split(':').pop().trim().toLowerCase();
+  const mapped = new Set((await sbGet('qb_item_map?select=item_name')).map(m => seg(m.item_name)));
   const unmapped = [...new Set(invLines.map(l => l.item_name).filter(Boolean)
-    .filter(n => !mapped.has(n.split(':').pop().trim().toLowerCase())))];
+    .filter(n => !mapped.has(seg(n))))];
   if (unmapped.length) {
     console.log(`  ⚠ ${unmapped.length} invoice item(s) not mapped in Settings — counting as revenue by default:`);
     unmapped.slice(0, 15).forEach(n => console.log(`      ${n}`));
