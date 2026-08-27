@@ -230,6 +230,11 @@ const lineProject = l => {
   // ---- costs: vendor bills and credit card charges ----
   const bills = await qboAll(realm, token, 'Bill', `TxnDate >= '${from}'`);
   const purchases = await qboAll(realm, token, 'Purchase', `TxnDate >= '${from}'`);
+  // Month-end adjustments, accruals and depreciation are posted as journal entries and
+  // were invisible to this sync. Stored separately as kind 'journal' and left OUT of the
+  // expense figure by default — payroll already arrives via purchases, so folding these
+  // in blind risks double-counting. qb_kind_include decides what actually counts.
+  const journals = await qboAll(realm, token, 'JournalEntry', `TxnDate >= '${from}'`);
   const costRows = [], costLines = [];
   const addCost = (kind, t, vendorName) => {
     costRows.push({
@@ -251,6 +256,31 @@ const lineProject = l => {
   };
   bills.forEach(b => addCost('bill', b, (b.VendorRef || {}).name));
   purchases.forEach(p => addCost('purchase', p, (p.EntityRef || {}).name || p.PaymentType || ''));
+  // Journal lines are signed: a debit to an expense account is a cost, a credit reduces it.
+  journals.forEach(j => {
+    costRows.push({
+      id: `journal:${j.Id}`, kind: 'journal', txn_date: String(j.TxnDate).slice(0, 10),
+      project_id: null, vendor_name: j.DocNumber || '',
+      total: money((j.Line || []).reduce((t, l) => {
+        const d = l.JournalEntryLineDetail || {};
+        return t + (d.PostingType === 'Credit' ? -(+l.Amount || 0) : (+l.Amount || 0));
+      }, 0)),
+      currency: (j.CurrencyRef || {}).value || 'USD', synced_at: new Date().toISOString()
+    });
+    (j.Line || []).forEach((l, n) => {
+      const d = l.JournalEntryLineDetail || {};
+      if (!d.AccountRef) return;
+      const ent = d.Entity || {};
+      const pid = ent.Type === 'Customer' ? (ent.EntityRef || {}).value : null;
+      costLines.push({
+        id: `journal:${j.Id}:${l.Id || n}`, cost_id: `journal:${j.Id}`, line_num: +l.LineNum || n + 1,
+        item_id: null, item_name: '', account_name: (d.AccountRef || {}).name || '',
+        description: l.Description || '',
+        amount: money(d.PostingType === 'Credit' ? -(+l.Amount || 0) : (+l.Amount || 0)),
+        project_id: pid && projectIds.has(pid) ? pid : null
+      });
+    });
+  });
   await sbUpsert('qb_costs', costRows);
   await sbUpsert('qb_cost_lines', costLines);
 
@@ -278,7 +308,7 @@ const lineProject = l => {
   console.log(`  ${live.length} projects with activity since ${from} ` +
     `(${projects.length - live.length} dormant, not stored)`);
   const attributed = costLines.filter(l => l.project_id).length;
-  console.log(`  ${bills.length} bills · ${purchases.length} card charges · ` +
+  console.log(`  ${bills.length} bills · ${purchases.length} card charges · ${journals.length} journal entries · ` +
     `${costLines.length} cost lines (${attributed} attributed to a project)`);
 
   // ---- unmapped items, so nothing counts as revenue unnoticed ----
@@ -297,7 +327,7 @@ const lineProject = l => {
       projects_in_quickbooks: projects.length, projects_with_activity: live.length,
       invoices: invoices.length, invoice_lines: invLines.length,
       excluded_invoices: excluded, excluded_value: excludedValue,
-      bills: bills.length, purchases: purchases.length,
+      bills: bills.length, purchases: purchases.length, journals: journals.length,
       cost_lines: costLines.length, cost_lines_attributed: attributed,
       unmapped_items: unmapped
     }
