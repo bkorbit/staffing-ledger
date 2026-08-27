@@ -899,7 +899,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-1625 · updated 2026-08-27</div>
+      <div class="ver-tag">build b0827-1822 · updated 2026-08-27</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -2113,6 +2113,157 @@ function salesCopyToLedger(id) {
         '. Check the flight and billing on the Projects tab before relying on it.', 9000);
 }
 
+
+/* ===== QuickBooks project matching =====
+   219 QuickBooks projects need pointing at ledger clients before actuals can be read.
+   Three keys are tried in descending reliability: the HubSpot deal's qb_project_link
+   (an exact project id, so unambiguous), the jobcode embedded in the project name, and
+   finally normalised name similarity, which is a suggestion rather than an answer.
+   The map lives in the ledger, so it survives every re-sync. */
+let qbProjects = null, qbLoading = false, qbLoadError = '';
+
+function qbMap() { if (!state.qbProjectMap) state.qbProjectMap = {}; return state.qbProjectMap; }
+
+async function loadQbProjects(force) {
+  if (qbProjects && !force) return qbProjects;
+  qbLoading = true; qbLoadError = '';
+  try {
+    const { data, error } = await sb.from('qb_project_summary')
+      .select('id,name,jobcode,parent_name,revenue,cost,gross_profit,first_month,last_month')
+      .order('revenue', { ascending: false });
+    if (error) throw error;
+    qbProjects = data || [];
+  } catch (e) {
+    qbLoadError = e.message || String(e);
+    qbProjects = [];
+  }
+  qbLoading = false;
+  return qbProjects;
+}
+
+// Normalise for comparison: lowercase, strip punctuation and company suffixes.
+function normName(x) {
+  return String(x || '').toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/\b(inc|llc|ltd|co|corp|group|agency|media|the)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+}
+function similarity(a, b) {
+  a = normName(a); b = normName(b);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  if (a.includes(b) || b.includes(a)) return 0.85;
+  const ta = new Set(a.split(' ')), tb = new Set(b.split(' '));
+  const hit = [...ta].filter(t => tb.has(t) && t.length > 2).length;
+  return hit ? hit / Math.max(ta.size, tb.size) : 0;
+}
+
+// Project id sitting inside a HubSpot deal's qb_project_link.
+function dealsByQbProject() {
+  const out = {};
+  ((state.salesPipeline || {}).deals || []).forEach(d => {
+    const m = String(d.qbLink || '').match(/[?&]id=(\d+)/);
+    if (m) out[m[1]] = d;
+    if (d.jobCode) out['jc:' + d.jobCode.toLowerCase()] = d;
+  });
+  return out;
+}
+
+function suggestMatch(proj, clients, dealIdx) {
+  // 1 — exact project id from a HubSpot deal that is already in the ledger
+  const byId = dealIdx[String(proj.id)];
+  if (byId) {
+    const linked = state.projects.find(p => String(p.hubspotDealId) === String(byId.id));
+    if (linked) return { client: linked, why: 'HubSpot deal already in the ledger', conf: 'high' };
+    const byName = clients.find(c => similarity(c.name, byId.company || byId.name) > 0.8);
+    if (byName) return { client: byName, why: 'HubSpot deal ' + (byId.company || '') , conf: 'high' };
+  }
+  // 2 — jobcode in the project name matches a deal's jobcode
+  if (proj.jobcode) {
+    const d = dealIdx['jc:' + String(proj.jobcode).toLowerCase()];
+    if (d) {
+      const linked = state.projects.find(p => String(p.hubspotDealId) === String(d.id))
+        || clients.find(c => similarity(c.name, d.company || d.name) > 0.8);
+      if (linked) return { client: linked, why: 'jobcode ' + proj.jobcode, conf: 'high' };
+    }
+  }
+  // 3 — name similarity against the parent customer, then the project name
+  let best = null, score = 0;
+  clients.forEach(c => {
+    const sc = Math.max(similarity(c.name, proj.parent_name), similarity(c.name, proj.name));
+    if (sc > score) { score = sc; best = c; }
+  });
+  if (best && score >= 0.6) return { client: best, why: 'name match', conf: score >= 0.85 ? 'med' : 'low' };
+  return null;
+}
+
+async function renderQbMatching() {
+  const el = document.getElementById('qb-match-body');
+  if (!el) return;
+  if (!qbProjects && !qbLoading) { el.innerHTML = '<div class="computed-sub">Loading QuickBooks projects…</div>'; await loadQbProjects(); }
+  if (qbLoadError) {
+    el.innerHTML = `<div class="cover bad">Could not read QuickBooks data: ${escapeHtml(qbLoadError)}<br>
+      If this mentions a missing relation, the schema SQL has not been run yet.</div>`;
+    return;
+  }
+  const map = qbMap();
+  const clients = state.projects.slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  const dealIdx = dealsByQbProject();
+  const rows = (qbProjects || []).map(p => {
+    const mapped = map[p.id];
+    const client = mapped ? clients.find(c => c.id === mapped) : null;
+    return { p, client, suggestion: mapped ? null : suggestMatch(p, clients, dealIdx) };
+  });
+  const matched = rows.filter(r => r.client).length;
+  const suggested = rows.filter(r => !r.client && r.suggestion).length;
+  const orphan = rows.length - matched - suggested;
+  const money = n => fmtMoney(+n || 0);
+
+  let h = `<div class="cover ${matched === rows.length ? 'good' : 'warn'}">
+    <b>${matched} of ${rows.length} projects matched.</b>
+    ${suggested ? suggested + ' have a suggestion waiting. ' : ''}
+    ${orphan ? orphan + ' need matching by hand. ' : ''}
+    Projects are listed by revenue, so the money gets matched first.</div>`;
+  h += `<div style="display:flex;gap:8px;margin-bottom:10px;">
+    <button class="ghost" data-role="qb-accept-high">Accept all high-confidence</button>
+    <button class="ghost" data-role="qb-reload">Reload from QuickBooks</button>
+    <label style="font-family:var(--font-mono);font-size:10px;display:flex;align-items:center;gap:5px;">
+      <input type="checkbox" data-role="qb-hide-matched" ${qbHideMatched ? 'checked' : ''}> hide matched</label></div>`;
+  h += '<table class="sf"><thead><tr><th class="cl">QuickBooks project</th><th class="num">Revenue</th>' +
+       '<th class="num">GP</th><th class="cl">Ledger client</th><th class="fl">Basis</th></tr></thead><tbody>';
+  rows.filter(r => !qbHideMatched || !r.client).slice(0, 300).forEach(r => {
+    const sel = `<select data-role="qb-pick" data-id="${r.p.id}">
+      <option value="">— unmatched —</option>` +
+      clients.map(c => `<option value="${c.id}"${(r.client && r.client.id === c.id) || (!r.client && r.suggestion && r.suggestion.client.id === c.id) ? ' selected' : ''}>${escapeHtml(c.name || 'Untitled')}</option>`).join('') +
+      '</select>';
+    const badge = r.client ? '<span class="sf-flag i">matched</span>'
+      : r.suggestion ? `<span class="sf-flag ${r.suggestion.conf === 'high' ? 't' : 'w'}">${r.suggestion.conf} · ${escapeHtml(r.suggestion.why)}</span>`
+      : '<span class="sf-flag w">no suggestion</span>';
+    h += `<tr class="sf-d"><td class="cl">${escapeHtml(r.p.name)}` +
+      (r.p.jobcode ? `<div class="sf-parts">${escapeHtml(r.p.jobcode)}${r.p.parent_name ? ' · ' + escapeHtml(r.p.parent_name) : ''}</div>` : '') +
+      `</td><td class="num">${money(r.p.revenue)}</td><td class="num tot">${money(r.p.gross_profit)}</td>` +
+      `<td class="cl">${sel}</td><td class="fl">${badge}</td></tr>`;
+  });
+  h += '</tbody></table>';
+  el.innerHTML = h;
+}
+let qbHideMatched = false;
+
+function qbAcceptHighConfidence() {
+  const clients = state.projects;
+  const dealIdx = dealsByQbProject();
+  const map = qbMap();
+  let n = 0;
+  (qbProjects || []).forEach(p => {
+    if (map[p.id]) return;
+    const s = suggestMatch(p, clients, dealIdx);
+    if (s && s.conf === 'high') { map[p.id] = s.client.id; n++; }
+  });
+  scheduleSave(); renderQbMatching();
+  toast(n ? 'Matched ' + n + ' project' + (n === 1 ? '' : 's') + ' on an exact identifier. Name-based suggestions are left for you to confirm.'
+          : 'Nothing new to match with high confidence.', 8000);
+}
+
 function renderSettings() {
   const el = document.getElementById('settings-body');
   if (!el) return;
@@ -2174,9 +2325,15 @@ function renderSettings() {
     <input type="month" id="wipe-to" data-role="wipe-range">
     <span class="computed-sub">blank = every month</span></div>
   <div id="wipe-counts" class="wipe-list"></div>
-  <button class="ghost" data-role="wipe-go" style="margin-top:10px;">Clear selected data</button>`;
+  <button class="ghost" data-role="wipe-go" style="margin-top:10px;">Clear selected data</button>
+
+  <div style="border-top:1px solid var(--line); margin:22px 0 14px;"></div>
+  <h3 style="margin:0 0 4px; font-size:15px; color:var(--brand);">QuickBooks project matching</h3>
+  <div class="computed-sub" style="margin-bottom:12px;">Point each QuickBooks project at a ledger client so actuals land against the right account. Matches are stored in the ledger and survive every sync.</div>
+  <div id="qb-match-body"></div>`;
   el.innerHTML = h;
   renderDataTools();
+  renderQbMatching();
 }
 
 function renderHubspotSettings() {
@@ -5615,6 +5772,13 @@ document.addEventListener('input', (e) => {
   if (!t.dataset) return;
   if (t.dataset.role === 'hs-minprob') { hsConfig().minProb = (parseFloat(t.value) || 0) / 100; scheduleSave(); }
   if (t.dataset.role === 'hs-margin') { hsConfig().progMargin = parseFloat(t.value) || 0; scheduleSave(); }
+  if (t.dataset.role === 'qb-pick') {
+    const m = qbMap(); const v = t.value;
+    if (v) m[t.dataset.id] = v; else delete m[t.dataset.id];
+    scheduleSave();
+    return;   // no re-render — keeps the dropdown open and the list stable while working through it
+  }
+  if (t.dataset.role === 'qb-hide-matched') { qbHideMatched = t.checked; renderQbMatching(); return; }
   if (t.dataset.role === 'wipe-range') { renderDataTools(); return; }
   if (t.dataset.role === 'hs-cutover') { hsConfig().wonCutover = t.value || '2026-08-11'; scheduleSave(); if (ui.tab === 'sales') renderSales(); }
   if (t.dataset.role === 'hs-retain') { hsConfig().wonRetainDays = Math.max(0, parseFloat(t.value) || 0); scheduleSave(); if (ui.tab === 'sales') renderSales(); }
@@ -5946,6 +6110,8 @@ document.addEventListener('click', (e) => {
   }
   else if (role === 'fc-cost-remove') { state.fixedCosts.splice(+t.dataset.i, 1); scheduleSave(); render(); }
   else if (role === 'sf-copy') { salesCopyToLedger(t.dataset.id); }
+  else if (role === 'qb-accept-high') { qbAcceptHighConfidence(); }
+  else if (role === 'qb-reload') { loadQbProjects(true).then(renderQbMatching); }
   else if (role === 'wipe-go') {
     const keys = [...document.querySelectorAll('[data-role="wipe-set"]:checked')].map(x => x.value);
     if (!keys.length) { toast('Tick at least one kind of data to clear.'); return; }
