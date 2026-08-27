@@ -923,7 +923,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2008 · updated 2026-08-27</div>
+      <div class="ver-tag">build b0827-2016 · updated 2026-08-27</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -988,7 +988,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       </div>
       <div class="chart-card" style="margin-bottom:16px;">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
-          <h4 style="margin:0;">Revenue billed · gross profit · labor cost · profit after labor · line = expected profit</h4>
+          <h4 style="margin:0;">Revenue billed · gross profit · COGS · profit after labor · line = expected profit</h4>
           <button class="ghost" id="fc-costs-toggle" style="display:none;">Fixed costs ▸</button>
         </div>
         <div id="fc-costs-panel" style="display:none; border:1px solid var(--line); border-radius:6px; padding:12px 14px; margin:10px 0 4px; background:var(--paper-raised);">
@@ -1009,11 +1009,12 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
           <th class="num-col">Actual</th>
           <th class="num-col">Forecasted</th>
           <th class="num-col">Revenue billed</th>
-          <th class="num-col">Total gross profit</th>
-          <th class="num-col">Labor · projects</th>
-          <th class="num-col">Labor · total payroll</th>
+          <th class="num-col">COGS</th>
+          <th class="num-col">Forecast GP</th>
+          <th class="num-col">Actual GP</th>
+          <th class="num-col">Variance</th>
           <th class="num-col">Profit after labor</th>
-          <th>Confirmed</th>
+          <th>Basis</th>
         </tr></thead>
         <tbody id="forecast-tbody"></tbody>
       </table>
@@ -2158,13 +2159,24 @@ function qbConf() {
 /* Actuals from QuickBooks, held in memory and indexed two ways: by client for the
    roll-up, and by project for the breakdown underneath. revenueFor runs inside render
    loops, so this must be a lookup rather than a query. */
-let qbActuals = null, qbActualsLoading = false;
+let qbActuals = null, qbActualsLoading = false, qbCompany = null;
+function qbMonth(mk) { return (qbCompany || {})[mk] || null; }
 
 async function loadQbActuals(force) {
   if (qbActuals && !force) return qbActuals;
   if (qbActualsLoading) return null;
   qbActualsLoading = true;
   await loadQbProjects(force);   // names, jobcodes and parents — needed wherever a project is shown
+  // Company totals include invoices with no project, so they reconcile to QuickBooks
+  // even though those invoices cannot be attributed to a client.
+  try {
+    const { data: cm } = await sb.from('qb_company_month')
+      .select('month,billed,billed_no_project,contra_excluded,cogs,gross_profit');
+    qbCompany = {};
+    (cm || []).forEach(r => { qbCompany[String(r.month).slice(0, 7)] = {
+      billed: +r.billed || 0, noProject: +r.billed_no_project || 0,
+      contra: +r.contra_excluded || 0, cogs: +r.cogs || 0, gp: +r.gross_profit || 0 }; });
+  } catch (e) { qbCompany = qbCompany || {}; }
   const idx = { byClient: {}, byProject: {}, months: new Set(), projectIds: {}, meta: {} };
   (qbProjects || []).forEach(pr => { idx.meta[String(pr.id)] = pr; });
   try {
@@ -4301,7 +4313,9 @@ function revenueByMonthSplit() {
     const monthHasActuals = Object.keys(state.actuals[m] || {}).length > 0;
     state.projects.forEach(p => {
       const v = revenueFor(p, m);
-      const isActual = !!(p.revenueActuals || {})[m];
+      // Actual is no longer a thing anyone ticks: a month is actual once QuickBooks
+      // has billed data for it. Manual confirmation only ever restated that.
+      const isActual = qbCovers(m) ? !!qbMonth(m) : !!(p.revenueActuals || {})[m];
       // Cost basis: revenue confirmed actual -> logged cost, but if nothing has
       // been logged for that project-month yet, fall back to planned so the
       // labor doesn't silently disappear; unconfirmed -> planned cost.
@@ -4332,7 +4346,17 @@ function revenueByMonthSplit() {
     return { mk: m, actual, forecast, labor, payroll, unattributed: payroll - labor, fixed,
       actualCorrected, payrollCorrected,
       internalCost, internalBasis: monthHasActuals ? 'logged' : 'planned',
-      billable: monthBillable(m),
+      forecastGp: state.projects.reduce((sum, p) => {
+        if (!projectActiveInMonth(p, m)) return sum;
+        const man = (p.revenueOverrides || {})[m];
+        if (man !== undefined) return sum + man;
+        if (billingActive(p) && billingMonths(p).has(m)) return sum + billingGP(p, m);
+        return sum;
+      }, 0),
+      billable: qbCovers(m) && qbMonth(m) ? qbMonth(m).billed : monthBillable(m),
+      cogs: qbCovers(m) && qbMonth(m) ? qbMonth(m).cogs : 0,
+      qbGp: qbCovers(m) && qbMonth(m) ? qbMonth(m).gp : null,
+      noProject: qbCovers(m) && qbMonth(m) ? qbMonth(m).noProject : 0,
       profit: total - labor, profitPayroll: total - payroll, expectedProfit: total - payroll - fixed, contributors };
   });
 }
@@ -4454,10 +4478,11 @@ function renderForecast() {
       });
       const ind = k => sk === k ? (sd === 1 ? ' ▲' : ' ▼') : '';
       breakout = `
-      <tr class="fc-breakout"><td colspan="10">
+      <tr class="fc-breakout"><td colspan="11">
         <div class="fc-head">
           <span>${withRev.length} project${withRev.length === 1 ? '' : 's'} contributing revenue</span>
-          ${unconfirmed > 0 ? `<button class="ghost" data-role="fc-mark-all" data-mk="${r.mk}">Mark all ${unconfirmed} as actual</button>` : '<span class="pmeta">all confirmed</span>'}
+          ${qbCovers(r.mk) ? '<span class="pmeta">actual — from QuickBooks</span>'
+            : (unconfirmed > 0 ? `<span class="pmeta">${unconfirmed} not yet billed</span>` : '<span class="pmeta">all confirmed</span>')}
         </div>
         <div class="fc-row fc-cols">
           <div class="fc-col" data-role="fc-sort" data-key="name">Account${ind('name')}</div>
@@ -4472,7 +4497,7 @@ function renderForecast() {
             <div class="pb-num">${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? `<span style="font-weight:700;" title="${escapeAttr(billingBreakdown(pp, r.mk))}">${fmtMoney(c.amount)}</span>` : `<input type="text" inputmode="decimal" class="fc-rev-input" value="${c.amount ? '$' + Math.round(c.amount).toLocaleString() : ''}" placeholder="$0" data-role="fc-rev-month" data-pid="${c.pid}" data-mk="${r.mk}">`; })()} rev</div>
             <div class="pb-num">${fmtMoney(c.cost)} cost <span class="fc-basis">${c.basis}</span></div>
             <div class="pb-num" style="color:${c.amount - c.cost >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(c.amount - c.cost)} net</div>
-            <label class="rev-act"><input type="checkbox" data-role="fc-rev-actual" data-pid="${c.pid}" data-mk="${r.mk}" ${c.isActual ? 'checked' : ''}> actual</label>
+            <div class="pmeta">${c.isActual ? (qbCovers(r.mk) ? 'actual' : 'confirmed') : 'forecast'}</div>
           </div>
           ${(() => {
             // The QuickBooks projects making up this client's month, nested underneath,
@@ -4499,12 +4524,18 @@ function renderForecast() {
       <td style="font-family:var(--font-display); font-weight:600;">${monthLabel(r.mk)}</td>
       <td class="computed-cell" style="color:var(--brand); font-weight:700;">${r.actual ? fmtMoney(r.actual) : '—'}</td>
       <td class="computed-cell" style="color:#19a789;">${r.forecast ? fmtMoney(r.forecast) : '—'}</td>
-      <td class="computed-cell" style="color:#6b7f77;" title="What EMG invoices: search and social fees only, programmatic media plus fee, retainers and hourly at face value">${r.billable ? fmtMoney(r.billable) : '—'}</td>
-      <td class="computed-cell" style="font-weight:700;">${fmtMoney(total)}</td>
-      <td class="computed-cell">${r.labor ? fmtMoney(r.labor) : '—'}</td>
-      <td class="computed-cell">${r.payroll ? fmtMoney(r.payroll) : '—'}${r.payroll && !r.payrollCorrected ? `<div class="computed-sub" title="Payroll not accounted for by project hours (salaried under-logging, unassigned time)">${r.unattributed >= 0 ? '+' : '−'}${fmtMoney(Math.abs(r.unattributed))} unattributed</div>` : ''}</td>
+      <td class="computed-cell" style="color:#6b7f77;" title="${qbCovers(r.mk) ? 'Billed in QuickBooks, contra revenue excluded, including invoices with no project' : 'Modelled from billing lines'}">${r.billable ? fmtMoney(r.billable) : '—'}${r.noProject ? `<div class="computed-sub">incl. ${fmtMoney(r.noProject)} unmatched</div>` : ''}</td>
+      <td class="computed-cell" style="color:#8a6d3b;">${r.cogs ? fmtMoney(r.cogs) : '—'}</td>
+      <td class="computed-cell">${r.forecastGp ? fmtMoney(r.forecastGp) : '—'}</td>
+      <td class="computed-cell" style="font-weight:700;">${r.qbGp !== null ? fmtMoney(r.qbGp) : '—'}</td>
+      <td class="computed-cell">${(() => {
+        if (r.qbGp === null || !r.forecastGp) return '—';
+        const d = r.qbGp - r.forecastGp;
+        return `<span style="color:${d >= 0 ? 'var(--teal)' : 'var(--rust)'};">${d >= 0 ? '+' : '−'}${fmtMoney(Math.abs(d))}</span>` +
+               `<div class="computed-sub">${Math.round(d / r.forecastGp * 100)}%</div>`;
+      })()}</td>
       <td class="computed-cell" style="color:${r.profitPayroll >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(r.profitPayroll)}<div class="computed-sub" style="color:${r.expectedProfit >= 0 ? 'var(--teal)' : 'var(--rust)'};">${fmtMoney(r.expectedProfit)} expected${r.fixed ? ' (incl. ' + fmtMoney(r.fixed) + ' fixed)' : ''}</div></td>
-      <td class="computed-sub">${total !== 0 ? pct + '% confirmed' : ''}</td>
+      <td class="computed-sub">${qbCovers(r.mk) && r.qbGp !== null ? 'QuickBooks' : (total !== 0 ? 'forecast' : '')}</td>
     </tr>${breakout}`;
   }).join('');
 
@@ -4519,7 +4550,7 @@ function renderForecast() {
         { label: 'Revenue billed', data: rows.map(r => Math.round(r.billable)), backgroundColor: '#b9c9c2', stack: 'billed', isBilled: true },
         { label: 'Actual', data: rows.map(r => Math.round(r.actual)), backgroundColor: '#0a493c', stack: 'rev' },
         { label: 'Forecasted', data: rows.map(r => Math.round(r.forecast)), backgroundColor: '#3bc9ac', stack: 'rev' },
-        { label: 'Labor cost', data: rows.map(r => Math.round(r.payroll)), backgroundColor: '#c98a3b', stack: 'labor', isLabor: true },
+        { label: 'COGS', data: rows.map(r => Math.round(r.cogs)), backgroundColor: '#c98a3b', stack: 'cogs', isLabor: true },
         { label: 'Profit after labor', data: rows.map(r => Math.round(r.profitPayroll)), backgroundColor: rows.map(r => r.profitPayroll >= 0 ? '#7a9d54' : '#B5482A'), stack: 'profit', isProfit: true },
         { type: 'line', label: 'Expected profit', data: rows.map(r => Math.round(r.expectedProfit)), borderColor: '#fabf4d', backgroundColor: '#fabf4d', borderWidth: 2.5, borderDash: [6, 4], fill: false, tension: 0, pointRadius: 2.5, order: -1, stack: 'payline', isPayLine: true }
       ]
@@ -6314,12 +6345,6 @@ document.addEventListener('click', (e) => {
     if (ui.fcSort.key === t.dataset.key) ui.fcSort.dir = -ui.fcSort.dir;
     else ui.fcSort = { key: t.dataset.key, dir: t.dataset.key === 'name' ? 1 : -1 };
     render();
-  }
-  else if (role === 'fc-mark-all') {
-    const mk = t.dataset.mk;
-    const ids = state.projects.filter(p => ((p.revenueOverrides || {})[mk] || 0) !== 0).map(p => p.id);
-    const res = bulkSetRevenueActual(ids, [mk], true);
-    toast('Marked ' + res.projTouched + ' project' + (res.projTouched === 1 ? '' : 's') + ' as actual for ' + monthLabel(mk) + '.');
   }
   else if (role === 'team-toggle') {
     ui.teamExpanded[t.dataset.id] = !ui.teamExpanded[t.dataset.id];
