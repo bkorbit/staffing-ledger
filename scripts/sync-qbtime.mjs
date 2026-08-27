@@ -28,7 +28,7 @@ const TIMEOFF_JOBCODE_TYPES = new Set(['pto', 'paid_break', 'unpaid_break', 'unp
 const EXCLUDED_PEOPLE = new Set(['hannah hoffman']);
 // QuickBooks Time owns all actuals from this date forward: every sync pulls the
 // full window and replaces those months, so QBT corrections/deletions flow through.
-const SYNC_FROM = '2026-04-01';
+const SYNC_FROM = '2026-01-01';
 
 if (!QBTIME_TOKEN) fail('Missing QBTIME_TOKEN secret.');
 if (!SERVICE_KEY) fail('Missing SUPABASE_SERVICE_ROLE_KEY secret.');
