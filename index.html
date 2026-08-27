@@ -923,7 +923,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2024 · updated 2026-08-27</div>
+      <div class="ver-tag">build b0827-2027 · updated 2026-08-27</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -988,7 +988,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       </div>
       <div class="chart-card" style="margin-bottom:16px;">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
-          <h4 style="margin:0;">Revenue billed · gross profit · COGS · profit after labor · line = expected profit</h4>
+          <h4 style="margin:0;">Revenue — billed once the month is over, forecast until then · COGS · profit after labor · line = expected profit</h4>
           <button class="ghost" id="fc-costs-toggle" style="display:none;">Fixed costs ▸</button>
         </div>
         <div id="fc-costs-panel" style="display:none; border:1px solid var(--line); border-radius:6px; padding:12px 14px; margin:10px 0 4px; background:var(--paper-raised);">
@@ -4496,7 +4496,12 @@ function renderForecast() {
         ${withRev.map(c => `
           <div class="fc-row${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? ' fc-billed' : ''; })()}"${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? ` data-role="fc-open-project" data-id="${c.pid}" title="Billing-scheduled — click to edit the campaign schedule"` : ''; })()}>
             <div class="fc-name">${escapeHtml(c.name)}<button class="edit-btn" data-role="edit-project" data-id="${c.pid}" title="Edit billing & months">✎</button>${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? pp.billing.lines.map(l => `<span class="bl-chip">${BILLING_TYPES[l.type]}</span>`).join('') : ''; })()}${c.amount === 0 && c.inFlight ? '<span class="fc-basis"> · in flight</span>' : ''}</div>
-            <div class="pb-num">${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? `<span style="font-weight:700;" title="${escapeAttr(billingBreakdown(pp, r.mk))}">${fmtMoney(c.amount)}</span>` : `<input type="text" inputmode="decimal" class="fc-rev-input" value="${c.amount ? '$' + Math.round(c.amount).toLocaleString() : ''}" placeholder="$0" data-role="fc-rev-month" data-pid="${c.pid}" data-mk="${r.mk}">`; })()} rev</div>
+            <div class="pb-num">${(() => {
+              const pp = state.projects.find(x => x.id === c.pid);
+              if (qbCovers(r.mk)) return `<span style="font-weight:700;" title="Billed in QuickBooks — settled months are not editable">${fmtMoney(c.amount)}</span>`;
+              if (billingActive(pp)) return `<span style="font-weight:700;" title="${escapeAttr(billingBreakdown(pp, r.mk))}">${fmtMoney(c.amount)}</span>`;
+              return `<input type="text" inputmode="decimal" class="fc-rev-input" value="${c.amount ? '$' + Math.round(c.amount).toLocaleString() : ''}" placeholder="$0" data-role="fc-rev-month" data-pid="${c.pid}" data-mk="${r.mk}" title="Forecast for a month that is not over — edit to change the forecast">`;
+            })()} rev</div>
             <div class="pb-num">${fmtMoney(c.cost)} cost <span class="fc-basis">${c.basis}</span></div>
             <div class="pb-num" style="color:${c.amount - c.cost >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(c.amount - c.cost)} net</div>
             <div class="pmeta">${c.isActual ? (qbCovers(r.mk) ? 'actual' : 'confirmed') : 'forecast'}</div>
@@ -4549,9 +4554,10 @@ function renderForecast() {
     data: {
       labels: rows.map(r => monthShort(r.mk)),
       datasets: [
-        { label: 'Revenue billed', data: rows.map(r => Math.round(r.billable)), backgroundColor: '#b9c9c2', stack: 'billed', isBilled: true },
-        { label: 'Actual', data: rows.map(r => Math.round(r.actual)), backgroundColor: '#0a493c', stack: 'rev' },
-        { label: 'Forecasted', data: rows.map(r => Math.round(r.forecast)), backgroundColor: '#3bc9ac', stack: 'rev' },
+        { label: 'Revenue billed (actual)', stack: 'rev', backgroundColor: '#0a493c', isBilled: true,
+          data: rows.map(r => qbCovers(r.mk) ? Math.round(r.billable) : null) },
+        { label: 'Revenue (forecast)', stack: 'rev', backgroundColor: '#3bc9ac', isBilled: true,
+          data: rows.map(r => qbCovers(r.mk) ? null : Math.round(r.billable)) },
         { label: 'COGS', data: rows.map(r => Math.round(r.cogs)), backgroundColor: '#c98a3b', stack: 'cogs', isLabor: true },
         { label: 'Profit after labor', data: rows.map(r => Math.round(r.profitPayroll)), backgroundColor: rows.map(r => r.profitPayroll >= 0 ? '#7a9d54' : '#B5482A'), stack: 'profit', isProfit: true },
         { type: 'line', label: 'Expected profit', data: rows.map(r => Math.round(r.expectedProfit)), borderColor: '#fabf4d', backgroundColor: '#fabf4d', borderWidth: 2.5, borderDash: [6, 4], fill: false, tension: 0, pointRadius: 2.5, order: -1, stack: 'payline', isPayLine: true }
