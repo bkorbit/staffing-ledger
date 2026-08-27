@@ -1018,7 +1018,7 @@ td.bl-lockcell{background:#f2f4f3}
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2144 · 27 Aug 2026 21:44 UTC</div>
+      <div class="ver-tag">build b0827-2149 · 27 Aug 2026 21:49 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -1289,8 +1289,7 @@ td.bl-lockcell{background:#f2f4f3}
       </div>
       <div class="pj-months-label" style="display:flex; justify-content:space-between; align-items:center;">BILLING SETUP <span class="pm-hint" style="margin:0;">optional — compute gross profit from how the account makes money</span></div>
       <div id="pj-billing" class="pj-billing"></div>
-      <div class="pj-months-label" id="pj-months-label">GROSS PROFIT PER MONTH</div>
-      <div id="pj-months" class="pj-months"></div>
+
     </div>
   </div>
 </div>
@@ -3128,8 +3127,7 @@ function rebuildBillingSection() {
     const t = l.type;
     const isMedia = t === 'search' || t === 'social' || t === 'programmatic';
     const total = months.reduce((sum, m) => sum + lineGP(p, l, m), 0);
-    h += `<tr><td class="bl-ch"><strong>${BILLING_TYPES[t] || t}</strong>` +
-      `<input type="text" class="bl-label" placeholder="label" value="${escapeAttr(l.label || '')}" data-role="bl-label" data-line="${i}"></td>` +
+    h += `<tr><td class="bl-ch"><strong>${BILLING_TYPES[t] || t}</strong></td>` +
       `<td class="num">${isMedia ? `<input class="bl-n sm" type="text" inputmode="decimal" value="${l.feePct || ''}" data-role="bl-fee" data-line="${i}">` : ''}</td>` +
       `<td class="num">${t === 'programmatic' ? `<input class="bl-n sm" type="text" inputmode="decimal" value="${l.marginPct || ''}" data-role="bl-margin" data-line="${i}">`
         : t === 'hourly' ? `<input class="bl-n sm" type="text" inputmode="decimal" value="${l.rate || ''}" placeholder="rate" data-role="bl-rate" data-line="${i}">` : ''}</td>` +
@@ -4926,7 +4924,6 @@ function renderForecast() {
           ${qbCovers(r.mk) ? '<span class="pmeta">actual — from QuickBooks</span>'
             : (unconfirmed > 0 ? `<span class="pmeta">${unconfirmed} not yet billed</span>` : '<span class="pmeta">all confirmed</span>')}
         </div>
-        ${dealRowsForMonth(r.mk)}
         <div class="fc-row fc-cols">
           <div class="fc-col" data-role="fc-sort" data-key="name">Account${ind('name')}</div>
           <div class="fc-col" data-role="fc-sort" data-key="amount">Revenue${ind('amount')}</div>
