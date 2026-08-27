@@ -1021,7 +1021,7 @@ td.bl-lockcell{background:#f2f4f3}
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2225 · 27 Aug 2026 22:25 UTC</div>
+      <div class="ver-tag">build b0827-2228 · 27 Aug 2026 22:28 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -2976,6 +2976,10 @@ function renderSettings() {
   <div class="computed-sub" style="margin-bottom:10px;">Billing lives on deals, not clients. This moves each client's existing billing onto a deal so campaigns can be edited individually. Revenue does not change — it reports the before and after so you can check.</div>
   <div class="computed-sub" id="deal-migrate-status" style="margin-bottom:8px;"></div>
   <button class="ghost" data-role="deal-migrate">Set up deals from client billing</button>
+  <button class="ghost" data-role="fc-diag">Show forecast diagnostics</button>
+  <pre id="fc-diag-out" style="display:none;background:#1f2421;color:#e8ede9;border-radius:6px;padding:12px 14px;
+    font-family:var(--font-mono);font-size:10px;line-height:1.5;overflow:auto;max-height:420px;margin-top:10px;
+    white-space:pre-wrap;user-select:all;"></pre>
 
   <div style="border-top:1px solid var(--line); margin:22px 0 14px;"></div>
   <h3 style="margin:0 0 4px; font-size:15px; color:var(--brand);">QuickBooks as the source of revenue</h3>
@@ -7046,6 +7050,36 @@ document.addEventListener('click', (e) => {
   }
   else if (role === 'fc-cost-remove') { state.fixedCosts.splice(+t.dataset.i, 1); scheduleSave(); render(); }
   else if (role === 'deal-toggle') { dealOpen[t.dataset.id] = !dealOpen[t.dataset.id]; renderForecast(); }
+  else if (role === 'fc-diag') {
+    const out = document.getElementById('fc-diag-out');
+    if (!out) return;
+    out.style.display = out.style.display === 'none' ? '' : 'none';
+    if (out.style.display === 'none') return;
+    const L = [];
+    const rows = revenueByMonthSplit() || [];
+    L.push('BUILD   ' + (document.querySelector('.ver-tag') || {}).textContent);
+    L.push('DEALS   ' + deals().length + ' across ' + new Set(deals().map(d => d.clientId)).size + ' clients');
+    L.push('CLIENTS ' + state.projects.length);
+    L.push('WINDOW  ' + (rows.length ? rows[0].mk + ' -> ' + rows[rows.length - 1].mk + '  (' + rows.length + ' months)' : 'EMPTY'));
+    L.push('FILTER  from=' + (ui.fcFrom || '-') + '  to=' + (ui.fcTo || '-'));
+    L.push('QB      useActuals=' + qbConf().useActuals + '  cutover=' + qbConf().cutover +
+           '  actualsLoaded=' + (qbActuals ? 'yes' : 'no') + '  mapped=' + Object.keys(qbMap()).length);
+    L.push('');
+    const sample = rows.slice(0, 3).map(r => r.mk).concat(rows.slice(-2).map(r => r.mk));
+    L.push('CLIENT'.padEnd(28) + 'DEALS'.padEnd(6) + 'FLIGHT'.padEnd(20) + sample.map(m => m.slice(2)).join('   '));
+    state.projects.slice(0, 40).forEach(p => {
+      const ds = dealsFor(p.id);
+      const flight = ds.length ? (ds[0].startMonth || '?') + '..' + (ds[0].endMonth || '?') : '-';
+      const vals = sample.map(m => Math.round(revenueFor(p, m) / 1000) + 'k');
+      L.push(String(p.name || 'Untitled').slice(0, 26).padEnd(28) + String(ds.length).padEnd(6) +
+             flight.padEnd(20) + vals.map(v => v.padStart(6)).join('  '));
+    });
+    if (state.projects.length > 40) L.push('… ' + (state.projects.length - 40) + ' more');
+    L.push('');
+    L.push('TOTAL' .padEnd(54) + sample.map(m =>
+      String(Math.round(state.projects.reduce((s, p) => s + revenueFor(p, m), 0) / 1000) + 'k').padStart(6)).join('  '));
+    out.textContent = L.join('\n');
+  }
   else if (role === 'deal-migrate') {
     const list = clientsAwaitingDeals();
     const dupes = list.filter(x => x.nearDuplicate);
