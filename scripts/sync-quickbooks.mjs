@@ -173,18 +173,10 @@ const lineProject = l => {
   const customers = await qboAll(realm, token, 'Customer');
   const byId = Object.fromEntries(customers.map(c => [c.Id, c]));
   const projects = customers.filter(c => c.Job === true || c.ParentRef);
-  await sbUpsert('qb_projects', projects.map(c => ({
-    id: c.Id,
-    name: c.DisplayName || c.FullyQualifiedName || '',
-    jobcode: jobcodeFromName(c.DisplayName || c.FullyQualifiedName),
-    parent_id: (c.ParentRef || {}).value || null,
-    parent_name: (c.ParentRef || {}).value && byId[(c.ParentRef || {}).value]
-      ? byId[(c.ParentRef || {}).value].DisplayName : ((c.ParentRef || {}).name || null),
-    active: c.Active !== false,
-    synced_at: new Date().toISOString()
-  })));
   const projectIds = new Set(projects.map(p => p.Id));
-  console.log(`  ${customers.length} customers · ${projects.length} projects`);
+  console.log(`  ${customers.length} customers · ${projects.length} projects in QuickBooks`);
+  // Written later, once we know which of them the window actually touches. Most are
+  // dormant — carrying them all would bury the live ones in the matching queue.
 
   // ---- items ----
   const items = await qboAll(realm, token, 'Item');
@@ -261,6 +253,30 @@ const lineProject = l => {
   purchases.forEach(p => addCost('purchase', p, (p.EntityRef || {}).name || p.PaymentType || ''));
   await sbUpsert('qb_costs', costRows);
   await sbUpsert('qb_cost_lines', costLines);
+
+  // ---- only keep projects the window actually touches ----
+  const touched = new Set();
+  invRows.forEach(r => { if (r.project_id) touched.add(String(r.project_id)); });
+  costLines.forEach(l => { if (l.project_id) touched.add(String(l.project_id)); });
+  const live = projects.filter(p => touched.has(String(p.Id)));
+  await sbUpsert('qb_projects', live.map(c => ({
+    id: c.Id,
+    name: c.DisplayName || c.FullyQualifiedName || '',
+    jobcode: jobcodeFromName(c.DisplayName || c.FullyQualifiedName),
+    parent_id: (c.ParentRef || {}).value || null,
+    parent_name: (c.ParentRef || {}).value && byId[(c.ParentRef || {}).value]
+      ? byId[(c.ParentRef || {}).value].DisplayName : ((c.ParentRef || {}).name || null),
+    active: c.Active !== false,
+    synced_at: new Date().toISOString()
+  })));
+  // Drop any project that has gone quiet since a previous run, so the list only ever
+  // shows what is live. Invoices and costs reference it with on delete set null.
+  const keep = [...touched];
+  if (keep.length) {
+    await sbDelete(`qb_projects?id=not.in.(${keep.map(x => `"${x}"`).join(',')})`);
+  }
+  console.log(`  ${live.length} projects with activity since ${from} ` +
+    `(${projects.length - live.length} dormant, not stored)`);
   const attributed = costLines.filter(l => l.project_id).length;
   console.log(`  ${bills.length} bills · ${purchases.length} card charges · ` +
     `${costLines.length} cost lines (${attributed} attributed to a project)`);
@@ -277,7 +293,8 @@ const lineProject = l => {
   await sbPatchState({
     last_run_at: new Date().toISOString(),
     last_run_log: {
-      from, projects: projects.length, items: items.length,
+      from, projects: live.length, items: items.length,
+      projects_in_quickbooks: projects.length, projects_with_activity: live.length,
       invoices: invoices.length, invoice_lines: invLines.length,
       excluded_invoices: excluded, excluded_value: excludedValue,
       bills: bills.length, purchases: purchases.length,
