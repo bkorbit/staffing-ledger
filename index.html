@@ -831,6 +831,60 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
   table.sf th.num,table.sf td.num{min-width:46px}
   .sf-parts{font-size:8.5px}
 }
+
+/* ===== Forecast Editor ===== */
+#tab-editor .panel{overflow-x:auto;padding:0}
+#tab-editor .range{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--line)}
+#tab-editor .range input[type=month]{width:126px;border:1px solid var(--line);border-radius:5px;padding:5px 8px;
+font-family:var(--font-mono);font-size:11px;background:#fff}
+#tab-editor .range input[type=month]:focus{outline:none;border-color:var(--brand)}
+#tab-editor .rp{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--paper-raised);margin-left:6px}
+#tab-editor .rp .seg{font-family:var(--font-mono);font-size:10px;padding:5px 10px;border:none;background:transparent;
+cursor:pointer;color:var(--slate);border-left:1px solid var(--line)}
+#tab-editor .rp .seg:first-child{border-left:none}
+#tab-editor .rp .seg.on{background:var(--brand);color:#fff}
+#tab-editor .grow{flex:1}
+table.fed{width:100%;border-collapse:collapse}
+table.fed th{font-family:var(--font-mono);font-size:8.5px;text-transform:uppercase;letter-spacing:.05em;
+color:var(--slate);text-align:left;padding:7px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.fed td{padding:3px 6px;border-bottom:1px solid #f2f2f2;font-family:var(--font-mono);font-size:11px;vertical-align:middle}
+table.fed th.num,table.fed td.num{text-align:right;min-width:62px;white-space:nowrap}
+th.fed-name,td.fed-name{min-width:230px}
+th.fed-fl,td.fed-fl{min-width:196px;white-space:nowrap}
+th.fed-settled{color:var(--brand)}
+.fed-client td{background:#eef1f0;font-family:var(--font-display);font-weight:700;font-size:12px;border-top:1px solid var(--line)}
+.fed-client td.num{font-family:var(--font-mono);font-size:11px}
+.fed-deal td.fed-name{padding-left:2px}
+td.fed-out{background:#fafafa}
+td.fed-act{color:var(--brand);font-weight:600}
+.fed-total td{background:var(--brand);color:#fff;font-weight:700}
+.fed-total td.tot{color:var(--teal)}
+input.fed-title{width:100%;max-width:200px;border:1px solid transparent;border-radius:4px;padding:2px 5px;
+font-family:var(--font-display);font-size:11.5px;font-weight:600;background:transparent;color:var(--ink)}
+input.fed-title:hover{border-color:var(--line);background:#fff}
+input.fed-title:focus{outline:none;border-color:var(--brand);background:#fff}
+.fed-tag{margin-left:5px;font-family:var(--font-mono);font-size:8px;background:#eee;color:var(--slate);border-radius:3px;padding:1px 5px}
+.fed-fl input[type=month]{width:92px;border:1px solid var(--line);border-radius:4px;padding:2px 4px;
+font-family:var(--font-mono);font-size:10px;background:#fff}
+.fed-fl input[type=month]:focus{outline:none;border-color:var(--brand)}
+.fed-edit>td{background:#f7f8f8;padding:10px 14px 12px 26px}
+.fed-panel{max-width:100%}
+.fed-add{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:9px}
+.fed-add select{border:1px solid var(--line);border-radius:5px;padding:4px 8px;font-family:var(--font-mono);font-size:10.5px;background:#fff}
+.fed-ach{font-family:var(--font-mono);font-size:10px;color:var(--brand);background:var(--mint);border-radius:4px;padding:3px 8px}
+.fed-empty{font-family:var(--font-mono);font-size:11px;color:var(--slate);padding:8px 2px}
+table.fed-grid{width:100%;border-collapse:collapse}
+table.fed-grid th{font-family:var(--font-mono);font-size:8px;text-transform:uppercase;letter-spacing:.05em;
+color:var(--slate);text-align:left;padding:4px 4px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.fed-grid td{padding:2px 4px;border-bottom:1px solid #eee;font-family:var(--font-mono);font-size:10.5px}
+table.fed-grid th.num,table.fed-grid td.num{text-align:right}
+td.fed-lock{background:#f2f4f3}
+input.fed-n{width:66px;border:1px solid var(--line);border-radius:4px;padding:2px 4px;
+font-family:var(--font-mono);font-size:10px;text-align:right;background:#fff}
+input.fed-n.sm{width:46px}
+input.fed-n:focus{outline:none;border-color:var(--brand)}
+.fed-sum td{background:var(--mint);font-weight:700;border-top:1px solid var(--line)}
+.fed-fc{font-size:8px;color:var(--slate);font-weight:400}
 </style>
 </head>
 <body>
@@ -913,6 +967,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <div class="nav-group-t">Operations</div>
       <a class="nav-item" data-tab="forecast" href="#/forecast" title="Forecast"><span class="nav-ico">◐</span><span class="nav-label">Forecast</span></a>
       <a class="nav-item" data-tab="sales" href="#/sales" title="Sales Forecast"><span class="nav-ico">◭</span><span class="nav-label">Sales Forecast</span></a>
+      <a class="nav-item" data-tab="editor" href="#/editor" title="Forecast Editor"><span class="nav-ico">▦</span><span class="nav-label">Forecast Editor</span></a>
       <a class="nav-item" data-tab="scoping" href="#/scoping" title="Scoping"><span class="nav-ico">◇</span><span class="nav-label">Scoping</span></a>
     </div>
     <div class="nav-group">
@@ -923,7 +978,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2311 · 27 Aug 2026 23:11 UTC</div>
+      <div class="ver-tag">build b0827-2314 · 27 Aug 2026 23:14 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -1060,6 +1115,10 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
     <div id="scoping-body"></div>
     <div id="scoping-modal" class="sc-modal" style="display:none;"></div>
   </div>
+  <div class="tab-section" id="tab-editor">
+    <section class="panel"><div class="range" id="fed-controls"></div><div id="fed-body"></div></section>
+  </div>
+
   <div class="tab-section" id="tab-sales">
     <section class="panel chartpanel" id="sales-chart-panel">
       <div class="range" id="sales-range"></div>
@@ -1346,6 +1405,7 @@ const PAGES = {
   forecast:  { title: 'Forecast',   sub: 'Revenue and labour ahead — set the range below',  month: false },
   scoping:   { title: 'Scoping',    sub: 'Will a new deal pay for itself?',         month: false },
   sales:     { title: 'Sales Forecast', sub: 'Open pipeline from HubSpot, by client and month', month: false },
+  editor:    { title: 'Forecast Editor', sub: 'Deals by account — build and correct the forward view', month: false },
   settings:  { title: 'Settings',   sub: 'People who can use this workspace',       month: false }
 };
 function pageFromHash(){
@@ -1365,6 +1425,7 @@ function setTab(tab, skipHash) {
   if (tab === 'scoping') renderScoping();
   if (tab === 'settings') renderSettings();
   if (tab === 'sales') renderSales();
+  if (tab === 'editor') renderForecastEditor();
   window.scrollTo(0, 0);
 }
 
@@ -2608,6 +2669,193 @@ function clearClientBilling() {
   });
   if (n) scheduleSave();
   return n;
+}
+
+
+/* ===== Forecast Editor =====
+   Accounts down, months across. This is where the forward view is built and corrected:
+   every deal under its client, its flight, and a channel-by-month grid behind it.
+
+   The Forecast tab answers "how is the business tracking". This answers "is each deal's
+   forward number still right", which is a different job done by different people. */
+let fedOpen = {}, fedFrom = null, fedTo = null, fedHidePast = true;
+
+function fedMonths() {
+  const from = fedFrom || shiftMonth(currentMonth, -2);
+  const to = fedTo || shiftMonth(from, 11);
+  const out = []; let c = from, g = 0;
+  while (c <= to && g < 24) { out.push(c); c = shiftMonth(c, 1); g++; }
+  return out;
+}
+
+function renderForecastEditor() {
+  const el = document.getElementById('fed-body');
+  if (!el) return;
+  const months = fedMonths();
+  const all = deals();
+
+  // controls
+  const ctl = document.getElementById('fed-controls');
+  if (ctl) ctl.innerHTML =
+    `<span class="rl">Range</span>
+     <input type="month" data-role="fed-from" value="${fedFrom || shiftMonth(currentMonth, -2)}">
+     <span class="rd">to</span>
+     <input type="month" data-role="fed-to" value="${fedTo || shiftMonth(fedFrom || shiftMonth(currentMonth, -2), 11)}">
+     <span class="rp">
+       <button class="seg${fedHidePast ? ' on' : ''}" data-role="fed-active">Live &amp; upcoming</button>
+       <button class="seg${fedHidePast ? '' : ' on'}" data-role="fed-all">Everything</button>
+     </span>
+     <span class="grow"></span>
+     <span class="pmeta" id="fed-summary"></span>`;
+
+  if (!all.length) {
+    el.innerHTML = `<div class="cover warn"><b>No deals yet.</b> Build them from QuickBooks in Settings → Deals, or copy a won deal across from the Sales Forecast.</div>`;
+    return;
+  }
+
+  const clientName = id => (state.projects.find(p => p.id === id) || {}).name || 'Unassigned';
+  const lastMonth = months[months.length - 1];
+  // "Live & upcoming" hides deals that finished before the window opens — most of the
+  // backfilled ones — so the page is about the forward book rather than the archive.
+  const visible = all.filter(d => !fedHidePast || !d.endMonth || d.endMonth >= months[0]);
+
+  const byClient = {};
+  visible.forEach(d => (byClient[d.clientId] = byClient[d.clientId] || []).push(d));
+
+  let html = '<table class="fed"><thead><tr><th class="fed-name">Account / deal</th><th class="fed-fl">Flight</th>' +
+    months.map(m => `<th class="num${qbCovers(m) ? ' fed-settled' : ''}">${monthShort(m)}</th>`).join('') +
+    '<th class="num tot">Total</th><th class="num">Accuracy</th></tr></thead><tbody>';
+
+  const colTot = {}; let grand = 0, accTot = 0, accN = 0;
+
+  Object.keys(byClient).sort((a, b) => clientName(a).localeCompare(clientName(b))).forEach(cid => {
+    const ds = byClient[cid].sort((a, b) => (b.endMonth || '').localeCompare(a.endMonth || ''));
+    const cT = {}; let cSum = 0, cAcc = 0, cAccN = 0;
+    ds.forEach(d => months.forEach(m => {
+      const v = fedValue(d, m); cT[m] = (cT[m] || 0) + v.amount; cSum += v.amount;
+      if (v.accuracy !== null) { cAcc += v.accuracy; cAccN++; }
+    }));
+    months.forEach(m => { colTot[m] = (colTot[m] || 0) + (cT[m] || 0); });
+    grand += cSum; accTot += cAcc; accN += cAccN;
+
+    html += `<tr class="fed-client"><td class="fed-name">${escapeHtml(clientName(cid))}<span class="pmeta"> · ${ds.length}</span></td><td></td>` +
+      months.map(m => `<td class="num">${cT[m] ? fmtShort(cT[m]) : '<span class="sf-z">·</span>'}</td>`).join('') +
+      `<td class="num tot">${fmtShort(cSum)}</td><td class="num">${cAccN ? accCell(cAcc) : '<span class="sf-z">·</span>'}</td></tr>`;
+
+    ds.forEach(d => {
+      const open = !!fedOpen[d.id];
+      let dSum = 0, dAcc = 0, dAccN = 0;
+      const cells = months.map(m => {
+        const v = fedValue(d, m);
+        dSum += v.amount;
+        if (v.accuracy !== null) { dAcc += v.accuracy; dAccN++; }
+        if (!v.inFlight && !v.amount) return '<td class="num fed-out"><span class="sf-z">·</span></td>';
+        return `<td class="num${v.settled ? ' fed-act' : ''}" title="${v.settled ? 'Actual. Forecast was ' + fmtMoney(v.forecast) : 'Forecast'}">${fmtShort(v.amount)}</td>`;
+      }).join('');
+      html += `<tr class="fed-deal"><td class="fed-name">
+          <button class="expand-btn" data-role="fed-toggle" data-id="${d.id}">${open ? '▾' : '▸'}</button>
+          <input class="fed-title" type="text" value="${escapeAttr(d.name || '')}" data-role="fed-name" data-id="${d.id}">
+          ${d.backfilled && !(d.lines || []).length ? '<span class="fed-tag">no forecast</span>' : ''}
+        </td>
+        <td class="fed-fl">
+          <input type="month" data-role="fed-start" data-id="${d.id}" value="${d.startMonth || ''}">
+          <input type="month" data-role="fed-end" data-id="${d.id}" value="${d.endMonth || ''}">
+        </td>${cells}<td class="num tot">${fmtShort(dSum)}</td>
+        <td class="num">${dAccN ? accCell(dAcc) : '<span class="sf-z">·</span>'}</td></tr>`;
+      if (open) html += `<tr class="fed-edit"><td colspan="${months.length + 4}">${fedChannelGrid(d, months)}</td></tr>`;
+    });
+  });
+
+  html += `<tr class="fed-total"><td class="fed-name">Total</td><td></td>` +
+    months.map(m => `<td class="num">${fmtShort(colTot[m] || 0)}</td>`).join('') +
+    `<td class="num tot">${fmtShort(grand)}</td><td class="num">${accN ? accCell(accTot) : ''}</td></tr>`;
+  html += '</tbody></table>';
+  el.innerHTML = html;
+
+  const sum = document.getElementById('fed-summary');
+  if (sum) sum.textContent = visible.length + ' of ' + all.length + ' deals · ' +
+    (accN ? 'accuracy across ' + accN + ' settled deal-months' : 'no settled forecasts yet');
+}
+
+// One month of one deal: actual where settled, forecast otherwise, plus accuracy.
+function fedValue(d, mk) {
+  const inFlight = dealMonths(d).includes(mk);
+  const act = dealActual(d, mk);
+  const forecast = dealForecast(d, mk);
+  const settled = act !== null && qbCovers(mk);
+  return {
+    inFlight, settled, forecast,
+    amount: settled ? act : forecast,
+    accuracy: settled ? dealAccuracy(d, mk) : null
+  };
+}
+function accCell(v) {
+  if (!v) return '<span class="pmeta">on plan</span>';
+  return `<span style="color:${v >= 0 ? 'var(--teal)' : 'var(--rust)'};font-weight:600;">${v >= 0 ? '+' : '−'}${fmtShort(Math.abs(v))}</span>`;
+}
+
+/* Channels down, months across. Settled months are locked and show the actual with the
+   frozen forecast beneath, so the comparison sits where the correction would be made. */
+function fedChannelGrid(d, months) {
+  const ach = dealAchievedMargin(d);
+  const fm = dealMonths(d);
+  let h = '<div class="fed-panel">';
+  h += `<div class="fed-add">
+    <select data-role="fed-addch" data-id="${d.id}">
+      <option value="">+ Channel…</option>
+      <option value="programmatic">Programmatic</option>
+      <option value="search">Paid Search</option>
+      <option value="social">Paid Social</option>
+      <option value="retainer">Retainer</option>
+      <option value="hourly">Hourly</option>
+    </select>
+    ${ach !== null ? `<span class="fed-ach">achieved margin <b>${ach}%</b> — used where a programmatic line is left blank</span>` : ''}
+    ${d.qbProjectId ? '' : '<span class="sf-flag w">not linked to a QuickBooks project — no actuals will appear</span>'}
+  </div>`;
+
+  if (!(d.lines || []).length) {
+    h += '<div class="fed-empty">No channels yet. Add one above to give this deal a forward forecast.</div>';
+    return h + '</div>';
+  }
+
+  h += '<table class="fed-grid"><thead><tr><th>Channel</th><th class="num">Fee %</th><th class="num">Margin %</th>' +
+    months.map(m => `<th class="num${fm.includes(m) ? '' : ' fed-out'}${qbCovers(m) ? ' fed-settled' : ''}">${monthShort(m)}</th>`).join('') +
+    '<th class="num tot">Total</th><th></th></tr></thead><tbody>';
+
+  (d.lines || []).forEach((l, i) => {
+    const isMedia = ['programmatic', 'search', 'social'].includes(l.type);
+    const total = months.reduce((s, m) => s + dealLineForecast(d, l, m), 0);
+    h += `<tr><td><b>${BILLING_TYPES[l.type] || l.type}</b></td>
+      <td class="num">${isMedia ? `<input class="fed-n sm" type="text" inputmode="decimal" value="${l.feePct || ''}" placeholder="0" data-role="fed-fee" data-id="${d.id}" data-i="${i}">` : ''}</td>
+      <td class="num">${l.type === 'programmatic'
+        ? `<input class="fed-n sm" type="text" inputmode="decimal" value="${l.marginPct !== undefined && l.marginPct !== null ? l.marginPct : ''}" placeholder="${ach !== null ? ach : (qbConf().progMargin || 35)}" data-role="fed-margin" data-id="${d.id}" data-i="${i}">`
+        : l.type === 'hourly' ? `<input class="fed-n sm" type="text" inputmode="decimal" value="${l.rate || ''}" placeholder="rate" data-role="fed-rate" data-id="${d.id}" data-i="${i}">` : ''}</td>` +
+      months.map(m => {
+        if (!fm.includes(m)) return '<td class="num fed-out"><span class="sf-z">·</span></td>';
+        if (qbCovers(m)) return `<td class="num fed-lock"><span class="sf-z">${fmtShort(dealLineForecast(d, l, m))}</span></td>`;
+        if (l.type === 'retainer') return `<td class="num"><input class="fed-n" type="text" inputmode="decimal" value="${l.amount || ''}" placeholder="0" data-role="fed-amount" data-id="${d.id}" data-i="${i}" title="Equal parts every month of the flight"></td>`;
+        if (l.type === 'hourly') return `<td class="num"><input class="fed-n" type="text" inputmode="decimal" value="${l.hoursPerMonth || ''}" placeholder="hrs" data-role="fed-hpm" data-id="${d.id}" data-i="${i}"></td>`;
+        const v = (l.budgets || {})[m];
+        return `<td class="num"><input class="fed-n" type="text" inputmode="decimal" value="${v !== undefined ? v : ''}" placeholder="${l.budget || 0}" data-role="fed-budget" data-id="${d.id}" data-i="${i}" data-mk="${m}" title="Budget for ${monthShort(m)} — blank uses the default"></td>`;
+      }).join('') +
+      `<td class="num tot">${fmtShort(total)}</td>
+       <td><button class="icon-btn" data-role="fed-rmch" data-id="${d.id}" data-i="${i}" title="Remove channel">×</button></td></tr>`;
+  });
+
+  // what each month bills, with the actual and the frozen forecast where settled
+  h += '<tr class="fed-sum"><td>Revenue</td><td></td><td></td>' +
+    months.map(m => {
+      const v = fedValue(d, m);
+      if (!v.inFlight && !v.amount) return '<td class="num"><span class="sf-z">·</span></td>';
+      return `<td class="num">${fmtShort(v.amount)}` +
+        (v.settled ? `<div class="fed-fc">fc ${fmtShort(v.forecast)}</div>` : '') + '</td>';
+    }).join('') +
+    `<td class="num tot">${fmtShort(months.reduce((s, m) => s + fedValue(d, m).amount, 0))}</td><td></td></tr>`;
+  h += '</tbody></table>';
+
+  const budgetHint = (d.lines || []).some(l => ['programmatic','search','social'].includes(l.type))
+    ? 'A blank month uses the channel default. Flight dates decide which months bill at all.' : '';
+  return h + `<div class="pmeta" style="margin-top:6px;">${budgetHint}</div></div>`;
 }
 
 function renderSettings() {
@@ -6187,6 +6435,7 @@ function render() {
   if (suppressRender) return;
   if (ui.tab === 'settings') renderSettings();
   if (ui.tab === 'sales') renderSales();
+  if (ui.tab === 'editor') renderForecastEditor();
   const active = document.activeElement;
   let focusKey = null, focusValue = null, selStart = null;
   if (active && active.tagName === 'INPUT' && (active.dataset.role || active.id)) {
@@ -6310,6 +6559,38 @@ document.addEventListener('input', (e) => {
   }
   if (t.dataset.role === 'qb-cutover' && /^\d{4}-\d{2}$/.test(t.value)) {
     qbConf().cutover = t.value; scheduleSave(); render(); return;
+  }
+  if (t.dataset.role && t.dataset.role.startsWith('fed-')) {
+    const r = t.dataset.role, d = dealById(t.dataset.id);
+    const num = x => { const n = parseFloat(String(x).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; };
+    if (r === 'fed-from') { fedFrom = t.value; renderForecastEditor(); return; }
+    if (r === 'fed-to') { fedTo = t.value; renderForecastEditor(); return; }
+    if (!d) return;
+    const l = (d.lines || [])[+t.dataset.i];
+    if (r === 'fed-name') { d.name = t.value; scheduleSave(); return; }
+    if (r === 'fed-start') { d.startMonth = t.value; scheduleSave(); renderForecastEditor(); return; }
+    if (r === 'fed-end') { d.endMonth = t.value; scheduleSave(); renderForecastEditor(); return; }
+    if (r === 'fed-addch' && t.value) {
+      const seed = (d.lines || []).find(x => x.feePct) || {};
+      const line = { id: uid(), type: t.value, budgets: {} };
+      if (t.value === 'retainer') line.amount = 0;
+      else if (t.value === 'hourly') { line.rate = 0; line.hoursPerMonth = 0; }
+      else { line.feePct = seed.feePct || 12; line.budget = 0; }
+      (d.lines = d.lines || []).push(line);
+      scheduleSave(); renderForecastEditor(); return;
+    }
+    if (!l) return;
+    if (r === 'fed-fee') l.feePct = num(t.value);
+    else if (r === 'fed-margin') l.marginPct = t.value === '' ? null : num(t.value);
+    else if (r === 'fed-rate') l.rate = num(t.value);
+    else if (r === 'fed-amount') l.amount = num(t.value);
+    else if (r === 'fed-hpm') l.hoursPerMonth = num(t.value);
+    else if (r === 'fed-budget') {
+      l.budgets = l.budgets || {};
+      if (t.value === '') delete l.budgets[t.dataset.mk]; else l.budgets[t.dataset.mk] = num(t.value);
+    }
+    scheduleSave();
+    return;
   }
   if (t.dataset.role === 'wipe-range') { renderDataTools(); return; }
   if (t.dataset.role === 'hs-cutover') { hsConfig().wonCutover = t.value || '2026-08-11'; scheduleSave(); if (ui.tab === 'sales') renderSales(); }
@@ -6659,6 +6940,13 @@ document.addEventListener('click', (e) => {
           (r.unmatched ? r.unmatched + ' projects skipped for want of a client match. ' : '') +
           'These carry actuals but no forecast — extend them forward by hand as they come up.', 13000);
       });
+  }
+  else if (role === 'fed-toggle') { fedOpen[t.dataset.id] = !fedOpen[t.dataset.id]; renderForecastEditor(); }
+  else if (role === 'fed-active') { fedHidePast = true; renderForecastEditor(); }
+  else if (role === 'fed-all') { fedHidePast = false; renderForecastEditor(); }
+  else if (role === 'fed-rmch') {
+    const d = dealById(t.dataset.id);
+    if (d) { d.lines.splice(+t.dataset.i, 1); scheduleSave(); renderForecastEditor(); }
   }
   else if (role === 'wipe-go') {
     const keys = [...document.querySelectorAll('[data-role="wipe-set"]:checked')].map(x => x.value);
