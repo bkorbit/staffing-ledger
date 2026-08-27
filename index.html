@@ -923,7 +923,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2309 · 27 Aug 2026 23:09 UTC</div>
+      <div class="ver-tag">build b0827-2311 · 27 Aug 2026 23:11 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -2779,7 +2779,8 @@ const WIPE_SETS = [
   { k:'demand',      label:'Department demand',      monthly:true,  hint:'Hours each department needs per account' },
   { k:'actuals',     label:'Logged hours (actuals)', monthly:true,  hint:'Imported from QuickBooks Time — the next sync will pull them back' },
   { k:'revenue',     label:'Revenue overrides',      monthly:true,  hint:'Manually entered monthly revenue on accounts' },
-  { k:'billing',     label:'Billing lines',          monthly:false, hint:'Retainer / search / social / programmatic / hourly setups on every account' },
+  { k:'deals',       label:'Deals & forecast',       monthly:false, hint:'Every deal, its channel lines and its frozen forecast. Rebuild them from QuickBooks afterwards.' },
+  { k:'billing',     label:'Billing lines',          monthly:false, hint:'Legacy client-level setups — no longer a source of revenue' },
   { k:'corrections', label:'Past-month corrections', monthly:true,  hint:'Manual actual and labor overrides' },
   { k:'pipeline',    label:'Sales pipeline',         monthly:false, hint:'Synced HubSpot deals — the next sync will pull them back' }
 ];
@@ -2790,9 +2791,13 @@ function wipeCount(k, from, to) {
   if (k === 'assignments') Object.entries(state.assignments || {}).forEach(([mk, v]) => { if (inRange(mk)) n += Object.keys(v || {}).length; });
   if (k === 'actuals') Object.entries(state.actuals || {}).forEach(([mk, v]) => { if (inRange(mk)) n += Object.keys(v || {}).length; });
   if (k === 'demand') Object.entries(state.demand || {}).forEach(([mk, v]) => { if (inRange(mk)) Object.values(v || {}).forEach(d => n += Object.keys(d || {}).length); });
-  if (k === 'revenue') (state.projects || []).forEach(p => Object.keys(p.revenueOverrides || {}).forEach(mk => { if (inRange(mk)) n++; }));
+  if (k === 'revenue') (state.projects || []).forEach(p => {
+    Object.keys(p.revenueOverrides || {}).forEach(mk => { if (inRange(mk)) n++; });
+    n += Object.keys(p.legacyRevenueOverrides || {}).length;
+  });
   if (k === 'corrections') Object.keys(state.monthCorrections || {}).forEach(mk => { if (inRange(mk)) n++; });
   if (k === 'billing') (state.projects || []).forEach(p => { n += ((p.billing || {}).lines || []).length; });
+  if (k === 'deals') n = (state.deals || []).length;
   if (k === 'pipeline') n = ((state.salesPipeline || {}).deals || []).length;
   return n;
 }
@@ -2806,9 +2811,14 @@ function wipeRun(keys, from, to) {
     if (k === 'actuals') { Object.keys(state.actuals || {}).forEach(mk => { if (inRange(mk)) delete state.actuals[mk]; });
       Object.keys(state.actualsW || {}).forEach(wk => { if (inRange(wk.slice(0, 7))) delete state.actualsW[wk]; }); }
     if (k === 'demand') Object.keys(state.demand || {}).forEach(mk => { if (inRange(mk)) delete state.demand[mk]; });
-    if (k === 'revenue') (state.projects || []).forEach(p => Object.keys(p.revenueOverrides || {}).forEach(mk => { if (inRange(mk)) delete p.revenueOverrides[mk]; }));
+    if (k === 'revenue') (state.projects || []).forEach(p => {
+      Object.keys(p.revenueOverrides || {}).forEach(mk => { if (inRange(mk)) delete p.revenueOverrides[mk]; });
+      // the aborted migration parked overrides here; clear them too or they linger unseen
+      if (p.legacyRevenueOverrides) delete p.legacyRevenueOverrides;
+    });
     if (k === 'corrections') Object.keys(state.monthCorrections || {}).forEach(mk => { if (inRange(mk)) delete state.monthCorrections[mk]; });
-    if (k === 'billing') (state.projects || []).forEach(p => { if (p.billing) p.billing.lines = []; });
+    if (k === 'billing') (state.projects || []).forEach(p => { delete p.billing; });
+    if (k === 'deals') state.deals = [];
     if (k === 'pipeline') state.salesPipeline = { deals: [], syncedAt: null };
   });
   scheduleSave(); render();
