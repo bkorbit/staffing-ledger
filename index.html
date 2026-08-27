@@ -831,104 +831,6 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
   table.sf th.num,table.sf td.num{min-width:46px}
   .sf-parts{font-size:8.5px}
 }
-
-/* ===== Deals ===== */
-.dl-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;
-padding:10px 12px;font-family:var(--font-mono);font-size:11px;color:var(--ink)}
-table.dl{width:100%;border-collapse:collapse}
-table.dl th{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.06em;
-color:var(--slate);text-align:left;padding:7px 6px;border-bottom:1px solid var(--line)}
-table.dl td{padding:3px 6px;border-bottom:1px solid #f0f0f0;font-family:var(--font-mono);font-size:11px;vertical-align:middle}
-table.dl th.num,table.dl td.num{text-align:right;white-space:nowrap;min-width:52px}
-th.dl-name,td.dl-name{min-width:210px}
-th.dl-flight,td.dl-flight{min-width:196px;white-space:nowrap}
-.dl-client td{background:#eef1f0;font-family:var(--font-display);font-weight:700;font-size:12px;border-top:1px solid var(--line)}
-.dl-client td.num{font-family:var(--font-mono);font-size:11px}
-.dl-deal td.dl-name{padding-left:4px}
-td.dl-out{color:#cfcfcf}
-input.dl-title{width:100%;max-width:230px;border:1px solid transparent;border-radius:4px;padding:2px 5px;
-font-family:var(--font-display);font-size:11.5px;font-weight:600;background:transparent;color:var(--ink)}
-input.dl-title:hover{border-color:var(--line);background:#fff}
-input.dl-title:focus{outline:none;border-color:var(--brand);background:#fff}
-.dl-flight input[type=month]{width:92px;border:1px solid var(--line);border-radius:4px;padding:2px 4px;
-font-family:var(--font-mono);font-size:10px;background:#fff}
-.dl-flight input[type=month]:focus{outline:none;border-color:var(--brand)}
-.dl-edit>td{background:#f7f8f8;padding:10px 14px 14px 26px}
-.dl-panel{max-width:1100px}
-.dl-note{font-family:var(--font-mono);font-size:10px;color:var(--brand);background:var(--mint);
-border-radius:5px;padding:6px 9px;margin-bottom:9px}
-table.dl-lines{width:100%;border-collapse:collapse;margin-bottom:8px}
-table.dl-lines th{font-size:8.5px;padding:4px 6px}
-table.dl-lines td{padding:3px 6px;border-bottom:1px solid #eee}
-table.dl-lines select{border:1px solid var(--line);border-radius:4px;padding:2px 5px;font-family:var(--font-mono);font-size:10.5px;background:#fff}
-input.dl-n{width:88px;border:1px solid var(--line);border-radius:4px;padding:2px 5px;
-font-family:var(--font-mono);font-size:10.5px;text-align:right;background:#fff}
-input.dl-n.sm{width:52px}
-input.dl-n:focus,input.dl-hrs:focus{outline:none;border-color:var(--brand)}
-input.dl-hrs{width:100%;min-width:180px;border:1px solid var(--line);border-radius:4px;padding:2px 6px;
-font-family:var(--font-mono);font-size:10.5px;background:#fff}
-.dl-sub{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.06em;
-color:var(--slate);margin:10px 0 5px}
-.dl-months{display:flex;flex-wrap:wrap;gap:6px}
-.dl-m{display:flex;flex-direction:column;gap:1px;font-family:var(--font-mono);font-size:9px;color:var(--slate)}
-.dl-m input{width:74px;border:1px solid var(--line);border-radius:4px;padding:2px 5px;
-font-family:var(--font-mono);font-size:10.5px;text-align:right;background:#fff}
-.dl-m input:focus{outline:none;border-color:var(--brand)}
-.dl-m em{font-style:normal;color:var(--brand);font-weight:600}
-.fd-wrap{background:#fff;border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin-bottom:12px}
-.fd-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;
-font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.06em;
-color:var(--slate);padding-bottom:5px;margin-bottom:4px;border-bottom:1px solid var(--line)}
-table.fd{width:100%;border-collapse:collapse}
-table.fd th{font-family:var(--font-mono);font-size:8.5px;text-transform:uppercase;letter-spacing:.05em;
-color:var(--slate);text-align:left;padding:4px 6px;border-bottom:1px solid #eee}
-table.fd td{padding:3px 6px;border-bottom:1px solid #f4f4f4;font-family:var(--font-mono);font-size:11px;vertical-align:middle}
-table.fd th.num,table.fd td.num{text-align:right;white-space:nowrap;min-width:74px}
-th.fd-fl,td.fd-fl{white-space:nowrap;min-width:190px}
-.fd-client td{background:#f0f3f2;font-family:var(--font-display);font-weight:700;font-size:11.5px}
-.fd-client td.num{font-family:var(--font-mono);font-size:11px}
-.fd-deal td:first-child{padding-left:2px}
-.fd-fl input[type=month]{width:90px;border:1px solid var(--line);border-radius:4px;padding:2px 4px;
-font-family:var(--font-mono);font-size:10px;background:#fff}
-.fd-fl input[type=month]:focus{outline:none;border-color:var(--brand)}
-.fd-edit>td{background:#f7f8f8;padding:8px 12px 12px 24px}
-.dl-m.now input{border-color:var(--brand);font-weight:700}
-.dl-m.now span{color:var(--brand);font-weight:700}
-
-/* billing editor — channels down, months across */
-.bl-add2{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 11px;margin-bottom:10px;
-background:var(--paper-raised);border:1px solid var(--line);border-radius:6px}
-.bl-add2 select{border:1px solid var(--line);border-radius:5px;padding:5px 8px;font-family:var(--font-mono);font-size:11px;background:#fff}
-.bl-add2 label{display:flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:10px;color:var(--slate)}
-.bl-add2 input{width:52px;border:1px solid var(--line);border-radius:4px;padding:4px 6px;
-font-family:var(--font-mono);font-size:11px;text-align:right;background:#fff}
-.bl-add2 input:focus,.bl-add2 select:focus{outline:none;border-color:var(--brand)}
-.bl-empty{font-family:var(--font-mono);font-size:11px;color:var(--slate);padding:14px 4px}
-.bl-scroll{overflow-x:auto}
-table.bl-grid{width:100%;border-collapse:collapse;min-width:0}
-table.bl-grid th{font-family:var(--font-mono);font-size:8.5px;text-transform:uppercase;letter-spacing:.05em;
-color:var(--slate);text-align:left;padding:5px 5px;border-bottom:1px solid var(--line);white-space:nowrap}
-table.bl-grid td{padding:3px 5px;border-bottom:1px solid #f0f0f0;font-family:var(--font-mono);font-size:10.5px;vertical-align:middle}
-table.bl-grid th.num,table.bl-grid td.num{text-align:right;min-width:62px}
-th.bl-ch,td.bl-ch{min-width:140px;white-space:nowrap}
-td.bl-ch strong{font-family:var(--font-display);font-size:11px}
-input.bl-label{display:block;width:100%;max-width:130px;margin-top:2px;border:1px solid transparent;
-border-radius:3px;padding:1px 4px;font-family:var(--font-mono);font-size:9px;color:var(--slate);background:transparent}
-input.bl-label:hover{border-color:var(--line);background:#fff}
-input.bl-label:focus{outline:none;border-color:var(--brand);background:#fff}
-input.bl-n{width:66px;border:1px solid var(--line);border-radius:4px;padding:2px 4px;
-font-family:var(--font-mono);font-size:10.5px;text-align:right;background:#fff}
-input.bl-n.sm{width:46px}
-button.deal-pill{margin-left:5px;border:1px solid var(--line);background:var(--paper-raised);
-border-radius:11px;padding:1px 8px;font-family:var(--font-mono);font-size:9px;color:var(--slate);cursor:pointer}
-button.deal-pill:hover{border-color:var(--brand);color:var(--brand);background:#fff}
-input.bl-n:focus{outline:none;border-color:var(--brand)}
-th.bl-locked{color:var(--brand)}
-.bl-lk{font-size:7.5px;letter-spacing:.05em;color:var(--slate);font-weight:400}
-td.bl-lockcell{background:#f2f4f3}
-.bl-x{color:var(--slate)}
-.bl-sum td{background:var(--mint);font-weight:700;border-top:1px solid var(--line)}
-.bl-fc{font-size:8px;color:var(--slate);font-weight:400}
 </style>
 </head>
 <body>
@@ -1021,7 +923,7 @@ td.bl-lockcell{background:#f2f4f3}
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2235 · 27 Aug 2026 22:35 UTC</div>
+      <div class="ver-tag">build b0827-2246 · 27 Aug 2026 22:46 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -1087,7 +989,6 @@ td.bl-lockcell{background:#f2f4f3}
       <div class="chart-card" style="margin-bottom:16px;">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
           <h4 style="margin:0;">Revenue · COGS · labour · other expenses · line = net profit — measured from QuickBooks once a month is over, projected before that</h4>
-          <button class="ghost" id="fc-setup-deals" data-role="deal-migrate" style="display:none;">Set up deals</button>
           <button class="ghost" id="fc-costs-toggle" style="display:none;">Fixed costs ▸</button>
         </div>
         <div id="fc-costs-panel" style="display:none; border:1px solid var(--line); border-radius:6px; padding:12px 14px; margin:10px 0 4px; background:var(--paper-raised);">
@@ -1280,20 +1181,20 @@ td.bl-lockcell{background:#f2f4f3}
   <div class="modal" style="max-width:1600px; width:80vw;">
     <div class="modal-head">
       <div>
-        <h3 id="project-modal-title">Deal</h3>
-        <div class="context" id="project-modal-sub">Changes save automatically</div>
+        <h3 id="project-modal-title">Project</h3>
+        <div class="context">Revenue by month · changes save automatically</div>
       </div>
       <button class="ghost" id="project-close">Close</button>
     </div>
     <div class="modal-body">
       <div class="pm-grid" style="margin-bottom:16px;">
-        <label>Deal name<input type="text" data-role="pj-name" id="pj-name"></label>
-        <label>Flight start<input type="month" data-role="pj-start" id="pj-start"></label>
-        <label>Flight end<input type="month" data-role="pj-end" id="pj-end"></label>
+        <label>Flight start<input type="date" data-role="pj-start" id="pj-start"></label>
+        <label>Flight end<input type="date" data-role="pj-end" id="pj-end"></label>
       </div>
-      <div class="pj-months-label" style="display:flex; justify-content:space-between; align-items:center;">CHANNELS <span class="pm-hint" style="margin:0;">months settled in QuickBooks are locked</span></div>
+      <div class="pj-months-label" style="display:flex; justify-content:space-between; align-items:center;">BILLING SETUP <span class="pm-hint" style="margin:0;">optional — compute gross profit from how the account makes money</span></div>
       <div id="pj-billing" class="pj-billing"></div>
-
+      <div class="pj-months-label" id="pj-months-label">GROSS PROFIT PER MONTH</div>
+      <div id="pj-months" class="pj-months"></div>
     </div>
   </div>
 </div>
@@ -1920,12 +1821,7 @@ function hsConfig() {
   return c;
 }
 function hsPipeline() { return state.salesPipeline || { deals: [], syncedAt: null }; }
-// Copied deals now live in state.deals, not as top-level clients. Still derived rather
-// than flagged, so deleting a deal puts it back on the worklist.
-function dealInLedger(id) {
-  return (state.deals || []).some(d => String(d.hubspotDealId) === String(id))
-      || (state.projects || []).some(p => String(p.hubspotDealId) === String(id));   // pre-deal imports
-}
+function dealInLedger(id) { return (state.projects || []).some(p => String(p.hubspotDealId) === String(id)); }
 // Deals marked as handled by hand. Kept outside state.salesPipeline because the sync
 // replaces that object every night — a flag on the deal itself would not survive.
 function dismissedDeals() { if (!state.salesDismissed) state.salesDismissed = {}; return state.salesDismissed; }
@@ -2203,78 +2099,43 @@ function salesChartSvg(cols, shown) {
 }
 
 // Turn a won deal into a real project with ledger-shaped billing lines.
-/* Copying a won deal creates a DEAL under its client, not another top-level client.
-   That is the point of the flow: HubSpot fills the forecast in preliminarily, and the
-   deal is then matched to a QuickBooks project so actuals land against the same object.
-   The match is often automatic — HubSpot's qb_project_link already carries the id. */
 function salesCopyToLedger(id) {
   const cfg = hsConfig();
   const d = hsPipeline().deals.find(x => String(x.id) === String(id));
   if (!d) return;
-  if (deals().some(x => String(x.hubspotDealId) === String(d.id))) { toast('That deal is already in the ledger.'); return; }
-
-  // 1 — the client it belongs under, created if this is the first deal for them
-  const wanted = hsClientOf(d, cfg);
-  let client = state.projects.find(p => similarity(p.name, wanted) > 0.85);
-  let madeClient = false;
-  if (!client) {
-    client = { id: uid(), name: wanted, monthlyRevenue: 0, revenueOverrides: {}, startMonth: '', endMonth: '' };
-    state.projects.push(client);
-    madeClient = true;
-  }
-
-  // 2 — flight from the campaign dates
+  if (state.projects.some(p => String(p.hubspotDealId) === String(d.id))) { toast('That deal is already in the ledger.'); return; }
   const months = [];
-  if (d.campaignStart && d.campaignEnd) {
-    let c = d.campaignStart.slice(0, 7); const e = d.campaignEnd.slice(0, 7); let g = 0;
-    while (c <= e && g < 60) { months.push(c); c = shiftMonth(c, 1); g++; }
-  }
-
-  // 3 — channel lines from the HubSpot line items, spread evenly across the flight
+  if (d.campaignStart && d.campaignEnd) { let c = d.campaignStart.slice(0,7); const e = d.campaignEnd.slice(0,7); let g=0;
+    while (c <= e && g < 60) { months.push(c); c = shiftMonth(c,1); g++; } }
   const grp = {};
   (d.items || []).forEach(it => {
     const nm = Array.isArray(it) ? it[0] : it.name, amt = +(Array.isArray(it) ? it[1] : it.amount) || 0;
-    const m = cfg.mapping[String(nm || '').split(':').pop().trim().toLowerCase()];
+    const m = cfg.mapping[String(nm||'').split(':').pop().trim().toLowerCase()];
     if (!m) return;
-    const b = (grp[m[0]] = grp[m[0]] || { budget: 0, fee: 0, flat: 0 });
-    b[m[1] === 'budget' ? 'budget' : m[1] === 'fee' ? 'fee' : 'flat'] += amt;
+    const b = (grp[m[0]] = grp[m[0]] || { budget:0, fee:0, flat:0 });
+    b[m[1]==='budget'?'budget':m[1]==='fee'?'fee':'flat'] += amt;
   });
-  const n = months.length || 1;
   const lines = [];
   Object.entries(grp).forEach(([type, v]) => {
-    const budgets = {}; months.forEach(mk => { budgets[mk] = v.budget / n; });
+    const spread = {}; months.forEach(mk => { spread[mk] = v.budget / (months.length || 1); });
     if (type === 'search' || type === 'social') {
-      if (v.budget > 0) lines.push({ id: uid(), type, budget: v.budget / n, budgets, feePct: +(v.fee / v.budget * 100).toFixed(2) });
-      if (v.flat > 0 || (v.budget <= 0 && v.fee > 0)) lines.push({ id: uid(), type: 'retainer', amount: (v.flat + (v.budget <= 0 ? v.fee : 0)) / n });
+      if (v.budget > 0) lines.push({ type, budgets: spread, feePct: +(v.fee / v.budget * 100).toFixed(2) });
+      if (v.flat > 0 || (v.budget <= 0 && v.fee > 0)) lines.push({ type:'retainer', amount: (v.flat + (v.budget<=0?v.fee:0)) / (months.length||1) });
     } else if (type === 'programmatic') {
-      if (v.budget > 0) lines.push({ id: uid(), type, budget: v.budget / n, budgets,
-        feePct: +(v.fee > 0 ? v.fee / v.budget * 100 : 0).toFixed(2), marginPct: +cfg.progMargin || 35 });
-      if (v.flat > 0 || (v.budget <= 0 && v.fee > 0)) lines.push({ id: uid(), type: 'retainer', amount: (v.flat + (v.budget <= 0 ? v.fee : 0)) / n });
+      if (v.budget > 0) lines.push({ type, budgets: spread, feePct: +(v.fee>0 ? v.fee / v.budget * 100 : 0).toFixed(2), marginPct: +cfg.progMargin || 0 });
+      if (v.flat > 0 || (v.budget <= 0 && v.fee > 0)) lines.push({ type:'retainer', amount: (v.flat + (v.budget<=0?v.fee:0)) / (months.length||1) });
     } else {
-      lines.push({ id: uid(), type: 'retainer', amount: (v.flat + v.fee + v.budget) / n });
+      lines.push({ type:'retainer', amount: (v.flat + v.fee + v.budget) / (months.length || 1) });
     }
   });
-
-  // 4 — the QuickBooks project, straight from qb_project_link where HubSpot has it
-  const linkMatch = String(d.qbLink || '').match(/[?&]id=(\d+)/);
-  const qbProjectId = linkMatch ? linkMatch[1] : null;
-
-  deals().push({
-    id: uid(), clientId: client.id, hubspotDealId: d.id, qbProjectId,
-    name: d.name || 'Untitled', startMonth: months[0] || '', endMonth: months[months.length - 1] || '',
-    lines, revenueOverrides: {}, importedAt: new Date().toISOString()
-  });
-  syncClientFlights();
+  const proj = { id: uid(), name: d.name || 'Untitled', monthlyRevenue: 0, revenueOverrides: {},
+    startMonth: months[0] || '', endMonth: months[months.length-1] || '',
+    hubspotDealId: d.id, billing: { lines } };
+  state.projects.push(proj);
   scheduleSave(); render();
-
-  let msg = 'Added “' + (d.name || 'deal') + '” as a deal under ' + client.name +
-            ' with ' + lines.length + ' channel line' + (lines.length === 1 ? '' : 's') + '.';
-  if (madeClient) msg += ' ' + client.name + ' was created as a new client.';
-  msg += qbProjectId ? ' Matched to its QuickBooks project automatically.'
-                     : ' No QuickBooks project on the HubSpot deal — match it in Settings so actuals land against it.';
-  toast(msg, 11000);
+  toast('Copied “' + proj.name + '” into the ledger with ' + lines.length + ' billing line' + (lines.length===1?'':'s') +
+        '. Check the flight and billing on the Projects tab before relying on it.', 9000);
 }
-
 
 
 /* ===== QuickBooks project matching =====
@@ -2594,311 +2455,6 @@ function qbAcceptSuggestions(scope) {
       : 'Name-based matches are guesses — worth a scan before relying on them.'), 9000);
 }
 
-
-/* ===== Deals =====
-   The deal is the unit of forecasting. A client is a grouping of deals, and its billing
-   figures are a roll-up rather than values in their own right.
-
-   Three things attach to a deal:
-     lines    channel, budget, fee and margin — what it bills
-     hours    scoped labour per department — what it demands of the client
-     actuals  via qbProjectId, so forecast and actual sit on one object
-
-   Demand flows deal → client: a deal creates demand, the client consumes it. A client on
-   50 search hours a month taking a deal that needs 150 has 200 to staff.
-
-   Programmatic margin is per-deal on purpose. It is DSP arbitrage and genuinely varies
-   between two deals under the same client, so an achieved figure from that deal's own
-   actuals beats any company-wide assumption. */
-function deals() { if (!Array.isArray(state.deals)) state.deals = []; return state.deals; }
-function dealsFor(clientId) { return deals().filter(d => d.clientId === clientId); }
-function dealById(id) { return deals().find(d => d.id === id) || null; }
-
-function dealMonths(d) {
-  const out = [];
-  if (!d.startMonth || !d.endMonth || d.endMonth < d.startMonth) return out;
-  let c = d.startMonth, g = 0;
-  while (c <= d.endMonth && g < 60) { out.push(c); c = shiftMonth(c, 1); g++; }
-  return out;
-}
-
-// Revenue a single deal line bills in a month.
-function dealLineRevenue(d, line, mk) {
-  if (!dealMonths(d).includes(mk)) return 0;
-  const t = line.type;
-  if (t === 'retainer') return +line.amount || 0;
-  if (t === 'hourly') return (+line.hoursPerMonth || 0) * (+line.rate || 0);
-  const budget = (line.budgets || {})[mk] !== undefined ? +line.budgets[mk] : (+line.budget || 0);
-  if (t === 'search' || t === 'social') return budget * (+line.feePct || 0) / 100;
-  if (t === 'programmatic') return budget * ((+line.feePct || 0) + dealMargin(d, line)) / 100;
-  return 0;
-}
-// What a programmatic line actually invoices, media included.
-function dealLineBillable(d, line, mk) {
-  if (!dealMonths(d).includes(mk)) return 0;
-  const budget = (line.budgets || {})[mk] !== undefined ? +line.budgets[mk] : (+line.budget || 0);
-  if (line.type === 'programmatic') return budget + budget * (+line.feePct || 0) / 100;
-  return dealLineRevenue(d, line, mk);
-}
-// Reuses lineGP, the engine the forecast has always run on — a deal carries startMonth
-// and endMonth just as a project did, so the flight logic works unchanged.
-function dealRevenue(d, mk) {
-  // A hand-entered amount stands on its own. Testing the flight first meant a deal
-  // carrying revenue but no flight dates returned nothing, silently.
-  const man = (d.revenueOverrides || {})[mk];
-  if (man !== undefined) return man;
-  if (!dealMonths(d).includes(mk)) return 0;
-  return (d.lines || []).reduce((s, l) => s + lineGP(d, l, mk), 0);
-}
-
-// Margin for a programmatic line: what this deal has actually achieved if it has enough
-// history, otherwise what was assumed. Never a company average — the whole point is that
-// it varies by deal.
-function dealMargin(d, line) {
-  if (line.marginPct !== undefined && line.marginPct !== null && line.marginPct !== '') return +line.marginPct;
-  const a = dealAchievedMargin(d);
-  if (a !== null) return a;
-  return +qbConf().progMargin || 35;
-}
-function dealAchievedMargin(d) {
-  if (!d.qbProjectId || !qbActuals) return null;
-  const byMonth = (qbActuals.byProject || {})[String(d.qbProjectId)];
-  if (!byMonth) return null;
-  let rev = 0, cost = 0, n = 0;
-  Object.entries(byMonth).forEach(([mk, v]) => {
-    if (!qbCovers(mk)) return;             // settled months only
-    rev += v.revenue; cost += v.cost; n++;
-  });
-  if (n < 2 || rev <= 0) return null;      // one month is not a trend
-  return Math.round((rev - cost) / rev * 1000) / 10;
-}
-
-// Labour the deal asks of its client, by department, for a month.
-function dealHours(d, mk) {
-  if (!dealMonths(d).includes(mk)) return {};
-  const out = {};
-  (d.lines || []).forEach(l => Object.entries(l.hours || {}).forEach(([dept, h]) => {
-    if (+h > 0) out[dept] = (out[dept] || 0) + +h;
-  }));
-  return out;
-}
-// Client demand is the sum of what its deals ask for, plus anything entered by hand
-// that no deal accounts for.
-function clientDemand(clientId, mk) {
-  const out = {};
-  dealsFor(clientId).forEach(d => Object.entries(dealHours(d, mk)).forEach(([dept, h]) => {
-    out[dept] = (out[dept] || 0) + h;
-  }));
-  const manual = ((state.demand || {})[mk] || {})[clientId] || {};
-  Object.entries(manual).forEach(([dept, h]) => {
-    if (!out[dept]) out[dept] = +h || 0;   // hand-entered demand only fills gaps deals leave
-  });
-  return out;
-}
-
-/* One-time migration: every client's existing billing lines and revenue overrides become
-   a single deal, so nothing is lost and no figure moves on the day this ships. Splitting
-   a client into real deals then happens deliberately, not as a side effect. */
-/* Which clients still hold billing lines, and whether a near-identically named client
-   already has deals — the common reason a count looks wrong is the same client existing
-   twice, with billing on one and deals on the other. */
-/* The migration ran once before this fix, so any deal it made may be missing a flight.
-   Repair from the months it carries rather than leaving revenue unreachable. */
-function repairMigratedDeals() {
-  let fixed = 0;
-  deals().forEach(d => {
-    if (d.startMonth && d.endMonth) return;
-    const keys = Object.keys(d.revenueOverrides || {}).sort();
-    const budgetKeys = (d.lines || []).flatMap(l => Object.keys(l.budgets || {})).sort();
-    const all = [...keys, ...budgetKeys].sort();
-    if (!all.length) return;
-    if (!d.startMonth) d.startMonth = all[0];
-    if (!d.endMonth) d.endMonth = all[all.length - 1];
-    fixed++;
-  });
-  if (fixed) scheduleSave();
-  return fixed;
-}
-
-function clientsAwaitingDeals() {
-  return state.projects
-    .map(p => {
-      const lines = ((p.billing || {}).lines || []).length;
-      const overrides = Object.keys(p.revenueOverrides || {}).length;
-      // The migration acts on either, so the offer has to as well — clients whose
-      // revenue was typed in by hand need a deal just as much as billed ones.
-      if ((!lines && !overrides) || dealsFor(p.id).length) return null;
-      const twin = state.projects.find(o => o.id !== p.id && dealsFor(o.id).length && similarity(o.name, p.name) > 0.6);
-      return { p, lines, overrides, nearDuplicate: twin ? twin.name : null };
-    })
-    .filter(Boolean);
-}
-
-function migrateClientsToDeals() {
-  let made = 0;
-  state.projects.forEach(p => {
-    const lines = ((p.billing || {}).lines || []).map(l => ({ ...l }));
-    const hasRev = Object.keys(p.revenueOverrides || {}).length > 0;
-    if ((!lines.length && !hasRev) || dealsFor(p.id).length) { stripClientBilling(p); return; }
-    // Fall back to the span of whatever months hold revenue, so a client that never had
-    // flight dates still produces a deal with a usable window.
-    const revMonths = Object.keys(p.revenueOverrides || {}).sort();
-    const start = p.startMonth || revMonths[0] || '';
-    const end = p.endMonth || revMonths[revMonths.length - 1] || '';
-    deals().push({
-      id: uid(), clientId: p.id, hubspotDealId: p.hubspotDealId || null, qbProjectId: null,
-      name: p.name || 'Untitled', startMonth: start, endMonth: end,
-      lines, revenueOverrides: { ...(p.revenueOverrides || {}) }, fromMigration: true
-    });
-    stripClientBilling(p);
-    made++;
-  });
-  state.dealsMigrated = new Date().toISOString();
-  scheduleSave();
-  return made;
-}
-// Once a client's billing lives on its deals, leaving a copy on the client is a second
-// source of truth waiting to disagree.
-function stripClientBilling(p) {
-  if (p.billing) delete p.billing;
-  if (p.revenueOverrides && Object.keys(p.revenueOverrides).length) {
-    p.legacyRevenueOverrides = p.revenueOverrides;   // kept for reference, never read
-    p.revenueOverrides = {};
-  }
-}
-
-
-/* ===== Deal editor =====
-   Dense on purpose. Campaigns change in flight, so the two things that change most —
-   the flight window and a month's budget — are both editable without opening anything.
-   Channel lines are rows rather than cards so several are visible at once. */
-let dealOpen = {};
-
-/* Deals inside the forecast month breakout.
-   The month being expanded is the context, so the row shows what this deal bills in
-   THIS month, editable in place, next to what QuickBooks actually billed. The forecast
-   is kept whether or not actuals exist — that comparison is the point.
-   Flight dates are on the row because shortening or extending a campaign is as common
-   a change as moving a budget. */
-function dealRowsForMonth(mk) {
-  const all = deals();
-  if (!all.length) return '';
-  const byClient = {};
-  all.forEach(d => { if (dealMonths(d).includes(mk)) (byClient[d.clientId] = byClient[d.clientId] || []).push(d); });
-  if (!Object.keys(byClient).length) return '';
-  const clientName = id => (state.projects.find(p => p.id === id) || {}).name || 'Unassigned';
-  const settled = qbCovers(mk);
-
-  let h = '<div class="fd-wrap"><div class="fd-head"><span>Deals billing this month</span>' +
-    `<span class="pmeta">${settled ? 'actuals from QuickBooks · forecast kept for comparison' : 'forecast — edit budgets and flights in place'}</span></div>`;
-  h += '<table class="fd"><thead><tr><th>Client / deal</th><th class="fd-fl">Flight</th>' +
-       '<th class="num">Budget</th><th class="num">Forecast</th>' +
-       (settled ? '<th class="num">Actual</th><th class="num">Variance</th>' : '') +
-       '<th></th></tr></thead><tbody>';
-
-  Object.keys(byClient).sort((a, b) => clientName(a).localeCompare(clientName(b))).forEach(cid => {
-    const ds = byClient[cid];
-    const fc = ds.reduce((s, d) => s + dealRevenue(d, mk), 0);
-    const act = settled ? (qbClientMonth(cid, mk) || {}).revenue : null;
-    h += `<tr class="fd-client"><td>${escapeHtml(clientName(cid))}</td><td></td><td></td>` +
-      `<td class="num">${fmtMoney(fc)}</td>` +
-      (settled ? `<td class="num">${act !== null && act !== undefined ? fmtMoney(act) : '—'}</td>
-                  <td class="num">${act ? varianceCell(act - fc) : '—'}</td>` : '') +
-      '<td></td></tr>';
-
-    ds.forEach(d => {
-      const open = !!dealOpen[d.id];
-      const media = (d.lines || []).find(l => ['programmatic','search','social'].includes(l.type));
-      const mi = (d.lines || []).indexOf(media);
-      const budget = media ? ((media.budgets || {})[mk] !== undefined ? media.budgets[mk] : (media.budget || '')) : '';
-      const fcD = dealRevenue(d, mk);
-      const actD = settled && d.qbProjectId
-        ? (((qbActuals || {}).byProject || {})[String(d.qbProjectId)] || {})[mk] : null;
-      h += `<tr class="fd-deal"><td>
-          <button class="expand-btn" data-role="deal-toggle" data-id="${d.id}">${open ? '▾' : '▸'}</button>
-          <input class="dl-title" type="text" value="${escapeAttr(d.name || '')}" data-role="deal-name" data-id="${d.id}">
-        </td>
-        <td class="fd-fl">
-          <input type="month" data-role="deal-start" data-id="${d.id}" value="${d.startMonth || ''}">
-          <input type="month" data-role="deal-end" data-id="${d.id}" value="${d.endMonth || ''}">
-        </td>
-        <td class="num">${media
-          ? `<input class="dl-n" type="text" inputmode="decimal" value="${budget}" placeholder="0" data-role="dl-mbudget" data-id="${d.id}" data-i="${mi}" data-mk="${mk}" title="Budget for ${monthShort(mk)} only — blank uses the deal's monthly figure">`
-          : '<span class="sf-z">·</span>'}</td>
-        <td class="num tot">${fmtMoney(fcD)}</td>` +
-        (settled ? `<td class="num">${actD ? fmtMoney(actD.revenue) : '<span class="sf-z">not linked</span>'}</td>
-                    <td class="num">${actD ? varianceCell(actD.revenue - fcD) : '—'}</td>` : '') +
-        `<td></td></tr>`;
-      if (open) h += `<tr class="fd-edit"><td colspan="${settled ? 7 : 5}">${dealLinesPanel(d, mk)}</td></tr>`;
-    });
-  });
-  h += '</tbody></table></div>';
-  return h;
-}
-
-function varianceCell(d) {
-  if (!d) return '<span class="pmeta">on plan</span>';
-  return `<span style="color:${d >= 0 ? 'var(--teal)' : 'var(--rust)'};">${d >= 0 ? '+' : '−'}${fmtMoney(Math.abs(d))}</span>`;
-}
-
-// Channel lines as rows rather than cards, so several are readable at once.
-function dealLinesPanel(d, mk) {
-  const ach = dealAchievedMargin(d);
-  let h = '<div class="dl-panel">';
-  if (ach !== null) h += `<div class="dl-note">This deal has achieved <b>${ach}%</b> margin on settled months — used for programmatic lines left blank.</div>`;
-  h += '<table class="dl-lines"><thead><tr><th>Channel</th><th class="num">Budget / mo</th><th class="num">Fee %</th><th class="num">Margin %</th><th class="num">Bills</th><th></th></tr></thead><tbody>';
-  (d.lines || []).forEach((l, i) => {
-    const isMedia = ['programmatic','search','social'].includes(l.type);
-    h += `<tr>
-      <td><select data-role="dl-type" data-id="${d.id}" data-i="${i}">` +
-        ['programmatic','search','social','retainer','hourly'].map(t =>
-          `<option value="${t}"${l.type === t ? ' selected' : ''}>${BILLING_TYPES[t] || t}</option>`).join('') +
-      `</select></td>
-      <td class="num">${isMedia
-        ? `<input class="dl-n" type="text" inputmode="decimal" value="${l.budget || ''}" placeholder="0" data-role="dl-budget" data-id="${d.id}" data-i="${i}">`
-        : l.type === 'retainer'
-          ? `<input class="dl-n" type="text" inputmode="decimal" value="${l.amount || ''}" placeholder="0" data-role="dl-amount" data-id="${d.id}" data-i="${i}">`
-          : `<input class="dl-n" type="text" inputmode="decimal" value="${l.hoursPerMonth || ''}" placeholder="hrs" data-role="dl-hpm" data-id="${d.id}" data-i="${i}">`}</td>
-      <td class="num">${isMedia ? `<input class="dl-n sm" type="text" inputmode="decimal" value="${l.feePct || ''}" placeholder="0" data-role="dl-fee" data-id="${d.id}" data-i="${i}">` : ''}</td>
-      <td class="num">${l.type === 'programmatic'
-        ? `<input class="dl-n sm" type="text" inputmode="decimal" value="${l.marginPct !== undefined && l.marginPct !== null ? l.marginPct : ''}" placeholder="${ach !== null ? ach : (qbConf().progMargin || 35)}" data-role="dl-margin" data-id="${d.id}" data-i="${i}" title="Blank uses the achieved margin, or the assumed rate where there is no history">`
-        : l.type === 'hourly' ? `<input class="dl-n sm" type="text" inputmode="decimal" value="${l.rate || ''}" placeholder="rate" data-role="dl-rate" data-id="${d.id}" data-i="${i}">` : ''}</td>
-      <td class="num">${fmtMoney(dealLineRevenue(d, l, mk))}</td>
-      <td><button class="icon-btn" data-role="dl-rm" data-id="${d.id}" data-i="${i}" title="Remove line">×</button></td>
-    </tr>`;
-  });
-  h += `</tbody></table><button class="ghost" data-role="dl-add" data-id="${d.id}">+ Channel</button>`;
-  // the whole flight at a glance, so a mid-campaign shift can be made in context
-  const fm = dealMonths(d);
-  if (fm.length > 1) {
-    h += '<div class="dl-sub">Across the flight</div><div class="dl-months">';
-    fm.forEach(m => {
-      const media = (d.lines || []).find(l => ['programmatic','search','social'].includes(l.type));
-      const idx = (d.lines || []).indexOf(media);
-      const v = media ? ((media.budgets || {})[m] !== undefined ? media.budgets[m] : '') : '';
-      h += `<label class="dl-m${m === mk ? ' now' : ''}"><span>${monthShort(m)}</span>
-        <input type="text" inputmode="decimal" value="${v}" placeholder="${media ? (media.budget || 0) : '—'}"
-          data-role="dl-mbudget" data-id="${d.id}" data-i="${idx}" data-mk="${m}"${media ? '' : ' disabled'}>
-        <em>${fmtShort(dealRevenue(d, m))}</em></label>`;
-    });
-    h += '</div>';
-  }
-  return h + '</div>';
-}
-
-function hoursToText(h) {
-  return Object.entries(h || {}).filter(([, v]) => +v > 0).map(([k, v]) => `${k} ${v}`).join(', ');
-}
-function textToHours(t) {
-  const out = {};
-  String(t || '').split(',').forEach(part => {
-    const m = part.trim().match(/^(.+?)\s+([\d.]+)$/);
-    if (m) out[normDept(m[1])] = +m[2];
-  });
-  return out;
-}
-function updDeal(id, fn) { const d = dealById(id); if (!d) return; fn(d); scheduleSave(); }
-
 function renderSettings() {
   const el = document.getElementById('settings-body');
   if (!el) return;
@@ -2968,17 +2524,6 @@ function renderSettings() {
   <div id="qb-match-body"></div>
 
   <div style="border-top:1px solid var(--line); margin:22px 0 14px;"></div>
-  <h3 style="margin:0 0 4px; font-size:15px; color:var(--brand);">Deals</h3>
-  <div class="computed-sub" style="margin-bottom:10px;">Billing lives on deals, not clients. This moves each client's existing billing onto a deal so campaigns can be edited individually. Revenue does not change — it reports the before and after so you can check.</div>
-  <div class="computed-sub" id="deal-migrate-status" style="margin-bottom:8px;"></div>
-  <button class="ghost" data-role="deal-migrate">Set up deals from client billing</button>
-  <button class="ghost" data-role="hs-rebuild">Pull every won deal since the cutover</button>
-  <button class="ghost" data-role="fc-diag">Show forecast diagnostics</button>
-  <pre id="fc-diag-out" style="display:none;background:#1f2421;color:#e8ede9;border-radius:6px;padding:12px 14px;
-    font-family:var(--font-mono);font-size:10px;line-height:1.5;overflow:auto;max-height:420px;margin-top:10px;
-    white-space:pre-wrap;user-select:all;"></pre>
-
-  <div style="border-top:1px solid var(--line); margin:22px 0 14px;"></div>
   <h3 style="margin:0 0 4px; font-size:15px; color:var(--brand);">QuickBooks as the source of revenue</h3>
   <div class="computed-sub" style="margin-bottom:12px;">Once matching looks right, switch this on and revenue for months from the cutover onwards comes from QuickBooks instead of manual entry. Earlier months keep whatever the ledger already holds; future months stay on billing lines and pipeline. Leave it off to compare first.</div>
   <div class="hs-row"><label style="display:flex;align-items:center;gap:7px;">
@@ -2992,16 +2537,6 @@ function renderSettings() {
   el.innerHTML = h;
   renderDataTools();
   renderQbMatching();
-  const dm = document.getElementById('deal-migrate-status');
-  if (dm) {
-    const waiting = clientsAwaitingDeals();
-    dm.innerHTML = `<b>${deals().length}</b> deal${deals().length === 1 ? '' : 's'} across ` +
-      `<b>${new Set(deals().map(d => d.clientId)).size}</b> client${new Set(deals().map(d => d.clientId)).size === 1 ? '' : 's'}. ` +
-      (waiting.length
-        ? `<b>${waiting.length}</b> client${waiting.length === 1 ? '' : 's'} still holding billing of their own: ` +
-          waiting.slice(0, 8).map(x => escapeHtml(x.p.name || 'Untitled')).join(', ') + (waiting.length > 8 ? '…' : '')
-        : 'Every client with revenue data has a deal — nothing left to migrate.');
-  }
 }
 
 function renderHubspotSettings() {
@@ -3065,8 +2600,7 @@ const WIPE_SETS = [
   { k:'demand',      label:'Department demand',      monthly:true,  hint:'Hours each department needs per account' },
   { k:'actuals',     label:'Logged hours (actuals)', monthly:true,  hint:'Imported from QuickBooks Time — the next sync will pull them back' },
   { k:'revenue',     label:'Revenue overrides',      monthly:true,  hint:'Manually entered monthly revenue on accounts' },
-  { k:'deals',       label:'Deals & all forecast',   monthly:false, hint:'Every deal, channel line and revenue override — a clean slate for the forecast. Staff, assignments and logged hours are untouched.' },
-  { k:'billing',     label:'Billing lines',          monthly:false, hint:'Legacy client-level setups, if any survived the move to deals' },
+  { k:'billing',     label:'Billing lines',          monthly:false, hint:'Retainer / search / social / programmatic / hourly setups on every account' },
   { k:'corrections', label:'Past-month corrections', monthly:true,  hint:'Manual actual and labor overrides' },
   { k:'pipeline',    label:'Sales pipeline',         monthly:false, hint:'Synced HubSpot deals — the next sync will pull them back' }
 ];
@@ -3080,14 +2614,6 @@ function wipeCount(k, from, to) {
   if (k === 'revenue') (state.projects || []).forEach(p => Object.keys(p.revenueOverrides || {}).forEach(mk => { if (inRange(mk)) n++; }));
   if (k === 'corrections') Object.keys(state.monthCorrections || {}).forEach(mk => { if (inRange(mk)) n++; });
   if (k === 'billing') (state.projects || []).forEach(p => { n += ((p.billing || {}).lines || []).length; });
-  if (k === 'deals') {
-    n += (state.deals || []).length;
-    (state.projects || []).forEach(p => {
-      n += ((p.billing || {}).lines || []).length;
-      n += Object.keys(p.revenueOverrides || {}).length;
-      n += Object.keys(p.legacyRevenueOverrides || {}).length;
-    });
-  }
   if (k === 'pipeline') n = ((state.salesPipeline || {}).deals || []).length;
   return n;
 }
@@ -3104,18 +2630,6 @@ function wipeRun(keys, from, to) {
     if (k === 'revenue') (state.projects || []).forEach(p => Object.keys(p.revenueOverrides || {}).forEach(mk => { if (inRange(mk)) delete p.revenueOverrides[mk]; }));
     if (k === 'corrections') Object.keys(state.monthCorrections || {}).forEach(mk => { if (inRange(mk)) delete state.monthCorrections[mk]; });
     if (k === 'billing') (state.projects || []).forEach(p => { if (p.billing) p.billing.lines = []; });
-    if (k === 'deals') {
-      // A true clean slate for the forecast: deals, any legacy client billing, and every
-      // revenue override. Deliberately leaves staff, assignments, logged hours and the
-      // QuickBooks tables alone — those are not forecast data.
-      state.deals = [];
-      delete state.dealsMigrated;
-      (state.projects || []).forEach(p => {
-        delete p.billing;
-        p.revenueOverrides = {};
-        delete p.legacyRevenueOverrides;
-      });
-    }
     if (k === 'pipeline') state.salesPipeline = { deals: [], syncedAt: null };
   });
   scheduleSave(); render();
@@ -3223,86 +2737,45 @@ function blMonthInputs(p, line, li) {
   }).join('') + '</div>' + (skipped ? `<div class="pm-hint" style="margin:6px 0 0;">${skipped} month${skipped === 1 ? '' : 's'} hidden — already marked actual (edit in the grid below)</div>` : '');
 }
 
-/* Billing editor: two layers.
-   Above, a strip to add a channel — pick the type, set fee and margin once, and the
-   line lands filled across the flight. Below, one table: channels down, months across.
-   Previously each channel was a card with its own month grid, so three channels meant
-   three large boxes and no way to compare a month across them. */
 function rebuildBillingSection() {
-  const p = dealById(dealEditId);
+  const p = state.projects.find(x => x.id === projectEditId);
   const el = document.getElementById('pj-billing');
   if (!p || !el) return;
-  const lines = p.lines || [];
-  const months = dealMonths(p);
-  // Fee and margin carried from whichever line already has them, so a second channel
-  // inherits rather than being retyped. Falls back to the pipeline's assumption.
-  const seedFee = (lines.find(l => l.feePct) || {}).feePct || '';
-  const seedMargin = (lines.find(l => l.marginPct) || {}).marginPct || (qbConf().progMargin || 35);
-
-  let h = `<div class="bl-add2">
-    <select id="bl-add-type" title="Adds a channel filled across the flight">
-      <option value="">+ Channel…</option>
-      <option value="programmatic">Programmatic</option>
-      <option value="search">Paid Search</option>
-      <option value="social">Paid Social</option>
-      <option value="retainer">Retainer</option>
-      <option value="hourly">Hourly</option>
-    </select>
-    <label>fee %<input type="text" inputmode="decimal" id="bl-seed-fee" value="${seedFee}" placeholder="12"></label>
-    <label>margin %<input type="text" inputmode="decimal" id="bl-seed-margin" value="${seedMargin}" placeholder="35"></label>
-    <span class="pm-hint" style="margin:0;">applied to the new channel and filled across the flight</span>
-  </div>`;
-
-  if (!months.length) {
-    el.innerHTML = h + '<div class="bl-empty">Set flight dates above and the months will appear here.</div>';
-    return;
-  }
-  if (!lines.length) {
-    el.innerHTML = h + '<div class="bl-empty">No channels yet — add one above, or leave it and enter revenue by month below.</div>';
-    return;
-  }
-
-  h += '<div class="bl-scroll"><table class="bl-grid"><thead><tr><th class="bl-ch">Channel</th><th class="num">Fee</th><th class="num">Margin</th>' +
-    months.map(m => `<th class="num${qbCovers(m) ? ' bl-locked' : ''}">${monthShort(m)}${qbCovers(m) ? '<div class="bl-lk">actual</div>' : ''}</th>`).join('') +
-    '<th class="num tot">Total</th><th></th></tr></thead><tbody>';
-
-  lines.forEach((l, i) => {
+  const lines = (p.billing && p.billing.lines) || [];
+  const lineHtml = lines.map((l, i) => {
     const t = l.type;
-    const isMedia = t === 'search' || t === 'social' || t === 'programmatic';
-    const total = months.reduce((sum, m) => sum + lineGP(p, l, m), 0);
-    h += `<tr><td class="bl-ch"><strong>${BILLING_TYPES[t] || t}</strong></td>` +
-      `<td class="num">${isMedia ? `<input class="bl-n sm" type="text" inputmode="decimal" value="${l.feePct || ''}" data-role="bl-fee" data-line="${i}">` : ''}</td>` +
-      `<td class="num">${t === 'programmatic' ? `<input class="bl-n sm" type="text" inputmode="decimal" value="${l.marginPct || ''}" data-role="bl-margin" data-line="${i}">`
-        : t === 'hourly' ? `<input class="bl-n sm" type="text" inputmode="decimal" value="${l.rate || ''}" placeholder="rate" data-role="bl-rate" data-line="${i}">` : ''}</td>` +
-      months.map(m => {
-        const locked = qbCovers(m);
-        if (t === 'retainer') {
-          return `<td class="num${locked ? ' bl-lockcell' : ''}">${locked ? '<span class="bl-x">locked</span>'
-            : `<input class="bl-n" type="text" inputmode="decimal" value="${l.amount || ''}" placeholder="0" data-role="bl-amount" data-line="${i}">`}</td>`;
-        }
-        if (!isMedia) return `<td class="num${locked ? ' bl-lockcell' : ''}"><span class="pmeta">${fmtShort(lineGP(p, l, m))}</span></td>`;
-        const v = (l.budgets || {})[m];
-        return `<td class="num${locked ? ' bl-lockcell' : ''}">${locked
-          ? `<span class="bl-x" title="Settled in QuickBooks — budgets for this month are no longer editable">${v ? fmtShort(v) : '—'}</span>`
-          : `<input class="bl-n" type="text" inputmode="decimal" value="${v !== undefined ? v : ''}" placeholder="0" data-role="bl-budget" data-line="${i}" data-mk="${m}">`}</td>`;
-      }).join('') +
-      `<td class="num tot">${fmtShort(total)}</td>` +
-      `<td><button class="icon-btn" data-role="bl-remove" data-line="${i}" title="Remove channel">×</button></td></tr>`;
-  });
-
-  // what each month actually bills, and the actual beside it once settled
-  h += '<tr class="bl-sum"><td class="bl-ch">Gross profit</td><td></td><td></td>' +
-    months.map(m => {
-      const fc = lines.reduce((sum, l) => sum + lineGP(p, l, m), 0);
-      const act = qbCovers(m) && p.qbProjectId
-        ? ((((qbActuals || {}).byProject || {})[String(p.qbProjectId)] || {})[m] || {}).revenue : null;
-      return `<td class="num">${act !== null && act !== undefined
-        ? `<strong>${fmtShort(act)}</strong><div class="bl-fc">fc ${fmtShort(fc)}</div>`
-        : fmtShort(fc)}</td>`;
-    }).join('') +
-    `<td class="num tot">${fmtShort(months.reduce((s, m) => s + lines.reduce((x, l) => x + lineGP(p, l, m), 0), 0))}</td><td></td></tr>`;
-  h += '</tbody></table></div>';
-  el.innerHTML = h;
+    let params = '';
+    if (t === 'retainer') params = `<label>amount / flight month $<input type="text" inputmode="decimal" value="${l.amount || ''}" data-role="bl-amount" data-line="${i}"></label>`;
+    if (t === 'search' || t === 'social') params = `<label>fee %<input type="text" inputmode="decimal" value="${l.feePct || ''}" data-role="bl-fee" data-line="${i}"></label><span class="pm-hint" style="margin:0;">media is 1:1 pass-through — only the fee counts as gross profit</span>`;
+    if (t === 'programmatic') params = `<label>fee %<input type="text" inputmode="decimal" value="${l.feePct || ''}" data-role="bl-fee" data-line="${i}"></label><label>default margin %<input type="text" inputmode="decimal" value="${l.marginPct || ''}" data-role="bl-margin" data-line="${i}"></label>`;
+    if (t === 'hourly') params = `<label>rate $/h<input type="text" inputmode="decimal" value="${l.rate || ''}" data-role="bl-rate" data-line="${i}"></label>
+      <label>hours<select data-role="bl-mode" data-line="${i}"><option value="flight" ${(l.mode !== 'monthly' && l.mode !== 'scheduled') ? 'selected' : ''}>spread over flight</option><option value="monthly" ${l.mode === 'monthly' ? 'selected' : ''}>per month</option><option value="scheduled" ${l.mode === 'scheduled' ? 'selected' : ''}>billed from schedule</option></select></label>
+      ${(l.mode !== 'monthly' && l.mode !== 'scheduled') ? `<label>total hours<input type="text" inputmode="decimal" value="${l.hours || ''}" data-role="bl-hours" data-line="${i}"></label>` : ''}
+      ${l.mode === 'scheduled' ? `<label>cap h/mo (optional)<input type="text" inputmode="decimal" value="${l.capHours || ''}" data-role="bl-caph" data-line="${i}" title="Max billable hours per month. Scheduled hours above the cap still cost but don't bill — prevents padded schedules from inflating forecast revenue."></label>` : ''}`;
+    const needsMonths = (t !== 'retainer') && !(t === 'hourly' && l.mode !== 'monthly');   // scheduled falls under mode !== 'monthly' -> no month grid
+    return `
+      <div class="bl-line">
+        <div class="bl-top">
+          <strong style="font-family:var(--font-display); font-size:12px;">${BILLING_TYPES[t]}</strong>
+          <input type="text" class="bl-label" placeholder="label (optional)" value="${escapeAttr(l.label || '')}" data-role="bl-label" data-line="${i}">
+          ${params}
+          <button class="remove-btn" data-role="bl-remove" data-line="${i}" style="margin-left:auto;">×</button>
+        </div>
+        ${needsMonths ? blMonthInputs(p, l, i) : ''}
+      </div>`;
+  }).join('');
+  el.innerHTML = lineHtml + `
+    <div class="bl-add">
+      <select id="bl-add-type">
+        <option value="">+ Add billing line…</option>
+        <option value="retainer">Retainer (flat, no COGS)</option>
+        <option value="search">Paid Search (fee % of budget)</option>
+        <option value="social">Paid Social (fee % of budget)</option>
+        <option value="programmatic">Programmatic (fee % + media margin)</option>
+        <option value="hourly">Hourly (rate × scoped hours)</option>
+      </select>
+      ${lines.length ? '' : '<span class="pm-hint" style="margin:0;">no lines — the month amounts below stay hand-entered</span>'}
+    </div>`;
 }
 
 function rebuildProjectModalMonths() {
@@ -3331,40 +2804,16 @@ function rebuildProjectModalMonths() {
       </div>`;
   }).join('');
 }
-let dealEditId = null;
-// Opens on a deal. A client no longer has billing of its own to edit.
-function openDealModal(id) {
-  const d = dealById(id);
-  if (!d) return;
-  dealEditId = id;
-  projectEditId = d.clientId;                 // some shared handlers still key off it
-  const client = state.projects.find(x => x.id === d.clientId);
-  const sameName = client && similarity(client.name, d.name) > 0.95;
-  document.getElementById('project-modal-title').textContent =
-    (d.name || 'Untitled deal') + (sameName ? ' — whole account' : '');
-  const sub = document.getElementById('project-modal-sub');
-  if (sub) sub.textContent = (client ? client.name + ' · ' : '') +
-    (d.qbProjectId ? 'linked to QuickBooks' : 'not linked to a QuickBooks project') +
-    ' · changes save automatically';
-  const nameEl = document.getElementById('pj-name');
-  if (nameEl) nameEl.value = d.name || '';
-  document.getElementById('pj-start').value = d.startMonth || '';
-  document.getElementById('pj-end').value = d.endMonth || '';
-  rebuildBillingSection();
-  document.getElementById('project-modal').classList.add('open');
-}
-// Opening a client opens its only deal, or offers the list when there are several.
 function openProjectModal(id) {
-  const ds = dealsFor(id);
-  if (ds.length === 1) return openDealModal(ds[0].id);
-  if (!ds.length) {
-    const made = migrateClientsToDeals();
-    const after = dealsFor(id);
-    if (after.length) { render(); return openDealModal(after[0].id); }
-    toast('This client has no deals yet. Copy one from the Sales Forecast, or add a channel to create one.');
-    return;
-  }
-  toast('This client has ' + ds.length + ' deals — open the one you want from the month breakout.');
+  const p = state.projects.find(x => x.id === id);
+  if (!p) return;
+  projectEditId = id;
+  document.getElementById('project-modal-title').textContent = p.name || 'Untitled project';
+  document.getElementById('pj-start').value = p.startDate || (p.startMonth ? p.startMonth + '-01' : '');
+  document.getElementById('pj-end').value = p.endDate || (p.endMonth ? lastDayOf(p.endMonth) : '');
+  rebuildBillingSection();
+  rebuildProjectModalMonths();
+  document.getElementById('project-modal').classList.add('open');
 }
 function closeProjectModal() {
   document.getElementById('project-modal').classList.remove('open');
@@ -3392,9 +2841,6 @@ async function enterApp(session) {
   await loadState();
   // The roster lives in the ledger, so roles can only be resolved once state is loaded.
   computeSalaryAccess(session);
-  const repaired = repairMigratedDeals();
-  syncClientFlights();
-  if (repaired) console.log('Repaired flight dates on ' + repaired + ' migrated deal(s).');
   loadQbActuals().then(() => { if (qbConf().useActuals) render(); });
   document.getElementById('user-chip').textContent = email +
     (myRole && ROLES[myRole] ? ' · ' + ROLES[myRole].label.toLowerCase() : (canSeeSalaries ? '' : ' · salaries hidden'));
@@ -3811,11 +3257,11 @@ function revenueFor(p, mk) {
     const a = qbClientMonth(p.id, mk);
     if (a) return a.revenue;
   }
-  // A client is a grouping: its revenue is whatever its deals bill. Billing lines live
-  // on deals only, so once a client has deals there is nothing else to consult.
-  const ds = dealsFor(p.id);
-  if (ds.length) return ds.reduce((s, d) => s + dealRevenue(d, mk), 0);
-  // Not migrated yet — the old client-level path, so nothing vanishes before the switch.
+  // Manual entry always wins. A hand-entered amount for a month (whether or not
+  // it's marked actual) is authoritative and is NEVER overwritten by billing
+  // lines — adding or editing billing lines can only FILL months that have no
+  // manual amount. This keeps historical/actual data intact when a project
+  // later switches to computed billing.
   const manual = (p.revenueOverrides || {})[mk];
   if (manual !== undefined) return manual;
   if (billingActive(p) && billingMonths(p).has(mk)) return billingGP(p, mk);
@@ -4028,41 +3474,9 @@ function updateProjectField(id, field, value) {
   if (field === 'endMonth') p.endDate = '';
   scheduleSave(); render();
 }
-/* A client's flight is the envelope of its deals: earliest start, latest end. Editing it
-   by hand pins that end, so a later deal cannot silently move a date someone chose.
-   p.startMonth / p.endMonth stay populated with the resolved values, so everything that
-   already reads them keeps working. */
-function syncClientFlights() {
-  let changed = false;
-  state.projects.forEach(p => {
-    const ds = dealsFor(p.id);
-    if (!ds.length) return;
-    if (!p.startMonthPinned) {
-      const starts = ds.map(d => d.startMonth).filter(Boolean).sort();
-      if (starts.length && p.startMonth !== starts[0]) {
-        p.startMonth = starts[0];
-        p.startDate = starts[0] + '-01';
-        changed = true;
-      }
-    }
-    if (!p.endMonthPinned) {
-      const ends = ds.map(d => d.endMonth).filter(Boolean).sort();
-      const last = ends[ends.length - 1];
-      if (last && p.endMonth !== last) {
-        p.endMonth = last;
-        p.endDate = lastDayOf(last);
-        changed = true;
-      }
-    }
-  });
-  return changed;
-}
-
 function setFlightDate(id, side, value) {
   const p = state.projects.find(p => p.id === id);
   if (!p) return;
-  // Setting a client date by hand pins it against the derived envelope.
-  if (side === 'start') p.startMonthPinned = !!value; else p.endMonthPinned = !!value;
   if (side === 'start') {
     p.startDate = value || '';
     if (value) p.startMonth = value.slice(0, 7);
@@ -4912,26 +4326,13 @@ function monthTotalPayroll(mk) {
 }
 function revenueByMonthSplit() {
   const set = new Set();
-  // Deals hold the billing now, so the forecast window is the span of what they cover.
-  // Scanning clients alone collapsed the window to whatever was left after migration,
-  // which is why future months disappeared.
-  deals().forEach(d => {
-    dealMonths(d).forEach(mk => set.add(mk));
-    Object.keys(d.revenueOverrides || {}).forEach(mk => {
-      if ((d.revenueOverrides[mk] || 0) !== 0) set.add(mk);
-    });
-    (d.lines || []).forEach(l => Object.keys(l.budgets || {}).forEach(mk => set.add(mk)));
-  });
   state.projects.forEach(p => {
-    // Clients not yet migrated still contribute, so nothing vanishes mid-transition.
-    if (!dealsFor(p.id).length) {
-      if (billingActive(p)) billingMonths(p).forEach(mk => set.add(mk));
-      else Object.keys(p.revenueOverrides || {}).forEach(mk => {
-        if ((p.revenueOverrides[mk] || 0) !== 0) set.add(mk);
-      });
-    }
-    // A client with flight dates occupies those months even at zero revenue, so it
-    // stays visible and can be edited back up.
+    if (billingActive(p)) billingMonths(p).forEach(mk => set.add(mk));
+    else Object.keys(p.revenueOverrides || {}).forEach(mk => {
+      if ((p.revenueOverrides[mk] || 0) !== 0) set.add(mk);
+    });
+    // A project with flight dates occupies those months even at $0 revenue,
+    // so it stays visible and can be edited back up from the forecast/projects view.
     const flight = monthsOfFlight(p);
     if (flight) flight.forEach(mk => set.add(mk));
   });
@@ -5092,22 +4493,6 @@ function renderCorrectionsList() {
 
 function renderForecast() {
   renderFixedCostsMenu();
-  // Offer the migration while any client still holds billing of its own. Name them in
-  // the tooltip: a count alone is unverifiable, and the usual cause of a surprising one
-  // is a near-duplicate client holding the billing while the deals sit under another.
-  const pendingList = clientsAwaitingDeals();
-  const setupBtn = document.getElementById('fc-setup-deals');
-  if (setupBtn) {
-    setupBtn.style.display = pendingList.length ? '' : 'none';
-    setupBtn.textContent = 'Set up deals · ' + pendingList.length + ' client' + (pendingList.length === 1 ? '' : 's');
-    setupBtn.title = pendingList.length
-      ? 'Still holding billing of their own:\n' + pendingList.map(x =>
-          '· ' + (x.p.name || 'Untitled') + ' — ' +
-          (x.lines ? x.lines + ' billing line' + (x.lines === 1 ? '' : 's') : x.overrides + ' month' + (x.overrides === 1 ? '' : 's') + ' entered by hand') +
-          (x.nearDuplicate ? '  (deals exist under “' + x.nearDuplicate + '” — likely the same client twice)' : '')
-        ).join('\n')
-      : '';
-  }
   const tbody = document.getElementById('forecast-tbody');
   const el = document.getElementById('chart-forecast');
   if (forecastChart) { try { forecastChart.destroy(); } catch (e) {} forecastChart = null; }
@@ -5165,14 +4550,7 @@ function renderForecast() {
         </div>
         ${withRev.map(c => `
           <div class="fc-row${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? ' fc-billed' : ''; })()}"${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? ` data-role="fc-open-project" data-id="${c.pid}" title="Billing-scheduled — click to edit the campaign schedule"` : ''; })()}>
-            <div class="fc-name">${escapeHtml(c.name)}${(() => {
-              // One pencil per deal, since a deal is what gets edited now. A client with
-              // several shows them all rather than hiding them behind one control.
-              const ds = dealsFor(c.pid);
-              if (!ds.length) return `<button class="edit-btn" data-role="edit-project" data-id="${c.pid}" title="Set up this client's first deal">✎</button>`;
-              if (ds.length === 1) return `<button class="edit-btn" data-role="edit-deal" data-id="${ds[0].id}" title="Edit ${escapeAttr(ds[0].name || 'deal')}">✎</button>`;
-              return ds.map(d => `<button class="deal-pill" data-role="edit-deal" data-id="${d.id}" title="Edit ${escapeAttr(d.name || 'deal')}">${escapeHtml((d.name || 'deal').slice(0, 22))}</button>`).join('');
-            })()}${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? pp.billing.lines.map(l => `<span class="bl-chip">${BILLING_TYPES[l.type]}</span>`).join('') : ''; })()}${c.amount === 0 && c.inFlight ? '<span class="fc-basis"> · in flight</span>' : ''}</div>
+            <div class="fc-name">${escapeHtml(c.name)}<button class="edit-btn" data-role="edit-project" data-id="${c.pid}" title="Edit billing & months">✎</button>${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? pp.billing.lines.map(l => `<span class="bl-chip">${BILLING_TYPES[l.type]}</span>`).join('') : ''; })()}${c.amount === 0 && c.inFlight ? '<span class="fc-basis"> · in flight</span>' : ''}</div>
             <div class="pb-num">${(() => {
               const pp = state.projects.find(x => x.id === c.pid);
               if (qbCovers(r.mk)) return `<span style="font-weight:700;" title="Billed in QuickBooks — settled months are not editable">${fmtMoney(c.amount)}</span>`;
@@ -6731,30 +6109,6 @@ document.addEventListener('input', (e) => {
         : 'Back to the ledger\u2019s own revenue.', 9000); });
     return;
   }
-  if (t.dataset.role && t.dataset.role.startsWith('dl-')) {
-    const id = t.dataset.id, i = +t.dataset.i, v = t.value;
-    const num = x => { const n = parseFloat(String(x).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? '' : n; };
-    updDeal(id, d => {
-      const l = (d.lines || [])[i]; if (!l && t.dataset.role !== 'dl-hours') return;
-      switch (t.dataset.role) {
-        case 'dl-type':    l.type = v; break;
-        case 'dl-budget':  l.budget = num(v) || 0; break;
-        case 'dl-amount':  l.amount = num(v) || 0; break;
-        case 'dl-hpm':     l.hoursPerMonth = num(v) || 0; break;
-        case 'dl-fee':     l.feePct = num(v) || 0; break;
-        case 'dl-rate':    l.rate = num(v) || 0; break;
-        case 'dl-margin':  l.marginPct = v === '' ? null : num(v); break;   // blank falls back to achieved
-        case 'dl-hours':   l.hours = textToHours(v); break;
-        case 'dl-mbudget': { l.budgets = l.budgets || {};
-          if (v === '') delete l.budgets[t.dataset.mk]; else l.budgets[t.dataset.mk] = num(v) || 0; break; }
-      }
-    });
-    if (t.dataset.role === 'dl-type') renderForecast();
-    return;
-  }
-  if (t.dataset.role === 'deal-name')  { updDeal(t.dataset.id, d => d.name = t.value); return; }
-  if (t.dataset.role === 'deal-start') { updDeal(t.dataset.id, d => d.startMonth = t.value); renderForecast(); return; }
-  if (t.dataset.role === 'deal-end')   { updDeal(t.dataset.id, d => d.endMonth = t.value); renderForecast(); return; }
   if (t.dataset.role === 'qb-avgmo') {
     qbConf().expenseAvgMonths = Math.max(1, Math.min(12, parseFloat(t.value) || 6));
     scheduleSave(); render(); return;
@@ -6934,8 +6288,8 @@ document.addEventListener('input', (e) => {
       setRevenueOverride(t.dataset.pid, t.dataset.mk, t.value);
     }
     else if (role && role.startsWith('bl-') && role !== 'bl-mode' && role !== 'bl-remove') {
-      const p = dealById(dealEditId);
-      const line = p && Array.isArray(p.lines) && p.lines[+t.dataset.line];
+      const p = state.projects.find(x => x.id === projectEditId);
+      const line = p && p.billing && p.billing.lines[+t.dataset.line];
       if (line) {
         const num = v => { const c = String(v).replace(/[^0-9.\-]/g, ''); return c === '' ? undefined : (parseFloat(c) || 0); };
         if (role === 'bl-label') line.label = t.value;
@@ -7053,12 +6407,11 @@ document.addEventListener('click', (e) => {
   else if (role === 'edit-staff') openPersonModal(t.dataset.id);
   else if (role === 'edit-project') openProjectModal(t.dataset.id);
   else if (role === 'forecast-toggle') { ui.forecastExpanded[t.dataset.mk] = !ui.forecastExpanded[t.dataset.mk]; render(); }
-  else if (role === 'edit-deal') { openDealModal(t.dataset.id); }
   else if (role === 'bl-remove') {
-    const p = dealById(dealEditId);
-    if (p && Array.isArray(p.lines)) {
-      p.lines.splice(+t.dataset.line, 1);
-      scheduleSave(); render(); rebuildBillingSection();
+    const p = state.projects.find(x => x.id === projectEditId);
+    if (p && p.billing) {
+      p.billing.lines.splice(+t.dataset.line, 1);
+      scheduleSave(); render(); rebuildBillingSection(); rebuildProjectModalMonths();
     }
   }
   else if (role === 'fc-sort') {
@@ -7079,71 +6432,6 @@ document.addEventListener('click', (e) => {
     if (pr) { setRevenueOverride(t.dataset.id, t.dataset.mk, String(Math.round(billingGP(pr, t.dataset.mk)))); render(); }
   }
   else if (role === 'fc-cost-remove') { state.fixedCosts.splice(+t.dataset.i, 1); scheduleSave(); render(); }
-  else if (role === 'deal-toggle') { dealOpen[t.dataset.id] = !dealOpen[t.dataset.id]; renderForecast(); }
-  else if (role === 'hs-rebuild') {
-    // Retention exists to stop a re-sync resurrecting deals already handled by hand.
-    // Rebuilding the forecast from HubSpot needs the opposite, so widen it far enough
-    // that the cutover is what binds rather than the rolling window.
-    const c = hsConfig();
-    c.wonCutover = qbConf().cutover ? qbConf().cutover + '-01' : '2026-01-01';
-    c.wonRetainDays = 400;
-    scheduleSave(); renderSettings();
-    toast('Won-deal window widened to everything closed since ' + c.wonCutover +
-          '. Run the HubSpot sync, then copy the deals across from the Sales Forecast. ' +
-          'Narrow the retention afterwards if you would rather the worklist stayed short.', 14000);
-  }
-  else if (role === 'fc-diag') {
-    const out = document.getElementById('fc-diag-out');
-    if (!out) return;
-    out.style.display = out.style.display === 'none' ? '' : 'none';
-    if (out.style.display === 'none') return;
-    const L = [];
-    const rows = revenueByMonthSplit() || [];
-    L.push('BUILD   ' + (document.querySelector('.ver-tag') || {}).textContent);
-    L.push('DEALS   ' + deals().length + ' across ' + new Set(deals().map(d => d.clientId)).size + ' clients');
-    L.push('CLIENTS ' + state.projects.length);
-    L.push('WINDOW  ' + (rows.length ? rows[0].mk + ' -> ' + rows[rows.length - 1].mk + '  (' + rows.length + ' months)' : 'EMPTY'));
-    L.push('FILTER  from=' + (ui.fcFrom || '-') + '  to=' + (ui.fcTo || '-'));
-    L.push('QB      useActuals=' + qbConf().useActuals + '  cutover=' + qbConf().cutover +
-           '  actualsLoaded=' + (qbActuals ? 'yes' : 'no') + '  mapped=' + Object.keys(qbMap()).length);
-    L.push('');
-    const sample = rows.slice(0, 3).map(r => r.mk).concat(rows.slice(-2).map(r => r.mk));
-    L.push('CLIENT'.padEnd(28) + 'DEALS'.padEnd(6) + 'FLIGHT'.padEnd(20) + sample.map(m => m.slice(2)).join('   '));
-    state.projects.slice(0, 40).forEach(p => {
-      const ds = dealsFor(p.id);
-      const flight = ds.length ? (ds[0].startMonth || '?') + '..' + (ds[0].endMonth || '?') : '-';
-      const vals = sample.map(m => Math.round(revenueFor(p, m) / 1000) + 'k');
-      L.push(String(p.name || 'Untitled').slice(0, 26).padEnd(28) + String(ds.length).padEnd(6) +
-             flight.padEnd(20) + vals.map(v => v.padStart(6)).join('  '));
-    });
-    if (state.projects.length > 40) L.push('… ' + (state.projects.length - 40) + ' more');
-    L.push('');
-    L.push('TOTAL' .padEnd(54) + sample.map(m =>
-      String(Math.round(state.projects.reduce((s, p) => s + revenueFor(p, m), 0) / 1000) + 'k').padStart(6)).join('  '));
-    out.textContent = L.join('\n');
-  }
-  else if (role === 'deal-migrate') {
-    const list = clientsAwaitingDeals();
-    const dupes = list.filter(x => x.nearDuplicate);
-    if (dupes.length && !t.dataset.armed) {
-      t.dataset.armed = '1';
-      toast(dupes.length + ' of these look like duplicates of a client that already has deals: ' +
-        dupes.slice(0, 3).map(x => '“' + x.p.name + '” vs “' + x.nearDuplicate + '”').join('; ') +
-        '. Merge them first if that is the case, or click again to migrate anyway.', 14000);
-      return;
-    }
-    const before = viewMonths().reduce((s, mk) => s + state.projects.reduce((x, p) => x + revenueFor(p, mk), 0), 0);
-    const n = migrateClientsToDeals();
-    const after = viewMonths().reduce((s, mk) => s + state.projects.reduce((x, p) => x + revenueFor(p, mk), 0), 0);
-    render();
-    const moved = Math.abs(after - before) > 1;
-    toast(n
-      ? 'Created ' + n + ' deal' + (n === 1 ? '' : 's') + '. Revenue for the period ' +
-        (moved ? 'CHANGED from ' + fmtMoney(before) + ' to ' + fmtMoney(after) + ' — worth checking.' : 'is unchanged at ' + fmtMoney(after) + '.')
-      : 'No client billing left to migrate.', 12000);
-  }
-  else if (role === 'dl-add') { updDeal(t.dataset.id, d => { (d.lines = d.lines || []).push({ type: 'programmatic', budget: 0, feePct: 12, hours: {} }); }); renderForecast(); }
-  else if (role === 'dl-rm') { updDeal(t.dataset.id, d => d.lines.splice(+t.dataset.i, 1)); renderForecast(); }
   else if (role === 'sf-copy') { salesCopyToLedger(t.dataset.id); }
   else if (role === 'qb-accept-high') { qbAcceptSuggestions('high'); }
   else if (role === 'qb-accept-all') { qbAcceptSuggestions('all'); }
@@ -7347,37 +6635,31 @@ document.addEventListener('change', (e) => {
   const dRole = e.target && e.target.dataset ? e.target.dataset.role : null;
   if (dRole === 'flight-start') { setFlightDate(e.target.dataset.id, 'start', e.target.value); return; }
   if (dRole === 'flight-end') { setFlightDate(e.target.dataset.id, 'end', e.target.value); return; }
-  if (dRole === 'pj-name') { const d = dealById(dealEditId); if (d) { d.name = e.target.value; scheduleSave(); render(); } return; }
-  if (dRole === 'pj-start') { const d = dealById(dealEditId); if (d) { d.startMonth = e.target.value; syncClientFlights(); scheduleSave(); rebuildBillingSection(); render(); } return; }
-  if (dRole === 'pj-end') { const d = dealById(dealEditId); if (d) { d.endMonth = e.target.value; syncClientFlights(); scheduleSave(); rebuildBillingSection(); render(); } return; }
+  if (dRole === 'pj-start') { setFlightDate(projectEditId, 'start', e.target.value); rebuildBillingSection(); rebuildProjectModalMonths(); return; }
+  if (dRole === 'pj-end') { setFlightDate(projectEditId, 'end', e.target.value); rebuildBillingSection(); rebuildProjectModalMonths(); return; }
   if (dRole === 'usr-role') { updateUserRow(+e.target.dataset.i, 'role', e.target.value); return; }
   if (dRole === 'pm-start') { setStaffDate(personEditId, 'start', e.target.value); return; }
   if (dRole === 'pm-end') { setStaffDate(personEditId, 'end', e.target.value); return; }
   if (dRole === 'pm-nolayoff') { updateStaffField(personEditId, 'layoffProtected', e.target.checked); return; }
   if (e.target && e.target.dataset && e.target.dataset.role === 'bl-mode') {
-    const p = dealById(dealEditId);
-    const line = p && Array.isArray(p.lines) && p.lines[+e.target.dataset.line];
-    if (line) { line.mode = e.target.value; scheduleSave(); render(); rebuildBillingSection(); }
+    const p = state.projects.find(x => x.id === projectEditId);
+    const line = p && p.billing && p.billing.lines[+e.target.dataset.line];
+    if (line) { line.mode = e.target.value; scheduleSave(); render(); rebuildBillingSection(); rebuildProjectModalMonths(); }
     return;
   }
-  if (e.target && e.target.dataset && e.target.dataset.role && e.target.dataset.role.startsWith('bl-')) { rebuildBillingSection(); }
+  if (e.target && e.target.dataset && e.target.dataset.role && e.target.dataset.role.startsWith('bl-')) { rebuildBillingSection(); rebuildProjectModalMonths(); }
   if (e.target && e.target.id === 'bl-add-type' && e.target.value) {
-    const p = dealById(dealEditId);
+    const p = state.projects.find(x => x.id === projectEditId);
     if (p) {
-      if (!Array.isArray(p.lines)) p.lines = [];
+      if (!p.billing) p.billing = { lines: [] };
       const t = e.target.value;
-      // Fee and margin come from the strip above, so a second channel inherits the
-      // first rather than starting at zero and needing both retyped.
-      const numOf = id => { const el2 = document.getElementById(id); const n = parseFloat((el2 || {}).value); return isNaN(n) ? 0 : n; };
-      const fee = numOf('bl-seed-fee');
-      const margin = numOf('bl-seed-margin') || (qbConf().progMargin || 35);
       const line = { id: uid(), type: t, label: '' };
       if (t === 'retainer') line.amount = 0;
-      if (t === 'search' || t === 'social') { line.feePct = fee; line.budgets = {}; }
-      if (t === 'programmatic') { line.feePct = fee; line.marginPct = margin; line.budgets = {}; line.margins = {}; }
+      if (t === 'search' || t === 'social') { line.feePct = 0; line.budgets = {}; }
+      if (t === 'programmatic') { line.feePct = 0; line.marginPct = 0; line.budgets = {}; line.margins = {}; }
       if (t === 'hourly') { line.rate = 0; line.mode = 'flight'; line.hours = 0; line.hoursByMonth = {}; }
-      p.lines.push(line);
-      scheduleSave(); render(); rebuildBillingSection();
+      p.billing.lines.push(line);
+      scheduleSave(); render(); rebuildBillingSection(); rebuildProjectModalMonths();
     }
     return;
   }

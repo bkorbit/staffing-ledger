@@ -174,10 +174,8 @@ const clean = v => (v === undefined || v === null || v === '') ? '' : String(v).
 
   // "Already copied" is derived from the ledger's own projects, not a stored flag, so it
   // stays true only while the project actually exists.
-  const inLedgerFromProjects = new Set([
-    ...(state.deals || []).filter(d => d.hubspotDealId).map(d => String(d.hubspotDealId)),
-    ...(state.projects || []).filter(p => p.hubspotDealId).map(p => String(p.hubspotDealId))
-  ]);
+  const inLedgerFromProjects = new Set((state.projects || [])
+    .filter(p => p.hubspotDealId).map(p => String(p.hubspotDealId)));
 
   let withItems = 0, withCompany = 0;
   const out = deals.map(d => {
