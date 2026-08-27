@@ -757,6 +757,16 @@ table.sf td.tot{font-weight:700;color:var(--brand)}
 .sf-flag{display:inline-block;font-size:8.5px;padding:1px 5px;border-radius:3px;margin:1px 2px 1px 0;white-space:nowrap}
 .sf-flag.t{background:var(--gold);color:#3a2c00}.sf-flag.w{background:#fbe7e4;color:var(--rust)}.sf-flag.i{background:#e6e6e6;color:var(--slate)}
 .sf-flag.ok{background:var(--mint);color:var(--brand);font-weight:700}
+.qb-block{background:#fff;border:1px solid var(--line);border-radius:6px;padding:9px 12px;margin-bottom:12px}
+.qb-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;
+font-family:var(--font-display);font-size:11.5px;font-weight:600;color:var(--brand);
+padding-bottom:6px;margin-bottom:4px;border-bottom:1px solid var(--line)}
+.qb-tot{font-family:var(--font-mono);font-size:10px;font-weight:400;color:var(--slate)}
+.qb-row{display:grid;grid-template-columns:280px 150px 150px 1fr;gap:12px;align-items:center;
+padding:4px 0;font-family:var(--font-mono);font-size:11px;border-bottom:1px dashed #eee}
+.qb-row:last-child{border-bottom:none}
+.qb-m{margin-left:8px;color:var(--slate);font-size:9.5px}
+@media(max-width:1100px){.qb-row{grid-template-columns:1fr 1fr}}
 button.qb-ok{font-size:9.5px;padding:3px 9px;border-color:var(--brand);color:var(--brand);font-weight:600}
 button.qb-x{font-size:11px;padding:1px 6px;margin-left:4px;color:var(--slate)}
 button.sf-copy{font-size:9.5px;padding:3px 8px}
@@ -908,7 +918,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-1906 · updated 2026-08-27</div>
+      <div class="ver-tag">build b0827-1956 · updated 2026-08-27</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -2132,6 +2142,73 @@ function salesCopyToLedger(id) {
 let qbProjects = null, qbLoading = false, qbLoadError = '';
 
 function qbMap() { if (!state.qbProjectMap) state.qbProjectMap = {}; return state.qbProjectMap; }
+function qbConf() {
+  if (!state.qbConfig) state.qbConfig = {};
+  const c = state.qbConfig;
+  if (c.useActuals === undefined) c.useActuals = false;   // off until the numbers are trusted
+  if (!c.cutover) c.cutover = '2026-01';
+  return c;
+}
+
+/* Actuals from QuickBooks, held in memory and indexed two ways: by client for the
+   roll-up, and by project for the breakdown underneath. revenueFor runs inside render
+   loops, so this must be a lookup rather than a query. */
+let qbActuals = null, qbActualsLoading = false;
+
+async function loadQbActuals(force) {
+  if (qbActuals && !force) return qbActuals;
+  if (qbActualsLoading) return null;
+  qbActualsLoading = true;
+  const idx = { byClient: {}, byProject: {}, months: new Set(), projectIds: {} };
+  try {
+    const { data, error } = await sb.from('qb_project_month')
+      .select('project_id,month,revenue,cost,gross_profit');
+    if (error) throw error;
+    const map = qbMap();
+    (data || []).forEach(r => {
+      const mk = String(r.month).slice(0, 7);
+      const pid = String(r.project_id);
+      idx.months.add(mk);
+      (idx.byProject[pid] = idx.byProject[pid] || {})[mk] =
+        { revenue: +r.revenue || 0, cost: +r.cost || 0, gp: +r.gross_profit || 0 };
+      const cid = map[pid];
+      if (!cid) return;                       // unmatched projects contribute nothing
+      const c = (idx.byClient[cid] = idx.byClient[cid] || {});
+      const m = (c[mk] = c[mk] || { revenue: 0, cost: 0, gp: 0, projects: [] });
+      m.revenue += +r.revenue || 0; m.cost += +r.cost || 0; m.gp += +r.gross_profit || 0;
+      if (!m.projects.includes(pid)) m.projects.push(pid);
+      (idx.projectIds[cid] = idx.projectIds[cid] || new Set()).add(pid);
+    });
+    qbActuals = idx;
+  } catch (e) {
+    console.error('QuickBooks actuals unavailable:', e.message || e);
+    qbActuals = idx;                          // empty index, so callers degrade quietly
+  }
+  qbActualsLoading = false;
+  return qbActuals;
+}
+
+// Is this month covered by QuickBooks — on or after the cutover, and not in the future?
+function qbCovers(mk) {
+  const c = qbConf();
+  if (!c.useActuals || !qbActuals) return false;
+  return mk >= c.cutover && mk <= monthKey(new Date());
+}
+function qbClientMonth(clientId, mk) {
+  return ((qbActuals && qbActuals.byClient[clientId]) || {})[mk] || null;
+}
+// Per-project detail for a client in a month, for the breakdown under the roll-up.
+function qbClientProjects(clientId, mk) {
+  if (!qbActuals) return [];
+  const ids = qbActuals.projectIds[clientId];
+  if (!ids) return [];
+  return [...ids].map(pid => {
+    const row = (qbActuals.byProject[pid] || {})[mk];
+    const proj = (qbProjects || []).find(x => String(x.id) === pid);
+    return row ? { id: pid, name: proj ? qbDisplayName(proj) : pid,
+                   revenue: row.revenue, cost: row.cost, gp: row.gp } : null;
+  }).filter(Boolean).sort((a, b) => b.revenue - a.revenue);
+}
 function qbNames() { if (!state.qbProjectNames) state.qbProjectNames = {}; return state.qbProjectNames; }
 
 // QuickBooks project names carry a lot of bookkeeping noise — the jobcode, the parent
@@ -2330,7 +2407,8 @@ function qbAcceptSuggestions(scope) {
     if (scope === 'high' && s.conf !== 'high') return;
     map[p.id] = s.client.id; n++;
   });
-  scheduleSave(); renderQbMatching();
+  scheduleSave();
+  loadQbActuals(true).then(renderQbMatching);   // the client index depends on the map
   if (!n) { toast('Nothing left to accept in that group.'); return; }
   toast('Saved ' + n + ' match' + (n === 1 ? '' : 'es') + '. ' +
     (scope === 'high'
@@ -2404,7 +2482,15 @@ function renderSettings() {
   <div style="border-top:1px solid var(--line); margin:22px 0 14px;"></div>
   <h3 style="margin:0 0 4px; font-size:15px; color:var(--brand);">QuickBooks project matching</h3>
   <div class="computed-sub" style="margin-bottom:12px;">Point each QuickBooks project at a ledger client so actuals land against the right account. Matches are stored in the ledger and survive every sync.</div>
-  <div id="qb-match-body"></div>`;
+  <div id="qb-match-body"></div>
+
+  <div style="border-top:1px solid var(--line); margin:22px 0 14px;"></div>
+  <h3 style="margin:0 0 4px; font-size:15px; color:var(--brand);">QuickBooks as the source of revenue</h3>
+  <div class="computed-sub" style="margin-bottom:12px;">Once matching looks right, switch this on and revenue for months from the cutover onwards comes from QuickBooks instead of manual entry. Earlier months keep whatever the ledger already holds; future months stay on billing lines and pipeline. Leave it off to compare first.</div>
+  <div class="hs-row"><label style="display:flex;align-items:center;gap:7px;">
+    <input type="checkbox" data-role="qb-use" ${qbConf().useActuals ? 'checked' : ''}> Use QuickBooks actuals</label></div>
+  <div class="hs-row"><span>From</span><input type="month" data-role="qb-cutover" value="${qbConf().cutover}"></div>
+  <div class="computed-sub" id="qb-use-status"></div>`;
   el.innerHTML = h;
   renderDataTools();
   renderQbMatching();
@@ -2712,6 +2798,7 @@ async function enterApp(session) {
   await loadState();
   // The roster lives in the ledger, so roles can only be resolved once state is loaded.
   computeSalaryAccess(session);
+  loadQbActuals().then(() => { if (qbConf().useActuals) render(); });
   document.getElementById('user-chip').textContent = email +
     (myRole && ROLES[myRole] ? ' · ' + ROLES[myRole].label.toLowerCase() : (canSeeSalaries ? '' : ' · salaries hidden'));
   subscribeRealtime();
@@ -3121,6 +3208,12 @@ function billingMonths(p) {
 const BILLING_TYPES = { retainer: 'Retainer', search: 'Paid Search', social: 'Paid Social', programmatic: 'Programmatic', hourly: 'Hourly' };
 
 function revenueFor(p, mk) {
+  // QuickBooks is authoritative for months it covers — that is the whole point of the
+  // cutover. Before the cutover, and for future months, the ledger's own logic applies.
+  if (qbCovers(mk)) {
+    const a = qbClientMonth(p.id, mk);
+    if (a) return a.revenue;
+  }
   // Manual entry always wins. A hand-entered amount for a month (whether or not
   // it's marked actual) is authoritative and is NEVER overwritten by billing
   // lines — adding or editing billing lines can only FILL months that have no
@@ -5302,6 +5395,30 @@ function renderProjectTable() {
     let breakout = '';
     if (expanded) {
       const nVm = viewMonths().length;
+      // What QuickBooks billed against this client, project by project, for the months
+      // in view — the detail behind the roll-up shown on the client row itself.
+      let qbHtml = '';
+      if (qbActuals && qbConf().useActuals) {
+        const vmq = viewMonths().filter(qbCovers);
+        const agg = {};
+        vmq.forEach(mk => qbClientProjects(p.id, mk).forEach(r => {
+          const a = (agg[r.id] = agg[r.id] || { name: r.name, revenue: 0, cost: 0, gp: 0 });
+          a.revenue += r.revenue; a.cost += r.cost; a.gp += r.gp;
+        }));
+        const list = Object.values(agg).sort((x, y) => y.revenue - x.revenue);
+        if (list.length) {
+          const t = list.reduce((a, r) => ({ revenue: a.revenue + r.revenue, cost: a.cost + r.cost, gp: a.gp + r.gp }),
+                                { revenue: 0, cost: 0, gp: 0 });
+          qbHtml = `<div class="qb-block"><div class="qb-head">QuickBooks — ${list.length} project${list.length === 1 ? '' : 's'}` +
+            `<span class="qb-tot">${fmtMoney(t.revenue)} revenue · ${fmtMoney(t.cost)} cost · <b>${fmtMoney(t.gp)} GP</b></span></div>` +
+            list.map(r => `<div class="qb-row"><div>${escapeHtml(r.name)}</div>` +
+              `<div class="pb-num">${fmtMoney(r.revenue)}</div>` +
+              `<div class="pb-num">${fmtMoney(r.cost)} cost</div>` +
+              `<div class="pb-num"><strong>${fmtMoney(r.gp)}</strong> GP` +
+              `<span class="qb-m">${r.revenue > 0 ? Math.round(r.gp / r.revenue * 100) + '%' : '—'}</span></div></div>`).join('') +
+            '</div>';
+        }
+      }
       const contributors = state.staff
         .map(st => ({ st, logged: getActual(st.id, p.id), assigned: getAssignment(st.id, p.id) }))
         .filter(c => c.logged > 0 || c.assigned > 0)
@@ -5334,6 +5451,7 @@ function renderProjectTable() {
       }).join('') : '<div class="pb-empty">Set flight dates (✎) to lay out the months.</div>';
       breakout = `
         <tr class="proj-breakout"><td colspan="10">
+          ${qbHtml}
           ${rowsHtml || '<div class="pb-empty">No one has logged or been assigned hours on this project in this period.</div>'}
           <div class="pj-months-label" style="margin-top:14px;">GROSS PROFIT BY MONTH${billingActive(p) ? ' — computed from billing lines (edit in ✎)' : ' — forecast until checked actual'}</div>
           <div class="pj-months">${revGrid}</div>
@@ -5854,6 +5972,17 @@ document.addEventListener('input', (e) => {
   }
   if (t.dataset.role === 'qb-name') { setQbName(t.dataset.id, t.value, t.dataset.clean); return; }
   if (t.dataset.role === 'qb-hide-matched') { qbHideMatched = t.checked; renderQbMatching(); return; }
+  if (t.dataset.role === 'qb-use') {
+    qbConf().useActuals = t.checked; scheduleSave();
+    loadQbActuals(true).then(() => { render();
+      toast(t.checked
+        ? 'Revenue from ' + qbConf().cutover + ' onwards now comes from QuickBooks. Compare a month you know before relying on it.'
+        : 'Back to the ledger\u2019s own revenue.', 9000); });
+    return;
+  }
+  if (t.dataset.role === 'qb-cutover' && /^\d{4}-\d{2}$/.test(t.value)) {
+    qbConf().cutover = t.value; scheduleSave(); render(); return;
+  }
   if (t.dataset.role === 'wipe-range') { renderDataTools(); return; }
   if (t.dataset.role === 'hs-cutover') { hsConfig().wonCutover = t.value || '2026-08-11'; scheduleSave(); if (ui.tab === 'sales') renderSales(); }
   if (t.dataset.role === 'hs-retain') { hsConfig().wonRetainDays = Math.max(0, parseFloat(t.value) || 0); scheduleSave(); if (ui.tab === 'sales') renderSales(); }
@@ -6187,7 +6316,7 @@ document.addEventListener('click', (e) => {
   else if (role === 'sf-copy') { salesCopyToLedger(t.dataset.id); }
   else if (role === 'qb-accept-high') { qbAcceptSuggestions('high'); }
   else if (role === 'qb-accept-all') { qbAcceptSuggestions('all'); }
-  else if (role === 'qb-accept') { qbMap()[t.dataset.id] = t.dataset.client; scheduleSave(); renderQbMatching(); }
+  else if (role === 'qb-accept') { qbMap()[t.dataset.id] = t.dataset.client; scheduleSave(); loadQbActuals(true).then(renderQbMatching); }
   else if (role === 'qb-unmatch') { delete qbMap()[t.dataset.id]; scheduleSave(); renderQbMatching(); }
   else if (role === 'qb-reload') { loadQbProjects(true).then(renderQbMatching); }
   else if (role === 'qb-reset-names') {
