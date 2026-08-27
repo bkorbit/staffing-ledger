@@ -923,7 +923,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2030 · 27 Aug 2026 20:30 UTC</div>
+      <div class="ver-tag">build b0827-2031 · 27 Aug 2026 20:31 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -1006,8 +1006,6 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
         <thead><tr>
           <th style="width:26px;"></th>
           <th>Month</th>
-          <th class="num-col">Actual</th>
-          <th class="num-col">Forecasted</th>
           <th class="num-col">Revenue billed</th>
           <th class="num-col">COGS</th>
           <th class="num-col">Forecast GP</th>
@@ -4480,7 +4478,7 @@ function renderForecast() {
       });
       const ind = k => sk === k ? (sd === 1 ? ' ▲' : ' ▼') : '';
       breakout = `
-      <tr class="fc-breakout"><td colspan="11">
+      <tr class="fc-breakout"><td colspan="9">
         <div class="fc-head">
           <span>${withRev.length} project${withRev.length === 1 ? '' : 's'} contributing revenue</span>
           ${qbCovers(r.mk) ? '<span class="pmeta">actual — from QuickBooks</span>'
@@ -4529,8 +4527,6 @@ function renderForecast() {
     <tr ${r.mk === currentMonth ? 'style="background:var(--mint);"' : ''}>
       <td><button class="expand-btn" data-role="forecast-toggle" data-mk="${r.mk}">${expanded ? '▾' : '▸'}</button></td>
       <td style="font-family:var(--font-display); font-weight:600;">${monthLabel(r.mk)}</td>
-      <td class="computed-cell" style="color:var(--brand); font-weight:700;">${r.actual ? fmtMoney(r.actual) : '—'}</td>
-      <td class="computed-cell" style="color:#19a789;">${r.forecast ? fmtMoney(r.forecast) : '—'}</td>
       <td class="computed-cell" style="color:#6b7f77;" title="${qbCovers(r.mk) ? 'Billed in QuickBooks, contra revenue excluded, including invoices with no project' : 'Modelled from billing lines'}">${r.billable ? fmtMoney(r.billable) : '—'}${r.noProject ? `<div class="computed-sub">incl. ${fmtMoney(r.noProject)} unmatched</div>` : ''}</td>
       <td class="computed-cell" style="color:#8a6d3b;">${r.cogs ? fmtMoney(r.cogs) : '—'}</td>
       <td class="computed-cell">${r.forecastGp ? fmtMoney(r.forecastGp) : '—'}</td>
