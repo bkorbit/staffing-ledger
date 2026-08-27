@@ -300,6 +300,11 @@ td.sel-col input, th.sel-col input { width: auto; margin: 0; cursor: pointer; }
 .fc-name { font-family: var(--font-display); font-weight: 600; font-size: 12px; }
 .fc-basis { font-family: var(--font-mono); font-size: 9px; color: var(--slate); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
 .fc-dim { opacity: 0.75; }
+/* QuickBooks projects nested under their client in the month breakout */
+.fc-row.fc-sub { padding-left: 26px; border-bottom: 1px dotted #e8e8e8; font-size: 11px; }
+.fc-row.fc-sub .fc-name { font-family: var(--font-mono); font-size: 10.5px; font-weight: 400; color: var(--slate); position: relative; }
+.fc-row.fc-sub .fc-name::before { content: '\21B3'; position: absolute; left: -14px; color: #c3c3c3; }
+.fc-row.fc-sub .pb-num { font-size: 10.5px; color: var(--slate); }
 .fc-cols { border-bottom: 1px solid var(--line); padding-bottom: 3px; }
 .fc-col { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); cursor: pointer; user-select: none; }
 .fc-col:hover { color: var(--ink); }
@@ -918,7 +923,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-1956 · updated 2026-08-27</div>
+      <div class="ver-tag">build b0827-2002 · updated 2026-08-27</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -4466,7 +4471,21 @@ function renderForecast() {
             <div class="pb-num">${fmtMoney(c.cost)} cost <span class="fc-basis">${c.basis}</span></div>
             <div class="pb-num" style="color:${c.amount - c.cost >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(c.amount - c.cost)} net</div>
             <label class="rev-act"><input type="checkbox" data-role="fc-rev-actual" data-pid="${c.pid}" data-mk="${r.mk}" ${c.isActual ? 'checked' : ''}> actual</label>
-          </div>`).join('')}
+          </div>
+          ${(() => {
+            // The QuickBooks projects making up this client's month, nested underneath,
+            // so a client like On Location shows each piece of work rather than one total.
+            if (!qbActuals || !qbConf().useActuals || !qbCovers(r.mk)) return '';
+            const kids = qbClientProjects(c.pid, r.mk);
+            if (kids.length < 1) return '';
+            return kids.map(k => `<div class="fc-row fc-sub">
+              <div class="fc-name">${escapeHtml(k.name)}</div>
+              <div class="pb-num">${fmtMoney(k.revenue)} rev</div>
+              <div class="pb-num">${fmtMoney(k.cost)} media cost</div>
+              <div class="pb-num" style="color:${k.gp >= 0 ? 'var(--teal)' : 'var(--rust)'};">${fmtMoney(k.gp)} GP</div>
+              <div class="pmeta">${k.revenue > 0 ? Math.round(k.gp / k.revenue * 100) + '%' : ''}</div>
+            </div>`).join('');
+          })()}`).join('')}
         ${costOnly.length ? `<div class="fc-row fc-dim"><div class="fc-name">Projects with labor but no revenue this month (${costOnly.map(c => escapeHtml(c.name)).join(', ')})</div><div class="pb-num"></div><div class="pb-num">${fmtMoney(costOnly.reduce((s, c) => s + c.cost, 0))} cost</div><div class="pb-num"></div><div></div></div>` : ''}
         ${r.internalCost ? `<div class="fc-row fc-dim"><div class="fc-name" style="color:var(--internal);">Internal (non-billable)</div><div class="pb-num"></div><div class="pb-num">${fmtMoney(r.internalCost)} cost <span class="fc-basis">${r.internalBasis}</span></div><div class="pb-num"></div><div></div></div>` : ''}
         <div class="fc-payroll">Labor ${fmtMoney(r.payroll)}${r.fixed ? ' · fixed costs ' + fmtMoney(r.fixed) : ''} <span class="fc-basis" title="Salaried staff cost their full monthly salary; hourly staff cost logged hours × rate (planned hours for future months). Expected profit subtracts the fixed-cost inputs on top of that.">salaried = full salary · hourly = hours × rate</span></div>
