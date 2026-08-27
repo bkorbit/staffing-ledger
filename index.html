@@ -923,7 +923,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2002 · updated 2026-08-27</div>
+      <div class="ver-tag">build b0827-2008 · updated 2026-08-27</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -2164,7 +2164,9 @@ async function loadQbActuals(force) {
   if (qbActuals && !force) return qbActuals;
   if (qbActualsLoading) return null;
   qbActualsLoading = true;
-  const idx = { byClient: {}, byProject: {}, months: new Set(), projectIds: {} };
+  await loadQbProjects(force);   // names, jobcodes and parents — needed wherever a project is shown
+  const idx = { byClient: {}, byProject: {}, months: new Set(), projectIds: {}, meta: {} };
+  (qbProjects || []).forEach(pr => { idx.meta[String(pr.id)] = pr; });
   try {
     const { data, error } = await sb.from('qb_project_month')
       .select('project_id,month,revenue,cost,gross_profit');
@@ -2209,8 +2211,8 @@ function qbClientProjects(clientId, mk) {
   if (!ids) return [];
   return [...ids].map(pid => {
     const row = (qbActuals.byProject[pid] || {})[mk];
-    const proj = (qbProjects || []).find(x => String(x.id) === pid);
-    return row ? { id: pid, name: proj ? qbDisplayName(proj) : pid,
+    const proj = (qbActuals.meta || {})[pid] || (qbProjects || []).find(x => String(x.id) === pid);
+    return row ? { id: pid, name: proj ? qbDisplayName(proj) : 'QuickBooks project ' + pid,
                    revenue: row.revenue, cost: row.cost, gp: row.gp } : null;
   }).filter(Boolean).sort((a, b) => b.revenue - a.revenue);
 }
