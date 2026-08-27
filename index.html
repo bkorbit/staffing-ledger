@@ -1021,7 +1021,7 @@ td.bl-lockcell{background:#f2f4f3}
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2202 · 27 Aug 2026 22:02 UTC</div>
+      <div class="ver-tag">build b0827-2204 · 27 Aug 2026 22:04 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -2701,6 +2701,20 @@ function clientDemand(clientId, mk) {
 /* One-time migration: every client's existing billing lines and revenue overrides become
    a single deal, so nothing is lost and no figure moves on the day this ships. Splitting
    a client into real deals then happens deliberately, not as a side effect. */
+/* Which clients still hold billing lines, and whether a near-identically named client
+   already has deals — the common reason a count looks wrong is the same client existing
+   twice, with billing on one and deals on the other. */
+function clientsAwaitingDeals() {
+  return state.projects
+    .map(p => {
+      const lines = ((p.billing || {}).lines || []).length;
+      if (!lines || dealsFor(p.id).length) return null;
+      const twin = state.projects.find(o => o.id !== p.id && dealsFor(o.id).length && similarity(o.name, p.name) > 0.6);
+      return { p, lines, nearDuplicate: twin ? twin.name : null };
+    })
+    .filter(Boolean);
+}
+
 function migrateClientsToDeals() {
   let made = 0;
   state.projects.forEach(p => {
@@ -4962,13 +4976,20 @@ function renderCorrectionsList() {
 
 function renderForecast() {
   renderFixedCostsMenu();
-  // Offer the migration while any client still holds billing of its own.
-  const pending = state.projects.filter(p => ((p.billing || {}).lines || []).length && !dealsFor(p.id).length).length;
+  // Offer the migration while any client still holds billing of its own. Name them in
+  // the tooltip: a count alone is unverifiable, and the usual cause of a surprising one
+  // is a near-duplicate client holding the billing while the deals sit under another.
+  const pendingList = clientsAwaitingDeals();
   const setupBtn = document.getElementById('fc-setup-deals');
   if (setupBtn) {
-    setupBtn.style.display = pending ? '' : 'none';
-    setupBtn.textContent = 'Set up deals · ' + pending + ' client' + (pending === 1 ? '' : 's');
-    setupBtn.title = 'Move each client\u2019s billing onto a deal so campaigns can be edited individually. Revenue does not change.';
+    setupBtn.style.display = pendingList.length ? '' : 'none';
+    setupBtn.textContent = 'Set up deals · ' + pendingList.length + ' client' + (pendingList.length === 1 ? '' : 's');
+    setupBtn.title = pendingList.length
+      ? 'Still holding billing of their own:\n' + pendingList.map(x =>
+          '· ' + (x.p.name || 'Untitled') + ' — ' + x.lines + ' line' + (x.lines === 1 ? '' : 's') +
+          (x.nearDuplicate ? '  (deals exist under “' + x.nearDuplicate + '” — likely the same client twice)' : '')
+        ).join('\n')
+      : '';
   }
   const tbody = document.getElementById('forecast-tbody');
   const el = document.getElementById('chart-forecast');
@@ -6943,6 +6964,15 @@ document.addEventListener('click', (e) => {
   else if (role === 'fc-cost-remove') { state.fixedCosts.splice(+t.dataset.i, 1); scheduleSave(); render(); }
   else if (role === 'deal-toggle') { dealOpen[t.dataset.id] = !dealOpen[t.dataset.id]; renderForecast(); }
   else if (role === 'deal-migrate') {
+    const list = clientsAwaitingDeals();
+    const dupes = list.filter(x => x.nearDuplicate);
+    if (dupes.length && !t.dataset.armed) {
+      t.dataset.armed = '1';
+      toast(dupes.length + ' of these look like duplicates of a client that already has deals: ' +
+        dupes.slice(0, 3).map(x => '“' + x.p.name + '” vs “' + x.nearDuplicate + '”').join('; ') +
+        '. Merge them first if that is the case, or click again to migrate anyway.', 14000);
+      return;
+    }
     const before = viewMonths().reduce((s, mk) => s + state.projects.reduce((x, p) => x + revenueFor(p, mk), 0), 0);
     const n = migrateClientsToDeals();
     const after = viewMonths().reduce((s, mk) => s + state.projects.reduce((x, p) => x + revenueFor(p, mk), 0), 0);
