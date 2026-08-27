@@ -923,7 +923,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2301 · 27 Aug 2026 23:01 UTC</div>
+      <div class="ver-tag">build b0827-2302 · 27 Aug 2026 23:02 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -2688,6 +2688,15 @@ function renderSettings() {
   el.innerHTML = h;
   renderDataTools();
   renderQbMatching();
+  const ds = document.getElementById('deal-status');
+  if (ds) {
+    const mapped = qbProjects ? qbProjects.filter(pr => qbMap()[pr.id]).length : 0;
+    const withDeal = qbProjects ? qbProjects.filter(pr => dealForQbProject(pr.id)).length : 0;
+    const frozenMonths = deals().reduce((n, d) => n + Object.keys(d.frozen || {}).length, 0);
+    ds.innerHTML = `<b>${deals().length}</b> deal${deals().length === 1 ? '' : 's'} · ` +
+      `<b>${withDeal}</b> of <b>${mapped}</b> matched QuickBooks projects have one · ` +
+      `<b>${frozenMonths}</b> month${frozenMonths === 1 ? '' : 's'} frozen with actuals`;
+  }
 }
 
 function renderHubspotSettings() {
@@ -6600,6 +6609,27 @@ document.addEventListener('click', (e) => {
     if (!n) { toast('No names have been typed over.'); return; }
     armToConfirm(t, 'qb-names', 'Click again to discard ' + n + ' custom name' + (n === 1 ? '' : 's'),
       () => { state.qbProjectNames = {}; scheduleSave(); renderQbMatching(); toast('Back to the automatic names.'); });
+  }
+  else if (role === 'deal-rebuild') {
+    if (!qbProjects || !qbActuals) { toast('QuickBooks data has not loaded yet — try again in a moment.'); return; }
+    const map = qbMap();
+    const willMake = qbProjects.filter(pr => map[pr.id] && !dealForQbProject(pr.id)).length;
+    const noMatch = qbProjects.filter(pr => !map[pr.id]).length;
+    const billing = state.projects.reduce((n, p) => n + ((p.billing || {}).lines || []).length + Object.keys(p.revenueOverrides || {}).length, 0);
+    armToConfirm(t, 'deal-rebuild',
+      'Click again to create ' + willMake + ' deal' + (willMake === 1 ? '' : 's') + ' from matched QuickBooks projects' +
+      (billing ? ' and clear ' + billing + ' client-level billing entr' + (billing === 1 ? 'y' : 'ies') : '') +
+      (noMatch ? '. ' + noMatch + ' unmatched project' + (noMatch === 1 ? '' : 's') + ' will be skipped' : ''),
+      () => {
+        const r = backfillDealsFromQb();
+        const cleared = clearClientBilling();
+        freezeSettledForecasts();
+        render();
+        toast('Created ' + r.made + ' deal' + (r.made === 1 ? '' : 's') + ' from QuickBooks projects. ' +
+          (cleared ? 'Cleared ' + cleared + ' client-level billing entries. ' : '') +
+          (r.unmatched ? r.unmatched + ' projects skipped for want of a client match. ' : '') +
+          'These carry actuals but no forecast — extend them forward by hand as they come up.', 13000);
+      });
   }
   else if (role === 'wipe-go') {
     const keys = [...document.querySelectorAll('[data-role="wipe-set"]:checked')].map(x => x.value);
