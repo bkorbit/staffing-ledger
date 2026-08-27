@@ -923,7 +923,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2102 · 27 Aug 2026 21:02 UTC</div>
+      <div class="ver-tag">build b0827-2118 · 27 Aug 2026 21:18 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -2453,6 +2453,122 @@ function qbAcceptSuggestions(scope) {
     (scope === 'high'
       ? 'These rest on an exact identifier; name-based suggestions are still waiting.'
       : 'Name-based matches are guesses — worth a scan before relying on them.'), 9000);
+}
+
+
+/* ===== Deals =====
+   The deal is the unit of forecasting. A client is a grouping of deals, and its billing
+   figures are a roll-up rather than values in their own right.
+
+   Three things attach to a deal:
+     lines    channel, budget, fee and margin — what it bills
+     hours    scoped labour per department — what it demands of the client
+     actuals  via qbProjectId, so forecast and actual sit on one object
+
+   Demand flows deal → client: a deal creates demand, the client consumes it. A client on
+   50 search hours a month taking a deal that needs 150 has 200 to staff.
+
+   Programmatic margin is per-deal on purpose. It is DSP arbitrage and genuinely varies
+   between two deals under the same client, so an achieved figure from that deal's own
+   actuals beats any company-wide assumption. */
+function deals() { if (!Array.isArray(state.deals)) state.deals = []; return state.deals; }
+function dealsFor(clientId) { return deals().filter(d => d.clientId === clientId); }
+function dealById(id) { return deals().find(d => d.id === id) || null; }
+
+function dealMonths(d) {
+  const out = [];
+  if (!d.startMonth || !d.endMonth || d.endMonth < d.startMonth) return out;
+  let c = d.startMonth, g = 0;
+  while (c <= d.endMonth && g < 60) { out.push(c); c = shiftMonth(c, 1); g++; }
+  return out;
+}
+
+// Revenue a single deal line bills in a month.
+function dealLineRevenue(d, line, mk) {
+  if (!dealMonths(d).includes(mk)) return 0;
+  const t = line.type;
+  if (t === 'retainer') return +line.amount || 0;
+  if (t === 'hourly') return (+line.hoursPerMonth || 0) * (+line.rate || 0);
+  const budget = (line.budgets || {})[mk] !== undefined ? +line.budgets[mk] : (+line.budget || 0);
+  if (t === 'search' || t === 'social') return budget * (+line.feePct || 0) / 100;
+  if (t === 'programmatic') return budget * ((+line.feePct || 0) + dealMargin(d, line)) / 100;
+  return 0;
+}
+// What a programmatic line actually invoices, media included.
+function dealLineBillable(d, line, mk) {
+  if (!dealMonths(d).includes(mk)) return 0;
+  const budget = (line.budgets || {})[mk] !== undefined ? +line.budgets[mk] : (+line.budget || 0);
+  if (line.type === 'programmatic') return budget + budget * (+line.feePct || 0) / 100;
+  return dealLineRevenue(d, line, mk);
+}
+function dealRevenue(d, mk) { return (d.lines || []).reduce((s, l) => s + dealLineRevenue(d, l, mk), 0); }
+
+// Margin for a programmatic line: what this deal has actually achieved if it has enough
+// history, otherwise what was assumed. Never a company average — the whole point is that
+// it varies by deal.
+function dealMargin(d, line) {
+  if (line.marginPct !== undefined && line.marginPct !== null && line.marginPct !== '') return +line.marginPct;
+  const a = dealAchievedMargin(d);
+  if (a !== null) return a;
+  return +qbConf().progMargin || 35;
+}
+function dealAchievedMargin(d) {
+  if (!d.qbProjectId || !qbActuals) return null;
+  const byMonth = (qbActuals.byProject || {})[String(d.qbProjectId)];
+  if (!byMonth) return null;
+  let rev = 0, cost = 0, n = 0;
+  Object.entries(byMonth).forEach(([mk, v]) => {
+    if (!qbCovers(mk)) return;             // settled months only
+    rev += v.revenue; cost += v.cost; n++;
+  });
+  if (n < 2 || rev <= 0) return null;      // one month is not a trend
+  return Math.round((rev - cost) / rev * 1000) / 10;
+}
+
+// Labour the deal asks of its client, by department, for a month.
+function dealHours(d, mk) {
+  if (!dealMonths(d).includes(mk)) return {};
+  const out = {};
+  (d.lines || []).forEach(l => Object.entries(l.hours || {}).forEach(([dept, h]) => {
+    if (+h > 0) out[dept] = (out[dept] || 0) + +h;
+  }));
+  return out;
+}
+// Client demand is the sum of what its deals ask for, plus anything entered by hand
+// that no deal accounts for.
+function clientDemand(clientId, mk) {
+  const out = {};
+  dealsFor(clientId).forEach(d => Object.entries(dealHours(d, mk)).forEach(([dept, h]) => {
+    out[dept] = (out[dept] || 0) + h;
+  }));
+  const manual = ((state.demand || {})[mk] || {})[clientId] || {};
+  Object.entries(manual).forEach(([dept, h]) => {
+    if (!out[dept]) out[dept] = +h || 0;   // hand-entered demand only fills gaps deals leave
+  });
+  return out;
+}
+
+/* One-time migration: every client's existing billing lines and revenue overrides become
+   a single deal, so nothing is lost and no figure moves on the day this ships. Splitting
+   a client into real deals then happens deliberately, not as a side effect. */
+function migrateClientsToDeals() {
+  if (state.dealsMigrated) return 0;
+  let made = 0;
+  state.projects.forEach(p => {
+    if (dealsFor(p.id).length) return;
+    const lines = ((p.billing || {}).lines || []).map(l => ({ ...l }));
+    const hasRev = Object.keys(p.revenueOverrides || {}).length > 0;
+    if (!lines.length && !hasRev) return;
+    deals().push({
+      id: uid(), clientId: p.id, hubspotDealId: p.hubspotDealId || null, qbProjectId: null,
+      name: p.name || 'Untitled', startMonth: p.startMonth || '', endMonth: p.endMonth || '',
+      lines, revenueOverrides: { ...(p.revenueOverrides || {}) }, fromMigration: true
+    });
+    made++;
+  });
+  state.dealsMigrated = new Date().toISOString();
+  if (made) scheduleSave();
+  return made;
 }
 
 function renderSettings() {
