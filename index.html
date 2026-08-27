@@ -2670,6 +2670,12 @@ function renderSettings() {
   <button class="ghost" data-role="wipe-go" style="margin-top:10px;">Clear selected data</button>
 
   <div style="border-top:1px solid var(--line); margin:22px 0 14px;"></div>
+  <h3 style="margin:0 0 4px; font-size:15px; color:var(--brand);">Deals</h3>
+  <div class="computed-sub" style="margin-bottom:10px;">All revenue hangs off a deal, and a deal maps one to one with a QuickBooks project. This creates one deal per matched project so existing revenue has an entity behind it, and clears client-level billing, which is no longer a source. Backfilled deals carry actuals but no forecast &mdash; extend them forward by hand.</div>
+  <div class="computed-sub" id="deal-status" style="margin-bottom:8px;"></div>
+  <button class="ghost" data-role="deal-rebuild">Rebuild deals from QuickBooks</button>
+
+  <div style="border-top:1px solid var(--line); margin:22px 0 14px;"></div>
   <h3 style="margin:0 0 4px; font-size:15px; color:var(--brand);">QuickBooks project matching</h3>
   <div class="computed-sub" style="margin-bottom:12px;">Point each QuickBooks project at a ledger client so actuals land against the right account. Matches are stored in the ledger and survive every sync.</div>
   <div id="qb-match-body"></div>
@@ -2688,6 +2694,15 @@ function renderSettings() {
   el.innerHTML = h;
   renderDataTools();
   renderQbMatching();
+  const dstat = document.getElementById('deal-status');
+  if (dstat) {
+    const mapped = qbProjects ? qbProjects.filter(pr => qbMap()[pr.id]).length : 0;
+    const withDeal = qbProjects ? qbProjects.filter(pr => dealForQbProject(pr.id)).length : 0;
+    const frozenMonths = deals().reduce((n, d) => n + Object.keys(d.frozen || {}).length, 0);
+    dstat.innerHTML = '<b>' + deals().length + '</b> deal' + (deals().length === 1 ? '' : 's') +
+      ' · <b>' + withDeal + '</b> of <b>' + mapped + '</b> matched QuickBooks projects have one' +
+      ' · <b>' + frozenMonths + '</b> month' + (frozenMonths === 1 ? '' : 's') + ' frozen with actuals';
+  }
   const ds = document.getElementById('deal-status');
   if (ds) {
     const mapped = qbProjects ? qbProjects.filter(pr => qbMap()[pr.id]).length : 0;
