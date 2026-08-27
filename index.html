@@ -978,7 +978,7 @@ input.fed-n:focus{outline:none;border-color:var(--brand)}
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2314 · 27 Aug 2026 23:14 UTC</div>
+      <div class="ver-tag">build b0827-2343 · 27 Aug 2026 23:43 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -2555,7 +2555,11 @@ function dealLineForecast(d, line, mk) {
   if (!dealMonths(d).includes(mk)) return 0;
   const t = line.type;
   if (t === 'retainer') return +line.amount || 0;
-  if (t === 'hourly') return (+line.hoursPerMonth || 0) * (+line.rate || 0);
+  // Hourly: a month may carry its own hours (ramp-up, a heavy launch month); the flat
+  // hoursPerMonth is the fallback. Deliberately no 'scheduled' mode here — billing off
+  // planned assignments made revenue depend on staffing, which then fed back into
+  // staffing decisions. That circularity is not coming back.
+  if (t === 'hourly') return dealLineHours(line, mk) * (+line.rate || 0);
   const budget = (line.budgets || {})[mk] !== undefined ? +line.budgets[mk] : (+line.budget || 0);
   if (t === 'search' || t === 'social') return budget * (+line.feePct || 0) / 100;
   if (t === 'programmatic') return budget * ((+line.feePct || 0) + dealMargin(d, line)) / 100;
@@ -2570,6 +2574,40 @@ function dealForecast(d, mk) {
 // what to freeze, and to show a settled month's live figure alongside its frozen one.
 function dealForecastLive(d, mk) {
   return (d.lines || []).reduce((s, l) => s + dealLineForecast(d, l, mk), 0);
+}
+
+// Hours an hourly line carries in a month: an explicit month wins, else the flat figure.
+function dealLineHours(line, mk) {
+  const byMonth = (line.hoursByMonth || {})[mk];
+  return byMonth !== undefined ? (+byMonth || 0) : (+line.hoursPerMonth || 0);
+}
+
+/* ===== Billable — what EMG invoices, as opposed to what it keeps =====
+   Not the same number as gross profit, and the difference is commercial rather than
+   cosmetic. Search and social media is bought by the client directly, so only the fee
+   passes through EMG's invoice. Programmatic media runs through EMG, so the whole budget
+   is invoiced and the margin is retained out of it — which is why the margin is NOT
+   added on top here the way it is in the forecast. Retainers and hourly invoice what
+   they earn. */
+function dealLineBillable(d, line, mk) {
+  if (!dealMonths(d).includes(mk)) return 0;
+  const t = line.type;
+  if (t === 'retainer') return +line.amount || 0;
+  if (t === 'hourly') return dealLineHours(line, mk) * (+line.rate || 0);
+  const budget = (line.budgets || {})[mk] !== undefined ? +line.budgets[mk] : (+line.budget || 0);
+  if (t === 'search' || t === 'social') return budget * (+line.feePct || 0) / 100;
+  if (t === 'programmatic') return budget + budget * (+line.feePct || 0) / 100;
+  return 0;
+}
+function dealBillable(d, mk) {
+  return (d.lines || []).reduce((s, l) => s + dealLineBillable(d, l, mk), 0);
+}
+// Billable for a whole client in a month. Returns null when the client has no deals, so
+// callers can fall back to the legacy client-billing path until it is retired.
+function clientBillable(clientId, mk) {
+  const ds = dealsFor(clientId);
+  if (!ds.length) return null;
+  return ds.reduce((s, d) => s + dealBillable(d, mk), 0);
 }
 
 // Programmatic margin: what this deal has achieved if it has history, else the assumption.
@@ -3645,11 +3683,19 @@ function billingBillable(p, mk) {
   if (!billingActive(p)) return null;
   return p.billing.lines.reduce((s, l) => s + lineBillable(p, l, mk), 0);
 }
-// Falls back to gross profit for projects with no billing lines — without a media split
-// there is nothing better to say, and it keeps the bar from under-reporting.
+/* Priority mirrors revenueFor exactly, so billable and gross profit can never disagree
+   about which source a month came from:
+     QuickBooks (settled months) -> deals -> legacy client billing -> gross profit.
+   The last two are scaffolding and go when the client-level revenue path is retired. */
 function billableFor(p, mk) {
+  if (qbCovers(mk)) {
+    const a = qbClientMonth(p.id, mk);
+    if (a) return a.revenue;          // qb revenue IS the invoiced figure; gp is separate
+  }
+  const viaDeals = clientBillable(p.id, mk);
+  if (viaDeals !== null) return viaDeals;
   const b = billingBillable(p, mk);
-  return b === null ? revenueFor(p, mk) : b;
+  return b === null ? revenueFor(p, mk) : b;   // no media split to apply — GP is the best available
 }
 function monthBillable(mk) {
   return state.projects.reduce((s, p) => projectActiveInMonth(p, mk) ? s + billableFor(p, mk) : s, 0);
