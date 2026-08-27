@@ -875,7 +875,25 @@ color:var(--slate);margin:10px 0 5px}
 font-family:var(--font-mono);font-size:10.5px;text-align:right;background:#fff}
 .dl-m input:focus{outline:none;border-color:var(--brand)}
 .dl-m em{font-style:normal;color:var(--brand);font-weight:600}
-#tab-deals .panel{overflow-x:auto}
+.fd-wrap{background:#fff;border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin-bottom:12px}
+.fd-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;
+font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.06em;
+color:var(--slate);padding-bottom:5px;margin-bottom:4px;border-bottom:1px solid var(--line)}
+table.fd{width:100%;border-collapse:collapse}
+table.fd th{font-family:var(--font-mono);font-size:8.5px;text-transform:uppercase;letter-spacing:.05em;
+color:var(--slate);text-align:left;padding:4px 6px;border-bottom:1px solid #eee}
+table.fd td{padding:3px 6px;border-bottom:1px solid #f4f4f4;font-family:var(--font-mono);font-size:11px;vertical-align:middle}
+table.fd th.num,table.fd td.num{text-align:right;white-space:nowrap;min-width:74px}
+th.fd-fl,td.fd-fl{white-space:nowrap;min-width:190px}
+.fd-client td{background:#f0f3f2;font-family:var(--font-display);font-weight:700;font-size:11.5px}
+.fd-client td.num{font-family:var(--font-mono);font-size:11px}
+.fd-deal td:first-child{padding-left:2px}
+.fd-fl input[type=month]{width:90px;border:1px solid var(--line);border-radius:4px;padding:2px 4px;
+font-family:var(--font-mono);font-size:10px;background:#fff}
+.fd-fl input[type=month]:focus{outline:none;border-color:var(--brand)}
+.fd-edit>td{background:#f7f8f8;padding:8px 12px 12px 24px}
+.dl-m.now input{border-color:var(--brand);font-weight:700}
+.dl-m.now span{color:var(--brand);font-weight:700}
 </style>
 </head>
 <body>
@@ -958,7 +976,6 @@ font-family:var(--font-mono);font-size:10.5px;text-align:right;background:#fff}
       <div class="nav-group-t">Operations</div>
       <a class="nav-item" data-tab="forecast" href="#/forecast" title="Forecast"><span class="nav-ico">◐</span><span class="nav-label">Forecast</span></a>
       <a class="nav-item" data-tab="sales" href="#/sales" title="Sales Forecast"><span class="nav-ico">◭</span><span class="nav-label">Sales Forecast</span></a>
-      <a class="nav-item" data-tab="deals" href="#/deals" title="Deals"><span class="nav-ico">▤</span><span class="nav-label">Deals</span></a>
       <a class="nav-item" data-tab="scoping" href="#/scoping" title="Scoping"><span class="nav-ico">◇</span><span class="nav-label">Scoping</span></a>
     </div>
     <div class="nav-group">
@@ -969,7 +986,7 @@ font-family:var(--font-mono);font-size:10.5px;text-align:right;background:#fff}
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2121 · 27 Aug 2026 21:21 UTC</div>
+      <div class="ver-tag">build b0827-2126 · 27 Aug 2026 21:26 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -1035,6 +1052,7 @@ font-family:var(--font-mono);font-size:10.5px;text-align:right;background:#fff}
       <div class="chart-card" style="margin-bottom:16px;">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
           <h4 style="margin:0;">Revenue · COGS · labour · other expenses · line = net profit — measured from QuickBooks once a month is over, projected before that</h4>
+          ${deals().length ? '' : '<button class="ghost" data-role="deal-migrate" title="Turn each client\u2019s existing billing into a deal so campaigns can be edited individually">Set up deals</button>'}
           <button class="ghost" id="fc-costs-toggle" style="display:none;">Fixed costs ▸</button>
         </div>
         <div id="fc-costs-panel" style="display:none; border:1px solid var(--line); border-radius:6px; padding:12px 14px; margin:10px 0 4px; background:var(--paper-raised);">
@@ -1106,10 +1124,6 @@ font-family:var(--font-mono);font-size:10.5px;text-align:right;background:#fff}
     <div id="scoping-body"></div>
     <div id="scoping-modal" class="sc-modal" style="display:none;"></div>
   </div>
-  <div class="tab-section" id="tab-deals">
-    <section class="panel"><div id="deals-body"></div></section>
-  </div>
-
   <div class="tab-section" id="tab-sales">
     <section class="panel chartpanel" id="sales-chart-panel">
       <div class="range" id="sales-range"></div>
@@ -1396,7 +1410,6 @@ const PAGES = {
   forecast:  { title: 'Forecast',   sub: 'Revenue and labour ahead — set the range below',  month: false },
   scoping:   { title: 'Scoping',    sub: 'Will a new deal pay for itself?',         month: false },
   sales:     { title: 'Sales Forecast', sub: 'Open pipeline from HubSpot, by client and month', month: false },
-  deals:     { title: 'Deals',        sub: 'Campaigns by client — budgets, flights and scoped hours', month: false },
   settings:  { title: 'Settings',   sub: 'People who can use this workspace',       month: false }
 };
 function pageFromHash(){
@@ -1416,7 +1429,6 @@ function setTab(tab, skipHash) {
   if (tab === 'scoping') renderScoping();
   if (tab === 'settings') renderSettings();
   if (tab === 'sales') renderSales();
-  if (tab === 'deals') renderDeals();
   window.scrollTo(0, 0);
 }
 
@@ -2630,105 +2642,116 @@ function migrateClientsToDeals() {
    Channel lines are rows rather than cards so several are visible at once. */
 let dealOpen = {};
 
-function renderDeals() {
-  const el = document.getElementById('deals-body');
-  if (!el) return;
+/* Deals inside the forecast month breakout.
+   The month being expanded is the context, so the row shows what this deal bills in
+   THIS month, editable in place, next to what QuickBooks actually billed. The forecast
+   is kept whether or not actuals exist — that comparison is the point.
+   Flight dates are on the row because shortening or extending a campaign is as common
+   a change as moving a budget. */
+function dealRowsForMonth(mk) {
   const all = deals();
-  if (!all.length) {
-    el.innerHTML = `<div class="cover warn"><b>No deals yet.</b> Existing client billing is migrated into one deal per client the first time this runs — or import from the Sales Forecast once a deal is won.</div>
-      <button class="ghost" data-role="deal-migrate">Create deals from existing client billing</button>`;
-    return;
-  }
-  // months on show: the union of every deal's flight, bounded to something readable
-  const months = [];
-  { let c = salesUI.from || currentMonth, g = 0;
-    const end = shiftMonth(c, 11);
-    while (c <= end && g < 24) { months.push(c); c = shiftMonth(c, 1); g++; } }
-
+  if (!all.length) return '';
   const byClient = {};
-  all.forEach(d => (byClient[d.clientId] = byClient[d.clientId] || []).push(d));
+  all.forEach(d => { if (dealMonths(d).includes(mk)) (byClient[d.clientId] = byClient[d.clientId] || []).push(d); });
+  if (!Object.keys(byClient).length) return '';
   const clientName = id => (state.projects.find(p => p.id === id) || {}).name || 'Unassigned';
+  const settled = qbCovers(mk);
 
-  let h = `<div class="dl-head"><span>${all.length} deals · ${Object.keys(byClient).length} clients</span>
-    <span class="pmeta">client rows are roll-ups · edit budgets and flights inline</span></div>`;
-  h += '<table class="dl"><thead><tr><th class="dl-name">Client / deal</th><th class="dl-flight">Flight</th>' +
-    months.map(m => `<th class="num">${monthShort(m)}</th>`).join('') +
-    '<th class="num tot">Total</th></tr></thead><tbody>';
+  let h = '<div class="fd-wrap"><div class="fd-head"><span>Deals billing this month</span>' +
+    `<span class="pmeta">${settled ? 'actuals from QuickBooks · forecast kept for comparison' : 'forecast — edit budgets and flights in place'}</span></div>`;
+  h += '<table class="fd"><thead><tr><th>Client / deal</th><th class="fd-fl">Flight</th>' +
+       '<th class="num">Budget</th><th class="num">Forecast</th>' +
+       (settled ? '<th class="num">Actual</th><th class="num">Variance</th>' : '') +
+       '<th></th></tr></thead><tbody>';
 
   Object.keys(byClient).sort((a, b) => clientName(a).localeCompare(clientName(b))).forEach(cid => {
     const ds = byClient[cid];
-    const cTot = {}; let cSum = 0;
-    ds.forEach(d => months.forEach(m => { const v = dealRevenue(d, m); cTot[m] = (cTot[m] || 0) + v; cSum += v; }));
-    h += `<tr class="dl-client"><td class="dl-name">${escapeHtml(clientName(cid))}<span class="pmeta"> · ${ds.length} deal${ds.length === 1 ? '' : 's'}</span></td><td></td>` +
-      months.map(m => `<td class="num">${cTot[m] ? fmtShort(cTot[m]) : '<span class="sf-z">·</span>'}</td>`).join('') +
-      `<td class="num tot">${fmtShort(cSum)}</td></tr>`;
+    const fc = ds.reduce((s, d) => s + dealRevenue(d, mk), 0);
+    const act = settled ? (qbClientMonth(cid, mk) || {}).revenue : null;
+    h += `<tr class="fd-client"><td>${escapeHtml(clientName(cid))}</td><td></td><td></td>` +
+      `<td class="num">${fmtMoney(fc)}</td>` +
+      (settled ? `<td class="num">${act !== null && act !== undefined ? fmtMoney(act) : '—'}</td>
+                  <td class="num">${act ? varianceCell(act - fc) : '—'}</td>` : '') +
+      '<td></td></tr>';
 
     ds.forEach(d => {
       const open = !!dealOpen[d.id];
-      const dTot = months.reduce((s, m) => s + dealRevenue(d, m), 0);
-      const ach = dealAchievedMargin(d);
-      h += `<tr class="dl-deal"><td class="dl-name">
+      const media = (d.lines || []).find(l => ['programmatic','search','social'].includes(l.type));
+      const mi = (d.lines || []).indexOf(media);
+      const budget = media ? ((media.budgets || {})[mk] !== undefined ? media.budgets[mk] : (media.budget || '')) : '';
+      const fcD = dealRevenue(d, mk);
+      const actD = settled && d.qbProjectId
+        ? (((qbActuals || {}).byProject || {})[String(d.qbProjectId)] || {})[mk] : null;
+      h += `<tr class="fd-deal"><td>
           <button class="expand-btn" data-role="deal-toggle" data-id="${d.id}">${open ? '▾' : '▸'}</button>
           <input class="dl-title" type="text" value="${escapeAttr(d.name || '')}" data-role="deal-name" data-id="${d.id}">
         </td>
-        <td class="dl-flight">
+        <td class="fd-fl">
           <input type="month" data-role="deal-start" data-id="${d.id}" value="${d.startMonth || ''}">
           <input type="month" data-role="deal-end" data-id="${d.id}" value="${d.endMonth || ''}">
-        </td>` +
-        months.map(m => {
-          const v = dealRevenue(d, m);
-          const inFlight = dealMonths(d).includes(m);
-          return `<td class="num${inFlight ? '' : ' dl-out'}">${inFlight ? fmtShort(v) : '<span class="sf-z">·</span>'}</td>`;
-        }).join('') +
-        `<td class="num tot">${fmtShort(dTot)}</td></tr>`;
-
-      if (open) {
-        h += `<tr class="dl-edit"><td colspan="${months.length + 3}"><div class="dl-panel">`;
-        if (ach !== null) h += `<div class="dl-note">Achieved margin on this deal: <b>${ach}%</b> — used for programmatic lines unless a line overrides it.</div>`;
-        h += '<table class="dl-lines"><thead><tr><th>Channel</th><th class="num">Budget / mo</th><th class="num">Fee %</th><th class="num">Margin %</th><th>Hours per month</th><th></th></tr></thead><tbody>';
-        (d.lines || []).forEach((l, i) => {
-          const isMedia = l.type === 'search' || l.type === 'social' || l.type === 'programmatic';
-          h += `<tr>
-            <td><select data-role="dl-type" data-id="${d.id}" data-i="${i}">` +
-              ['programmatic','search','social','retainer','hourly'].map(t =>
-                `<option value="${t}"${l.type === t ? ' selected' : ''}>${BILLING_TYPES[t] || t}</option>`).join('') +
-            `</select></td>
-            <td class="num">${isMedia
-              ? `<input class="dl-n" type="text" inputmode="decimal" value="${l.budget || ''}" placeholder="0" data-role="dl-budget" data-id="${d.id}" data-i="${i}">`
-              : l.type === 'retainer'
-                ? `<input class="dl-n" type="text" inputmode="decimal" value="${l.amount || ''}" placeholder="0" data-role="dl-amount" data-id="${d.id}" data-i="${i}">`
-                : `<input class="dl-n" type="text" inputmode="decimal" value="${l.hoursPerMonth || ''}" placeholder="hrs" data-role="dl-hpm" data-id="${d.id}" data-i="${i}">`}</td>
-            <td class="num">${isMedia ? `<input class="dl-n sm" type="text" inputmode="decimal" value="${l.feePct || ''}" placeholder="0" data-role="dl-fee" data-id="${d.id}" data-i="${i}">` : ''}</td>
-            <td class="num">${l.type === 'programmatic'
-              ? `<input class="dl-n sm" type="text" inputmode="decimal" value="${l.marginPct !== undefined && l.marginPct !== null ? l.marginPct : ''}" placeholder="${ach !== null ? ach : (qbConf().progMargin || 35)}" data-role="dl-margin" data-id="${d.id}" data-i="${i}" title="Blank uses the achieved margin, or the assumed rate if there is no history">`
-              : l.type === 'hourly' ? `<input class="dl-n sm" type="text" inputmode="decimal" value="${l.rate || ''}" placeholder="rate" data-role="dl-rate" data-id="${d.id}" data-i="${i}">` : ''}</td>
-            <td><input class="dl-hrs" type="text" value="${escapeAttr(hoursToText(l.hours))}" placeholder="Paid Media 40, Creative 10" data-role="dl-hours" data-id="${d.id}" data-i="${i}" title="Department and hours per month, comma separated. This becomes demand on the client."></td>
-            <td><button class="icon-btn" data-role="dl-rm" data-id="${d.id}" data-i="${i}" title="Remove line">×</button></td>
-          </tr>`;
-        });
-        h += '</tbody></table>';
-        h += `<button class="ghost" data-role="dl-add" data-id="${d.id}">+ Channel</button>`;
-        // per-month budget overrides, for a campaign that shifts mid-flight
-        const fm = dealMonths(d);
-        if (fm.length) {
-          h += '<div class="dl-sub">Budget by month — blank uses the monthly figure above</div><div class="dl-months">';
-          fm.forEach(m => {
-            const media = (d.lines || []).find(l => l.type === 'programmatic' || l.type === 'search' || l.type === 'social');
-            const idx = (d.lines || []).indexOf(media);
-            const v = media ? ((media.budgets || {})[m] !== undefined ? media.budgets[m] : '') : '';
-            h += `<label class="dl-m"><span>${monthShort(m)}</span>
-              <input type="text" inputmode="decimal" value="${v}" placeholder="${media ? (media.budget || 0) : '—'}"
-                data-role="dl-mbudget" data-id="${d.id}" data-i="${idx}" data-mk="${m}"${media ? '' : ' disabled'}>
-              <em>${fmtShort(dealRevenue(d, m))}</em></label>`;
-          });
-          h += '</div>';
-        }
-        h += '</div></td></tr>';
-      }
+        </td>
+        <td class="num">${media
+          ? `<input class="dl-n" type="text" inputmode="decimal" value="${budget}" placeholder="0" data-role="dl-mbudget" data-id="${d.id}" data-i="${mi}" data-mk="${mk}" title="Budget for ${monthShort(mk)} only — blank uses the deal's monthly figure">`
+          : '<span class="sf-z">·</span>'}</td>
+        <td class="num tot">${fmtMoney(fcD)}</td>` +
+        (settled ? `<td class="num">${actD ? fmtMoney(actD.revenue) : '<span class="sf-z">not linked</span>'}</td>
+                    <td class="num">${actD ? varianceCell(actD.revenue - fcD) : '—'}</td>` : '') +
+        `<td></td></tr>`;
+      if (open) h += `<tr class="fd-edit"><td colspan="${settled ? 7 : 5}">${dealLinesPanel(d, mk)}</td></tr>`;
     });
   });
-  h += '</tbody></table>';
-  el.innerHTML = h;
+  h += '</tbody></table></div>';
+  return h;
+}
+
+function varianceCell(d) {
+  if (!d) return '<span class="pmeta">on plan</span>';
+  return `<span style="color:${d >= 0 ? 'var(--teal)' : 'var(--rust)'};">${d >= 0 ? '+' : '−'}${fmtMoney(Math.abs(d))}</span>`;
+}
+
+// Channel lines as rows rather than cards, so several are readable at once.
+function dealLinesPanel(d, mk) {
+  const ach = dealAchievedMargin(d);
+  let h = '<div class="dl-panel">';
+  if (ach !== null) h += `<div class="dl-note">This deal has achieved <b>${ach}%</b> margin on settled months — used for programmatic lines left blank.</div>`;
+  h += '<table class="dl-lines"><thead><tr><th>Channel</th><th class="num">Budget / mo</th><th class="num">Fee %</th><th class="num">Margin %</th><th class="num">Bills</th><th></th></tr></thead><tbody>';
+  (d.lines || []).forEach((l, i) => {
+    const isMedia = ['programmatic','search','social'].includes(l.type);
+    h += `<tr>
+      <td><select data-role="dl-type" data-id="${d.id}" data-i="${i}">` +
+        ['programmatic','search','social','retainer','hourly'].map(t =>
+          `<option value="${t}"${l.type === t ? ' selected' : ''}>${BILLING_TYPES[t] || t}</option>`).join('') +
+      `</select></td>
+      <td class="num">${isMedia
+        ? `<input class="dl-n" type="text" inputmode="decimal" value="${l.budget || ''}" placeholder="0" data-role="dl-budget" data-id="${d.id}" data-i="${i}">`
+        : l.type === 'retainer'
+          ? `<input class="dl-n" type="text" inputmode="decimal" value="${l.amount || ''}" placeholder="0" data-role="dl-amount" data-id="${d.id}" data-i="${i}">`
+          : `<input class="dl-n" type="text" inputmode="decimal" value="${l.hoursPerMonth || ''}" placeholder="hrs" data-role="dl-hpm" data-id="${d.id}" data-i="${i}">`}</td>
+      <td class="num">${isMedia ? `<input class="dl-n sm" type="text" inputmode="decimal" value="${l.feePct || ''}" placeholder="0" data-role="dl-fee" data-id="${d.id}" data-i="${i}">` : ''}</td>
+      <td class="num">${l.type === 'programmatic'
+        ? `<input class="dl-n sm" type="text" inputmode="decimal" value="${l.marginPct !== undefined && l.marginPct !== null ? l.marginPct : ''}" placeholder="${ach !== null ? ach : (qbConf().progMargin || 35)}" data-role="dl-margin" data-id="${d.id}" data-i="${i}" title="Blank uses the achieved margin, or the assumed rate where there is no history">`
+        : l.type === 'hourly' ? `<input class="dl-n sm" type="text" inputmode="decimal" value="${l.rate || ''}" placeholder="rate" data-role="dl-rate" data-id="${d.id}" data-i="${i}">` : ''}</td>
+      <td class="num">${fmtMoney(dealLineRevenue(d, l, mk))}</td>
+      <td><button class="icon-btn" data-role="dl-rm" data-id="${d.id}" data-i="${i}" title="Remove line">×</button></td>
+    </tr>`;
+  });
+  h += `</tbody></table><button class="ghost" data-role="dl-add" data-id="${d.id}">+ Channel</button>`;
+  // the whole flight at a glance, so a mid-campaign shift can be made in context
+  const fm = dealMonths(d);
+  if (fm.length > 1) {
+    h += '<div class="dl-sub">Across the flight</div><div class="dl-months">';
+    fm.forEach(m => {
+      const media = (d.lines || []).find(l => ['programmatic','search','social'].includes(l.type));
+      const idx = (d.lines || []).indexOf(media);
+      const v = media ? ((media.budgets || {})[m] !== undefined ? media.budgets[m] : '') : '';
+      h += `<label class="dl-m${m === mk ? ' now' : ''}"><span>${monthShort(m)}</span>
+        <input type="text" inputmode="decimal" value="${v}" placeholder="${media ? (media.budget || 0) : '—'}"
+          data-role="dl-mbudget" data-id="${d.id}" data-i="${idx}" data-mk="${m}"${media ? '' : ' disabled'}>
+        <em>${fmtShort(dealRevenue(d, m))}</em></label>`;
+    });
+    h += '</div>';
+  }
+  return h + '</div>';
 }
 
 function hoursToText(h) {
@@ -4830,6 +4853,7 @@ function renderForecast() {
           ${qbCovers(r.mk) ? '<span class="pmeta">actual — from QuickBooks</span>'
             : (unconfirmed > 0 ? `<span class="pmeta">${unconfirmed} not yet billed</span>` : '<span class="pmeta">all confirmed</span>')}
         </div>
+        ${dealRowsForMonth(r.mk)}
         <div class="fc-row fc-cols">
           <div class="fc-col" data-role="fc-sort" data-key="name">Account${ind('name')}</div>
           <div class="fc-col" data-role="fc-sort" data-key="amount">Revenue${ind('amount')}</div>
@@ -6281,7 +6305,6 @@ function render() {
   if (suppressRender) return;
   if (ui.tab === 'settings') renderSettings();
   if (ui.tab === 'sales') renderSales();
-  if (ui.tab === 'deals') renderDeals();
   const active = document.activeElement;
   let focusKey = null, focusValue = null, selStart = null;
   if (active && active.tagName === 'INPUT' && (active.dataset.role || active.id)) {
@@ -6417,12 +6440,12 @@ document.addEventListener('input', (e) => {
           if (v === '') delete l.budgets[t.dataset.mk]; else l.budgets[t.dataset.mk] = num(v) || 0; break; }
       }
     });
-    if (t.dataset.role === 'dl-type') renderDeals();
+    if (t.dataset.role === 'dl-type') renderForecast();
     return;
   }
   if (t.dataset.role === 'deal-name')  { updDeal(t.dataset.id, d => d.name = t.value); return; }
-  if (t.dataset.role === 'deal-start') { updDeal(t.dataset.id, d => d.startMonth = t.value); renderDeals(); return; }
-  if (t.dataset.role === 'deal-end')   { updDeal(t.dataset.id, d => d.endMonth = t.value); renderDeals(); return; }
+  if (t.dataset.role === 'deal-start') { updDeal(t.dataset.id, d => d.startMonth = t.value); renderForecast(); return; }
+  if (t.dataset.role === 'deal-end')   { updDeal(t.dataset.id, d => d.endMonth = t.value); renderForecast(); return; }
   if (t.dataset.role === 'qb-avgmo') {
     qbConf().expenseAvgMonths = Math.max(1, Math.min(12, parseFloat(t.value) || 6));
     scheduleSave(); render(); return;
@@ -6746,11 +6769,11 @@ document.addEventListener('click', (e) => {
     if (pr) { setRevenueOverride(t.dataset.id, t.dataset.mk, String(Math.round(billingGP(pr, t.dataset.mk)))); render(); }
   }
   else if (role === 'fc-cost-remove') { state.fixedCosts.splice(+t.dataset.i, 1); scheduleSave(); render(); }
-  else if (role === 'deal-toggle') { dealOpen[t.dataset.id] = !dealOpen[t.dataset.id]; renderDeals(); }
-  else if (role === 'deal-migrate') { const n = migrateClientsToDeals(); renderDeals();
+  else if (role === 'deal-toggle') { dealOpen[t.dataset.id] = !dealOpen[t.dataset.id]; renderForecast(); }
+  else if (role === 'deal-migrate') { const n = migrateClientsToDeals(); renderForecast();
     toast(n ? 'Created ' + n + ' deal' + (n === 1 ? '' : 's') + ' from existing client billing. Nothing changed in the numbers.' : 'No client billing to migrate.'); }
-  else if (role === 'dl-add') { updDeal(t.dataset.id, d => { (d.lines = d.lines || []).push({ type: 'programmatic', budget: 0, feePct: 12, hours: {} }); }); renderDeals(); }
-  else if (role === 'dl-rm') { updDeal(t.dataset.id, d => d.lines.splice(+t.dataset.i, 1)); renderDeals(); }
+  else if (role === 'dl-add') { updDeal(t.dataset.id, d => { (d.lines = d.lines || []).push({ type: 'programmatic', budget: 0, feePct: 12, hours: {} }); }); renderForecast(); }
+  else if (role === 'dl-rm') { updDeal(t.dataset.id, d => d.lines.splice(+t.dataset.i, 1)); renderForecast(); }
   else if (role === 'sf-copy') { salesCopyToLedger(t.dataset.id); }
   else if (role === 'qb-accept-high') { qbAcceptSuggestions('high'); }
   else if (role === 'qb-accept-all') { qbAcceptSuggestions('all'); }
