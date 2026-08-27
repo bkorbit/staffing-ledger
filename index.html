@@ -1021,7 +1021,7 @@ td.bl-lockcell{background:#f2f4f3}
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2158 · 27 Aug 2026 21:58 UTC</div>
+      <div class="ver-tag">build b0827-2202 · 27 Aug 2026 22:02 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -1087,7 +1087,7 @@ td.bl-lockcell{background:#f2f4f3}
       <div class="chart-card" style="margin-bottom:16px;">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
           <h4 style="margin:0;">Revenue · COGS · labour · other expenses · line = net profit — measured from QuickBooks once a month is over, projected before that</h4>
-          ${deals().length ? '' : '<button class="ghost" data-role="deal-migrate" title="Turn each client\u2019s existing billing into a deal so campaigns can be edited individually">Set up deals</button>'}
+          <button class="ghost" id="fc-setup-deals" data-role="deal-migrate" style="display:none;">Set up deals</button>
           <button class="ghost" id="fc-costs-toggle" style="display:none;">Fixed costs ▸</button>
         </div>
         <div id="fc-costs-panel" style="display:none; border:1px solid var(--line); border-radius:6px; padding:12px 14px; margin:10px 0 4px; background:var(--paper-raised);">
@@ -4962,6 +4962,14 @@ function renderCorrectionsList() {
 
 function renderForecast() {
   renderFixedCostsMenu();
+  // Offer the migration while any client still holds billing of its own.
+  const pending = state.projects.filter(p => ((p.billing || {}).lines || []).length && !dealsFor(p.id).length).length;
+  const setupBtn = document.getElementById('fc-setup-deals');
+  if (setupBtn) {
+    setupBtn.style.display = pending ? '' : 'none';
+    setupBtn.textContent = 'Set up deals · ' + pending + ' client' + (pending === 1 ? '' : 's');
+    setupBtn.title = 'Move each client\u2019s billing onto a deal so campaigns can be edited individually. Revenue does not change.';
+  }
   const tbody = document.getElementById('forecast-tbody');
   const el = document.getElementById('chart-forecast');
   if (forecastChart) { try { forecastChart.destroy(); } catch (e) {} forecastChart = null; }
@@ -6934,8 +6942,17 @@ document.addEventListener('click', (e) => {
   }
   else if (role === 'fc-cost-remove') { state.fixedCosts.splice(+t.dataset.i, 1); scheduleSave(); render(); }
   else if (role === 'deal-toggle') { dealOpen[t.dataset.id] = !dealOpen[t.dataset.id]; renderForecast(); }
-  else if (role === 'deal-migrate') { const n = migrateClientsToDeals(); renderForecast();
-    toast(n ? 'Created ' + n + ' deal' + (n === 1 ? '' : 's') + ' from existing client billing. Nothing changed in the numbers.' : 'No client billing to migrate.'); }
+  else if (role === 'deal-migrate') {
+    const before = viewMonths().reduce((s, mk) => s + state.projects.reduce((x, p) => x + revenueFor(p, mk), 0), 0);
+    const n = migrateClientsToDeals();
+    const after = viewMonths().reduce((s, mk) => s + state.projects.reduce((x, p) => x + revenueFor(p, mk), 0), 0);
+    render();
+    const moved = Math.abs(after - before) > 1;
+    toast(n
+      ? 'Created ' + n + ' deal' + (n === 1 ? '' : 's') + '. Revenue for the period ' +
+        (moved ? 'CHANGED from ' + fmtMoney(before) + ' to ' + fmtMoney(after) + ' — worth checking.' : 'is unchanged at ' + fmtMoney(after) + '.')
+      : 'No client billing left to migrate.', 12000);
+  }
   else if (role === 'dl-add') { updDeal(t.dataset.id, d => { (d.lines = d.lines || []).push({ type: 'programmatic', budget: 0, feePct: 12, hours: {} }); }); renderForecast(); }
   else if (role === 'dl-rm') { updDeal(t.dataset.id, d => d.lines.splice(+t.dataset.i, 1)); renderForecast(); }
   else if (role === 'sf-copy') { salesCopyToLedger(t.dataset.id); }
