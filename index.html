@@ -1021,7 +1021,7 @@ td.bl-lockcell{background:#f2f4f3}
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2223 · 27 Aug 2026 22:23 UTC</div>
+      <div class="ver-tag">build b0827-2225 · 27 Aug 2026 22:25 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -3064,7 +3064,8 @@ const WIPE_SETS = [
   { k:'demand',      label:'Department demand',      monthly:true,  hint:'Hours each department needs per account' },
   { k:'actuals',     label:'Logged hours (actuals)', monthly:true,  hint:'Imported from QuickBooks Time — the next sync will pull them back' },
   { k:'revenue',     label:'Revenue overrides',      monthly:true,  hint:'Manually entered monthly revenue on accounts' },
-  { k:'billing',     label:'Billing lines',          monthly:false, hint:'Retainer / search / social / programmatic / hourly setups on every account' },
+  { k:'deals',       label:'Deals & all forecast',   monthly:false, hint:'Every deal, channel line and revenue override — a clean slate for the forecast. Staff, assignments and logged hours are untouched.' },
+  { k:'billing',     label:'Billing lines',          monthly:false, hint:'Legacy client-level setups, if any survived the move to deals' },
   { k:'corrections', label:'Past-month corrections', monthly:true,  hint:'Manual actual and labor overrides' },
   { k:'pipeline',    label:'Sales pipeline',         monthly:false, hint:'Synced HubSpot deals — the next sync will pull them back' }
 ];
@@ -3078,6 +3079,14 @@ function wipeCount(k, from, to) {
   if (k === 'revenue') (state.projects || []).forEach(p => Object.keys(p.revenueOverrides || {}).forEach(mk => { if (inRange(mk)) n++; }));
   if (k === 'corrections') Object.keys(state.monthCorrections || {}).forEach(mk => { if (inRange(mk)) n++; });
   if (k === 'billing') (state.projects || []).forEach(p => { n += ((p.billing || {}).lines || []).length; });
+  if (k === 'deals') {
+    n += (state.deals || []).length;
+    (state.projects || []).forEach(p => {
+      n += ((p.billing || {}).lines || []).length;
+      n += Object.keys(p.revenueOverrides || {}).length;
+      n += Object.keys(p.legacyRevenueOverrides || {}).length;
+    });
+  }
   if (k === 'pipeline') n = ((state.salesPipeline || {}).deals || []).length;
   return n;
 }
@@ -3094,6 +3103,18 @@ function wipeRun(keys, from, to) {
     if (k === 'revenue') (state.projects || []).forEach(p => Object.keys(p.revenueOverrides || {}).forEach(mk => { if (inRange(mk)) delete p.revenueOverrides[mk]; }));
     if (k === 'corrections') Object.keys(state.monthCorrections || {}).forEach(mk => { if (inRange(mk)) delete state.monthCorrections[mk]; });
     if (k === 'billing') (state.projects || []).forEach(p => { if (p.billing) p.billing.lines = []; });
+    if (k === 'deals') {
+      // A true clean slate for the forecast: deals, any legacy client billing, and every
+      // revenue override. Deliberately leaves staff, assignments, logged hours and the
+      // QuickBooks tables alone — those are not forecast data.
+      state.deals = [];
+      delete state.dealsMigrated;
+      (state.projects || []).forEach(p => {
+        delete p.billing;
+        p.revenueOverrides = {};
+        delete p.legacyRevenueOverrides;
+      });
+    }
     if (k === 'pipeline') state.salesPipeline = { deals: [], syncedAt: null };
   });
   scheduleSave(); render();
