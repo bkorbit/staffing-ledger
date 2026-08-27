@@ -301,10 +301,16 @@ const lineProject = l => {
   })));
   // Drop any project that has gone quiet since a previous run, so the list only ever
   // shows what is live. Invoices and costs reference it with on delete set null.
-  const keep = [...touched];
-  if (keep.length) {
-    await sbDelete(`qb_projects?id=not.in.(${keep.map(x => `"${x}"`).join(',')})`);
+  // Deleting by "everything not in this list" meant a URL carrying every project id —
+  // long enough to be rejected or truncated, and a truncated NOT IN deletes far more
+  // than intended. Delete the specific stale ids instead, in small batches.
+  const existing = await sbGet('qb_projects?select=id');
+  const stale = (existing || []).map(r => String(r.id)).filter(id => !touched.has(id));
+  for (let i = 0; i < stale.length; i += 40) {
+    const batch = stale.slice(i, i + 40);
+    await sbDelete(`qb_projects?id=in.(${batch.map(x => `"${x}"`).join(',')})`);
   }
+  if (stale.length) console.log(`  removed ${stale.length} project(s) with no activity in the window`);
   console.log(`  ${live.length} projects with activity since ${from} ` +
     `(${projects.length - live.length} dormant, not stored)`);
   const attributed = costLines.filter(l => l.project_id).length;

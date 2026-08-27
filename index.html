@@ -923,7 +923,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2302 · 27 Aug 2026 23:02 UTC</div>
+      <div class="ver-tag">build b0827-2307 · 27 Aug 2026 23:07 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -2199,8 +2199,10 @@ async function loadQbActuals(force) {
   (qbProjects || []).forEach(pr => { idx.meta[String(pr.id)] = pr; });
   try {
     const { data, error } = await sb.from('qb_project_month')
-      .select('project_id,month,revenue,cost,gross_profit');
+      .select('project_id,month,revenue,cost,gross_profit')
+      .range(0, 49999);                      // a year of project-months exceeds the default cap
     if (error) throw error;
+    if ((data || []).length >= 50000) console.warn('qb_project_month hit the row cap — paging needed.');
     const map = qbMap();
     (data || []).forEach(r => {
       const mk = String(r.month).slice(0, 7);
@@ -2300,8 +2302,10 @@ async function loadQbProjects(force) {
   try {
     const { data, error } = await sb.from('qb_project_summary')
       .select('id,name,jobcode,parent_name,revenue,cost,gross_profit,first_month,last_month')
-      .order('revenue', { ascending: false });
+      .order('revenue', { ascending: false })
+      .range(0, 4999);                       // without this PostgREST applies its own cap
     if (error) throw error;
+    if ((data || []).length >= 5000) console.warn('qb_project_summary hit the row cap — paging needed.');
     qbProjects = data || [];
   } catch (e) {
     qbLoadError = e.message || String(e);
