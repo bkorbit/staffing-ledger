@@ -1018,7 +1018,7 @@ td.bl-lockcell{background:#f2f4f3}
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2149 · 27 Aug 2026 21:49 UTC</div>
+      <div class="ver-tag">build b0827-2154 · 27 Aug 2026 21:54 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -1916,7 +1916,12 @@ function hsConfig() {
   return c;
 }
 function hsPipeline() { return state.salesPipeline || { deals: [], syncedAt: null }; }
-function dealInLedger(id) { return (state.projects || []).some(p => String(p.hubspotDealId) === String(id)); }
+// Copied deals now live in state.deals, not as top-level clients. Still derived rather
+// than flagged, so deleting a deal puts it back on the worklist.
+function dealInLedger(id) {
+  return (state.deals || []).some(d => String(d.hubspotDealId) === String(id))
+      || (state.projects || []).some(p => String(p.hubspotDealId) === String(id));   // pre-deal imports
+}
 // Deals marked as handled by hand. Kept outside state.salesPipeline because the sync
 // replaces that object every night — a flag on the deal itself would not survive.
 function dismissedDeals() { if (!state.salesDismissed) state.salesDismissed = {}; return state.salesDismissed; }
@@ -2194,43 +2199,82 @@ function salesChartSvg(cols, shown) {
 }
 
 // Turn a won deal into a real project with ledger-shaped billing lines.
+/* Copying a won deal creates a DEAL under its client, not another top-level client.
+   That is the point of the flow: HubSpot fills the forecast in preliminarily, and the
+   deal is then matched to a QuickBooks project so actuals land against the same object.
+   The match is often automatic — HubSpot's qb_project_link already carries the id. */
 function salesCopyToLedger(id) {
   const cfg = hsConfig();
   const d = hsPipeline().deals.find(x => String(x.id) === String(id));
   if (!d) return;
-  if (state.projects.some(p => String(p.hubspotDealId) === String(d.id))) { toast('That deal is already in the ledger.'); return; }
+  if (deals().some(x => String(x.hubspotDealId) === String(d.id))) { toast('That deal is already in the ledger.'); return; }
+
+  // 1 — the client it belongs under, created if this is the first deal for them
+  const wanted = hsClientOf(d, cfg);
+  let client = state.projects.find(p => similarity(p.name, wanted) > 0.85);
+  let madeClient = false;
+  if (!client) {
+    client = { id: uid(), name: wanted, monthlyRevenue: 0, revenueOverrides: {}, startMonth: '', endMonth: '' };
+    state.projects.push(client);
+    madeClient = true;
+  }
+
+  // 2 — flight from the campaign dates
   const months = [];
-  if (d.campaignStart && d.campaignEnd) { let c = d.campaignStart.slice(0,7); const e = d.campaignEnd.slice(0,7); let g=0;
-    while (c <= e && g < 60) { months.push(c); c = shiftMonth(c,1); g++; } }
+  if (d.campaignStart && d.campaignEnd) {
+    let c = d.campaignStart.slice(0, 7); const e = d.campaignEnd.slice(0, 7); let g = 0;
+    while (c <= e && g < 60) { months.push(c); c = shiftMonth(c, 1); g++; }
+  }
+
+  // 3 — channel lines from the HubSpot line items, spread evenly across the flight
   const grp = {};
   (d.items || []).forEach(it => {
     const nm = Array.isArray(it) ? it[0] : it.name, amt = +(Array.isArray(it) ? it[1] : it.amount) || 0;
-    const m = cfg.mapping[String(nm||'').split(':').pop().trim().toLowerCase()];
+    const m = cfg.mapping[String(nm || '').split(':').pop().trim().toLowerCase()];
     if (!m) return;
-    const b = (grp[m[0]] = grp[m[0]] || { budget:0, fee:0, flat:0 });
-    b[m[1]==='budget'?'budget':m[1]==='fee'?'fee':'flat'] += amt;
+    const b = (grp[m[0]] = grp[m[0]] || { budget: 0, fee: 0, flat: 0 });
+    b[m[1] === 'budget' ? 'budget' : m[1] === 'fee' ? 'fee' : 'flat'] += amt;
   });
+  const n = months.length || 1;
   const lines = [];
   Object.entries(grp).forEach(([type, v]) => {
-    const spread = {}; months.forEach(mk => { spread[mk] = v.budget / (months.length || 1); });
+    const budgets = {}; months.forEach(mk => { budgets[mk] = v.budget / n; });
     if (type === 'search' || type === 'social') {
-      if (v.budget > 0) lines.push({ type, budgets: spread, feePct: +(v.fee / v.budget * 100).toFixed(2) });
-      if (v.flat > 0 || (v.budget <= 0 && v.fee > 0)) lines.push({ type:'retainer', amount: (v.flat + (v.budget<=0?v.fee:0)) / (months.length||1) });
+      if (v.budget > 0) lines.push({ id: uid(), type, budget: v.budget / n, budgets, feePct: +(v.fee / v.budget * 100).toFixed(2) });
+      if (v.flat > 0 || (v.budget <= 0 && v.fee > 0)) lines.push({ id: uid(), type: 'retainer', amount: (v.flat + (v.budget <= 0 ? v.fee : 0)) / n });
     } else if (type === 'programmatic') {
-      if (v.budget > 0) lines.push({ type, budgets: spread, feePct: +(v.fee>0 ? v.fee / v.budget * 100 : 0).toFixed(2), marginPct: +cfg.progMargin || 0 });
-      if (v.flat > 0 || (v.budget <= 0 && v.fee > 0)) lines.push({ type:'retainer', amount: (v.flat + (v.budget<=0?v.fee:0)) / (months.length||1) });
+      if (v.budget > 0) lines.push({ id: uid(), type, budget: v.budget / n, budgets,
+        feePct: +(v.fee > 0 ? v.fee / v.budget * 100 : 0).toFixed(2), marginPct: +cfg.progMargin || 35 });
+      if (v.flat > 0 || (v.budget <= 0 && v.fee > 0)) lines.push({ id: uid(), type: 'retainer', amount: (v.flat + (v.budget <= 0 ? v.fee : 0)) / n });
     } else {
-      lines.push({ type:'retainer', amount: (v.flat + v.fee + v.budget) / (months.length || 1) });
+      lines.push({ id: uid(), type: 'retainer', amount: (v.flat + v.fee + v.budget) / n });
     }
   });
-  const proj = { id: uid(), name: d.name || 'Untitled', monthlyRevenue: 0, revenueOverrides: {},
-    startMonth: months[0] || '', endMonth: months[months.length-1] || '',
-    hubspotDealId: d.id, billing: { lines } };
-  state.projects.push(proj);
+
+  // 4 — the QuickBooks project, straight from qb_project_link where HubSpot has it
+  const linkMatch = String(d.qbLink || '').match(/[?&]id=(\d+)/);
+  const qbProjectId = linkMatch ? linkMatch[1] : null;
+
+  deals().push({
+    id: uid(), clientId: client.id, hubspotDealId: d.id, qbProjectId,
+    name: d.name || 'Untitled', startMonth: months[0] || '', endMonth: months[months.length - 1] || '',
+    lines, revenueOverrides: {}, importedAt: new Date().toISOString()
+  });
+  // keep the client's flight covering its deals
+  if (months.length) {
+    if (!client.startMonth || months[0] < client.startMonth) client.startMonth = months[0];
+    if (!client.endMonth || months[months.length - 1] > client.endMonth) client.endMonth = months[months.length - 1];
+  }
   scheduleSave(); render();
-  toast('Copied “' + proj.name + '” into the ledger with ' + lines.length + ' billing line' + (lines.length===1?'':'s') +
-        '. Check the flight and billing on the Projects tab before relying on it.', 9000);
+
+  let msg = 'Added “' + (d.name || 'deal') + '” as a deal under ' + client.name +
+            ' with ' + lines.length + ' channel line' + (lines.length === 1 ? '' : 's') + '.';
+  if (madeClient) msg += ' ' + client.name + ' was created as a new client.';
+  msg += qbProjectId ? ' Matched to its QuickBooks project automatically.'
+                     : ' No QuickBooks project on the HubSpot deal — match it in Settings so actuals land against it.';
+  toast(msg, 11000);
 }
+
 
 
 /* ===== QuickBooks project matching =====
