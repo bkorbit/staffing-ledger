@@ -923,7 +923,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2016 · updated 2026-08-27</div>
+      <div class="ver-tag">build b0827-2024 · updated 2026-08-27</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -2211,7 +2211,9 @@ async function loadQbActuals(force) {
 function qbCovers(mk) {
   const c = qbConf();
   if (!c.useActuals || !qbActuals) return false;
-  return mk >= c.cutover && mk <= monthKey(new Date());
+  // Strictly before the current month: an unfinished month is still being invoiced,
+  // so treating its partial billings as actual would understate it.
+  return mk >= c.cutover && mk < monthKey(new Date());
 }
 function qbClientMonth(clientId, mk) {
   return ((qbActuals && qbActuals.byClient[clientId]) || {})[mk] || null;
@@ -2694,7 +2696,7 @@ function blMonthInputs(p, line, li) {
   const t = line.type;
   // Months already confirmed actual are locked to their entered amount and not
   // re-planned here — editing the schedule shouldn't disturb a closed month.
-  const planMonths = flight.filter(mk => !(p.revenueActuals || {})[mk]);
+  const planMonths = flight.filter(mk => !qbCovers(mk));
   const skipped = flight.length - planMonths.length;
   if (!planMonths.length) return '<div class="pj-empty">All flight months are marked actual — nothing left to schedule.</div>';
   return '<div class="bl-months">' + planMonths.map(mk => {
@@ -2776,7 +2778,7 @@ function rebuildProjectModalMonths() {
       <div class="pj-month ${computedOnly || hasValue ? 'overridden' : ''}">
         <div class="mlabel"><span>${monthShort(mk)}</span><span>${cov > 0 && cov < 0.999 ? Math.round(cov * 100) + '% of mo' : ''}</span></div>
         ${body}
-        <label class="rev-act" title="Check when confirmed actual; unchecked = forecasted"><input type="checkbox" data-role="pj-rev-actual" data-mk="${mk}" ${(p.revenueActuals || {})[mk] ? 'checked' : ''}> actual</label>
+        <span class="rev-act pmeta">${qbCovers(mk) ? 'actual' : 'forecast'}</span>
       </div>`;
   }).join('');
 }
@@ -4315,7 +4317,7 @@ function revenueByMonthSplit() {
       const v = revenueFor(p, m);
       // Actual is no longer a thing anyone ticks: a month is actual once QuickBooks
       // has billed data for it. Manual confirmation only ever restated that.
-      const isActual = qbCovers(m) ? !!qbMonth(m) : !!(p.revenueActuals || {})[m];
+      const isActual = qbCovers(m) && !!qbMonth(m);   // QuickBooks or forecast — nothing else
       // Cost basis: revenue confirmed actual -> logged cost, but if nothing has
       // been logged for that project-month yet, fall back to planned so the
       // labor doesn't silently disappear; unconfirmed -> planned cost.
@@ -5489,7 +5491,7 @@ function renderProjectTable() {
       const revGrid = revMonths.length ? revMonths.map(mk => {
         const o = (p.revenueOverrides || {})[mk];
         const hasValue = o !== undefined;
-        const isAct = (p.revenueActuals || {})[mk];
+        const isAct = qbCovers(mk);
         const computedOnly = isComputedMonth(p, mk);
         const body = computedOnly
           ? `<div class="pj-computed" title="${escapeAttr(billingBreakdown(p, mk))} · click to override" data-role="pb-rev-computed" data-id="${p.id}" data-mk="${mk}">${fmtMoney(billingGP(p, mk))} <span class="pj-cbadge">auto</span></div>`
@@ -5498,7 +5500,7 @@ function renderProjectTable() {
           <div class="pj-month ${hasValue || computedOnly ? 'overridden' : ''}${mk === currentMonth ? ' pj-now' : ''}">
             <div class="mlabel"><span>${monthShort(mk)}</span><span>${mk === currentMonth ? 'now' : ''}</span></div>
             ${body}
-            <label class="rev-act" title="Check when confirmed actual; unchecked = forecasted"><input type="checkbox" data-role="pb-rev-actual" data-id="${p.id}" data-mk="${mk}" ${isAct ? 'checked' : ''}> actual</label>
+            <span class="rev-act pmeta">${isAct ? 'actual' : 'forecast'}</span>
           </div>`;
       }).join('') : '<div class="pb-empty">Set flight dates (✎) to lay out the months.</div>';
       breakout = `
@@ -5527,7 +5529,7 @@ function renderProjectTable() {
       <td>
         ${isRange()
           ? `<div class="computed-cell" style="font-weight:700;">${fmtMoney(rev)}</div><div class="computed-sub">period total · edit in single-month view</div>`
-          : `<div class="rev-cell">${billingActive(p) ? `<span class="computed-cell" style="font-weight:700;" title="${escapeAttr(billingBreakdown(p, currentMonth))}">${fmtMoney(rev)}</span>` : `<input type="text" inputmode="decimal" class="numfield rev-input" value="${rev ? '$' + Math.round(rev).toLocaleString() : ''}" placeholder="$0" data-role="project-revenue-month" data-id="${p.id}">`}<button class="edit-btn" data-role="edit-project" data-id="${p.id}" title="Edit revenue by month & flight dates">✎</button></div><label class="rev-act" title="Check when this month's revenue is confirmed actual; unchecked = forecasted"><input type="checkbox" data-role="rev-actual" data-id="${p.id}" ${(p.revenueActuals || {})[currentMonth] ? 'checked' : ''}> actual</label>`}
+          : `<div class="rev-cell">${billingActive(p) ? `<span class="computed-cell" style="font-weight:700;" title="${escapeAttr(billingBreakdown(p, currentMonth))}">${fmtMoney(rev)}</span>` : `<input type="text" inputmode="decimal" class="numfield rev-input" value="${rev ? '$' + Math.round(rev).toLocaleString() : ''}" placeholder="$0" data-role="project-revenue-month" data-id="${p.id}">`}<button class="edit-btn" data-role="edit-project" data-id="${p.id}" title="Edit revenue by month & flight dates">✎</button></div><span class="rev-act pmeta">${qbCovers(currentMonth) ? 'actual' : 'forecast'}</span>`}
       </td>
       <td class="computed-cell">
         ${hasAct
@@ -6250,19 +6252,9 @@ function bulkSetRevenueActual(ids, months, on) {
   scheduleSave(); render();
   return { touched, projTouched };
 }
-function toggleRevenueActual(pid, mk, on) {
-  const p = state.projects.find(x => x.id === pid);
-  if (!p) return;
-  if (!p.revenueActuals) p.revenueActuals = {};
-  if (on) p.revenueActuals[mk] = true;
-  else delete p.revenueActuals[mk];
-  scheduleSave(); render();
-}
 
 document.addEventListener('change', (e) => {
   const t = e.target;
-  if (t.dataset && t.dataset.role === 'rev-actual') { toggleRevenueActual(t.dataset.id, currentMonth, t.checked); return; }
-  if (t.dataset && t.dataset.role === 'fc-rev-actual') { toggleRevenueActual(t.dataset.pid, t.dataset.mk, t.checked); return; }
   if (t.dataset && t.dataset.role === 'proj-select') { if (t.checked) ui.projSelected[t.dataset.id] = true; else delete ui.projSelected[t.dataset.id]; render(); return; }
   if (t.id === 'proj-select-all') {
     const list = sortedFilteredProjects();
@@ -6270,8 +6262,6 @@ document.addEventListener('change', (e) => {
     else list.forEach(p => delete ui.projSelected[p.id]);
     render(); return;
   }
-  if (t.dataset && t.dataset.role === 'pj-rev-actual') { toggleRevenueActual(projectEditId, t.dataset.mk, t.checked); rebuildProjectModalMonths(); return; }
-  if (t.dataset && t.dataset.role === 'pb-rev-actual') { toggleRevenueActual(t.dataset.id, t.dataset.mk, t.checked); return; }
   if (t.id === 'import-type') { if (importHeaders) buildMappingUI(); return; }
   if (t.id === 'team-dept-filter') { ui.teamDept = t.value; render(); return; }
   if (t.id === 'team-show-ended') { ui.teamShowEnded = t.checked; render(); return; }
