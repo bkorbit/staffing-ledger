@@ -6209,7 +6209,11 @@ document.addEventListener('input', (e) => {
     else if (role === 'pm-comp') { updateCompPeriod(personEditId, +t.dataset.i, t.dataset.field, t.value, t.dataset.field === 'type'); }
     else if (role === 'pj-rev-month') setRevenueOverride(projectEditId, t.dataset.mk, t.value);
     else if (role === 'pb-rev-month') setRevenueOverride(t.dataset.id, t.dataset.mk, t.value);
-    else if (role === 'fc-rev-month') setRevenueOverride(t.dataset.pid, t.dataset.mk, t.value);
+    else if (role === 'fc-rev-month') {
+      // Settled months belong to QuickBooks; an override there would be stored and ignored.
+      if (qbCovers(t.dataset.mk)) { toast('That month is settled in QuickBooks, so its revenue is not editable here.'); return; }
+      setRevenueOverride(t.dataset.pid, t.dataset.mk, t.value);
+    }
     else if (role && role.startsWith('bl-') && role !== 'bl-mode' && role !== 'bl-remove') {
       const p = state.projects.find(x => x.id === projectEditId);
       const line = p && p.billing && p.billing.lines[+t.dataset.line];
