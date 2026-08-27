@@ -919,6 +919,9 @@ input.bl-label:focus{outline:none;border-color:var(--brand);background:#fff}
 input.bl-n{width:66px;border:1px solid var(--line);border-radius:4px;padding:2px 4px;
 font-family:var(--font-mono);font-size:10.5px;text-align:right;background:#fff}
 input.bl-n.sm{width:46px}
+button.deal-pill{margin-left:5px;border:1px solid var(--line);background:var(--paper-raised);
+border-radius:11px;padding:1px 8px;font-family:var(--font-mono);font-size:9px;color:var(--slate);cursor:pointer}
+button.deal-pill:hover{border-color:var(--brand);color:var(--brand);background:#fff}
 input.bl-n:focus{outline:none;border-color:var(--brand)}
 th.bl-locked{color:var(--brand)}
 .bl-lk{font-size:7.5px;letter-spacing:.05em;color:var(--slate);font-weight:400}
@@ -1018,7 +1021,7 @@ td.bl-lockcell{background:#f2f4f3}
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2154 · 27 Aug 2026 21:54 UTC</div>
+      <div class="ver-tag">build b0827-2158 · 27 Aug 2026 21:58 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -1277,17 +1280,18 @@ td.bl-lockcell{background:#f2f4f3}
   <div class="modal" style="max-width:1600px; width:80vw;">
     <div class="modal-head">
       <div>
-        <h3 id="project-modal-title">Project</h3>
-        <div class="context">Revenue by month · changes save automatically</div>
+        <h3 id="project-modal-title">Deal</h3>
+        <div class="context" id="project-modal-sub">Changes save automatically</div>
       </div>
       <button class="ghost" id="project-close">Close</button>
     </div>
     <div class="modal-body">
       <div class="pm-grid" style="margin-bottom:16px;">
-        <label>Flight start<input type="date" data-role="pj-start" id="pj-start"></label>
-        <label>Flight end<input type="date" data-role="pj-end" id="pj-end"></label>
+        <label>Deal name<input type="text" data-role="pj-name" id="pj-name"></label>
+        <label>Flight start<input type="month" data-role="pj-start" id="pj-start"></label>
+        <label>Flight end<input type="month" data-role="pj-end" id="pj-end"></label>
       </div>
-      <div class="pj-months-label" style="display:flex; justify-content:space-between; align-items:center;">BILLING SETUP <span class="pm-hint" style="margin:0;">optional — compute gross profit from how the account makes money</span></div>
+      <div class="pj-months-label" style="display:flex; justify-content:space-between; align-items:center;">CHANNELS <span class="pm-hint" style="margin:0;">months settled in QuickBooks are locked</span></div>
       <div id="pj-billing" class="pj-billing"></div>
 
     </div>
@@ -2640,7 +2644,14 @@ function dealLineBillable(d, line, mk) {
   if (line.type === 'programmatic') return budget + budget * (+line.feePct || 0) / 100;
   return dealLineRevenue(d, line, mk);
 }
-function dealRevenue(d, mk) { return (d.lines || []).reduce((s, l) => s + dealLineRevenue(d, l, mk), 0); }
+// Reuses lineGP, the engine the forecast has always run on — a deal carries startMonth
+// and endMonth just as a project did, so the flight logic works unchanged.
+function dealRevenue(d, mk) {
+  if (!dealMonths(d).includes(mk)) return 0;
+  const man = (d.revenueOverrides || {})[mk];
+  if (man !== undefined) return man;
+  return (d.lines || []).reduce((s, l) => s + lineGP(d, l, mk), 0);
+}
 
 // Margin for a programmatic line: what this deal has actually achieved if it has enough
 // history, otherwise what was assumed. Never a company average — the whole point is that
@@ -2691,23 +2702,31 @@ function clientDemand(clientId, mk) {
    a single deal, so nothing is lost and no figure moves on the day this ships. Splitting
    a client into real deals then happens deliberately, not as a side effect. */
 function migrateClientsToDeals() {
-  if (state.dealsMigrated) return 0;
   let made = 0;
   state.projects.forEach(p => {
-    if (dealsFor(p.id).length) return;
     const lines = ((p.billing || {}).lines || []).map(l => ({ ...l }));
     const hasRev = Object.keys(p.revenueOverrides || {}).length > 0;
-    if (!lines.length && !hasRev) return;
+    if ((!lines.length && !hasRev) || dealsFor(p.id).length) { stripClientBilling(p); return; }
     deals().push({
       id: uid(), clientId: p.id, hubspotDealId: p.hubspotDealId || null, qbProjectId: null,
       name: p.name || 'Untitled', startMonth: p.startMonth || '', endMonth: p.endMonth || '',
       lines, revenueOverrides: { ...(p.revenueOverrides || {}) }, fromMigration: true
     });
+    stripClientBilling(p);
     made++;
   });
   state.dealsMigrated = new Date().toISOString();
-  if (made) scheduleSave();
+  scheduleSave();
   return made;
+}
+// Once a client's billing lives on its deals, leaving a copy on the client is a second
+// source of truth waiting to disagree.
+function stripClientBilling(p) {
+  if (p.billing) delete p.billing;
+  if (p.revenueOverrides && Object.keys(p.revenueOverrides).length) {
+    p.legacyRevenueOverrides = p.revenueOverrides;   // kept for reference, never read
+    p.revenueOverrides = {};
+  }
 }
 
 
@@ -3130,11 +3149,11 @@ function blMonthInputs(p, line, li) {
    Previously each channel was a card with its own month grid, so three channels meant
    three large boxes and no way to compare a month across them. */
 function rebuildBillingSection() {
-  const p = state.projects.find(x => x.id === projectEditId);
+  const p = dealById(dealEditId);
   const el = document.getElementById('pj-billing');
   if (!p || !el) return;
-  const lines = (p.billing && p.billing.lines) || [];
-  const months = monthsOfFlight(p) || [];
+  const lines = p.lines || [];
+  const months = dealMonths(p);
   // Fee and margin carried from whichever line already has them, so a second channel
   // inherits rather than being retyped. Falls back to the pipeline's assumption.
   const seedFee = (lines.find(l => l.feePct) || {}).feePct || '';
@@ -3195,7 +3214,8 @@ function rebuildBillingSection() {
   h += '<tr class="bl-sum"><td class="bl-ch">Gross profit</td><td></td><td></td>' +
     months.map(m => {
       const fc = lines.reduce((sum, l) => sum + lineGP(p, l, m), 0);
-      const act = qbCovers(m) ? (qbClientMonth(p.id, m) || {}).revenue : null;
+      const act = qbCovers(m) && p.qbProjectId
+        ? ((((qbActuals || {}).byProject || {})[String(p.qbProjectId)] || {})[m] || {}).revenue : null;
       return `<td class="num">${act !== null && act !== undefined
         ? `<strong>${fmtShort(act)}</strong><div class="bl-fc">fc ${fmtShort(fc)}</div>`
         : fmtShort(fc)}</td>`;
@@ -3231,16 +3251,38 @@ function rebuildProjectModalMonths() {
       </div>`;
   }).join('');
 }
-function openProjectModal(id) {
-  const p = state.projects.find(x => x.id === id);
-  if (!p) return;
-  projectEditId = id;
-  document.getElementById('project-modal-title').textContent = p.name || 'Untitled project';
-  document.getElementById('pj-start').value = p.startDate || (p.startMonth ? p.startMonth + '-01' : '');
-  document.getElementById('pj-end').value = p.endDate || (p.endMonth ? lastDayOf(p.endMonth) : '');
+let dealEditId = null;
+// Opens on a deal. A client no longer has billing of its own to edit.
+function openDealModal(id) {
+  const d = dealById(id);
+  if (!d) return;
+  dealEditId = id;
+  projectEditId = d.clientId;                 // some shared handlers still key off it
+  const client = state.projects.find(x => x.id === d.clientId);
+  document.getElementById('project-modal-title').textContent = d.name || 'Untitled deal';
+  const sub = document.getElementById('project-modal-sub');
+  if (sub) sub.textContent = (client ? client.name + ' · ' : '') +
+    (d.qbProjectId ? 'linked to QuickBooks' : 'not linked to a QuickBooks project') +
+    ' · changes save automatically';
+  const nameEl = document.getElementById('pj-name');
+  if (nameEl) nameEl.value = d.name || '';
+  document.getElementById('pj-start').value = d.startMonth || '';
+  document.getElementById('pj-end').value = d.endMonth || '';
   rebuildBillingSection();
-  rebuildProjectModalMonths();
   document.getElementById('project-modal').classList.add('open');
+}
+// Opening a client opens its only deal, or offers the list when there are several.
+function openProjectModal(id) {
+  const ds = dealsFor(id);
+  if (ds.length === 1) return openDealModal(ds[0].id);
+  if (!ds.length) {
+    const made = migrateClientsToDeals();
+    const after = dealsFor(id);
+    if (after.length) { render(); return openDealModal(after[0].id); }
+    toast('This client has no deals yet. Copy one from the Sales Forecast, or add a channel to create one.');
+    return;
+  }
+  toast('This client has ' + ds.length + ' deals — open the one you want from the month breakout.');
 }
 function closeProjectModal() {
   document.getElementById('project-modal').classList.remove('open');
@@ -3684,11 +3726,11 @@ function revenueFor(p, mk) {
     const a = qbClientMonth(p.id, mk);
     if (a) return a.revenue;
   }
-  // Manual entry always wins. A hand-entered amount for a month (whether or not
-  // it's marked actual) is authoritative and is NEVER overwritten by billing
-  // lines — adding or editing billing lines can only FILL months that have no
-  // manual amount. This keeps historical/actual data intact when a project
-  // later switches to computed billing.
+  // A client is a grouping: its revenue is whatever its deals bill. Billing lines live
+  // on deals only, so once a client has deals there is nothing else to consult.
+  const ds = dealsFor(p.id);
+  if (ds.length) return ds.reduce((s, d) => s + dealRevenue(d, mk), 0);
+  // Not migrated yet — the old client-level path, so nothing vanishes before the switch.
   const manual = (p.revenueOverrides || {})[mk];
   if (manual !== undefined) return manual;
   if (billingActive(p) && billingMonths(p).has(mk)) return billingGP(p, mk);
@@ -4977,7 +5019,14 @@ function renderForecast() {
         </div>
         ${withRev.map(c => `
           <div class="fc-row${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? ' fc-billed' : ''; })()}"${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? ` data-role="fc-open-project" data-id="${c.pid}" title="Billing-scheduled — click to edit the campaign schedule"` : ''; })()}>
-            <div class="fc-name">${escapeHtml(c.name)}<button class="edit-btn" data-role="edit-project" data-id="${c.pid}" title="Edit billing & months">✎</button>${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? pp.billing.lines.map(l => `<span class="bl-chip">${BILLING_TYPES[l.type]}</span>`).join('') : ''; })()}${c.amount === 0 && c.inFlight ? '<span class="fc-basis"> · in flight</span>' : ''}</div>
+            <div class="fc-name">${escapeHtml(c.name)}${(() => {
+              // One pencil per deal, since a deal is what gets edited now. A client with
+              // several shows them all rather than hiding them behind one control.
+              const ds = dealsFor(c.pid);
+              if (!ds.length) return `<button class="edit-btn" data-role="edit-project" data-id="${c.pid}" title="Set up this client's first deal">✎</button>`;
+              if (ds.length === 1) return `<button class="edit-btn" data-role="edit-deal" data-id="${ds[0].id}" title="Edit ${escapeAttr(ds[0].name || 'deal')}">✎</button>`;
+              return ds.map(d => `<button class="deal-pill" data-role="edit-deal" data-id="${d.id}" title="Edit ${escapeAttr(d.name || 'deal')}">${escapeHtml((d.name || 'deal').slice(0, 22))}</button>`).join('');
+            })()}${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? pp.billing.lines.map(l => `<span class="bl-chip">${BILLING_TYPES[l.type]}</span>`).join('') : ''; })()}${c.amount === 0 && c.inFlight ? '<span class="fc-basis"> · in flight</span>' : ''}</div>
             <div class="pb-num">${(() => {
               const pp = state.projects.find(x => x.id === c.pid);
               if (qbCovers(r.mk)) return `<span style="font-weight:700;" title="Billed in QuickBooks — settled months are not editable">${fmtMoney(c.amount)}</span>`;
@@ -6739,8 +6788,8 @@ document.addEventListener('input', (e) => {
       setRevenueOverride(t.dataset.pid, t.dataset.mk, t.value);
     }
     else if (role && role.startsWith('bl-') && role !== 'bl-mode' && role !== 'bl-remove') {
-      const p = state.projects.find(x => x.id === projectEditId);
-      const line = p && p.billing && p.billing.lines[+t.dataset.line];
+      const p = dealById(dealEditId);
+      const line = p && Array.isArray(p.lines) && p.lines[+t.dataset.line];
       if (line) {
         const num = v => { const c = String(v).replace(/[^0-9.\-]/g, ''); return c === '' ? undefined : (parseFloat(c) || 0); };
         if (role === 'bl-label') line.label = t.value;
@@ -6858,11 +6907,12 @@ document.addEventListener('click', (e) => {
   else if (role === 'edit-staff') openPersonModal(t.dataset.id);
   else if (role === 'edit-project') openProjectModal(t.dataset.id);
   else if (role === 'forecast-toggle') { ui.forecastExpanded[t.dataset.mk] = !ui.forecastExpanded[t.dataset.mk]; render(); }
+  else if (role === 'edit-deal') { openDealModal(t.dataset.id); }
   else if (role === 'bl-remove') {
-    const p = state.projects.find(x => x.id === projectEditId);
-    if (p && p.billing) {
-      p.billing.lines.splice(+t.dataset.line, 1);
-      scheduleSave(); render(); rebuildBillingSection(); rebuildProjectModalMonths();
+    const p = dealById(dealEditId);
+    if (p && Array.isArray(p.lines)) {
+      p.lines.splice(+t.dataset.line, 1);
+      scheduleSave(); render(); rebuildBillingSection();
     }
   }
   else if (role === 'fc-sort') {
@@ -7091,23 +7141,24 @@ document.addEventListener('change', (e) => {
   const dRole = e.target && e.target.dataset ? e.target.dataset.role : null;
   if (dRole === 'flight-start') { setFlightDate(e.target.dataset.id, 'start', e.target.value); return; }
   if (dRole === 'flight-end') { setFlightDate(e.target.dataset.id, 'end', e.target.value); return; }
-  if (dRole === 'pj-start') { setFlightDate(projectEditId, 'start', e.target.value); rebuildBillingSection(); rebuildProjectModalMonths(); return; }
-  if (dRole === 'pj-end') { setFlightDate(projectEditId, 'end', e.target.value); rebuildBillingSection(); rebuildProjectModalMonths(); return; }
+  if (dRole === 'pj-name') { const d = dealById(dealEditId); if (d) { d.name = e.target.value; scheduleSave(); render(); } return; }
+  if (dRole === 'pj-start') { const d = dealById(dealEditId); if (d) { d.startMonth = e.target.value; scheduleSave(); rebuildBillingSection(); render(); } return; }
+  if (dRole === 'pj-end') { const d = dealById(dealEditId); if (d) { d.endMonth = e.target.value; scheduleSave(); rebuildBillingSection(); render(); } return; }
   if (dRole === 'usr-role') { updateUserRow(+e.target.dataset.i, 'role', e.target.value); return; }
   if (dRole === 'pm-start') { setStaffDate(personEditId, 'start', e.target.value); return; }
   if (dRole === 'pm-end') { setStaffDate(personEditId, 'end', e.target.value); return; }
   if (dRole === 'pm-nolayoff') { updateStaffField(personEditId, 'layoffProtected', e.target.checked); return; }
   if (e.target && e.target.dataset && e.target.dataset.role === 'bl-mode') {
-    const p = state.projects.find(x => x.id === projectEditId);
-    const line = p && p.billing && p.billing.lines[+e.target.dataset.line];
-    if (line) { line.mode = e.target.value; scheduleSave(); render(); rebuildBillingSection(); rebuildProjectModalMonths(); }
+    const p = dealById(dealEditId);
+    const line = p && Array.isArray(p.lines) && p.lines[+e.target.dataset.line];
+    if (line) { line.mode = e.target.value; scheduleSave(); render(); rebuildBillingSection(); }
     return;
   }
-  if (e.target && e.target.dataset && e.target.dataset.role && e.target.dataset.role.startsWith('bl-')) { rebuildBillingSection(); rebuildProjectModalMonths(); }
+  if (e.target && e.target.dataset && e.target.dataset.role && e.target.dataset.role.startsWith('bl-')) { rebuildBillingSection(); }
   if (e.target && e.target.id === 'bl-add-type' && e.target.value) {
-    const p = state.projects.find(x => x.id === projectEditId);
+    const p = dealById(dealEditId);
     if (p) {
-      if (!p.billing) p.billing = { lines: [] };
+      if (!Array.isArray(p.lines)) p.lines = [];
       const t = e.target.value;
       // Fee and margin come from the strip above, so a second channel inherits the
       // first rather than starting at zero and needing both retyped.
@@ -7119,8 +7170,8 @@ document.addEventListener('change', (e) => {
       if (t === 'search' || t === 'social') { line.feePct = fee; line.budgets = {}; }
       if (t === 'programmatic') { line.feePct = fee; line.marginPct = margin; line.budgets = {}; line.margins = {}; }
       if (t === 'hourly') { line.rate = 0; line.mode = 'flight'; line.hours = 0; line.hoursByMonth = {}; }
-      p.billing.lines.push(line);
-      scheduleSave(); render(); rebuildBillingSection(); rebuildProjectModalMonths();
+      p.lines.push(line);
+      scheduleSave(); render(); rebuildBillingSection();
     }
     return;
   }
