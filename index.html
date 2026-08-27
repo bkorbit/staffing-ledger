@@ -781,6 +781,12 @@ padding:6px 8px;border-radius:5px;font-family:var(--font-mono);font-size:11px;cu
 .wipe-l{color:var(--ink)}
 .wipe-n{text-align:right;font-weight:700;color:var(--brand)}
 .wipe-h{font-size:9.5px;color:var(--slate)}
+input.qb-name{width:100%;box-sizing:border-box;border:1px solid transparent;border-radius:4px;
+padding:3px 6px;font-family:var(--font-display);font-size:12px;font-weight:600;color:var(--ink);background:transparent}
+input.qb-name:hover{border-color:var(--line);background:#fff}
+input.qb-name:focus{outline:none;border-color:var(--brand);background:#fff}
+input.qb-name.edited{color:var(--brand)}
+#qb-match-body table.sf td.cl{min-width:230px}
 table.hs-map{width:100%;border-collapse:collapse;max-width:620px}
 table.hs-map th{font-family:var(--font-mono);font-size:8.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--slate);text-align:left;padding:5px 7px;border-bottom:1px solid var(--line)}
 table.hs-map td{padding:4px 7px;border-bottom:1px solid #efefef;font-family:var(--font-mono);font-size:10.5px}
@@ -899,7 +905,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-1822 · updated 2026-08-27</div>
+      <div class="ver-tag">build b0827-1826 · updated 2026-08-27</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -2123,6 +2129,51 @@ function salesCopyToLedger(id) {
 let qbProjects = null, qbLoading = false, qbLoadError = '';
 
 function qbMap() { if (!state.qbProjectMap) state.qbProjectMap = {}; return state.qbProjectMap; }
+function qbNames() { if (!state.qbProjectNames) state.qbProjectNames = {}; return state.qbProjectNames; }
+
+// QuickBooks project names carry a lot of bookkeeping noise — the jobcode, the parent
+// customer repeated as a prefix, stray separators. Strip it for display, keeping the
+// raw name available underneath. Anything this gets wrong can be typed over.
+function qbCleanName(p) {
+  const tidy = x => String(x || '')
+    .replace(/[:_]+/g, ' ')
+    .replace(/\s*[-–—]\s*/g, ' – ')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[\s–\-:]+|[\s–\-:]+$/g, '')
+    .trim();
+  // a name is only worth keeping if something other than a bare year survives
+  const meaningful = x => /[a-z]/i.test(x) && x.replace(/[^a-z0-9]/gi, '').length >= 3
+                          && !/^(19|20)\d{2}$/.test(x.trim());
+
+  let base = String(p.name || '');
+  if (p.jobcode) base = base.split(p.jobcode).join(' ');
+  base = base.replace(/\b\d{2}[a-z]{3,6}\d{5,8}\b/gi, ' ');
+  const withoutJobcode = tidy(base);
+
+  // Dropping the parent prefix usually helps, but not when it takes the whole name
+  // with it — "ReliefBand – 2026" under parent "ReliefBand" would leave just "2026".
+  let out = withoutJobcode;
+  if (p.parent_name) {
+    const esc = String(p.parent_name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const stripped = tidy(withoutJobcode.replace(new RegExp('^\\s*' + esc + '\\s*[:\\-–—]*', 'i'), ' '));
+    if (meaningful(stripped)) out = stripped;
+  }
+  if (meaningful(out)) return out;
+  if (meaningful(withoutJobcode)) return withoutJobcode;
+  return tidy(p.parent_name) || tidy(p.name) || '(unnamed)';
+}
+// What to show: a manual override if one exists, else the cleaned name.
+function qbDisplayName(p) {
+  const o = qbNames()[p.id];
+  return (o && o.trim()) ? o.trim() : qbCleanName(p);
+}
+function setQbName(id, value, cleaned) {
+  const n = qbNames();
+  const v = String(value || '').trim();
+  // storing a value identical to the automatic one is just noise
+  if (!v || v === cleaned) delete n[id]; else n[id] = v;
+  scheduleSave();
+}
 
 async function loadQbProjects(force) {
   if (qbProjects && !force) return qbProjects;
@@ -2228,7 +2279,8 @@ async function renderQbMatching() {
     <button class="ghost" data-role="qb-accept-high">Accept all high-confidence</button>
     <button class="ghost" data-role="qb-reload">Reload from QuickBooks</button>
     <label style="font-family:var(--font-mono);font-size:10px;display:flex;align-items:center;gap:5px;">
-      <input type="checkbox" data-role="qb-hide-matched" ${qbHideMatched ? 'checked' : ''}> hide matched</label></div>`;
+      <input type="checkbox" data-role="qb-hide-matched" ${qbHideMatched ? 'checked' : ''}> hide matched</label>
+    <button class="ghost" data-role="qb-reset-names" title="Discard every typed-over name and go back to the automatic ones">Reset names</button></div>`;
   h += '<table class="sf"><thead><tr><th class="cl">QuickBooks project</th><th class="num">Revenue</th>' +
        '<th class="num">GP</th><th class="cl">Ledger client</th><th class="fl">Basis</th></tr></thead><tbody>';
   rows.filter(r => !qbHideMatched || !r.client).slice(0, 300).forEach(r => {
@@ -2239,8 +2291,15 @@ async function renderQbMatching() {
     const badge = r.client ? '<span class="sf-flag i">matched</span>'
       : r.suggestion ? `<span class="sf-flag ${r.suggestion.conf === 'high' ? 't' : 'w'}">${r.suggestion.conf} · ${escapeHtml(r.suggestion.why)}</span>`
       : '<span class="sf-flag w">no suggestion</span>';
-    h += `<tr class="sf-d"><td class="cl">${escapeHtml(r.p.name)}` +
-      (r.p.jobcode ? `<div class="sf-parts">${escapeHtml(r.p.jobcode)}${r.p.parent_name ? ' · ' + escapeHtml(r.p.parent_name) : ''}</div>` : '') +
+    const cleaned = qbCleanName(r.p);
+    const shown = qbDisplayName(r.p);
+    const overridden = !!(qbNames()[r.p.id]);
+    const raw = [r.p.jobcode, r.p.parent_name, r.p.name].filter(Boolean).join(' · ');
+    h += `<tr class="sf-d"><td class="cl">` +
+      `<input class="qb-name${overridden ? ' edited' : ''}" type="text" value="${escapeAttr(shown)}" ` +
+      `data-role="qb-name" data-id="${r.p.id}" data-clean="${escapeAttr(cleaned)}" ` +
+      `title="${escapeAttr(raw)}" placeholder="${escapeAttr(cleaned)}">` +
+      `<div class="sf-parts" title="${escapeAttr(r.p.name)}">${escapeHtml(raw.slice(0, 70))}</div>` +
       `</td><td class="num">${money(r.p.revenue)}</td><td class="num tot">${money(r.p.gross_profit)}</td>` +
       `<td class="cl">${sel}</td><td class="fl">${badge}</td></tr>`;
   });
@@ -5778,6 +5837,7 @@ document.addEventListener('input', (e) => {
     scheduleSave();
     return;   // no re-render — keeps the dropdown open and the list stable while working through it
   }
+  if (t.dataset.role === 'qb-name') { setQbName(t.dataset.id, t.value, t.dataset.clean); return; }
   if (t.dataset.role === 'qb-hide-matched') { qbHideMatched = t.checked; renderQbMatching(); return; }
   if (t.dataset.role === 'wipe-range') { renderDataTools(); return; }
   if (t.dataset.role === 'hs-cutover') { hsConfig().wonCutover = t.value || '2026-08-11'; scheduleSave(); if (ui.tab === 'sales') renderSales(); }
@@ -6112,6 +6172,12 @@ document.addEventListener('click', (e) => {
   else if (role === 'sf-copy') { salesCopyToLedger(t.dataset.id); }
   else if (role === 'qb-accept-high') { qbAcceptHighConfidence(); }
   else if (role === 'qb-reload') { loadQbProjects(true).then(renderQbMatching); }
+  else if (role === 'qb-reset-names') {
+    const n = Object.keys(qbNames()).length;
+    if (!n) { toast('No names have been typed over.'); return; }
+    armToConfirm(t, 'qb-names', 'Click again to discard ' + n + ' custom name' + (n === 1 ? '' : 's'),
+      () => { state.qbProjectNames = {}; scheduleSave(); renderQbMatching(); toast('Back to the automatic names.'); });
+  }
   else if (role === 'wipe-go') {
     const keys = [...document.querySelectorAll('[data-role="wipe-set"]:checked')].map(x => x.value);
     if (!keys.length) { toast('Tick at least one kind of data to clear.'); return; }
