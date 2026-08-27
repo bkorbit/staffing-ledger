@@ -773,6 +773,14 @@ button.linkish{border:none;background:none;color:var(--brand);text-decoration:un
 .hs-alias{display:flex;align-items:center;gap:6px;margin-bottom:5px}
 .hs-alias input{flex:1;border:1px solid var(--line);border-radius:4px;padding:4px 7px;font-family:var(--font-mono);font-size:10.5px;min-width:0}
 .hs-alias span{color:var(--slate)}
+.wipe-list{display:flex;flex-direction:column;gap:2px;margin-top:10px;max-width:720px}
+.wipe-row{display:grid;grid-template-columns:18px 168px 64px 1fr;align-items:center;gap:8px;
+padding:6px 8px;border-radius:5px;font-family:var(--font-mono);font-size:11px;cursor:pointer}
+.wipe-row:hover{background:var(--paper-raised)}
+.wipe-row input{width:15px;height:15px;accent-color:var(--rust)}
+.wipe-l{color:var(--ink)}
+.wipe-n{text-align:right;font-weight:700;color:var(--brand)}
+.wipe-h{font-size:9.5px;color:var(--slate)}
 table.hs-map{width:100%;border-collapse:collapse;max-width:620px}
 table.hs-map th{font-family:var(--font-mono);font-size:8.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--slate);text-align:left;padding:5px 7px;border-bottom:1px solid var(--line)}
 table.hs-map td{padding:4px 7px;border-bottom:1px solid #efefef;font-family:var(--font-mono);font-size:10.5px}
@@ -891,7 +899,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-1613 · updated 2026-08-27</div>
+      <div class="ver-tag">build b0827-1625 · updated 2026-08-27</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -2157,7 +2165,18 @@ function renderSettings() {
     'For access someone cannot bypass, the ledger table needs row-level security in Supabase.</em></div>';
 
   h += renderHubspotSettings();
+  h += `
+  <div style="border-top:1px solid var(--line); margin:22px 0 14px;"></div>
+  <h3 style="margin:0 0 4px; font-size:15px; color:var(--brand);">Clear data</h3>
+  <div class="computed-sub" style="margin-bottom:12px;">Remove one kind of data without touching the rest. Counts update as you change the range. This cannot be undone — export first if you are unsure.</div>
+  <div class="hs-row"><span>Month range</span>
+    <input type="month" id="wipe-from" data-role="wipe-range"> <span class="rd">to</span>
+    <input type="month" id="wipe-to" data-role="wipe-range">
+    <span class="computed-sub">blank = every month</span></div>
+  <div id="wipe-counts" class="wipe-list"></div>
+  <button class="ghost" data-role="wipe-go" style="margin-top:10px;">Clear selected data</button>`;
   el.innerHTML = h;
+  renderDataTools();
 }
 
 function renderHubspotSettings() {
@@ -2210,6 +2229,62 @@ function renderHubspotSettings() {
   <h4 style="margin:16px 0 6px; font-size:12px;">Line item mapping</h4>
   <div class="computed-sub" style="margin-bottom:6px;">Media rows establish the budget and the fee rate; only the fee becomes gross profit. Unmapped types are excluded and flagged, never counted.</div>
   <table class="hs-map"><thead><tr><th>HubSpot line item (last segment)</th><th>Ledger type · role</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+/* ===== Selective data clearing =====
+   A hard reset is sometimes the right move, but wiping everything is not. Each data set
+   can be cleared independently, over a month range where that makes sense, and the
+   confirmation always states exactly how many records are about to go. */
+const WIPE_SETS = [
+  { k:'assignments', label:'Assignments',            monthly:true,  hint:'Planned hours per person per account' },
+  { k:'demand',      label:'Department demand',      monthly:true,  hint:'Hours each department needs per account' },
+  { k:'actuals',     label:'Logged hours (actuals)', monthly:true,  hint:'Imported from QuickBooks Time — the next sync will pull them back' },
+  { k:'revenue',     label:'Revenue overrides',      monthly:true,  hint:'Manually entered monthly revenue on accounts' },
+  { k:'billing',     label:'Billing lines',          monthly:false, hint:'Retainer / search / social / programmatic / hourly setups on every account' },
+  { k:'corrections', label:'Past-month corrections', monthly:true,  hint:'Manual actual and labor overrides' },
+  { k:'pipeline',    label:'Sales pipeline',         monthly:false, hint:'Synced HubSpot deals — the next sync will pull them back' }
+];
+
+function wipeCount(k, from, to) {
+  const inRange = mk => (!from || mk >= from) && (!to || mk <= to);
+  let n = 0;
+  if (k === 'assignments') Object.entries(state.assignments || {}).forEach(([mk, v]) => { if (inRange(mk)) n += Object.keys(v || {}).length; });
+  if (k === 'actuals') Object.entries(state.actuals || {}).forEach(([mk, v]) => { if (inRange(mk)) n += Object.keys(v || {}).length; });
+  if (k === 'demand') Object.entries(state.demand || {}).forEach(([mk, v]) => { if (inRange(mk)) Object.values(v || {}).forEach(d => n += Object.keys(d || {}).length); });
+  if (k === 'revenue') (state.projects || []).forEach(p => Object.keys(p.revenueOverrides || {}).forEach(mk => { if (inRange(mk)) n++; }));
+  if (k === 'corrections') Object.keys(state.monthCorrections || {}).forEach(mk => { if (inRange(mk)) n++; });
+  if (k === 'billing') (state.projects || []).forEach(p => { n += ((p.billing || {}).lines || []).length; });
+  if (k === 'pipeline') n = ((state.salesPipeline || {}).deals || []).length;
+  return n;
+}
+
+function wipeRun(keys, from, to) {
+  const inRange = mk => (!from || mk >= from) && (!to || mk <= to);
+  let total = 0;
+  keys.forEach(k => {
+    total += wipeCount(k, from, to);
+    if (k === 'assignments') Object.keys(state.assignments || {}).forEach(mk => { if (inRange(mk)) delete state.assignments[mk]; });
+    if (k === 'actuals') { Object.keys(state.actuals || {}).forEach(mk => { if (inRange(mk)) delete state.actuals[mk]; });
+      Object.keys(state.actualsW || {}).forEach(wk => { if (inRange(wk.slice(0, 7))) delete state.actualsW[wk]; }); }
+    if (k === 'demand') Object.keys(state.demand || {}).forEach(mk => { if (inRange(mk)) delete state.demand[mk]; });
+    if (k === 'revenue') (state.projects || []).forEach(p => Object.keys(p.revenueOverrides || {}).forEach(mk => { if (inRange(mk)) delete p.revenueOverrides[mk]; }));
+    if (k === 'corrections') Object.keys(state.monthCorrections || {}).forEach(mk => { if (inRange(mk)) delete state.monthCorrections[mk]; });
+    if (k === 'billing') (state.projects || []).forEach(p => { if (p.billing) p.billing.lines = []; });
+    if (k === 'pipeline') state.salesPipeline = { deals: [], syncedAt: null };
+  });
+  scheduleSave(); render();
+  toast('Cleared ' + total + ' record' + (total === 1 ? '' : 's') + '. Nothing else was touched.', 8000);
+}
+
+function renderDataTools() {
+  const from = document.getElementById('wipe-from'), to = document.getElementById('wipe-to');
+  const f = from ? from.value : '', t = to ? to.value : '';
+  const box = document.getElementById('wipe-counts');
+  if (box) box.innerHTML = WIPE_SETS.map(w =>
+    `<label class="wipe-row"><input type="checkbox" data-role="wipe-set" value="${w.k}">
+      <span class="wipe-l">${w.label}</span>
+      <span class="wipe-n">${wipeCount(w.k, w.monthly ? f : '', w.monthly ? t : '').toLocaleString()}</span>
+      <span class="wipe-h">${w.hint}${w.monthly ? '' : ' · not month-limited'}</span></label>`).join('');
 }
 
 function addUserRow() {
@@ -5540,6 +5615,7 @@ document.addEventListener('input', (e) => {
   if (!t.dataset) return;
   if (t.dataset.role === 'hs-minprob') { hsConfig().minProb = (parseFloat(t.value) || 0) / 100; scheduleSave(); }
   if (t.dataset.role === 'hs-margin') { hsConfig().progMargin = parseFloat(t.value) || 0; scheduleSave(); }
+  if (t.dataset.role === 'wipe-range') { renderDataTools(); return; }
   if (t.dataset.role === 'hs-cutover') { hsConfig().wonCutover = t.value || '2026-08-11'; scheduleSave(); if (ui.tab === 'sales') renderSales(); }
   if (t.dataset.role === 'hs-retain') { hsConfig().wonRetainDays = Math.max(0, parseFloat(t.value) || 0); scheduleSave(); if (ui.tab === 'sales') renderSales(); }
   if (t.dataset.role === 'hs-map') { const c = hsConfig(); const k = t.dataset.k;
@@ -5870,6 +5946,17 @@ document.addEventListener('click', (e) => {
   }
   else if (role === 'fc-cost-remove') { state.fixedCosts.splice(+t.dataset.i, 1); scheduleSave(); render(); }
   else if (role === 'sf-copy') { salesCopyToLedger(t.dataset.id); }
+  else if (role === 'wipe-go') {
+    const keys = [...document.querySelectorAll('[data-role="wipe-set"]:checked')].map(x => x.value);
+    if (!keys.length) { toast('Tick at least one kind of data to clear.'); return; }
+    const f = (document.getElementById('wipe-from') || {}).value || '';
+    const tt = (document.getElementById('wipe-to') || {}).value || '';
+    const n = keys.reduce((sum, k) => sum + wipeCount(k, (WIPE_SETS.find(w => w.k === k) || {}).monthly ? f : '', (WIPE_SETS.find(w => w.k === k) || {}).monthly ? tt : ''), 0);
+    if (!n) { toast('Nothing matches that selection.'); return; }
+    const scope = (f || tt) ? (' in ' + (f || 'the start') + ' → ' + (tt || 'the end')) : ' across every month';
+    armToConfirm(t, 'wipe', 'Click again to delete ' + n + ' record' + (n === 1 ? '' : 's') + scope,
+      () => wipeRun(keys, f, tt));
+  }
   else if (role === 'sf-dismiss') { dismissDeal(t.dataset.id); }
   else if (role === 'sf-restore') { restoreDeal(t.dataset.id); }
   else if (role === 'sf-show-dismissed') { salesUI.showDismissed = !salesUI.showDismissed; renderSales(); }

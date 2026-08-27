@@ -47,7 +47,10 @@ async function hs(path, opts = {}, tries = 0) {
 async function searchDeals(pipelines, wonFrom) {
   const props = ['dealname', 'dealstage', 'pipeline', 'amount', 'closedate',
                  'campaign_start_date', 'campaign_end_date', 'hs_deal_stage_probability',
-                 'hs_is_closed', 'hs_is_closed_won'];
+                 'hs_is_closed', 'hs_is_closed_won',
+                 // job_code is the shared key with QuickBooks; the invoice totals are
+                 // already synced into HubSpot by the existing QuickBooks integration.
+                 'job_code', 'qb_project_link', 'total_amount_invoices', 'total_left_to_bill'];
   const out = [];
   const wonSince = Date.parse(wonFrom + 'T00:00:00Z');
   for (const pl of pipelines) {
@@ -197,6 +200,10 @@ const clean = v => (v === undefined || v === null || v === '') ? '' : String(v).
       campaignEnd: clean(p.campaign_end_date),
       items,
       won: String(p.hs_is_closed_won) === 'true',
+      jobCode: (p.job_code || '').trim(),
+      qbLink: p.qb_project_link || '',
+      billed: parseFloat(p.total_amount_invoices) || 0,
+      leftToBill: parseFloat(p.total_left_to_bill) || 0,
       url: `https://app.hubspot.com/contacts/45979252/record/0-3/${d.id}`,
       inLedger: inLedgerFromProjects.has(String(d.id))
     };
@@ -210,6 +217,15 @@ const clean = v => (v === undefined || v === null || v === '') ? '' : String(v).
   console.log(`✔ Wrote ${out.length} deals (${out.length - nWon} open, ${nWon} won since ${wonFrom}).`);
   console.log(`  ${withItems} have line items (${out.length - withItems} cannot be forecast until sales adds them).`);
   console.log(`  ${withCompany} have an associated company.`);
+  const nJob = out.filter(d => d.jobCode).length;
+  const nBilled = out.filter(d => d.billed > 0).length;
+  console.log(`  ${nJob} carry a jobcode, ${nBilled} have QuickBooks billing totals.`);
+  // jobcodes that clearly are not jobcodes — someone pasted the wrong thing in
+  const badJob = out.filter(d => d.jobCode && (d.jobCode.length > 24 || /\s/.test(d.jobCode)));
+  if (badJob.length) {
+    console.log(`  ⚠ ${badJob.length} jobcode(s) look malformed:`);
+    badJob.slice(0, 5).forEach(d => console.log(`      ${d.name}: "${d.jobCode.slice(0, 60)}…"`));
+  }
   const noDates = out.filter(d => !d.campaignStart || !d.campaignEnd).length;
   if (noDates) console.log(`  ⚠ ${noDates} have no campaign dates.`);
   const stale = out.filter(d => d.closeDate && d.closeDate < new Date().toISOString().slice(0, 10)).length;
