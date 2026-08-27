@@ -195,7 +195,6 @@ button.confirm-armed { background: var(--rust) !important; color: #fff !importan
 .sc-empty { text-align: center; padding: 30px 20px; color: var(--slate); font-size: 12.5px; line-height: 1.7; }
 .sc-empty strong { display: block; font-family: var(--font-display); font-size: 14px; color: var(--ink); margin-bottom: 5px; font-weight: 600; }
 
-
 .sc-calc { margin-top: 12px; padding: 10px 12px; background: #fff; border: 1px solid var(--line); border-radius: 5px; font-family: var(--font-mono); font-size: 12px; line-height: 1.7; }
 .sc-calc strong { color: var(--brand); font-weight: 500; }
 .sc-calc-x { color: var(--slate); font-size: 11px; margin-left: 6px; }
@@ -292,29 +291,8 @@ input[type="month"].sc-ip { font-family: var(--font-mono); }
 .bulk-bar .bulk-hint { color: var(--slate); font-size: 10px; }
 th.sel-col, td.sel-col { width: 30px; text-align: center; }
 td.sel-col input, th.sel-col input { width: auto; margin: 0; cursor: pointer; }
-.fc-breakout > td { background: #f5f5f5; padding: 10px 16px 12px 40px; }
-.fc-head { display: flex; justify-content: space-between; align-items: center; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--slate); margin-bottom: 6px; gap: 10px; flex-wrap: wrap; }
-.fc-head button { font-size: 10px; padding: 4px 8px; }
-.fc-row { display: grid; grid-template-columns: minmax(160px, 1.4fr) 1fr 1.3fr 1fr 90px; gap: 10px; align-items: center; padding: 4px 0; border-bottom: 1px dashed #e3e3e3; font-size: 12px; }
-.fc-row:last-child { border-bottom: none; }
-.fc-name { font-family: var(--font-display); font-weight: 600; font-size: 12px; }
-.fc-basis { font-family: var(--font-mono); font-size: 9px; color: var(--slate); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
-.fc-dim { opacity: 0.75; }
+
 /* QuickBooks projects nested under their client in the month breakout */
-.fc-row.fc-sub { padding-left: 26px; border-bottom: 1px dotted #e8e8e8; font-size: 11px; }
-.fc-row.fc-sub .fc-name { font-family: var(--font-mono); font-size: 10.5px; font-weight: 400; color: var(--slate); position: relative; }
-.fc-row.fc-sub .fc-name::before { content: '\21B3'; position: absolute; left: -14px; color: #c3c3c3; }
-.fc-row.fc-sub .pb-num { font-size: 10.5px; color: var(--slate); }
-.fc-cols { border-bottom: 1px solid var(--line); padding-bottom: 3px; }
-.fc-col { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); cursor: pointer; user-select: none; }
-.fc-col:hover { color: var(--ink); }
-.fc-rev-input { width: 90px; border: 1px solid transparent; border-radius: 4px; padding: 3px 5px; font-family: var(--font-mono); font-size: 12px; background: transparent; color: var(--ink); font-weight: 700; }
-.fc-rev-input:hover { border-color: var(--line); background: var(--paper-raised); }
-.fc-rev-input:focus { outline: none; border-color: var(--brand); background: var(--paper-raised); }
-.fc-row.fc-billed { cursor: pointer; }
-.fc-row.fc-billed:hover { background: var(--mint); border-radius: 4px; }
-.fc-payroll { font-family: var(--font-mono); font-size: 10px; color: var(--slate); padding: 8px 0 0; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-@media (max-width: 860px) { .fc-row { grid-template-columns: 1fr 1fr; row-gap: 2px; } }
 
 table { width: 100%; border-collapse: collapse; background: var(--paper-raised); border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
 th { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
@@ -409,11 +387,7 @@ body.ro .nav-foot #clear-month-btn { display: none; }
 .proj-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 2px; margin-top: 4px; padding-left: 26px; }
 .proj-tags .bl-chip { margin-left: 0; }
 .proj-depts { font-family: var(--font-mono); font-size: 9px; color: var(--slate); }
-.fc-cost-months { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px; }
-.fc-cm { display: flex; flex-direction: column; gap: 2px; }
-.fc-cm-lbl { font-family: var(--font-mono); font-size: 9px; color: var(--slate); }
-.fc-cm input { border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; font-family: var(--font-mono); font-size: 10px; text-align: right; width: 100%; box-sizing: border-box; }
-.fc-year-lbl { font-family: var(--font-mono); font-size: 9px; font-weight: 700; color: var(--brand); margin: 8px 0 4px; letter-spacing: 0.05em; }
+
 .pj-month .pj-computed { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--ink); padding: 4px 0; }
 
 .mini-track.split { display: flex; overflow: hidden; }
@@ -421,9 +395,7 @@ body.ro .nav-foot #clear-month-btn { display: none; }
 .mini-track.split .seg-offplan { background: var(--rust); height: 100%; }
 .mini-track.split .seg-pto { background: repeating-linear-gradient(45deg, #fabf4d, #fabf4d 3px, #f3d38a 3px, #f3d38a 6px); height: 100%; }
 .offplan-note { font-family: var(--font-mono); font-size: 9px; color: var(--rust); margin-left: 4px; white-space: nowrap; }
-.fc-correct-input { width: 92px; border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; font-family: var(--font-mono); font-size: 12px; text-align: right; background: var(--paper-raised); }
-.fc-correct-input:focus { outline: none; border-color: var(--brand); }
-.fc-clear { border: none; background: none; color: var(--rust); cursor: pointer; font-size: 13px; padding: 0 2px; }
+
 #pm-comp-section { border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; background: var(--paper-raised); }
 .pm-comp-head { font-family: var(--font-display); font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 10px; display: flex; flex-direction: column; gap: 3px; }
 .pm-comp-row { display: grid; grid-template-columns: minmax(130px,1.1fr) minmax(130px,1.1fr) minmax(96px,0.8fr) minmax(96px,0.85fr) minmax(70px,0.55fr) 22px; gap: 8px; align-items: end; padding: 9px 0; border-bottom: 1px solid var(--line); }
@@ -431,11 +403,11 @@ body.ro .nav-foot #clear-month-btn { display: none; }
 .pm-comp-row > label { display: flex; flex-direction: column; gap: 3px; font-family: var(--font-mono); font-size: 9px; color: var(--slate); text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; min-width: 0; }
 .pm-grid .pm-comp-row input, .pm-grid .pm-comp-row select { display: block; margin-top: 0; border: 1px solid var(--line); border-radius: 4px; padding: 6px 7px; font-family: var(--font-mono); font-size: 12px; background: #fff; width: 100%; box-sizing: border-box; min-width: 0; }
 .pm-grid .pm-comp-row input:focus, .pm-grid .pm-comp-row select:focus { outline: none; border-color: var(--brand); }
-.pm-comp-row .fc-clear { align-self: center; font-size: 15px; line-height: 1; }
+
 .pm-comp-sub { font-family: var(--font-mono); font-size: 9px; color: var(--slate); text-transform: none; letter-spacing: 0; }
 @media (max-width: 760px) {
   .pm-comp-row { grid-template-columns: 1fr 1fr 1fr; }
-  .pm-comp-row .fc-clear { grid-column: 3; justify-self: end; }
+
 }
 .mini-track.split .seg { height: 100%; flex-shrink: 0; }
 .mini-track.split .seg-int { background: #0a493c; }
@@ -670,7 +642,6 @@ td.internal-cell .computed-sub { min-height: 13px; text-align: right; }
 .impact-warn { color: var(--amber); font-weight: 700; }
 .no-candidates { font-family: var(--font-mono); font-size: 12px; color: var(--slate); padding: 12px; text-align: center; }
 
-
 /* Import panel */
 .import-panel { border: 1px dashed var(--slate); border-radius: 6px; background: var(--paper-raised); padding: 18px; margin-bottom: 32px; display: none; }
 .import-panel.open { display: block; }
@@ -729,16 +700,11 @@ footer { margin-top: 30px; font-family: var(--font-mono); font-size: 10px; color
 .csum{font-family:var(--font-mono);font-size:10px;color:var(--slate);margin:0 0 4px}
 .csvg{padding:6px 12px 0}
 .csvg.scroll{overflow-x:auto;padding-bottom:6px}
-svg.sf-chart{width:100%;height:auto;display:block}
-svg.sf-chart .sf-ax{font-family:var(--font-mono);font-size:10px;fill:var(--slate)}
-svg.sf-chart .sf-bt{font-family:var(--font-mono);font-size:10.5px;fill:var(--brand)}
-svg.sf-chart .sf-pl{font-family:var(--font-mono);font-size:9px;fill:var(--slate)}
-svg.sf-chart rect:hover{opacity:.82}
 #tab-sales .legend{display:flex;flex-wrap:wrap;gap:8px 20px;margin:14px 0 0;padding:14px 22px 18px;border-top:1px solid var(--line);background:#f2f4f3;border-radius:0 0 8px 8px}
 #tab-sales .legend span{display:flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:10px}
 #tab-sales .legend i{width:11px;height:11px;border-radius:2px;flex:none}
 #tab-sales .legend em{font-style:normal;color:var(--slate);font-size:9px}
-.cover{font-family:var(--font-mono);font-size:11px;padding:10px 13px;border-radius:6px;margin:0 0 12px;line-height:1.6}
+
 .cover.good{background:var(--mint)}.cover.warn{background:#fdf3dc}.cover.bad{background:#fbe7e4}
 table.sf{width:100%;border-collapse:collapse;min-width:0}
 table.sf th{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:var(--slate);text-align:left;padding:9px 8px;border-bottom:1px solid var(--line)}
@@ -749,19 +715,11 @@ table.sf th.cl,table.sf td.cl{min-width:170px}
 table.sf th.pr,table.sf td.pr{min-width:88px;white-space:nowrap}
 table.sf th.fl,table.sf td.fl{min-width:64px;white-space:normal}
 table.sf th.num,table.sf td.num{min-width:54px}
-.sf-c td{background:#eef1f0;font-weight:700;font-family:var(--font-display);font-size:12.5px;border-top:1px solid var(--line)}
-.sf-c td.num{font-family:var(--font-mono);font-size:11.5px}
-.sf-d td.cl{padding-left:22px}.sf-d.dim td{opacity:.55}
-.sf-parts{font-size:9px;color:var(--slate);margin-top:2px}
+
 table.sf td.pr{font-size:10px;color:var(--slate)}
-.sf-p{display:inline-block;margin-left:5px;border-radius:3px;padding:0 4px;font-size:9px}
+
 table.sf td.tot{font-weight:700;color:var(--brand)}
-.sf-z{color:#c8c8c8}
-.sf-g td{background:var(--brand);color:#fff;font-weight:700}
-.sf-g td.tot{color:var(--teal)}
-.sf-flag{display:inline-block;font-size:8.5px;padding:1px 5px;border-radius:3px;margin:1px 2px 1px 0;white-space:nowrap}
-.sf-flag.t{background:var(--gold);color:#3a2c00}.sf-flag.w{background:#fbe7e4;color:var(--rust)}.sf-flag.i{background:#e6e6e6;color:var(--slate)}
-.sf-flag.ok{background:var(--mint);color:var(--brand);font-weight:700}
+
 .qb-block{background:#fff;border:1px solid var(--line);border-radius:6px;padding:9px 12px;margin-bottom:12px}
 .qb-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;
 font-family:var(--font-display);font-size:11.5px;font-weight:600;color:var(--brand);
@@ -774,14 +732,7 @@ padding:4px 0;font-family:var(--font-mono);font-size:11px;border-bottom:1px dash
 @media(max-width:1100px){.qb-row{grid-template-columns:1fr 1fr}}
 button.qb-ok{font-size:9.5px;padding:3px 9px;border-color:var(--brand);color:var(--brand);font-weight:600}
 button.qb-x{font-size:11px;padding:1px 6px;margin-left:4px;color:var(--slate)}
-button.sf-copy{font-size:9.5px;padding:3px 8px}
-#sales-won-panel:has(#sales-won:empty){display:none}
-.won-head{font-family:var(--font-display);font-size:13px;font-weight:600;color:var(--brand);padding:12px 14px 8px;display:flex;align-items:center;gap:8px}
-.won-n{background:var(--gold);color:#3a2c00;border-radius:10px;padding:1px 8px;font-family:var(--font-mono);font-size:10px}
-.won-sub{font-family:var(--font-mono);font-size:9.5px;color:var(--slate);font-weight:400}
-.won-act{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-button.sf-dismiss{font-size:9.5px;padding:3px 8px;color:var(--slate)}
-.won-hidden{padding:10px 14px;font-family:var(--font-mono);font-size:10px;color:var(--slate);border-top:1px solid var(--line)}
+
 button.linkish{border:none;background:none;color:var(--brand);text-decoration:underline;cursor:pointer;font-family:var(--font-mono);font-size:10px;padding:0 2px}
 .hs-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
 @media(max-width:900px){.hs-grid{grid-template-columns:1fr}}
@@ -829,7 +780,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
   table.sf th.cl,table.sf td.cl{min-width:130px}
   table.sf th.pr,table.sf td.pr{min-width:72px}
   table.sf th.num,table.sf td.num{min-width:46px}
-  .sf-parts{font-size:8.5px}
+
 }
 
 /* ===== Forecast Editor ===== */
@@ -849,42 +800,12 @@ table.fed th{font-family:var(--font-mono);font-size:8.5px;text-transform:upperca
 color:var(--slate);text-align:left;padding:7px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
 table.fed td{padding:3px 6px;border-bottom:1px solid #f2f2f2;font-family:var(--font-mono);font-size:11px;vertical-align:middle}
 table.fed th.num,table.fed td.num{text-align:right;min-width:62px;white-space:nowrap}
-th.fed-name,td.fed-name{min-width:230px}
-th.fed-fl,td.fed-fl{min-width:196px;white-space:nowrap}
-th.fed-settled{color:var(--brand)}
-.fed-client td{background:#eef1f0;font-family:var(--font-display);font-weight:700;font-size:12px;border-top:1px solid var(--line)}
-.fed-client td.num{font-family:var(--font-mono);font-size:11px}
-.fed-deal td.fed-name{padding-left:2px}
-td.fed-out{background:#fafafa}
-td.fed-act{color:var(--brand);font-weight:600}
-.fed-total td{background:var(--brand);color:#fff;font-weight:700}
-.fed-total td.tot{color:var(--teal)}
-input.fed-title{width:100%;max-width:200px;border:1px solid transparent;border-radius:4px;padding:2px 5px;
+
 font-family:var(--font-display);font-size:11.5px;font-weight:600;background:transparent;color:var(--ink)}
-input.fed-title:hover{border-color:var(--line);background:#fff}
-input.fed-title:focus{outline:none;border-color:var(--brand);background:#fff}
-.fed-tag{margin-left:5px;font-family:var(--font-mono);font-size:8px;background:#eee;color:var(--slate);border-radius:3px;padding:1px 5px}
-.fed-fl input[type=month]{width:92px;border:1px solid var(--line);border-radius:4px;padding:2px 4px;
-font-family:var(--font-mono);font-size:10px;background:#fff}
-.fed-fl input[type=month]:focus{outline:none;border-color:var(--brand)}
-.fed-edit>td{background:#f7f8f8;padding:10px 14px 12px 26px}
-.fed-panel{max-width:100%}
-.fed-add{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:9px}
-.fed-add select{border:1px solid var(--line);border-radius:5px;padding:4px 8px;font-family:var(--font-mono);font-size:10.5px;background:#fff}
-.fed-ach{font-family:var(--font-mono);font-size:10px;color:var(--brand);background:var(--mint);border-radius:4px;padding:3px 8px}
-.fed-empty{font-family:var(--font-mono);font-size:11px;color:var(--slate);padding:8px 2px}
-table.fed-grid{width:100%;border-collapse:collapse}
-table.fed-grid th{font-family:var(--font-mono);font-size:8px;text-transform:uppercase;letter-spacing:.05em;
+
 color:var(--slate);text-align:left;padding:4px 4px;border-bottom:1px solid var(--line);white-space:nowrap}
-table.fed-grid td{padding:2px 4px;border-bottom:1px solid #eee;font-family:var(--font-mono);font-size:10.5px}
-table.fed-grid th.num,table.fed-grid td.num{text-align:right}
-td.fed-lock{background:#f2f4f3}
-input.fed-n{width:66px;border:1px solid var(--line);border-radius:4px;padding:2px 4px;
 font-family:var(--font-mono);font-size:10px;text-align:right;background:#fff}
-input.fed-n.sm{width:46px}
-input.fed-n:focus{outline:none;border-color:var(--brand)}
-.fed-sum td{background:var(--mint);font-weight:700;border-top:1px solid var(--line)}
-.fed-fc{font-size:8px;color:var(--slate);font-weight:400}
+
 </style>
 </head>
 <body>
@@ -948,8 +869,6 @@ input.fed-n:focus{outline:none;border-color:var(--brand)}
     </div>
   </div>
 
-
-
   <div class="shell">
   <nav class="sidebar" id="sidebar">
     <button class="nav-toggle" id="nav-toggle" title="Collapse or expand the sidebar (also hidden on narrow screens)"><span id="nav-toggle-ico">‹</span><span class="nav-label">Collapse</span></button>
@@ -965,9 +884,6 @@ input.fed-n:focus{outline:none;border-color:var(--brand)}
     </div>
     <div class="nav-group">
       <div class="nav-group-t">Operations</div>
-      <a class="nav-item" data-tab="forecast" href="#/forecast" title="Forecast"><span class="nav-ico">◐</span><span class="nav-label">Forecast</span></a>
-      <a class="nav-item" data-tab="sales" href="#/sales" title="Sales Forecast"><span class="nav-ico">◭</span><span class="nav-label">Sales Forecast</span></a>
-      <a class="nav-item" data-tab="editor" href="#/editor" title="Forecast Editor"><span class="nav-ico">▦</span><span class="nav-label">Forecast Editor</span></a>
       <a class="nav-item" data-tab="scoping" href="#/scoping" title="Scoping"><span class="nav-ico">◇</span><span class="nav-label">Scoping</span></a>
     </div>
     <div class="nav-group">
@@ -978,7 +894,7 @@ input.fed-n:focus{outline:none;border-color:var(--brand)}
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2345 · 27 Aug 2026 23:45 UTC</div>
+      <div class="ver-tag">build b0827-2350 · 27 Aug 2026 23:50 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -1030,51 +946,6 @@ input.fed-n:focus{outline:none;border-color:var(--brand)}
     </section>
   </div>
 
-  <div class="tab-section" id="tab-forecast">
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Revenue forecast</h2>
-        <span style="font-family:var(--font-mono); font-size:11px; color:var(--slate);">dark = confirmed actual · light = forecasted · mark months as actual on the Projects tab or in a project's ✎ editor</span>
-      </div>
-      <div class="filter-bar">
-        <label>from <input type="month" id="fc-from"></label>
-        <label>to <input type="month" id="fc-to"></label>
-        <button class="ghost" id="fc-range-clear">All months</button>
-      </div>
-      <div class="chart-card" style="margin-bottom:16px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
-          <h4 style="margin:0;">Revenue · COGS · labour · other expenses · line = net profit — measured from QuickBooks once a month is over, projected before that</h4>
-          <button class="ghost" id="fc-costs-toggle" style="display:none;">Fixed costs ▸</button>
-        </div>
-        <div id="fc-costs-panel" style="display:none; border:1px solid var(--line); border-radius:6px; padding:12px 14px; margin:10px 0 4px; background:var(--paper-raised);">
-          <div style="font-family:var(--font-mono); font-size:10px; color:var(--slate); margin-bottom:8px;">Monthly fixed costs — operational cost, non-hour-tracked labor, etc. Applied to every month and subtracted from the expected-profit line only. Doesn't change per-project economics.</div>
-          <div id="fc-costs-list"></div>
-          <button class="ghost" id="fc-cost-add" style="margin-top:8px;">+ Add fixed cost</button>
-          <div id="fc-costs-total" style="font-family:var(--font-mono); font-size:11px; font-weight:700; color:var(--brand); margin-top:8px;"></div>
-          <div style="border-top:1px solid var(--line); margin:14px 0 10px;"></div>
-          <div style="font-family:var(--font-mono); font-size:10px; color:var(--slate); margin-bottom:8px;">Past-month corrections — override a settled month's total actual revenue or labor cost when the imported data is missing or wrong. Overrides replace the computed figure and persist over syncs until cleared.</div>
-          <div id="fc-corrections-list"></div>
-        </div>
-        <div class="chart-wrap" style="height:300px;"><canvas id="chart-forecast"></canvas></div>
-      </div>
-      <table>
-        <thead><tr>
-          <th style="width:26px;"></th>
-          <th>Month</th>
-          <th class="num-col">Revenue billed</th>
-          <th class="num-col">COGS</th>
-          <th class="num-col">Forecast GP</th>
-          <th class="num-col">Actual GP</th>
-          <th class="num-col">Variance</th>
-          <th class="num-col">Expenses</th>
-          <th class="num-col">Net profit</th>
-          <th>Basis</th>
-        </tr></thead>
-        <tbody id="forecast-tbody"></tbody>
-      </table>
-    </section>
-  </div>
-
   <div class="tab-section" id="tab-team">
     <section class="panel">
       <div class="panel-head">
@@ -1114,19 +985,6 @@ input.fed-n:focus{outline:none;border-color:var(--brand)}
     </div>
     <div id="scoping-body"></div>
     <div id="scoping-modal" class="sc-modal" style="display:none;"></div>
-  </div>
-  <div class="tab-section" id="tab-editor">
-    <section class="panel"><div class="range" id="fed-controls"></div><div id="fed-body"></div></section>
-  </div>
-
-  <div class="tab-section" id="tab-sales">
-    <section class="panel chartpanel" id="sales-chart-panel">
-      <div class="range" id="sales-range"></div>
-      <div id="sales-chart"></div>
-    </section>
-    <div id="sales-coverage"></div>
-    <section class="panel" id="sales-won-panel"><div id="sales-won"></div></section>
-    <section class="panel"><div id="sales-grid"></div></section>
   </div>
 
   <div class="tab-section" id="tab-settings">
@@ -1314,7 +1172,7 @@ let state = {
 
 let ui = {
   tab: (function(){ const h = String(location.hash||'').replace(/^#\/?/, '').trim();
-    return ['dashboard','team','projects','plan','forecast','scoping'].indexOf(h) >= 0 ? h : 'dashboard'; })(),
+    return ['dashboard','team','projects','plan','scoping'].indexOf(h) >= 0 ? h : 'dashboard'; })(),
   period: {mode: 'month', start: '', end: ''},
   teamSearch: '', teamDept: '', teamSort: {key: null, dir: 1},
   demandSearch: '',
@@ -1424,8 +1282,6 @@ function setTab(tab, skipHash) {
   if (!skipHash) { const want = '#/' + tab; if (location.hash !== want) location.hash = want; }
   if (tab === 'scoping') renderScoping();
   if (tab === 'settings') renderSettings();
-  if (tab === 'sales') renderSales();
-  if (tab === 'editor') renderForecastEditor();
   window.scrollTo(0, 0);
 }
 
@@ -1857,15 +1713,6 @@ const HS_DEFAULT_MAP = {
   'planning':                ['retainer','flat'],
   'dashboard':               ['retainer','flat']
 };
-const HS_STAGE = {
-  qualifiedtobuy:        { n:'Prospecting',            p:0.10, c:'#e0d3ad' },
-  presentationscheduled: { n:'Proposal / RFP Received', p:0.40, c:'#fabf4d' },
-  '192867995':           { n:'Proposal Submitted',      p:0.50, c:'#7dd8bd' },
-  '233641553':           { n:'Positive Feedback',       p:0.70, c:'#3bc9ac' },
-  '1279041112':          { n:'Verbal Approval',         p:0.90, c:'#19a789' }
-};
-const HS_ORDER = ['1279041112','233641553','192867995','presentationscheduled','qualifiedtobuy'];
-const LEDGER_GREEN = '#0a493c';
 
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 function hsConfig() {
@@ -1882,282 +1729,10 @@ function hsConfig() {
   return c;
 }
 function hsPipeline() { return state.salesPipeline || { deals: [], syncedAt: null }; }
-function dealInLedger(id) { return (state.projects || []).some(p => String(p.hubspotDealId) === String(id)); }
 // Deals marked as handled by hand. Kept outside state.salesPipeline because the sync
 // replaces that object every night — a flag on the deal itself would not survive.
-function dismissedDeals() { if (!state.salesDismissed) state.salesDismissed = {}; return state.salesDismissed; }
-function dismissDeal(id) {
-  const d = hsPipeline().deals.find(x => String(x.id) === String(id));
-  dismissedDeals()[String(id)] = { at: todayISO(), name: d ? d.name : '' };
-  scheduleSave(); renderSales();
-  toast('Removed from the list. It will stay off unless you restore it — use “show” under the list.', 7000);
-}
-function restoreDeal(id) { delete dismissedDeals()[String(id)]; scheduleSave(); renderSales(); }
-
-// Ledger-shaped GP for one deal, using the same rules as lineGP.
-function hsDealGP(items, cfg) {
-  const g = {}, flags = [], parts = [];
-  (items || []).forEach(it => {
-    const nm = Array.isArray(it) ? it[0] : it.name;
-    const amt = +(Array.isArray(it) ? it[1] : it.amount) || 0;
-    const key = String(nm || '').split(':').pop().trim().toLowerCase();
-    const m = cfg.mapping[key];
-    if (!m) { flags.push('unmapped: ' + nm); return; }
-    const [type, role] = m;
-    const b = (g[type] = g[type] || { budget: 0, fee: 0, flat: 0 });
-    b[role === 'budget' ? 'budget' : role === 'fee' ? 'fee' : 'flat'] += amt;
-  });
-  let gp = 0;
-  Object.entries(g).forEach(([type, v]) => {
-    if (type === 'search' || type === 'social') {
-      if (v.budget > 0) {
-        const pct = v.fee / v.budget * 100;
-        gp += v.budget * pct / 100;
-        parts.push(type + ' ' + pct.toFixed(1) + '% of ' + fmtMoney(v.budget));
-        if (v.fee <= 0) flags.push(type + ' media with no fee line');
-      } else if (v.fee > 0) { gp += v.fee; parts.push(type + ' fee ' + fmtMoney(v.fee)); }
-      gp += v.flat;
-    } else if (type === 'programmatic') {
-      if (v.budget > 0) {
-        const pct = v.fee > 0 ? v.fee / v.budget * 100 : 0;
-        const rate = pct + (+cfg.progMargin || 0);
-        gp += v.budget * rate / 100;
-        parts.push('programmatic ' + rate.toFixed(1) + '% of ' + fmtMoney(v.budget) + (v.fee > 0 ? '' : ' (margin only)'));
-      } else if (v.fee > 0) { gp += v.fee; parts.push('programmatic fee ' + fmtMoney(v.fee)); flags.push('programmatic fee with no media line'); }
-      gp += v.flat;
-    } else {
-      const t = v.flat + v.fee + v.budget;
-      gp += t; parts.push(type + ' ' + fmtMoney(t));
-    }
-  });
-  return { gp, parts, flags };
-}
-
-function hsClientOf(d, cfg) {
-  const raw = d.company || String(d.name || '').split(' - ')[0].trim();
-  const alias = cfg.aliases[String(raw).trim().toLowerCase()];
-  return alias || raw || 'Unknown';
-}
-
-function hsRows() {
-  const cfg = hsConfig(), today = todayISO();
-  return hsPipeline().deals.map(d => {
-    const st = HS_STAGE[d.stage] || { n: d.stageLabel || 'Unknown', p: +d.prob || 0, c: '#ccc' };
-    const { gp, parts, flags } = hsDealGP(d.items, cfg);
-    const f = [...flags];
-    if (!d.items || !d.items.length) f.push('no line items');
-    if (d.closeDate && d.closeDate < today) f.push('close date passed');
-    if (d.campaignStart && d.campaignStart < today) f.push('start date passed');
-    if (!d.campaignStart || !d.campaignEnd) f.push('no campaign dates');
-    if (d.campaignStart && d.campaignEnd && d.campaignEnd < d.campaignStart) f.push('campaign ends before it starts');
-    if (!d.company) f.push('no company on deal');
-    let months = [];
-    if (d.campaignStart && d.campaignEnd && d.campaignEnd >= d.campaignStart) {
-      let c = d.campaignStart.slice(0, 7); const e = d.campaignEnd.slice(0, 7); let g = 0;
-      while (c <= e && g < 60) { months.push(c); c = shiftMonth(c, 1); g++; }
-    } else if (d.closeDate) months = [d.closeDate.slice(0, 7)];
-    const bits = String(d.name || '').split(' - ');
-    return { id: d.id, client: hsClientOf(d, cfg), rest: bits.slice(1).join(' - ') || d.name,
-             stage: st.n, skey: d.stage, prob: st.p, colour: st.c, gp, parts, flags: f, months,
-             inLedger: dealInLedger(d.id), won: !!d.won, url: d.url, campaignStart: d.campaignStart,
-             closeDate: d.closeDate,
-             forecastable: gp > 0 && months.length > 0 && st.p >= (cfg.minProb || 0) && !d.inLedger && !d.won };
-  });
-}
-
-// Revenue already committed in the ledger for a month — the real baseline.
-function committedGP(mk) {
-  return state.projects.reduce((sum, p) => projectActiveInMonth(p, mk) ? sum + revenueFor(p, mk) : sum, 0);
-}
 
 
-let salesUI = { weighted: true, showAll: false, from: null, to: null, chart: true, showDismissed: false };
-
-// Condensed money for dense tables and charts — $172k, $1.2M. Exact value goes in the
-// cell's title so it is always one hover away.
-function fmtShort(n) {
-  const a = Math.abs(n);
-  if (a >= 1000000) return '$' + (n / 1000000).toFixed(a >= 10000000 ? 0 : 1).replace(/\.0$/, '') + 'M';
-  if (a >= 1000) return '$' + Math.round(n / 1000) + 'k';
-  return '$' + Math.round(n);
-}
-const cash = n => `<span title="${fmtMoney(n)}">${fmtShort(n)}</span>`;
-
-function renderSales() {
-  const cfg = hsConfig(), pipe = hsPipeline();
-  const rows = hsRows();
-  if (!salesUI.from) { salesUI.from = currentMonth; salesUI.to = shiftMonth(currentMonth, 5); }
-  if (salesUI.to < salesUI.from) salesUI.to = salesUI.from;
-  const cols = []; { let c = salesUI.from, g = 0; while (c <= salesUI.to && g < 48) { cols.push(c); c = shiftMonth(c, 1); g++; } }
-  const shown = rows.filter(r => salesUI.showAll || r.forecastable);
-
-  // ---- controls ----
-  const span = cols.length;
-  document.getElementById('sales-range').innerHTML =
-    `<span class="rl">Range</span>
-     <input type="month" data-role="sf-from" value="${salesUI.from}">
-     <span class="rd">to</span>
-     <input type="month" data-role="sf-to" value="${salesUI.to}">
-     <span class="rp">${[3,6,12,18,24].map(n=>`<button class="seg${span===n?' on':''}" data-sf-span="${n}">${n}mo</button>`).join('')}</span>
-     <span class="rsep"></span>
-     <span class="rp">
-       <button class="seg${salesUI.weighted?' on':''}" data-sf-w="1">Weighted</button>
-       <button class="seg${!salesUI.weighted?' on':''}" data-sf-w="0">Total</button>
-     </span>
-     <span class="rp">
-       <button class="seg${!salesUI.showAll?' on':''}" data-sf-all="0">Forecastable</button>
-       <button class="seg${salesUI.showAll?' on':''}" data-sf-all="1">All deals</button>
-     </span>
-     <span class="rsep"></span>
-     <button class="seg" data-sf-today="1">Today</button>
-     <button class="seg" data-sf-chart="1">${salesUI.chart ? 'Hide chart' : 'Show chart'}</button>`;
-
-  // ---- empty state ----
-  if (!pipe.deals.length) {
-    document.getElementById('sales-chart-panel').classList.add('collapsed');
-    document.getElementById('sales-chart').innerHTML = '';
-    document.getElementById('sales-coverage').innerHTML =
-      `<div class="cover warn"><b>No pipeline data yet.</b> ${cfg.enabled
-        ? 'The HubSpot sync is switched on but has not written anything — check the last run under Settings.'
-        : 'Connect HubSpot under Settings → HubSpot pipeline sync to pull open deals in.'}</div>`;
-    document.getElementById('sales-won').innerHTML = '';
-    document.getElementById('sales-grid').innerHTML =
-      '<div class="empty-note" style="padding:34px;text-align:center;">Nothing to show until the first sync runs.</div>';
-    return;
-  }
-
-  // ---- chart ----
-  const panel = document.getElementById('sales-chart-panel');
-  panel.classList.toggle('collapsed', !salesUI.chart);
-  document.getElementById('sales-chart').innerHTML = salesUI.chart ? salesChartSvg(cols, shown) : '';
-
-  // ---- coverage ----
-  const nF = rows.filter(r => r.forecastable).length;
-  const noLI = rows.filter(r => r.flags.includes('no line items')).length;
-  const stale = rows.filter(r => r.flags.includes('close date passed')).length;
-  const inLed = rows.filter(r => r.inLedger).length;
-  const pct = rows.length ? Math.round(nF / rows.length * 100) : 0;
-  const cv = document.getElementById('sales-coverage');
-  cv.className = 'cover ' + (pct < 25 ? 'bad' : pct < 75 ? 'warn' : 'good');
-  cv.innerHTML = `<b>${nF} of ${rows.length} deals can be forecast (${pct}%).</b> ` +
-    (noLI ? `${noLI} have no line items in HubSpot and contribute nothing until sales adds them. ` : '') +
-    (stale ? `${stale} are past their close date. ` : '') +
-    (inLed ? `${inLed} already copied to the ledger. ` : '') +
-    (pipe.syncedAt ? `Last synced ${new Date(pipe.syncedAt).toLocaleString()}.` : '');
-
-  // ---- won deals waiting to be copied ----
-  const retainFrom = new Date(Date.now() - (cfg.wonRetainDays || 60) * 86400000).toISOString().slice(0, 10);
-  const wonFrom = retainFrom > cfg.wonCutover ? retainFrom : cfg.wonCutover;
-  const dism = dismissedDeals();
-  const inWindow = r => r.won && !r.inLedger && (!r.closeDate || r.closeDate >= wonFrom);
-  const won = rows.filter(r => inWindow(r) && !dism[String(r.id)]);
-  const hidden = rows.filter(r => inWindow(r) && dism[String(r.id)]);
-  const wonRow = r =>
-    `<tr class="sf-d"><td class="cl"><b>${escapeHtml(r.client)}</b> · ${escapeHtml(r.rest)}` +
-    (r.parts.length ? `<div class="sf-parts">${escapeHtml(r.parts.join(' · '))}</div>` : '') + '</td>' +
-    `<td class="num tot">${r.gp ? cash(r.gp) : '—'}</td>` +
-    `<td class="fl">${r.campaignStart ? escapeHtml(r.campaignStart) + ' →' : '<span class="sf-flag w">no campaign dates</span>'}</td>` +
-    `<td class="fl won-act">${r.gp > 0
-      ? `<button class="ghost sf-copy" data-role="sf-copy" data-id="${r.id}">Copy to ledger</button>`
-      : '<span class="sf-flag w">no line items — add them in HubSpot first</span>'}` +
-    `<button class="ghost sf-dismiss" data-role="sf-dismiss" data-id="${r.id}" title="Already added by hand — take it off this list">Already added</button></td></tr>`;
-  document.getElementById('sales-won').innerHTML = (won.length || hidden.length) ? (
-    (won.length ? `<div class="won-head">Won — ready to copy into the ledger <span class="won-n">${won.length}</span>` +
-      `<span class="won-sub">won on or after ${wonFrom} · kept for ${cfg.wonRetainDays || 60} days</span></div>` +
-      '<table class="sf"><tbody>' + won.map(wonRow).join('') + '</tbody></table>' : '') +
-    (hidden.length ? `<div class="won-hidden">${hidden.length} removed by hand ` +
-      `<button class="linkish" data-role="sf-show-dismissed">${salesUI.showDismissed ? 'hide' : 'show'}</button>` +
-      (salesUI.showDismissed ? '<table class="sf"><tbody>' + hidden.map(r =>
-        `<tr class="sf-d dim"><td class="cl">${escapeHtml(r.client)} · ${escapeHtml(r.rest)}</td>` +
-        `<td class="num tot">${r.gp ? cash(r.gp) : '—'}</td>` +
-        `<td class="fl"><span class="sf-flag i">removed ${escapeHtml((dism[String(r.id)] || {}).at || '')}</span></td>` +
-        `<td class="fl"><button class="ghost" data-role="sf-restore" data-id="${r.id}">Restore</button></td></tr>`
-      ).join('') + '</tbody></table>' : '') + '</div>' : '')) : '';
-
-  // ---- grid ----
-  const by = {}; shown.forEach(r => (by[r.client] = by[r.client] || []).push(r));
-  const val = r => r.gp * (salesUI.weighted ? r.prob : 1);
-  const clients = Object.keys(by).sort((a, b) =>
-    by[b].reduce((s, r) => s + val(r), 0) - by[a].reduce((s, r) => s + val(r), 0));
-
-  const FLAG_SHORT = { 'close date passed':'date', 'start date passed':'started', 'no line items':'no items',
-    'no campaign dates':'no dates', 'no company on deal':'no co.', 'campaign ends before it starts':'bad dates',
-    'programmatic fee with no media line':'no media', 'search media with no fee line':'no fee',
-    'social media with no fee line':'no fee' };
-  const flagChip = f => { const short = FLAG_SHORT[f] || (f.startsWith('unmapped') ? 'unmapped' : f);
-    return `<span class="sf-flag ${/passed|before|started/.test(f) ? 't' : 'w'}" title="${escapeAttr(f)}">${escapeHtml(short)}</span>`; };
-  let h = '<table class="sf"><thead><tr><th class="cl">Client / deal</th><th class="pr">Stage</th>' +
-    cols.map(c => `<th class="num">${monthShort(c)}</th>`).join('') +
-    '<th class="num tot">Total</th><th class="fl">Flags</th></tr></thead><tbody>';
-  const colTot = {}; let grand = 0;
-  clients.forEach(cn => {
-    const ds = by[cn], cT = {}; let cS = 0;
-    ds.forEach(r => { const per = r.months.length ? val(r) / r.months.length : 0;
-      r.months.forEach(m => { cT[m] = (cT[m] || 0) + per; }); cS += val(r); });
-    cols.forEach(c => { colTot[c] = (colTot[c] || 0) + (cT[c] || 0); }); grand += cS;
-    h += `<tr class="sf-c"><td class="cl">${escapeHtml(cn)}</td><td></td>` +
-      cols.map(c => `<td class="num">${cT[c] ? cash(cT[c]) : '<span class="sf-z">·</span>'}</td>`).join('') +
-      `<td class="num tot">${cash(cS)}</td><td></td></tr>`;
-    ds.sort((a, b) => val(b) - val(a)).forEach(r => {
-      const per = r.months.length ? val(r) / r.months.length : 0;
-      h += `<tr class="sf-d${r.forecastable ? '' : ' dim'}"><td class="cl">${escapeHtml(r.rest)}` +
-        (r.parts.length ? `<div class="sf-parts">${escapeHtml(r.parts.join(' · '))}</div>` : '') + `</td>` +
-        `<td class="pr">${escapeHtml(r.stage)}<span class="sf-p" style="background:${r.colour};color:${r.prob>=0.5?'#06342b':'#3a2c00'}">${Math.round(r.prob*100)}%</span></td>` +
-        cols.map(c => `<td class="num">${r.months.includes(c) && per ? cash(per) : '<span class="sf-z">·</span>'}</td>`).join('') +
-        `<td class="num tot">${val(r) ? cash(val(r)) : '—'}</td>` +
-        `<td class="fl">${r.inLedger ? '<span class="sf-flag i">in ledger</span>' : ''}` +
-        r.flags.slice(0, 2).map(flagChip).join('') +
-        (r.flags.length > 2 ? `<span class="sf-flag i" title="${escapeAttr(r.flags.slice(2).join(' · '))}">+${r.flags.length-2}</span>` : '') +
-        `</td></tr>`;
-    });
-  });
-  h += `<tr class="sf-g"><td class="cl">Pipeline total — ${salesUI.weighted ? 'weighted' : 'unweighted'}</td><td></td>` +
-    cols.map(c => `<td class="num">${cash(colTot[c] || 0)}</td>`).join('') +
-    `<td class="num tot">${cash(grand)}</td><td></td></tr></tbody></table>`;
-  document.getElementById('sales-grid').innerHTML = shown.length ? h :
-    '<div class="empty-note" style="padding:34px;text-align:center;">No forecastable deals in this window. Switch to “All deals” to see what is blocking them.</div>';
-}
-
-function salesChartSvg(cols, shown) {
-  const n = cols.length;
-  const W = Math.max(1080, Math.round(74 * n) + 90), H = 318, PL = 74, PR = 22, PT = 26, PB = 56;
-  const IW = W - PL - PR, IH = H - PT - PB, dense = n > 10, verydense = n > 16;
-  const data = cols.map(c => {
-    const byS = {}; HS_ORDER.forEach(k => byS[k] = 0);
-    shown.forEach(r => { if (!r.months.includes(c) || !r.gp) return;
-      byS[r.skey] = (byS[r.skey] || 0) + r.gp * (salesUI.weighted ? r.prob : 1) / r.months.length; });
-    return { c, ledger: committedGP(c), byS, pipe: Object.values(byS).reduce((a, b) => a + b, 0) };
-  });
-  const max = Math.max(1, ...data.map(d => d.ledger + d.pipe));
-  const step = max > 1200000 ? 400000 : max > 600000 ? 200000 : max > 200000 ? 100000 : max > 60000 ? 20000 : 10000;
-  const top = Math.ceil(max / step) * step, y = v => PT + IH - (v / top) * IH;
-  const bw = Math.min(96, IW / n * 0.6), gap = IW / n;
-  let g = '';
-  for (let v = 0; v <= top; v += step)
-    g += `<line x1="${PL}" x2="${W-PR}" y1="${y(v)}" y2="${y(v)}" stroke="${v===0?'#c4c4c4':'#e6e6e6'}"/>` +
-         `<text x="${PL-12}" y="${y(v)+3.5}" text-anchor="end" class="sf-ax">$${(v/1000).toLocaleString()}k</text>`;
-  data.forEach((d, i) => {
-    const cx = PL + gap * i + gap / 2, x = cx - bw / 2; let acc = 0;
-    if (d.ledger > 0) { acc += d.ledger;
-      g += `<rect x="${x}" y="${y(acc)}" width="${bw}" height="${(d.ledger/top)*IH}" fill="${LEDGER_GREEN}"><title>Committed ${fmtMoney(d.ledger)}</title></rect>`; }
-    HS_ORDER.forEach(k => { const v = d.byS[k]; if (!v) return;
-      const yt = y(acc + v); acc += v;
-      g += `<rect x="${x}" y="${yt}" width="${bw}" height="${(v/top)*IH}" fill="${(HS_STAGE[k]||{}).c||'#ccc'}"><title>${(HS_STAGE[k]||{}).n} ${fmtMoney(v)}</title></rect>`; });
-    // Totals always show — abbreviated and smaller when the window is long, never dropped.
-    if (acc > 0) g += `<text x="${cx}" y="${y(acc)-7}" text-anchor="middle" class="sf-bt"` +
-      (dense ? ' style="font-size:9px"' : '') + `>${dense ? fmtShort(acc) : fmtMoney(acc)}</text>`;
-    if (!verydense || i % 2 === 0) g += `<text x="${cx}" y="${H-33}" text-anchor="middle" class="sf-ax">${monthShort(d.c)}</text>`;
-    if (d.pipe > 0) g += `<text x="${cx}" y="${H-18}" text-anchor="middle" class="sf-pl"` +
-      (dense ? ' style="font-size:8px"' : '') + `>+${dense ? fmtShort(d.pipe) : fmtMoney(d.pipe)}</text>`;
-  });
-  const t = data.reduce((a, d) => ({ l: a.l + d.ledger, p: a.p + d.pipe }), { l: 0, p: 0 });
-  const wide = W > 1240;
-  return `<div class="chead"><h3>Committed revenue plus pipeline — ${salesUI.weighted ? 'weighted by stage' : 'total value at 100%'}</h3>` +
-    `<div class="csum">${n} months · committed ${fmtMoney(t.l)} · pipeline ${fmtMoney(t.p)} · total ${fmtMoney(t.l+t.p)}</div></div>` +
-    `<div class="csvg${wide?' scroll':''}"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" class="sf-chart"${wide?` style="width:${W}px"`:''}>${g}</svg></div>` +
-    `<div class="legend"><span><i style="background:${LEDGER_GREEN}"></i>Committed in ledger</span>` +
-    HS_ORDER.map(k => `<span><i style="background:${HS_STAGE[k].c}"></i>${HS_STAGE[k].n} <em>${Math.round(HS_STAGE[k].p*100)}%</em></span>`).join('') + '</div>';
-}
 
 // Turn a won deal into a real project with ledger-shaped billing lines.
 function salesCopyToLedger(id) {
@@ -2732,185 +2307,13 @@ function clearClientBilling() {
 
    The Forecast tab answers "how is the business tracking". This answers "is each deal's
    forward number still right", which is a different job done by different people. */
-let fedOpen = {}, fedFrom = null, fedTo = null, fedHidePast = true;
 
-function fedMonths() {
-  const from = fedFrom || shiftMonth(currentMonth, -2);
-  const to = fedTo || shiftMonth(from, 11);
-  const out = []; let c = from, g = 0;
-  while (c <= to && g < 24) { out.push(c); c = shiftMonth(c, 1); g++; }
-  return out;
-}
 
-function renderForecastEditor() {
-  const el = document.getElementById('fed-body');
-  if (!el) return;
-  const months = fedMonths();
-  const all = deals();
-
-  // controls
-  const ctl = document.getElementById('fed-controls');
-  if (ctl) ctl.innerHTML =
-    `<span class="rl">Range</span>
-     <input type="month" data-role="fed-from" value="${fedFrom || shiftMonth(currentMonth, -2)}">
-     <span class="rd">to</span>
-     <input type="month" data-role="fed-to" value="${fedTo || shiftMonth(fedFrom || shiftMonth(currentMonth, -2), 11)}">
-     <span class="rp">
-       <button class="seg${fedHidePast ? ' on' : ''}" data-role="fed-active">Live &amp; upcoming</button>
-       <button class="seg${fedHidePast ? '' : ' on'}" data-role="fed-all">Everything</button>
-     </span>
-     <span class="grow"></span>
-     <span class="pmeta" id="fed-summary"></span>`;
-
-  if (!all.length) {
-    el.innerHTML = `<div class="cover warn"><b>No deals yet.</b> Build them from QuickBooks in Settings → Deals, or copy a won deal across from the Sales Forecast.</div>`;
-    return;
-  }
-
-  const clientName = id => (state.projects.find(p => p.id === id) || {}).name || 'Unassigned';
-  const lastMonth = months[months.length - 1];
-  // "Live & upcoming" hides deals that finished before the window opens — most of the
-  // backfilled ones — so the page is about the forward book rather than the archive.
-  const visible = all.filter(d => !fedHidePast || !d.endMonth || d.endMonth >= months[0]);
-
-  const byClient = {};
-  visible.forEach(d => (byClient[d.clientId] = byClient[d.clientId] || []).push(d));
-
-  let html = '<table class="fed"><thead><tr><th class="fed-name">Account / deal</th><th class="fed-fl">Flight</th>' +
-    months.map(m => `<th class="num${qbCovers(m) ? ' fed-settled' : ''}">${monthShort(m)}</th>`).join('') +
-    '<th class="num tot">Total</th><th class="num">Accuracy</th></tr></thead><tbody>';
-
-  const colTot = {}; let grand = 0, accTot = 0, accN = 0;
-
-  Object.keys(byClient).sort((a, b) => clientName(a).localeCompare(clientName(b))).forEach(cid => {
-    const ds = byClient[cid].sort((a, b) => (b.endMonth || '').localeCompare(a.endMonth || ''));
-    const cT = {}; let cSum = 0, cAcc = 0, cAccN = 0;
-    ds.forEach(d => months.forEach(m => {
-      const v = fedValue(d, m); cT[m] = (cT[m] || 0) + v.amount; cSum += v.amount;
-      if (v.accuracy !== null) { cAcc += v.accuracy; cAccN++; }
-    }));
-    months.forEach(m => { colTot[m] = (colTot[m] || 0) + (cT[m] || 0); });
-    grand += cSum; accTot += cAcc; accN += cAccN;
-
-    html += `<tr class="fed-client"><td class="fed-name">${escapeHtml(clientName(cid))}<span class="pmeta"> · ${ds.length}</span></td><td></td>` +
-      months.map(m => `<td class="num">${cT[m] ? fmtShort(cT[m]) : '<span class="sf-z">·</span>'}</td>`).join('') +
-      `<td class="num tot">${fmtShort(cSum)}</td><td class="num">${cAccN ? accCell(cAcc) : '<span class="sf-z">·</span>'}</td></tr>`;
-
-    ds.forEach(d => {
-      const open = !!fedOpen[d.id];
-      let dSum = 0, dAcc = 0, dAccN = 0;
-      const cells = months.map(m => {
-        const v = fedValue(d, m);
-        dSum += v.amount;
-        if (v.accuracy !== null) { dAcc += v.accuracy; dAccN++; }
-        if (!v.inFlight && !v.amount) return '<td class="num fed-out"><span class="sf-z">·</span></td>';
-        return `<td class="num${v.settled ? ' fed-act' : ''}" title="${v.settled ? 'Actual. Forecast was ' + fmtMoney(v.forecast) : 'Forecast'}">${fmtShort(v.amount)}</td>`;
-      }).join('');
-      html += `<tr class="fed-deal"><td class="fed-name">
-          <button class="expand-btn" data-role="fed-toggle" data-id="${d.id}">${open ? '▾' : '▸'}</button>
-          <input class="fed-title" type="text" value="${escapeAttr(d.name || '')}" data-role="fed-name" data-id="${d.id}">
-          ${d.backfilled && !(d.lines || []).length ? '<span class="fed-tag">no forecast</span>' : ''}
-        </td>
-        <td class="fed-fl">
-          <input type="month" data-role="fed-start" data-id="${d.id}" value="${d.startMonth || ''}">
-          <input type="month" data-role="fed-end" data-id="${d.id}" value="${d.endMonth || ''}">
-        </td>${cells}<td class="num tot">${fmtShort(dSum)}</td>
-        <td class="num">${dAccN ? accCell(dAcc) : '<span class="sf-z">·</span>'}</td></tr>`;
-      if (open) html += `<tr class="fed-edit"><td colspan="${months.length + 4}">${fedChannelGrid(d, months)}</td></tr>`;
-    });
-  });
-
-  html += `<tr class="fed-total"><td class="fed-name">Total</td><td></td>` +
-    months.map(m => `<td class="num">${fmtShort(colTot[m] || 0)}</td>`).join('') +
-    `<td class="num tot">${fmtShort(grand)}</td><td class="num">${accN ? accCell(accTot) : ''}</td></tr>`;
-  html += '</tbody></table>';
-  el.innerHTML = html;
-
-  const sum = document.getElementById('fed-summary');
-  if (sum) sum.textContent = visible.length + ' of ' + all.length + ' deals · ' +
-    (accN ? 'accuracy across ' + accN + ' settled deal-months' : 'no settled forecasts yet');
-}
 
 // One month of one deal: actual where settled, forecast otherwise, plus accuracy.
-function fedValue(d, mk) {
-  const inFlight = dealMonths(d).includes(mk);
-  const act = dealActual(d, mk);
-  const forecast = dealForecast(d, mk);
-  const settled = act !== null && qbCovers(mk);
-  return {
-    inFlight, settled, forecast,
-    amount: settled ? act : forecast,
-    accuracy: settled ? dealAccuracy(d, mk) : null
-  };
-}
-function accCell(v) {
-  if (!v) return '<span class="pmeta">on plan</span>';
-  return `<span style="color:${v >= 0 ? 'var(--teal)' : 'var(--rust)'};font-weight:600;">${v >= 0 ? '+' : '−'}${fmtShort(Math.abs(v))}</span>`;
-}
 
 /* Channels down, months across. Settled months are locked and show the actual with the
    frozen forecast beneath, so the comparison sits where the correction would be made. */
-function fedChannelGrid(d, months) {
-  const ach = dealAchievedMargin(d);
-  const fm = dealMonths(d);
-  let h = '<div class="fed-panel">';
-  h += `<div class="fed-add">
-    <select data-role="fed-addch" data-id="${d.id}">
-      <option value="">+ Channel…</option>
-      <option value="programmatic">Programmatic</option>
-      <option value="search">Paid Search</option>
-      <option value="social">Paid Social</option>
-      <option value="retainer">Retainer</option>
-      <option value="hourly">Hourly</option>
-    </select>
-    ${ach !== null ? `<span class="fed-ach">achieved margin <b>${ach}%</b> — used where a programmatic line is left blank</span>` : ''}
-    ${d.qbProjectId ? '' : '<span class="sf-flag w">not linked to a QuickBooks project — no actuals will appear</span>'}
-  </div>`;
-
-  if (!(d.lines || []).length) {
-    h += '<div class="fed-empty">No channels yet. Add one above to give this deal a forward forecast.</div>';
-    return h + '</div>';
-  }
-
-  h += '<table class="fed-grid"><thead><tr><th>Channel</th><th class="num">Fee %</th><th class="num">Margin %</th>' +
-    months.map(m => `<th class="num${fm.includes(m) ? '' : ' fed-out'}${qbCovers(m) ? ' fed-settled' : ''}">${monthShort(m)}</th>`).join('') +
-    '<th class="num tot">Total</th><th></th></tr></thead><tbody>';
-
-  (d.lines || []).forEach((l, i) => {
-    const isMedia = ['programmatic', 'search', 'social'].includes(l.type);
-    const total = months.reduce((s, m) => s + dealLineForecast(d, l, m), 0);
-    h += `<tr><td><b>${BILLING_TYPES[l.type] || l.type}</b></td>
-      <td class="num">${isMedia ? `<input class="fed-n sm" type="text" inputmode="decimal" value="${l.feePct || ''}" placeholder="0" data-role="fed-fee" data-id="${d.id}" data-i="${i}">` : ''}</td>
-      <td class="num">${l.type === 'programmatic'
-        ? `<input class="fed-n sm" type="text" inputmode="decimal" value="${l.marginPct !== undefined && l.marginPct !== null ? l.marginPct : ''}" placeholder="${ach !== null ? ach : (qbConf().progMargin || 35)}" data-role="fed-margin" data-id="${d.id}" data-i="${i}">`
-        : l.type === 'hourly' ? `<input class="fed-n sm" type="text" inputmode="decimal" value="${l.rate || ''}" placeholder="rate" data-role="fed-rate" data-id="${d.id}" data-i="${i}">` : ''}</td>` +
-      months.map(m => {
-        if (!fm.includes(m)) return '<td class="num fed-out"><span class="sf-z">·</span></td>';
-        if (qbCovers(m)) return `<td class="num fed-lock"><span class="sf-z">${fmtShort(dealLineForecast(d, l, m))}</span></td>`;
-        if (l.type === 'retainer') return `<td class="num"><input class="fed-n" type="text" inputmode="decimal" value="${l.amount || ''}" placeholder="0" data-role="fed-amount" data-id="${d.id}" data-i="${i}" title="Equal parts every month of the flight"></td>`;
-        if (l.type === 'hourly') return `<td class="num"><input class="fed-n" type="text" inputmode="decimal" value="${l.hoursPerMonth || ''}" placeholder="hrs" data-role="fed-hpm" data-id="${d.id}" data-i="${i}"></td>`;
-        const v = (l.budgets || {})[m];
-        return `<td class="num"><input class="fed-n" type="text" inputmode="decimal" value="${v !== undefined ? v : ''}" placeholder="${l.budget || 0}" data-role="fed-budget" data-id="${d.id}" data-i="${i}" data-mk="${m}" title="Budget for ${monthShort(m)} — blank uses the default"></td>`;
-      }).join('') +
-      `<td class="num tot">${fmtShort(total)}</td>
-       <td><button class="icon-btn" data-role="fed-rmch" data-id="${d.id}" data-i="${i}" title="Remove channel">×</button></td></tr>`;
-  });
-
-  // what each month bills, with the actual and the frozen forecast where settled
-  h += '<tr class="fed-sum"><td>Revenue</td><td></td><td></td>' +
-    months.map(m => {
-      const v = fedValue(d, m);
-      if (!v.inFlight && !v.amount) return '<td class="num"><span class="sf-z">·</span></td>';
-      return `<td class="num">${fmtShort(v.amount)}` +
-        (v.settled ? `<div class="fed-fc">fc ${fmtShort(v.forecast)}</div>` : '') + '</td>';
-    }).join('') +
-    `<td class="num tot">${fmtShort(months.reduce((s, m) => s + fedValue(d, m).amount, 0))}</td><td></td></tr>`;
-  h += '</tbody></table>';
-
-  const budgetHint = (d.lines || []).some(l => ['programmatic','search','social'].includes(l.type))
-    ? 'A blank month uses the channel default. Flight dates decide which months bill at all.' : '';
-  return h + `<div class="pmeta" style="margin-top:6px;">${budgetHint}</div></div>`;
-}
 
 function renderSettings() {
   const el = document.getElementById('settings-body');
@@ -4750,8 +4153,6 @@ function flightLineHtml(p) {
 }
 
 /* ===== Forecast tab ===== */
-let forecastChart = null;
-let lastForecastMonths = [];
 
 function monthProjectCost(pid, mk, useActuals) {
   // Build keys from known ids (same as actualFor/assignFor) instead of parsing
@@ -4829,354 +4230,11 @@ function monthTotalPayroll(mk) {
     return sum + personMonthCost(s, mk, staffMonthHours(s.id, mk, hasAct));
   }, 0);
 }
-function revenueByMonthSplit() {
-  const set = new Set();
-  deals().forEach(d => {
-    dealMonths(d).forEach(mk => set.add(mk));
-    Object.keys(d.frozen || {}).forEach(mk => set.add(mk));
-  });
-  state.projects.forEach(p => {
-    if (billingActive(p)) billingMonths(p).forEach(mk => set.add(mk));
-    else Object.keys(p.revenueOverrides || {}).forEach(mk => {
-      if ((p.revenueOverrides[mk] || 0) !== 0) set.add(mk);
-    });
-    // A project with flight dates occupies those months even at $0 revenue,
-    // so it stays visible and can be edited back up from the forecast/projects view.
-    const flight = monthsOfFlight(p);
-    if (flight) flight.forEach(mk => set.add(mk));
-  });
-  // Months that have a fixed-cost entry should appear on the forecast even with
-  // no revenue, so a future/next-year cost shows its impact on expected profit.
-  (state.fixedCosts || []).forEach(c => Object.keys(c.amounts || {}).forEach(mk => {
-    if ((c.amounts[mk] || 0) !== 0) set.add(mk);
-  }));
-  if (!set.size) return null;
-  const sorted = [...set].sort();
-  const months = [];
-  let mk = sorted[0], guard = 0;
-  while (mk <= sorted[sorted.length - 1] && guard < 36) { months.push(mk); mk = shiftMonth(mk, 1); guard++; }
-  // Cap the window for readability, but anchored to the PRESENT: keep up to 6 months
-  // of history before the current month and fill the rest with future months. Never
-  // silently trim recent past just because far-future entries (2027 costs, long
-  // flights) widened the window — the from/to filters remain for manual control.
-  let capped = months;
-  if (months.length > 18) {
-    const histStart = shiftMonth(currentMonth, -6);
-    const startIdx = Math.max(months.findIndex(m => m >= histStart), 0);
-    capped = months.slice(startIdx, startIdx + 18);
-    // ensure current month is inside; if somehow past the slice, shift the window
-    if (capped.length && currentMonth > capped[capped.length - 1]) capped = months.slice(-18);
-  }
-  return capped.map(m => {
-    let actual = 0, forecast = 0, labor = 0;
-    const contributors = [];
-    const monthHasActuals = Object.keys(state.actuals[m] || {}).length > 0;
-    state.projects.forEach(p => {
-      const v = revenueFor(p, m);
-      // Actual is no longer a thing anyone ticks: a month is actual once QuickBooks
-      // has billed data for it. Manual confirmation only ever restated that.
-      const isActual = qbCovers(m) && !!qbMonth(m);   // QuickBooks or forecast — nothing else
-      // Cost basis: revenue confirmed actual -> logged cost, but if nothing has
-      // been logged for that project-month yet, fall back to planned so the
-      // labor doesn't silently disappear; unconfirmed -> planned cost.
-      const loggedCost = monthProjectCost(p.id, m, true);
-      const plannedCost = monthProjectCost(p.id, m, false);
-      const useLogged = isActual && loggedCost > 0;
-      const cost = useLogged ? loggedCost : plannedCost;
-      const basis = useLogged ? 'logged' : (isActual ? 'planned · no hours logged' : 'planned');
-      const inFlight = projectActiveInMonth(p, m) && (p.startMonth || p.endMonth);
-      if (v === 0 && cost === 0 && !inFlight) return;   // truly nothing here — skip; but keep active flights
-      if (v) { if (isActual) actual += v; else forecast += v; }
-      labor += cost;
-      contributors.push({ pid: p.id, name: p.name || 'Untitled', amount: v, isActual, cost, basis, inFlight });
-    });
-    // Internal (non-billable) labor: logged when the month has imports, else planned
-    const internalCost = monthProjectCost(INTERNAL_ID, m, monthHasActuals);
-    labor += internalCost;
-    contributors.sort((a, b) => (b.amount - b.cost) - (a.amount - a.cost) || b.amount - a.amount);
-    // Month-level manual corrections (past months): a set value REPLACES the computed
-    // aggregate. Persists over sync until cleared.
-    const corr = (state.monthCorrections || {})[m] || {};
-    const actualCorrected = corr.actual !== undefined;
-    const payrollCorrected = corr.payroll !== undefined;
-    if (actualCorrected) actual = corr.actual;
-    const total = actual + forecast;
-    const payroll = payrollCorrected ? corr.payroll : monthTotalPayroll(m);
-    const fixed = fixedCostsTotal(m);
-    return { mk: m, actual, forecast, labor, payroll, unattributed: payroll - labor, fixed,
-      actualCorrected, payrollCorrected,
-      internalCost, internalBasis: monthHasActuals ? 'logged' : 'planned',
-      forecastGp: state.projects.reduce((sum, p) => {
-        if (!projectActiveInMonth(p, m)) return sum;
-        const man = (p.revenueOverrides || {})[m];
-        if (man !== undefined) return sum + man;
-        if (billingActive(p) && billingMonths(p).has(m)) return sum + billingGP(p, m);
-        return sum;
-      }, 0),
-      billable: qbCovers(m) && qbMonth(m) ? qbMonth(m).billed : monthBillable(m),
-      cogs: qbCovers(m) && qbMonth(m) ? qbMonth(m).cogs : 0,
-      qbGp: qbCovers(m) && qbMonth(m) ? qbMonth(m).gp : null,
-      noProject: qbCovers(m) && qbMonth(m) ? qbMonth(m).noProject : 0,
-      profit: total - labor, profitPayroll: total - payroll,
-      // Whole-business bottom line, straight from QuickBooks for settled months.
-      netProfit: (qbCovers(m) && qbMonth(m) ? qbMonth(m).billed : monthBillable(m))
-                 - (qbCovers(m) && qbMonth(m) ? qbMonth(m).cogs : 0) - fixed,
-      expenses: fixed, expenseSrc: expenseSource(m),
-      labourCost: expenseParts(m).labour, otherCost: expenseParts(m).other,
-      expectedProfit: total - payroll - fixed, contributors };
-  });
-}
 
-function renderFixedCostsMenu() {
-  const toggle = document.getElementById('fc-costs-toggle');
-  const panel = document.getElementById('fc-costs-panel');
-  const list = document.getElementById('fc-costs-list');
-  if (!toggle || !panel || !list) return;
-  // Restricted (non-segmented) users never see the fixed-costs controls
-  if (!canSeeSalaries) { toggle.style.display = 'none'; panel.style.display = 'none'; return; }
-  toggle.style.display = '';
-  const open = !!ui.fcCostsOpen;
-  toggle.textContent = 'Fixed costs ' + (open ? '▾' : '▸');
-  panel.style.display = open ? '' : 'none';
-  // Don't rebuild the inputs while the user is typing inside the menu (would drop focus);
-  // visibility above still applies every pass.
-  if (document.activeElement && list.contains(document.activeElement)) return;
-  const costs = state.fixedCosts || [];
-  // Months to show = current forecast window (falls back to a sensible span)
-  const fcMonths = fixedCostGridMonths();
-  list.innerHTML = costs.length ? costs.map((c, i) => `
-    <div style="border:1px solid var(--line); border-radius:5px; padding:8px 10px; margin-bottom:8px;">
-      <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">
-        <input type="text" placeholder="e.g. Operational cost" value="${escapeAttr(c.label || '')}" data-role="fc-cost-label" data-i="${i}" style="flex:1; border:1px solid var(--line); border-radius:4px; padding:6px 8px; font-family:var(--font-mono); font-size:11px;">
-        <label style="font-family:var(--font-mono); font-size:10px; color:var(--slate); display:flex; align-items:center; gap:5px;">default $/mo
-          <input type="text" inputmode="decimal" placeholder="$0" value="${c.default ? '$' + Math.round(c.default).toLocaleString() : ''}" data-role="fc-cost-default" data-i="${i}" style="width:100px; border:1px solid var(--line); border-radius:4px; padding:6px 8px; font-family:var(--font-mono); font-size:11px; text-align:right;">
-        </label>
-        <button class="remove-btn" data-role="fc-cost-remove" data-i="${i}">×</button>
-      </div>
-      ${(() => {
-        const byYear = {};
-        fcMonths.forEach(mk => { (byYear[mk.slice(0, 4)] = byYear[mk.slice(0, 4)] || []).push(mk); });
-        return Object.keys(byYear).sort().map(yr => `
-          <div class="fc-year-lbl">${yr}</div>
-          <div class="fc-cost-months">
-            ${byYear[yr].map(mk => { const ov = (c.amounts || {})[mk]; return `
-              <div class="fc-cm">
-                <span class="fc-cm-lbl">${monthShort(mk)}</span>
-                <input type="text" inputmode="decimal" placeholder="${c.default ? '$' + Math.round(c.default).toLocaleString() : '$0'}" value="${ov !== undefined ? '$' + Math.round(ov).toLocaleString() : ''}" data-role="fc-cost-month" data-i="${i}" data-mk="${mk}" title="${ov !== undefined ? 'Set for ' + monthShort(mk) : 'Using default'}">
-              </div>`; }).join('')}
-          </div>`).join('');
-      })()}
-    </div>`).join('') : '<div style="font-family:var(--font-mono); font-size:10px; color:var(--slate);">No fixed costs yet.</div>';
-  // total across the shown months
-  const perMonthTotals = fcMonths.map(mk => fixedCostsTotal(mk));
-  const avg = perMonthTotals.length ? perMonthTotals.reduce((a, b) => a + b, 0) / perMonthTotals.length : 0;
-  document.getElementById('fc-costs-total').textContent = costs.length ? 'Fixed cost this window: ' + fmtMoney(perMonthTotals.reduce((a, b) => a + b, 0)) + ' total · ' + fmtMoney(avg) + '/mo avg' : '';
-  renderCorrectionsList();
-}
 
 // Past-month corrections list inside the fixed-cost panel: one row per past month
 // (last 12), each with an Actual and Labor override input and a clear control.
-function renderCorrectionsList() {
-  const el = document.getElementById('fc-corrections-list');
-  if (!el) return;
-  const now = currentMonth;
-  const months = [];
-  let mk = shiftMonth(now, -12);
-  while (mk < now) { months.push(mk); mk = shiftMonth(mk, 1); }
-  const corr = state.monthCorrections || {};
-  el.innerHTML = `
-    <div style="display:grid; grid-template-columns:70px 1fr 1fr 24px; gap:6px 8px; align-items:center; font-family:var(--font-mono); font-size:9px; color:var(--slate); text-transform:uppercase; letter-spacing:0.04em;">
-      <div>Month</div><div>Actual revenue</div><div>Labor cost</div><div></div>
-    </div>` +
-    months.map(m => {
-      const c = corr[m] || {};
-      const hasAny = c.actual !== undefined || c.payroll !== undefined;
-      return `<div style="display:grid; grid-template-columns:70px 1fr 1fr 24px; gap:6px 8px; align-items:center; margin-top:5px;">
-        <div style="font-family:var(--font-mono); font-size:10px; color:var(--ink);">${monthShort(m)}</div>
-        <input type="text" inputmode="decimal" placeholder="computed" value="${c.actual !== undefined ? '$' + Math.round(c.actual).toLocaleString() : ''}" data-role="fc-correct-actual" data-mk="${m}" style="border:1px solid var(--line); border-radius:4px; padding:5px 7px; font-family:var(--font-mono); font-size:11px; text-align:right;">
-        <input type="text" inputmode="decimal" placeholder="computed" value="${c.payroll !== undefined ? '$' + Math.round(c.payroll).toLocaleString() : ''}" data-role="fc-correct-payroll" data-mk="${m}" style="border:1px solid var(--line); border-radius:4px; padding:5px 7px; font-family:var(--font-mono); font-size:11px; text-align:right;">
-        ${hasAny ? `<button class="fc-clear" data-role="fc-clear-correction" data-mk="${m}" title="Clear both overrides for ${monthShort(m)}">×</button>` : '<span></span>'}
-      </div>`;
-    }).join('');
-}
 
-function renderForecast() {
-  renderFixedCostsMenu();
-  const tbody = document.getElementById('forecast-tbody');
-  const el = document.getElementById('chart-forecast');
-  if (forecastChart) { try { forecastChart.destroy(); } catch (e) {} forecastChart = null; }
-  let rows = revenueByMonthSplit();
-  const fromEl = document.getElementById('fc-from'), toEl = document.getElementById('fc-to');
-  if (fromEl && fromEl.value !== ui.fcFrom) fromEl.value = ui.fcFrom;
-  if (toEl && toEl.value !== ui.fcTo) toEl.value = ui.fcTo;
-  if (!rows) {
-    if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="empty-note">No revenue entered yet — add amounts on the Projects tab or import a project list.</td></tr>';
-    return;
-  }
-  if (ui.fcFrom) rows = rows.filter(r => r.mk >= ui.fcFrom);
-  if (ui.fcTo) rows = rows.filter(r => r.mk <= ui.fcTo);
-  if (!rows.length) {
-    if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="empty-note">No revenue months in the selected range — widen the from/to filter above.</td></tr>';
-    return;
-  }
-
-  if (tbody) tbody.innerHTML = rows.map(r => {
-    const total = r.actual + r.forecast;
-    const pct = total !== 0 ? Math.round((r.actual / total) * 100) : 0;
-    const expanded = !!ui.forecastExpanded[r.mk];
-    let breakout = '';
-    if (expanded) {
-      // Editable rows: anything with revenue, plus any in-flight project (so a $0
-      // flight month can be typed back up). Only projects with labor cost but no
-      // revenue and no flight collapse into the summary line.
-      const withRev = r.contributors.filter(c => c.amount !== 0 || c.inFlight);
-      const costOnly = r.contributors.filter(c => c.amount === 0 && !c.inFlight);
-      const unconfirmed = withRev.filter(c => !c.isActual).length;
-      const sk = ui.fcSort.key, sd = ui.fcSort.dir;
-      const sortVal = c => sk === 'name' ? (c.name || '').toLowerCase()
-        : sk === 'amount' ? c.amount
-        : sk === 'cost' ? c.cost
-        : sk === 'status' ? (c.isActual ? 1 : 0)
-        : c.amount - c.cost;   // net
-      withRev.sort((a, b) => {
-        const va = sortVal(a), vb = sortVal(b);
-        return (typeof va === 'string' ? va.localeCompare(vb) : va - vb) * sd;
-      });
-      const ind = k => sk === k ? (sd === 1 ? ' ▲' : ' ▼') : '';
-      breakout = `
-      <tr class="fc-breakout"><td colspan="10">
-        <div class="fc-head">
-          <span>${withRev.length} project${withRev.length === 1 ? '' : 's'} contributing revenue</span>
-          ${qbCovers(r.mk) ? '<span class="pmeta">actual — from QuickBooks</span>'
-            : (unconfirmed > 0 ? `<span class="pmeta">${unconfirmed} not yet billed</span>` : '<span class="pmeta">all confirmed</span>')}
-        </div>
-        <div class="fc-row fc-cols">
-          <div class="fc-col" data-role="fc-sort" data-key="name">Account${ind('name')}</div>
-          <div class="fc-col" data-role="fc-sort" data-key="amount">Revenue${ind('amount')}</div>
-          <div class="fc-col" data-role="fc-sort" data-key="cost">Labor cost${ind('cost')}</div>
-          <div class="fc-col" data-role="fc-sort" data-key="net">Net${ind('net')}</div>
-          <div class="fc-col" data-role="fc-sort" data-key="status">Status${ind('status')}</div>
-        </div>
-        ${withRev.map(c => `
-          <div class="fc-row${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? ' fc-billed' : ''; })()}"${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? ` data-role="fc-open-project" data-id="${c.pid}" title="Billing-scheduled — click to edit the campaign schedule"` : ''; })()}>
-            <div class="fc-name">${escapeHtml(c.name)}<button class="edit-btn" data-role="edit-project" data-id="${c.pid}" title="Edit billing & months">✎</button>${(() => { const pp = state.projects.find(x => x.id === c.pid); return billingActive(pp) ? pp.billing.lines.map(l => `<span class="bl-chip">${BILLING_TYPES[l.type]}</span>`).join('') : ''; })()}${c.amount === 0 && c.inFlight ? '<span class="fc-basis"> · in flight</span>' : ''}</div>
-            <div class="pb-num">${(() => {
-              const pp = state.projects.find(x => x.id === c.pid);
-              if (qbCovers(r.mk)) return `<span style="font-weight:700;" title="Billed in QuickBooks — settled months are not editable">${fmtMoney(c.amount)}</span>`;
-              if (billingActive(pp)) return `<span style="font-weight:700;" title="${escapeAttr(billingBreakdown(pp, r.mk))}">${fmtMoney(c.amount)}</span>`;
-              return `<input type="text" inputmode="decimal" class="fc-rev-input" value="${c.amount ? '$' + Math.round(c.amount).toLocaleString() : ''}" placeholder="$0" data-role="fc-rev-month" data-pid="${c.pid}" data-mk="${r.mk}" title="Forecast for a month that is not over — edit to change the forecast">`;
-            })()} rev</div>
-            <div class="pb-num">${fmtMoney(c.cost)} cost <span class="fc-basis">${c.basis}</span></div>
-            <div class="pb-num" style="color:${c.amount - c.cost >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(c.amount - c.cost)} net</div>
-            <div class="pmeta">${c.isActual ? (qbCovers(r.mk) ? 'actual' : 'confirmed') : 'forecast'}</div>
-          </div>
-          ${(() => {
-            // The QuickBooks projects making up this client's month, nested underneath,
-            // so a client like On Location shows each piece of work rather than one total.
-            if (!qbActuals || !qbConf().useActuals || !qbCovers(r.mk)) return '';
-            const kids = qbClientProjects(c.pid, r.mk);
-            if (kids.length < 1) return '';
-            return kids.map(k => `<div class="fc-row fc-sub">
-              <div class="fc-name">${escapeHtml(k.name)}</div>
-              <div class="pb-num">${fmtMoney(k.revenue)} rev</div>
-              <div class="pb-num">${fmtMoney(k.cost)} media cost</div>
-              <div class="pb-num" style="color:${k.gp >= 0 ? 'var(--teal)' : 'var(--rust)'};">${fmtMoney(k.gp)} GP</div>
-              <div class="pmeta">${k.revenue > 0 ? Math.round(k.gp / k.revenue * 100) + '%' : ''}</div>
-            </div>`).join('');
-          })()}`).join('')}
-        ${costOnly.length ? `<div class="fc-row fc-dim"><div class="fc-name">Projects with labor but no revenue this month (${costOnly.map(c => escapeHtml(c.name)).join(', ')})</div><div class="pb-num"></div><div class="pb-num">${fmtMoney(costOnly.reduce((s, c) => s + c.cost, 0))} cost</div><div class="pb-num"></div><div></div></div>` : ''}
-        ${r.internalCost ? `<div class="fc-row fc-dim"><div class="fc-name" style="color:var(--internal);">Internal (non-billable)</div><div class="pb-num"></div><div class="pb-num">${fmtMoney(r.internalCost)} cost <span class="fc-basis">${r.internalBasis}</span></div><div class="pb-num"></div><div></div></div>` : ''}
-        <div class="fc-payroll">Labor ${fmtMoney(r.payroll)}${r.fixed ? ' · fixed costs ' + fmtMoney(r.fixed) : ''} <span class="fc-basis" title="Salaried staff cost their full monthly salary; hourly staff cost logged hours × rate (planned hours for future months). Expected profit subtracts the fixed-cost inputs on top of that.">salaried = full salary · hourly = hours × rate</span></div>
-      </td></tr>`;
-    }
-    return `
-    <tr ${r.mk === currentMonth ? 'style="background:var(--mint);"' : ''}>
-      <td><button class="expand-btn" data-role="forecast-toggle" data-mk="${r.mk}">${expanded ? '▾' : '▸'}</button></td>
-      <td style="font-family:var(--font-display); font-weight:600;">${monthLabel(r.mk)}</td>
-      <td class="computed-cell" style="color:#6b7f77;" title="${qbCovers(r.mk) ? 'Billed in QuickBooks, contra revenue excluded, including invoices with no project' : 'Modelled from billing lines'}">${r.billable ? fmtMoney(r.billable) : '—'}${r.noProject ? `<div class="computed-sub">incl. ${fmtMoney(r.noProject)} unmatched</div>` : ''}</td>
-      <td class="computed-cell" style="color:#8a6d3b;">${r.cogs ? fmtMoney(r.cogs) : '—'}</td>
-      <td class="computed-cell">${r.forecastGp ? fmtMoney(r.forecastGp) : '—'}</td>
-      <td class="computed-cell" style="font-weight:700;">${r.qbGp !== null ? fmtMoney(r.qbGp) : '—'}</td>
-      <td class="computed-cell">${(() => {
-        if (r.qbGp === null || !r.forecastGp) return '—';
-        const d = r.qbGp - r.forecastGp;
-        return `<span style="color:${d >= 0 ? 'var(--teal)' : 'var(--rust)'};">${d >= 0 ? '+' : '−'}${fmtMoney(Math.abs(d))}</span>` +
-               `<div class="computed-sub">${Math.round(d / r.forecastGp * 100)}%</div>`;
-      })()}</td>
-      <td class="computed-cell" style="color:#8a6d3b;" title="${r.expenseSrc === 'actual' ? 'Billed in QuickBooks — all operating expenses including labour'
-        : r.expenseSrc === 'average' ? 'Projected from a rolling ' + expenseAverageWindow() + '-month average of settled months'
-        : 'Entered by hand in the fixed-cost menu'}">${r.expenses ? fmtMoney(r.expenses) : '—'}<div class="computed-sub">${r.labourCost ? fmtMoney(r.labourCost) + ' labour · ' : ''}${r.expenseSrc}</div></td>
-      <td class="computed-cell" style="color:${r.netProfit >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(r.netProfit)}</td>
-      <td class="computed-sub">${qbCovers(r.mk) && r.qbGp !== null ? 'QuickBooks' : (total !== 0 ? 'forecast' : '')}</td>
-    </tr>${breakout}`;
-  }).join('');
-
-  if (!el || !window.Chart) return;
-  lastForecastMonths = rows.map(r => r.mk);
-  forecastChart = new Chart(el, {
-    type: 'bar',
-    plugins: window.ChartDataLabels ? [window.ChartDataLabels] : [],
-    data: {
-      labels: rows.map(r => monthShort(r.mk)),
-      datasets: [
-        { label: 'Revenue billed (actual)', stack: 'rev', backgroundColor: '#0a493c', isBilled: true,
-          data: rows.map(r => qbCovers(r.mk) ? Math.round(r.billable) : null) },
-        { label: 'Revenue (forecast)', stack: 'rev', backgroundColor: '#3bc9ac', isBilled: true,
-          data: rows.map(r => qbCovers(r.mk) ? null : Math.round(r.billable)) },
-        { label: 'COGS', data: rows.map(r => Math.round(r.cogs)), backgroundColor: '#c98a3b', stack: 'cogs', isLabor: true },
-        { label: 'Labour', data: rows.map(r => Math.round(r.labourCost)), backgroundColor: '#8a6d3b', stack: 'exp' },
-        { label: 'Other expenses', data: rows.map(r => Math.round(r.otherCost)), backgroundColor: '#d9c9a3', stack: 'exp', isExpTop: true },
-        { type: 'line', label: 'Net profit', data: rows.map(r => Math.round(r.netProfit)),
-          borderColor: '#0a493c', backgroundColor: '#0a493c', borderWidth: 3, fill: false,
-          tension: 0.15, pointRadius: 3.5, pointBackgroundColor: rows.map(r => r.netProfit >= 0 ? '#7a9d54' : '#B5482A'),
-          pointBorderColor: '#0a493c', pointBorderWidth: 1.5, order: -1, stack: 'netline', isProfit: true },
-
-      ]
-    },
-    options: (() => {
-      const o = chartOpts();
-      o.scales.x.stacked = true;
-      o.scales.y.stacked = true;
-      o.scales.y.ticks.callback = v => (v < 0 ? '-' : '') + '$' + Math.abs(v).toLocaleString();
-      o.plugins = {
-        legend: { labels: { font: chartFont(), color: '#67706d', boxWidth: 12 } },
-        tooltip: { callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ' + (ctx.parsed.y < 0 ? '-' : '') + '$' + Math.abs(ctx.parsed.y).toLocaleString() } },
-        datalabels: {
-          // revenue stack: total label on its top segment; profit bar labels itself
-          display: ctx => {
-            const ds = ctx.chart.data.datasets[ctx.datasetIndex];
-            if (ds.isPayLine) return false;
-            if (ds.isProfit) return true;
-            if (ds.isLabor) return true;
-            if (ds.isExpTop) return true;          // top of the expense stack carries its total
-            if (ds.isBilled) return true;
-            const revSets = ctx.chart.data.datasets.filter(d => d.stack === 'rev');
-            return ds === revSets[revSets.length - 1];
-          },
-          anchor: 'end', align: 'top', offset: 2, clip: false,
-          font: { family: "'DM Mono', monospace", size: 9, weight: '700' },
-          color: ctx => ctx.dataset.isProfit ? (ctx.dataset.data[ctx.dataIndex] >= 0 ? '#3d6b1f' : '#B5482A')
-            : ctx.dataset.isLabor ? '#c98a3b' : ctx.dataset.isExpTop ? '#8a6d3b'
-            : ctx.dataset.isBilled ? '#6b7f77' : '#0a493c',
-          formatter: (v, ctx) => {
-            const i = ctx.dataIndex;
-            if (ctx.dataset.isProfit) return v !== 0 ? '$' + Math.round(v / 1000) + 'k' : '';
-            if (ctx.dataset.isLabor) return v !== 0 ? '$' + Math.round(v / 1000) + 'k' : '';
-            if (ctx.dataset.isExpTop) {
-              const t = ctx.chart.data.datasets.filter(d => d.stack === 'exp')
-                .reduce((sum, d) => sum + (d.data[i] || 0), 0);
-              return t !== 0 ? '$' + Math.round(t / 1000) + 'k' : '';
-            }
-            if (ctx.dataset.isBilled) return v !== 0 ? '$' + Math.round(v / 1000) + 'k' : '';
-            const total = ctx.chart.data.datasets.filter(d => d.stack === 'rev').reduce((sum, ds) => sum + (ds.data[i] || 0), 0);
-            return total !== 0 ? '$' + Math.round(total / 1000) + 'k' : '';
-          }
-        }
-      };
-      return o;
-    })()
-  });
-}
 
 function renderDashboard() {
   document.getElementById('dash-month').textContent = periodLabel();
@@ -6500,8 +5558,6 @@ let suppressRender = false; // true while typing in a field: state updates, UI w
 function render() {
   if (suppressRender) return;
   if (ui.tab === 'settings') renderSettings();
-  if (ui.tab === 'sales') renderSales();
-  if (ui.tab === 'editor') renderForecastEditor();
   const active = document.activeElement;
   let focusKey = null, focusValue = null, selStart = null;
   if (active && active.tagName === 'INPUT' && (active.dataset.role || active.id)) {
@@ -6521,7 +5577,6 @@ function render() {
   setTab(ui.tab, true);
   renderSummary();
   renderDashboard();
-  renderForecast();
   renderStaffTable();
   renderProjectTable();
   renderDemand();
@@ -6578,22 +5633,9 @@ function applyNavCollapsed(on) {
   if (shell) shell.classList.toggle('nav-collapsed', !!on);
   const ico = document.getElementById('nav-toggle-ico');
   if (ico) ico.textContent = on ? '\u203A' : '\u2039';
-  const btn = document.addEventListener('click', (e) => {
-  const el = e.target.closest && e.target.closest('[data-sf-span],[data-sf-w],[data-sf-all],[data-sf-today],[data-sf-chart]');
-  if (!el) return;
-  const d = el.dataset;
-  if (d.sfSpan) salesUI.to = shiftMonth(salesUI.from, +d.sfSpan - 1);
-  if (d.sfW !== undefined) salesUI.weighted = d.sfW === '1';
-  if (d.sfAll !== undefined) salesUI.showAll = d.sfAll === '1';
-  if (d.sfToday) { salesUI.from = currentMonth; salesUI.to = shiftMonth(currentMonth, 5); }
-  if (d.sfChart) salesUI.chart = !salesUI.chart;
-  renderSales();
-});
 document.addEventListener('change', (e) => {
   const t = e.target;
   if (!t.dataset) return;
-  if (t.dataset.role === 'sf-from' && /^\d{4}-\d{2}$/.test(t.value)) { salesUI.from = t.value; if (salesUI.to < salesUI.from) salesUI.to = shiftMonth(salesUI.from, 5); renderSales(); }
-  if (t.dataset.role === 'sf-to' && /^\d{4}-\d{2}$/.test(t.value)) { salesUI.to = t.value; if (salesUI.to < salesUI.from) salesUI.from = salesUI.to; renderSales(); }
   if (t.dataset.role === 'hs-pipe') { const c = hsConfig(); const v = t.value;
     c.pipelines = t.checked ? [...new Set([...c.pipelines, v])] : c.pipelines.filter(x => x !== v); scheduleSave(); renderSettings(); }
   if (t.dataset.role === 'hs-enabled') { hsConfig().enabled = t.checked; scheduleSave(); renderSettings(); }
@@ -6626,41 +5668,9 @@ document.addEventListener('input', (e) => {
   if (t.dataset.role === 'qb-cutover' && /^\d{4}-\d{2}$/.test(t.value)) {
     qbConf().cutover = t.value; scheduleSave(); render(); return;
   }
-  if (t.dataset.role && t.dataset.role.startsWith('fed-')) {
-    const r = t.dataset.role, d = dealById(t.dataset.id);
-    const num = x => { const n = parseFloat(String(x).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; };
-    if (r === 'fed-from') { fedFrom = t.value; renderForecastEditor(); return; }
-    if (r === 'fed-to') { fedTo = t.value; renderForecastEditor(); return; }
-    if (!d) return;
-    const l = (d.lines || [])[+t.dataset.i];
-    if (r === 'fed-name') { d.name = t.value; scheduleSave(); return; }
-    if (r === 'fed-start') { d.startMonth = t.value; scheduleSave(); renderForecastEditor(); return; }
-    if (r === 'fed-end') { d.endMonth = t.value; scheduleSave(); renderForecastEditor(); return; }
-    if (r === 'fed-addch' && t.value) {
-      const seed = (d.lines || []).find(x => x.feePct) || {};
-      const line = { id: uid(), type: t.value, budgets: {} };
-      if (t.value === 'retainer') line.amount = 0;
-      else if (t.value === 'hourly') { line.rate = 0; line.hoursPerMonth = 0; }
-      else { line.feePct = seed.feePct || 12; line.budget = 0; }
-      (d.lines = d.lines || []).push(line);
-      scheduleSave(); renderForecastEditor(); return;
-    }
-    if (!l) return;
-    if (r === 'fed-fee') l.feePct = num(t.value);
-    else if (r === 'fed-margin') l.marginPct = t.value === '' ? null : num(t.value);
-    else if (r === 'fed-rate') l.rate = num(t.value);
-    else if (r === 'fed-amount') l.amount = num(t.value);
-    else if (r === 'fed-hpm') l.hoursPerMonth = num(t.value);
-    else if (r === 'fed-budget') {
-      l.budgets = l.budgets || {};
-      if (t.value === '') delete l.budgets[t.dataset.mk]; else l.budgets[t.dataset.mk] = num(t.value);
-    }
-    scheduleSave();
-    return;
-  }
   if (t.dataset.role === 'wipe-range') { renderDataTools(); return; }
-  if (t.dataset.role === 'hs-cutover') { hsConfig().wonCutover = t.value || '2026-08-11'; scheduleSave(); if (ui.tab === 'sales') renderSales(); }
-  if (t.dataset.role === 'hs-retain') { hsConfig().wonRetainDays = Math.max(0, parseFloat(t.value) || 0); scheduleSave(); if (ui.tab === 'sales') renderSales(); }
+  if (t.dataset.role === 'hs-cutover') { hsConfig().wonCutover = t.value || '2026-08-11'; scheduleSave(); }
+  if (t.dataset.role === 'hs-retain') { hsConfig().wonRetainDays = Math.max(0, parseFloat(t.value) || 0); scheduleSave(); }
   if (t.dataset.role === 'hs-map') { const c = hsConfig(); const k = t.dataset.k;
     if (!t.value) delete c.mapping[k]; else c.mapping[k] = t.value.split('/'); scheduleSave(); }
   if (t.dataset.role === 'hs-alias-from' || t.dataset.role === 'hs-alias-to') {
@@ -6779,30 +5789,6 @@ document.addEventListener('input', (e) => {
   if (t.id === 'assign-hours') { renderCandidates(); return; }
   if (t.id === 'assign-search') { renderCandidates(); return; }
   if (t.id === 'dash-proj-search') { ui.dashProjSearch = t.value; render(); return; }
-  if (t.dataset && t.dataset.role === 'fc-cost-label') { const c = (state.fixedCosts || [])[+t.dataset.i]; if (c) { c.label = t.value; scheduleSave(); } return; }
-  if (t.dataset && t.dataset.role === 'fc-cost-default') { const c = (state.fixedCosts || [])[+t.dataset.i]; if (c) { c.default = parseFloat(String(t.value).replace(/[^0-9.\-]/g, '')) || 0; scheduleSave(); renderForecast(); } return; }
-  if (t.dataset && (t.dataset.role === 'fc-correct-actual' || t.dataset.role === 'fc-correct-payroll')) {
-    const mk = t.dataset.mk;
-    const field = t.dataset.role === 'fc-correct-actual' ? 'actual' : 'payroll';
-    if (!state.monthCorrections) state.monthCorrections = {};
-    const raw = String(t.value).replace(/[^0-9.\-]/g, '');
-    const rec = state.monthCorrections[mk] || (state.monthCorrections[mk] = {});
-    if (raw === '') { delete rec[field]; if (!Object.keys(rec).length) delete state.monthCorrections[mk]; }
-    else rec[field] = parseFloat(raw) || 0;
-    scheduleSave(); renderForecast();
-    return;
-  }
-  if (t.dataset && t.dataset.role === 'fc-cost-month') {
-    const c = (state.fixedCosts || [])[+t.dataset.i];
-    if (c) {
-      if (!c.amounts) c.amounts = {};
-      const raw = String(t.value).replace(/[^0-9.\-]/g, '');
-      if (raw === '') delete c.amounts[t.dataset.mk];   // empty -> fall back to default
-      else c.amounts[t.dataset.mk] = parseFloat(raw) || 0;
-      scheduleSave(); renderForecast();
-    }
-    return;
-  }
   if (t.id === 'demand-search') { ui.demandSearch = t.value; render(); return; }
 
   const role = t.dataset.role;
@@ -6930,14 +5916,6 @@ document.addEventListener('click', (e) => {
     const roleEl = t.closest && t.closest('[data-role]');
     if (roleEl) { t = roleEl; role = roleEl.dataset.role; }
   }
-  // Clicking anywhere inside a billed forecast row (but not its inner ✎ button) opens the editor
-  if (!role || (role !== 'edit-project')) {
-    const fcRow = t.closest && t.closest('.fc-row.fc-billed');
-    if (fcRow && !t.closest('[data-role="edit-project"]') && role !== 'edit-project') {
-      openProjectModal(fcRow.dataset.id);
-      return;
-    }
-  }
   if (role === 'remove-staff') removeStaff(t.dataset.id);
   else if (role === 'remove-project') removeProject(t.dataset.id);
   else if (role === 'remove-demand') removeDemand(t.dataset.project, t.dataset.dept);
@@ -7007,13 +5985,6 @@ document.addEventListener('click', (e) => {
           'These carry actuals but no forecast — extend them forward by hand as they come up.', 13000);
       });
   }
-  else if (role === 'fed-toggle') { fedOpen[t.dataset.id] = !fedOpen[t.dataset.id]; renderForecastEditor(); }
-  else if (role === 'fed-active') { fedHidePast = true; renderForecastEditor(); }
-  else if (role === 'fed-all') { fedHidePast = false; renderForecastEditor(); }
-  else if (role === 'fed-rmch') {
-    const d = dealById(t.dataset.id);
-    if (d) { d.lines.splice(+t.dataset.i, 1); scheduleSave(); renderForecastEditor(); }
-  }
   else if (role === 'wipe-go') {
     const keys = [...document.querySelectorAll('[data-role="wipe-set"]:checked')].map(x => x.value);
     if (!keys.length) { toast('Tick at least one kind of data to clear.'); return; }
@@ -7025,17 +5996,10 @@ document.addEventListener('click', (e) => {
     armToConfirm(t, 'wipe', 'Click again to delete ' + n + ' record' + (n === 1 ? '' : 's') + scope,
       () => wipeRun(keys, f, tt));
   }
-  else if (role === 'sf-dismiss') { dismissDeal(t.dataset.id); }
-  else if (role === 'sf-restore') { restoreDeal(t.dataset.id); }
-  else if (role === 'sf-show-dismissed') { salesUI.showDismissed = !salesUI.showDismissed; renderSales(); }
   else if (role === 'usr-add') { addUserRow(); }
   else if (role === 'usr-remove') { removeUserRow(+t.dataset.i); }
   else if (role === 'pm-comp-add') { addCompPeriod(personEditId); }
   else if (role === 'pm-comp-remove') { removeCompPeriod(personEditId, +t.dataset.i); }
-  else if (role === 'fc-clear-correction') {
-    const mk = t.dataset.mk;
-    if ((state.monthCorrections || {})[mk]) { delete state.monthCorrections[mk]; scheduleSave(); renderForecast(); }
-  }
   else if (role === 'proj-toggle') {
     ui.projExpanded[t.dataset.id] = !ui.projExpanded[t.dataset.id];
     render();
@@ -7193,9 +6157,6 @@ document.getElementById('proj-bulk-forecast').addEventListener('click', () => {
   toast(res.touched ? 'Set ' + res.touched + ' project-month' + (res.touched === 1 ? '' : 's') + ' back to forecasted.' : 'No revenue found for the selected projects in this period.');
 });
 document.getElementById('proj-bulk-clear').addEventListener('click', () => { ui.projSelected = {}; render(); });
-document.getElementById('fc-from').addEventListener('input', (e) => { ui.fcFrom = e.target.value; render(); });
-document.getElementById('fc-to').addEventListener('input', (e) => { ui.fcTo = e.target.value; render(); });
-document.getElementById('fc-range-clear').addEventListener('click', () => { ui.fcFrom = ''; ui.fcTo = ''; render(); });
 document.getElementById('project-modal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('project-modal')) closeProjectModal();
 });
@@ -7239,14 +6200,6 @@ document.getElementById('person-modal').addEventListener('click', (e) => {
 });
 document.getElementById('assign-modal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('assign-modal')) closeAssignModal();
-});
-document.getElementById('fc-costs-toggle').addEventListener('click', () => { ui.fcCostsOpen = !ui.fcCostsOpen; renderFixedCostsMenu(); });
-document.getElementById('fc-cost-add').addEventListener('click', () => {
-  if (!canSeeSalaries) return;
-  if (!state.fixedCosts) state.fixedCosts = [];
-  state.fixedCosts.push({ id: uid(), label: '', default: 0, amounts: {} });
-  ui.fcCostsOpen = true;
-  scheduleSave(); renderFixedCostsMenu();
 });
 
 document.getElementById('clear-month-btn').addEventListener('click', (e) => {
