@@ -831,6 +831,51 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
   table.sf th.num,table.sf td.num{min-width:46px}
   .sf-parts{font-size:8.5px}
 }
+
+/* ===== Deals ===== */
+.dl-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;
+padding:10px 12px;font-family:var(--font-mono);font-size:11px;color:var(--ink)}
+table.dl{width:100%;border-collapse:collapse}
+table.dl th{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.06em;
+color:var(--slate);text-align:left;padding:7px 6px;border-bottom:1px solid var(--line)}
+table.dl td{padding:3px 6px;border-bottom:1px solid #f0f0f0;font-family:var(--font-mono);font-size:11px;vertical-align:middle}
+table.dl th.num,table.dl td.num{text-align:right;white-space:nowrap;min-width:52px}
+th.dl-name,td.dl-name{min-width:210px}
+th.dl-flight,td.dl-flight{min-width:196px;white-space:nowrap}
+.dl-client td{background:#eef1f0;font-family:var(--font-display);font-weight:700;font-size:12px;border-top:1px solid var(--line)}
+.dl-client td.num{font-family:var(--font-mono);font-size:11px}
+.dl-deal td.dl-name{padding-left:4px}
+td.dl-out{color:#cfcfcf}
+input.dl-title{width:100%;max-width:230px;border:1px solid transparent;border-radius:4px;padding:2px 5px;
+font-family:var(--font-display);font-size:11.5px;font-weight:600;background:transparent;color:var(--ink)}
+input.dl-title:hover{border-color:var(--line);background:#fff}
+input.dl-title:focus{outline:none;border-color:var(--brand);background:#fff}
+.dl-flight input[type=month]{width:92px;border:1px solid var(--line);border-radius:4px;padding:2px 4px;
+font-family:var(--font-mono);font-size:10px;background:#fff}
+.dl-flight input[type=month]:focus{outline:none;border-color:var(--brand)}
+.dl-edit>td{background:#f7f8f8;padding:10px 14px 14px 26px}
+.dl-panel{max-width:1100px}
+.dl-note{font-family:var(--font-mono);font-size:10px;color:var(--brand);background:var(--mint);
+border-radius:5px;padding:6px 9px;margin-bottom:9px}
+table.dl-lines{width:100%;border-collapse:collapse;margin-bottom:8px}
+table.dl-lines th{font-size:8.5px;padding:4px 6px}
+table.dl-lines td{padding:3px 6px;border-bottom:1px solid #eee}
+table.dl-lines select{border:1px solid var(--line);border-radius:4px;padding:2px 5px;font-family:var(--font-mono);font-size:10.5px;background:#fff}
+input.dl-n{width:88px;border:1px solid var(--line);border-radius:4px;padding:2px 5px;
+font-family:var(--font-mono);font-size:10.5px;text-align:right;background:#fff}
+input.dl-n.sm{width:52px}
+input.dl-n:focus,input.dl-hrs:focus{outline:none;border-color:var(--brand)}
+input.dl-hrs{width:100%;min-width:180px;border:1px solid var(--line);border-radius:4px;padding:2px 6px;
+font-family:var(--font-mono);font-size:10.5px;background:#fff}
+.dl-sub{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.06em;
+color:var(--slate);margin:10px 0 5px}
+.dl-months{display:flex;flex-wrap:wrap;gap:6px}
+.dl-m{display:flex;flex-direction:column;gap:1px;font-family:var(--font-mono);font-size:9px;color:var(--slate)}
+.dl-m input{width:74px;border:1px solid var(--line);border-radius:4px;padding:2px 5px;
+font-family:var(--font-mono);font-size:10.5px;text-align:right;background:#fff}
+.dl-m input:focus{outline:none;border-color:var(--brand)}
+.dl-m em{font-style:normal;color:var(--brand);font-weight:600}
+#tab-deals .panel{overflow-x:auto}
 </style>
 </head>
 <body>
@@ -913,6 +958,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <div class="nav-group-t">Operations</div>
       <a class="nav-item" data-tab="forecast" href="#/forecast" title="Forecast"><span class="nav-ico">◐</span><span class="nav-label">Forecast</span></a>
       <a class="nav-item" data-tab="sales" href="#/sales" title="Sales Forecast"><span class="nav-ico">◭</span><span class="nav-label">Sales Forecast</span></a>
+      <a class="nav-item" data-tab="deals" href="#/deals" title="Deals"><span class="nav-ico">▤</span><span class="nav-label">Deals</span></a>
       <a class="nav-item" data-tab="scoping" href="#/scoping" title="Scoping"><span class="nav-ico">◇</span><span class="nav-label">Scoping</span></a>
     </div>
     <div class="nav-group">
@@ -923,7 +969,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2118 · 27 Aug 2026 21:18 UTC</div>
+      <div class="ver-tag">build b0827-2121 · 27 Aug 2026 21:21 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -1060,6 +1106,10 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
     <div id="scoping-body"></div>
     <div id="scoping-modal" class="sc-modal" style="display:none;"></div>
   </div>
+  <div class="tab-section" id="tab-deals">
+    <section class="panel"><div id="deals-body"></div></section>
+  </div>
+
   <div class="tab-section" id="tab-sales">
     <section class="panel chartpanel" id="sales-chart-panel">
       <div class="range" id="sales-range"></div>
@@ -1346,6 +1396,7 @@ const PAGES = {
   forecast:  { title: 'Forecast',   sub: 'Revenue and labour ahead — set the range below',  month: false },
   scoping:   { title: 'Scoping',    sub: 'Will a new deal pay for itself?',         month: false },
   sales:     { title: 'Sales Forecast', sub: 'Open pipeline from HubSpot, by client and month', month: false },
+  deals:     { title: 'Deals',        sub: 'Campaigns by client — budgets, flights and scoped hours', month: false },
   settings:  { title: 'Settings',   sub: 'People who can use this workspace',       month: false }
 };
 function pageFromHash(){
@@ -1365,6 +1416,7 @@ function setTab(tab, skipHash) {
   if (tab === 'scoping') renderScoping();
   if (tab === 'settings') renderSettings();
   if (tab === 'sales') renderSales();
+  if (tab === 'deals') renderDeals();
   window.scrollTo(0, 0);
 }
 
@@ -2570,6 +2622,127 @@ function migrateClientsToDeals() {
   if (made) scheduleSave();
   return made;
 }
+
+
+/* ===== Deal editor =====
+   Dense on purpose. Campaigns change in flight, so the two things that change most —
+   the flight window and a month's budget — are both editable without opening anything.
+   Channel lines are rows rather than cards so several are visible at once. */
+let dealOpen = {};
+
+function renderDeals() {
+  const el = document.getElementById('deals-body');
+  if (!el) return;
+  const all = deals();
+  if (!all.length) {
+    el.innerHTML = `<div class="cover warn"><b>No deals yet.</b> Existing client billing is migrated into one deal per client the first time this runs — or import from the Sales Forecast once a deal is won.</div>
+      <button class="ghost" data-role="deal-migrate">Create deals from existing client billing</button>`;
+    return;
+  }
+  // months on show: the union of every deal's flight, bounded to something readable
+  const months = [];
+  { let c = salesUI.from || currentMonth, g = 0;
+    const end = shiftMonth(c, 11);
+    while (c <= end && g < 24) { months.push(c); c = shiftMonth(c, 1); g++; } }
+
+  const byClient = {};
+  all.forEach(d => (byClient[d.clientId] = byClient[d.clientId] || []).push(d));
+  const clientName = id => (state.projects.find(p => p.id === id) || {}).name || 'Unassigned';
+
+  let h = `<div class="dl-head"><span>${all.length} deals · ${Object.keys(byClient).length} clients</span>
+    <span class="pmeta">client rows are roll-ups · edit budgets and flights inline</span></div>`;
+  h += '<table class="dl"><thead><tr><th class="dl-name">Client / deal</th><th class="dl-flight">Flight</th>' +
+    months.map(m => `<th class="num">${monthShort(m)}</th>`).join('') +
+    '<th class="num tot">Total</th></tr></thead><tbody>';
+
+  Object.keys(byClient).sort((a, b) => clientName(a).localeCompare(clientName(b))).forEach(cid => {
+    const ds = byClient[cid];
+    const cTot = {}; let cSum = 0;
+    ds.forEach(d => months.forEach(m => { const v = dealRevenue(d, m); cTot[m] = (cTot[m] || 0) + v; cSum += v; }));
+    h += `<tr class="dl-client"><td class="dl-name">${escapeHtml(clientName(cid))}<span class="pmeta"> · ${ds.length} deal${ds.length === 1 ? '' : 's'}</span></td><td></td>` +
+      months.map(m => `<td class="num">${cTot[m] ? fmtShort(cTot[m]) : '<span class="sf-z">·</span>'}</td>`).join('') +
+      `<td class="num tot">${fmtShort(cSum)}</td></tr>`;
+
+    ds.forEach(d => {
+      const open = !!dealOpen[d.id];
+      const dTot = months.reduce((s, m) => s + dealRevenue(d, m), 0);
+      const ach = dealAchievedMargin(d);
+      h += `<tr class="dl-deal"><td class="dl-name">
+          <button class="expand-btn" data-role="deal-toggle" data-id="${d.id}">${open ? '▾' : '▸'}</button>
+          <input class="dl-title" type="text" value="${escapeAttr(d.name || '')}" data-role="deal-name" data-id="${d.id}">
+        </td>
+        <td class="dl-flight">
+          <input type="month" data-role="deal-start" data-id="${d.id}" value="${d.startMonth || ''}">
+          <input type="month" data-role="deal-end" data-id="${d.id}" value="${d.endMonth || ''}">
+        </td>` +
+        months.map(m => {
+          const v = dealRevenue(d, m);
+          const inFlight = dealMonths(d).includes(m);
+          return `<td class="num${inFlight ? '' : ' dl-out'}">${inFlight ? fmtShort(v) : '<span class="sf-z">·</span>'}</td>`;
+        }).join('') +
+        `<td class="num tot">${fmtShort(dTot)}</td></tr>`;
+
+      if (open) {
+        h += `<tr class="dl-edit"><td colspan="${months.length + 3}"><div class="dl-panel">`;
+        if (ach !== null) h += `<div class="dl-note">Achieved margin on this deal: <b>${ach}%</b> — used for programmatic lines unless a line overrides it.</div>`;
+        h += '<table class="dl-lines"><thead><tr><th>Channel</th><th class="num">Budget / mo</th><th class="num">Fee %</th><th class="num">Margin %</th><th>Hours per month</th><th></th></tr></thead><tbody>';
+        (d.lines || []).forEach((l, i) => {
+          const isMedia = l.type === 'search' || l.type === 'social' || l.type === 'programmatic';
+          h += `<tr>
+            <td><select data-role="dl-type" data-id="${d.id}" data-i="${i}">` +
+              ['programmatic','search','social','retainer','hourly'].map(t =>
+                `<option value="${t}"${l.type === t ? ' selected' : ''}>${BILLING_TYPES[t] || t}</option>`).join('') +
+            `</select></td>
+            <td class="num">${isMedia
+              ? `<input class="dl-n" type="text" inputmode="decimal" value="${l.budget || ''}" placeholder="0" data-role="dl-budget" data-id="${d.id}" data-i="${i}">`
+              : l.type === 'retainer'
+                ? `<input class="dl-n" type="text" inputmode="decimal" value="${l.amount || ''}" placeholder="0" data-role="dl-amount" data-id="${d.id}" data-i="${i}">`
+                : `<input class="dl-n" type="text" inputmode="decimal" value="${l.hoursPerMonth || ''}" placeholder="hrs" data-role="dl-hpm" data-id="${d.id}" data-i="${i}">`}</td>
+            <td class="num">${isMedia ? `<input class="dl-n sm" type="text" inputmode="decimal" value="${l.feePct || ''}" placeholder="0" data-role="dl-fee" data-id="${d.id}" data-i="${i}">` : ''}</td>
+            <td class="num">${l.type === 'programmatic'
+              ? `<input class="dl-n sm" type="text" inputmode="decimal" value="${l.marginPct !== undefined && l.marginPct !== null ? l.marginPct : ''}" placeholder="${ach !== null ? ach : (qbConf().progMargin || 35)}" data-role="dl-margin" data-id="${d.id}" data-i="${i}" title="Blank uses the achieved margin, or the assumed rate if there is no history">`
+              : l.type === 'hourly' ? `<input class="dl-n sm" type="text" inputmode="decimal" value="${l.rate || ''}" placeholder="rate" data-role="dl-rate" data-id="${d.id}" data-i="${i}">` : ''}</td>
+            <td><input class="dl-hrs" type="text" value="${escapeAttr(hoursToText(l.hours))}" placeholder="Paid Media 40, Creative 10" data-role="dl-hours" data-id="${d.id}" data-i="${i}" title="Department and hours per month, comma separated. This becomes demand on the client."></td>
+            <td><button class="icon-btn" data-role="dl-rm" data-id="${d.id}" data-i="${i}" title="Remove line">×</button></td>
+          </tr>`;
+        });
+        h += '</tbody></table>';
+        h += `<button class="ghost" data-role="dl-add" data-id="${d.id}">+ Channel</button>`;
+        // per-month budget overrides, for a campaign that shifts mid-flight
+        const fm = dealMonths(d);
+        if (fm.length) {
+          h += '<div class="dl-sub">Budget by month — blank uses the monthly figure above</div><div class="dl-months">';
+          fm.forEach(m => {
+            const media = (d.lines || []).find(l => l.type === 'programmatic' || l.type === 'search' || l.type === 'social');
+            const idx = (d.lines || []).indexOf(media);
+            const v = media ? ((media.budgets || {})[m] !== undefined ? media.budgets[m] : '') : '';
+            h += `<label class="dl-m"><span>${monthShort(m)}</span>
+              <input type="text" inputmode="decimal" value="${v}" placeholder="${media ? (media.budget || 0) : '—'}"
+                data-role="dl-mbudget" data-id="${d.id}" data-i="${idx}" data-mk="${m}"${media ? '' : ' disabled'}>
+              <em>${fmtShort(dealRevenue(d, m))}</em></label>`;
+          });
+          h += '</div>';
+        }
+        h += '</div></td></tr>';
+      }
+    });
+  });
+  h += '</tbody></table>';
+  el.innerHTML = h;
+}
+
+function hoursToText(h) {
+  return Object.entries(h || {}).filter(([, v]) => +v > 0).map(([k, v]) => `${k} ${v}`).join(', ');
+}
+function textToHours(t) {
+  const out = {};
+  String(t || '').split(',').forEach(part => {
+    const m = part.trim().match(/^(.+?)\s+([\d.]+)$/);
+    if (m) out[normDept(m[1])] = +m[2];
+  });
+  return out;
+}
+function updDeal(id, fn) { const d = dealById(id); if (!d) return; fn(d); scheduleSave(); }
 
 function renderSettings() {
   const el = document.getElementById('settings-body');
@@ -6108,6 +6281,7 @@ function render() {
   if (suppressRender) return;
   if (ui.tab === 'settings') renderSettings();
   if (ui.tab === 'sales') renderSales();
+  if (ui.tab === 'deals') renderDeals();
   const active = document.activeElement;
   let focusKey = null, focusValue = null, selStart = null;
   if (active && active.tagName === 'INPUT' && (active.dataset.role || active.id)) {
@@ -6225,6 +6399,30 @@ document.addEventListener('input', (e) => {
         : 'Back to the ledger\u2019s own revenue.', 9000); });
     return;
   }
+  if (t.dataset.role && t.dataset.role.startsWith('dl-')) {
+    const id = t.dataset.id, i = +t.dataset.i, v = t.value;
+    const num = x => { const n = parseFloat(String(x).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? '' : n; };
+    updDeal(id, d => {
+      const l = (d.lines || [])[i]; if (!l && t.dataset.role !== 'dl-hours') return;
+      switch (t.dataset.role) {
+        case 'dl-type':    l.type = v; break;
+        case 'dl-budget':  l.budget = num(v) || 0; break;
+        case 'dl-amount':  l.amount = num(v) || 0; break;
+        case 'dl-hpm':     l.hoursPerMonth = num(v) || 0; break;
+        case 'dl-fee':     l.feePct = num(v) || 0; break;
+        case 'dl-rate':    l.rate = num(v) || 0; break;
+        case 'dl-margin':  l.marginPct = v === '' ? null : num(v); break;   // blank falls back to achieved
+        case 'dl-hours':   l.hours = textToHours(v); break;
+        case 'dl-mbudget': { l.budgets = l.budgets || {};
+          if (v === '') delete l.budgets[t.dataset.mk]; else l.budgets[t.dataset.mk] = num(v) || 0; break; }
+      }
+    });
+    if (t.dataset.role === 'dl-type') renderDeals();
+    return;
+  }
+  if (t.dataset.role === 'deal-name')  { updDeal(t.dataset.id, d => d.name = t.value); return; }
+  if (t.dataset.role === 'deal-start') { updDeal(t.dataset.id, d => d.startMonth = t.value); renderDeals(); return; }
+  if (t.dataset.role === 'deal-end')   { updDeal(t.dataset.id, d => d.endMonth = t.value); renderDeals(); return; }
   if (t.dataset.role === 'qb-avgmo') {
     qbConf().expenseAvgMonths = Math.max(1, Math.min(12, parseFloat(t.value) || 6));
     scheduleSave(); render(); return;
@@ -6548,6 +6746,11 @@ document.addEventListener('click', (e) => {
     if (pr) { setRevenueOverride(t.dataset.id, t.dataset.mk, String(Math.round(billingGP(pr, t.dataset.mk)))); render(); }
   }
   else if (role === 'fc-cost-remove') { state.fixedCosts.splice(+t.dataset.i, 1); scheduleSave(); render(); }
+  else if (role === 'deal-toggle') { dealOpen[t.dataset.id] = !dealOpen[t.dataset.id]; renderDeals(); }
+  else if (role === 'deal-migrate') { const n = migrateClientsToDeals(); renderDeals();
+    toast(n ? 'Created ' + n + ' deal' + (n === 1 ? '' : 's') + ' from existing client billing. Nothing changed in the numbers.' : 'No client billing to migrate.'); }
+  else if (role === 'dl-add') { updDeal(t.dataset.id, d => { (d.lines = d.lines || []).push({ type: 'programmatic', budget: 0, feePct: 12, hours: {} }); }); renderDeals(); }
+  else if (role === 'dl-rm') { updDeal(t.dataset.id, d => d.lines.splice(+t.dataset.i, 1)); renderDeals(); }
   else if (role === 'sf-copy') { salesCopyToLedger(t.dataset.id); }
   else if (role === 'qb-accept-high') { qbAcceptSuggestions('high'); }
   else if (role === 'qb-accept-all') { qbAcceptSuggestions('all'); }
