@@ -1021,7 +1021,7 @@ td.bl-lockcell{background:#f2f4f3}
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2228 · 27 Aug 2026 22:28 UTC</div>
+      <div class="ver-tag">build b0827-2231 · 27 Aug 2026 22:31 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -2264,11 +2264,7 @@ function salesCopyToLedger(id) {
     name: d.name || 'Untitled', startMonth: months[0] || '', endMonth: months[months.length - 1] || '',
     lines, revenueOverrides: {}, importedAt: new Date().toISOString()
   });
-  // keep the client's flight covering its deals
-  if (months.length) {
-    if (!client.startMonth || months[0] < client.startMonth) client.startMonth = months[0];
-    if (!client.endMonth || months[months.length - 1] > client.endMonth) client.endMonth = months[months.length - 1];
-  }
+  syncClientFlights();
   scheduleSave(); render();
 
   let msg = 'Added “' + (d.name || 'deal') + '” as a deal under ' + client.name +
@@ -3396,6 +3392,7 @@ async function enterApp(session) {
   // The roster lives in the ledger, so roles can only be resolved once state is loaded.
   computeSalaryAccess(session);
   const repaired = repairMigratedDeals();
+  syncClientFlights();
   if (repaired) console.log('Repaired flight dates on ' + repaired + ' migrated deal(s).');
   loadQbActuals().then(() => { if (qbConf().useActuals) render(); });
   document.getElementById('user-chip').textContent = email +
@@ -4030,9 +4027,41 @@ function updateProjectField(id, field, value) {
   if (field === 'endMonth') p.endDate = '';
   scheduleSave(); render();
 }
+/* A client's flight is the envelope of its deals: earliest start, latest end. Editing it
+   by hand pins that end, so a later deal cannot silently move a date someone chose.
+   p.startMonth / p.endMonth stay populated with the resolved values, so everything that
+   already reads them keeps working. */
+function syncClientFlights() {
+  let changed = false;
+  state.projects.forEach(p => {
+    const ds = dealsFor(p.id);
+    if (!ds.length) return;
+    if (!p.startMonthPinned) {
+      const starts = ds.map(d => d.startMonth).filter(Boolean).sort();
+      if (starts.length && p.startMonth !== starts[0]) {
+        p.startMonth = starts[0];
+        p.startDate = starts[0] + '-01';
+        changed = true;
+      }
+    }
+    if (!p.endMonthPinned) {
+      const ends = ds.map(d => d.endMonth).filter(Boolean).sort();
+      const last = ends[ends.length - 1];
+      if (last && p.endMonth !== last) {
+        p.endMonth = last;
+        p.endDate = lastDayOf(last);
+        changed = true;
+      }
+    }
+  });
+  return changed;
+}
+
 function setFlightDate(id, side, value) {
   const p = state.projects.find(p => p.id === id);
   if (!p) return;
+  // Setting a client date by hand pins it against the derived envelope.
+  if (side === 'start') p.startMonthPinned = !!value; else p.endMonthPinned = !!value;
   if (side === 'start') {
     p.startDate = value || '';
     if (value) p.startMonth = value.slice(0, 7);
@@ -7306,8 +7335,8 @@ document.addEventListener('change', (e) => {
   if (dRole === 'flight-start') { setFlightDate(e.target.dataset.id, 'start', e.target.value); return; }
   if (dRole === 'flight-end') { setFlightDate(e.target.dataset.id, 'end', e.target.value); return; }
   if (dRole === 'pj-name') { const d = dealById(dealEditId); if (d) { d.name = e.target.value; scheduleSave(); render(); } return; }
-  if (dRole === 'pj-start') { const d = dealById(dealEditId); if (d) { d.startMonth = e.target.value; scheduleSave(); rebuildBillingSection(); render(); } return; }
-  if (dRole === 'pj-end') { const d = dealById(dealEditId); if (d) { d.endMonth = e.target.value; scheduleSave(); rebuildBillingSection(); render(); } return; }
+  if (dRole === 'pj-start') { const d = dealById(dealEditId); if (d) { d.startMonth = e.target.value; syncClientFlights(); scheduleSave(); rebuildBillingSection(); render(); } return; }
+  if (dRole === 'pj-end') { const d = dealById(dealEditId); if (d) { d.endMonth = e.target.value; syncClientFlights(); scheduleSave(); rebuildBillingSection(); render(); } return; }
   if (dRole === 'usr-role') { updateUserRow(+e.target.dataset.i, 'role', e.target.value); return; }
   if (dRole === 'pm-start') { setStaffDate(personEditId, 'start', e.target.value); return; }
   if (dRole === 'pm-end') { setStaffDate(personEditId, 'end', e.target.value); return; }
