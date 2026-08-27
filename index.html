@@ -978,7 +978,7 @@ input.fed-n:focus{outline:none;border-color:var(--brand)}
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2343 · 27 Aug 2026 23:43 UTC</div>
+      <div class="ver-tag">build b0827-2345 · 27 Aug 2026 23:45 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -2600,6 +2600,12 @@ function dealLineBillable(d, line, mk) {
   return 0;
 }
 function dealBillable(d, mk) {
+  // Symmetric with the revenue path: a settled month reports what was actually
+  // invoiced, an open month reports what the lines say will be.
+  if (qbCovers(mk)) {
+    const act = dealActualBilled(d, mk);
+    if (act !== null) return act;
+  }
   return (d.lines || []).reduce((s, l) => s + dealLineBillable(d, l, mk), 0);
 }
 // Billable for a whole client in a month. Returns null when the client has no deals, so
@@ -2626,8 +2632,18 @@ function dealAchievedMargin(d) {
   return Math.round((rev - cost) / rev * 1000) / 10;
 }
 
-// Actual revenue for a deal-month, from its own QuickBooks project.
+// Actual gross profit for a deal-month, from its own QuickBooks project. Gross profit
+// rather than invoiced revenue, so it is directly comparable with the frozen forecast —
+// comparing invoiced actuals against a fee-only forecast measured two different things
+// and made accuracy meaningless for anything with media in it.
 function dealActual(d, mk) {
+  if (!d.qbProjectId || !qbActuals) return null;
+  const row = ((qbActuals.byProject || {})[String(d.qbProjectId)] || {})[mk];
+  return row ? row.gp : null;
+}
+// What the client was invoiced, as opposed to what EMG kept. Only the billable path
+// should use this.
+function dealActualBilled(d, mk) {
   if (!d.qbProjectId || !qbActuals) return null;
   const row = ((qbActuals.byProject || {})[String(d.qbProjectId)] || {})[mk];
   return row ? row.revenue : null;
@@ -3736,9 +3752,13 @@ const BILLING_TYPES = { retainer: 'Retainer', search: 'Paid Search', social: 'Pa
 function revenueFor(p, mk) {
   // QuickBooks is authoritative for months it covers — that is the whole point of the
   // cutover. Before the cutover, and for future months, the ledger's own logic applies.
+  // Gross profit, NOT invoiced revenue: a forecast month returns the fee EMG keeps, so a
+  // settled month must return the same quantity or the series changes units at the
+  // cutover and every year-on-year comparison across it is meaningless. What EMG
+  // invoices is a different question, answered by billableFor.
   if (qbCovers(mk)) {
     const a = qbClientMonth(p.id, mk);
-    if (a) return a.revenue;
+    if (a) return a.gp;
   }
   // All revenue hangs off a deal. A client is a container, not a source.
   const ds = dealsFor(p.id);
