@@ -923,7 +923,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2246 · 27 Aug 2026 22:46 UTC</div>
+      <div class="ver-tag">build b0827-2301 · 27 Aug 2026 23:01 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -2455,6 +2455,157 @@ function qbAcceptSuggestions(scope) {
       : 'Name-based matches are guesses — worth a scan before relying on them.'), 9000);
 }
 
+
+/* ===== Deals =====
+   A deal is the revenue entity. All revenue and all forecast hang off one, and a deal
+   maps one-to-one with a QuickBooks project — occasionally two deals share a project,
+   never the reverse.
+
+   Deals arrive two ways. Backfill creates one per matched QuickBooks project, which
+   covers long-running work whose HubSpot deal closed long ago. HubSpot imports create
+   them going forward. Backfilled deals have actuals but no forecast, and are simply
+   absent from the accuracy figure — a consequence of starting a new system rather than
+   something to paper over.
+
+   A month's forecast freezes the first time actual revenue arrives for it. Until then it
+   stays editable, because campaigns shift in flight. Accuracy is actual minus that
+   frozen figure, signed. */
+function deals() { if (!Array.isArray(state.deals)) state.deals = []; return state.deals; }
+function dealsFor(clientId) { return deals().filter(d => d.clientId === clientId); }
+function dealById(id) { return deals().find(d => d.id === id) || null; }
+function dealForQbProject(pid) { return deals().find(d => String(d.qbProjectId) === String(pid)) || null; }
+
+function dealMonths(d) {
+  const out = [];
+  if (!d || !d.startMonth || !d.endMonth || d.endMonth < d.startMonth) return out;
+  let c = d.startMonth, g = 0;
+  while (c <= d.endMonth && g < 120) { out.push(c); c = shiftMonth(c, 1); g++; }
+  return out;
+}
+
+/* Revenue a deal forecasts for a month.
+   Retainers are equal parts per month regardless of month length; everything else
+   spreads evenly across the flight unless a month has been set explicitly. */
+function dealLineForecast(d, line, mk) {
+  if (!dealMonths(d).includes(mk)) return 0;
+  const t = line.type;
+  if (t === 'retainer') return +line.amount || 0;
+  if (t === 'hourly') return (+line.hoursPerMonth || 0) * (+line.rate || 0);
+  const budget = (line.budgets || {})[mk] !== undefined ? +line.budgets[mk] : (+line.budget || 0);
+  if (t === 'search' || t === 'social') return budget * (+line.feePct || 0) / 100;
+  if (t === 'programmatic') return budget * ((+line.feePct || 0) + dealMargin(d, line)) / 100;
+  return 0;
+}
+function dealForecast(d, mk) {
+  const frozen = (d.frozen || {})[mk];
+  if (frozen !== undefined) return frozen;      // settled months keep what was forecast
+  return (d.lines || []).reduce((s, l) => s + dealLineForecast(d, l, mk), 0);
+}
+// What the forecast currently computes, ignoring any freeze — needed when deciding
+// what to freeze, and to show a settled month's live figure alongside its frozen one.
+function dealForecastLive(d, mk) {
+  return (d.lines || []).reduce((s, l) => s + dealLineForecast(d, l, mk), 0);
+}
+
+// Programmatic margin: what this deal has achieved if it has history, else the assumption.
+function dealMargin(d, line) {
+  if (line.marginPct !== undefined && line.marginPct !== null && line.marginPct !== '') return +line.marginPct;
+  const a = dealAchievedMargin(d);
+  return a !== null ? a : (+qbConf().progMargin || 35);
+}
+function dealAchievedMargin(d) {
+  if (!d.qbProjectId || !qbActuals) return null;
+  const byMonth = (qbActuals.byProject || {})[String(d.qbProjectId)];
+  if (!byMonth) return null;
+  let rev = 0, cost = 0, n = 0;
+  Object.entries(byMonth).forEach(([mk, v]) => { if (!qbCovers(mk)) return; rev += v.revenue; cost += v.cost; n++; });
+  if (n < 2 || rev <= 0) return null;
+  return Math.round((rev - cost) / rev * 1000) / 10;
+}
+
+// Actual revenue for a deal-month, from its own QuickBooks project.
+function dealActual(d, mk) {
+  if (!d.qbProjectId || !qbActuals) return null;
+  const row = ((qbActuals.byProject || {})[String(d.qbProjectId)] || {})[mk];
+  return row ? row.revenue : null;
+}
+function dealCogs(d, mk) {
+  if (!d.qbProjectId || !qbActuals) return null;
+  const row = ((qbActuals.byProject || {})[String(d.qbProjectId)] || {})[mk];
+  return row ? row.cost : null;
+}
+
+/* Freeze on first sight of actual revenue. Runs after actuals load; writes only when
+   something actually changes, so it does not churn the ledger on every render. */
+function freezeSettledForecasts() {
+  if (!qbActuals || !canEdit) return 0;
+  let frozen = 0;
+  deals().forEach(d => {
+    if (!d.qbProjectId) return;
+    const byMonth = (qbActuals.byProject || {})[String(d.qbProjectId)] || {};
+    Object.keys(byMonth).forEach(mk => {
+      if (!qbCovers(mk)) return;
+      if (!d.frozen) d.frozen = {};
+      if (d.frozen[mk] !== undefined) return;
+      d.frozen[mk] = dealForecastLive(d, mk);
+      frozen++;
+    });
+  });
+  if (frozen) scheduleSave();
+  return frozen;
+}
+
+// Accuracy: actual minus the forecast that was frozen. Positive means it came in above.
+function dealAccuracy(d, mk) {
+  const act = dealActual(d, mk);
+  if (act === null) return null;
+  const fc = (d.frozen || {})[mk];
+  if (fc === undefined) return null;            // backfilled deals never had a forecast
+  return act - fc;
+}
+
+/* Backfill: one deal per matched QuickBooks project, so every stream of real revenue has
+   an entity behind it. Flight comes from the months the project actually billed. These
+   carry no forecast — they exist so actuals have somewhere to land and so the account can
+   be extended forward by hand. */
+function backfillDealsFromQb() {
+  if (!qbProjects || !qbActuals) return { made: 0, skipped: 0, unmatched: 0 };
+  const map = qbMap();
+  let made = 0, skipped = 0, unmatched = 0;
+  qbProjects.forEach(pr => {
+    const clientId = map[pr.id];
+    if (!clientId) { unmatched++; return; }
+    if (dealForQbProject(pr.id)) { skipped++; return; }
+    const months = Object.keys((qbActuals.byProject || {})[String(pr.id)] || {}).sort();
+    deals().push({
+      id: uid(),
+      clientId,
+      qbProjectId: String(pr.id),
+      hubspotDealId: null,
+      name: qbDisplayName(pr),
+      startMonth: months[0] || (pr.first_month ? String(pr.first_month).slice(0, 7) : ''),
+      endMonth: months[months.length - 1] || (pr.last_month ? String(pr.last_month).slice(0, 7) : ''),
+      lines: [],
+      frozen: {},
+      backfilled: true
+    });
+    made++;
+  });
+  if (made) scheduleSave();
+  return { made, skipped, unmatched };
+}
+
+// Client-level billing is no longer a source of revenue: all revenue hangs off a deal.
+function clearClientBilling() {
+  let n = 0;
+  state.projects.forEach(p => {
+    if (p.billing) { n += ((p.billing || {}).lines || []).length; delete p.billing; }
+    if (Object.keys(p.revenueOverrides || {}).length) { n += Object.keys(p.revenueOverrides).length; p.revenueOverrides = {}; }
+  });
+  if (n) scheduleSave();
+  return n;
+}
+
 function renderSettings() {
   const el = document.getElementById('settings-body');
   if (!el) return;
@@ -2841,7 +2992,7 @@ async function enterApp(session) {
   await loadState();
   // The roster lives in the ledger, so roles can only be resolved once state is loaded.
   computeSalaryAccess(session);
-  loadQbActuals().then(() => { if (qbConf().useActuals) render(); });
+  loadQbActuals().then(() => { freezeSettledForecasts(); if (qbConf().useActuals) render(); });
   document.getElementById('user-chip').textContent = email +
     (myRole && ROLES[myRole] ? ' · ' + ROLES[myRole].label.toLowerCase() : (canSeeSalaries ? '' : ' · salaries hidden'));
   subscribeRealtime();
@@ -3257,11 +3408,13 @@ function revenueFor(p, mk) {
     const a = qbClientMonth(p.id, mk);
     if (a) return a.revenue;
   }
-  // Manual entry always wins. A hand-entered amount for a month (whether or not
-  // it's marked actual) is authoritative and is NEVER overwritten by billing
-  // lines — adding or editing billing lines can only FILL months that have no
-  // manual amount. This keeps historical/actual data intact when a project
-  // later switches to computed billing.
+  // All revenue hangs off a deal. A client is a container, not a source.
+  const ds = dealsFor(p.id);
+  if (ds.length) return ds.reduce((s, d) => {
+    const act = dealActual(d, mk);
+    return s + (act !== null ? act : dealForecast(d, mk));
+  }, 0);
+  // No deals yet — the old client-level path, so nothing disappears before the rebuild.
   const manual = (p.revenueOverrides || {})[mk];
   if (manual !== undefined) return manual;
   if (billingActive(p) && billingMonths(p).has(mk)) return billingGP(p, mk);
@@ -4326,6 +4479,10 @@ function monthTotalPayroll(mk) {
 }
 function revenueByMonthSplit() {
   const set = new Set();
+  deals().forEach(d => {
+    dealMonths(d).forEach(mk => set.add(mk));
+    Object.keys(d.frozen || {}).forEach(mk => set.add(mk));
+  });
   state.projects.forEach(p => {
     if (billingActive(p)) billingMonths(p).forEach(mk => set.add(mk));
     else Object.keys(p.revenueOverrides || {}).forEach(mk => {
