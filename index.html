@@ -923,7 +923,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2058 · 27 Aug 2026 20:58 UTC</div>
+      <div class="ver-tag">build b0827-2102 · 27 Aug 2026 21:02 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -988,7 +988,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       </div>
       <div class="chart-card" style="margin-bottom:16px;">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
-          <h4 style="margin:0;">Revenue · COGS · operating expenses · net profit — measured from QuickBooks once a month is over, projected before that</h4>
+          <h4 style="margin:0;">Revenue · COGS · labour · other expenses · line = net profit — measured from QuickBooks once a month is over, projected before that</h4>
           <button class="ghost" id="fc-costs-toggle" style="display:none;">Fixed costs ▸</button>
         </div>
         <div id="fc-costs-panel" style="display:none; border:1px solid var(--line); border-radius:6px; padding:12px 14px; margin:10px 0 4px; background:var(--paper-raised);">
@@ -2158,7 +2158,19 @@ function qbConf() {
 /* Actuals from QuickBooks, held in memory and indexed two ways: by client for the
    roll-up, and by project for the breakdown underneath. revenueFor runs inside render
    loops, so this must be a lookup rather than a query. */
-let qbActuals = null, qbActualsLoading = false, qbCompany = null, qbExpenses = null;
+let qbActuals = null, qbActualsLoading = false, qbCompany = null, qbExpenses = null, qbExpenseSplit = null;
+// Labour and other, split for the chart. Projected months inherit the settled ratio
+// rather than assuming one, so the shape of the forecast matches the shape of reality.
+function expenseParts(mk) {
+  const total = fixedCostsTotal(mk);
+  const known = (qbExpenseSplit || {})[mk];
+  if (known && expenseSource(mk) === 'actual') return { labour: known.labour, other: known.other };
+  const settled = Object.keys(qbExpenseSplit || {}).filter(k => k < monthKey(new Date()));
+  if (!settled.length) return { labour: 0, other: total };
+  const sums = settled.reduce((a, k) => ({ l: a.l + qbExpenseSplit[k].labour, t: a.t + qbExpenseSplit[k].labour + qbExpenseSplit[k].other }), { l: 0, t: 0 });
+  const ratio = sums.t > 0 ? sums.l / sums.t : 0;
+  return { labour: total * ratio, other: total * (1 - ratio) };
+}
 function qbMonth(mk) { return (qbCompany || {})[mk] || null; }
 
 async function loadQbActuals(force) {
@@ -2171,9 +2183,13 @@ async function loadQbActuals(force) {
   try {
     const { data: cm } = await sb.from('qb_company_month')
       .select('month,billed,billed_no_project,contra_excluded,cogs,gross_profit');
-    const { data: em } = await sb.from('qb_expense_month').select('month,expenses');
-    qbExpenses = {};
-    (em || []).forEach(r => { qbExpenses[String(r.month).slice(0, 7)] = +r.expenses || 0; });
+    const { data: em } = await sb.from('qb_expense_split').select('month,labour,other,total');
+    qbExpenses = {}; qbExpenseSplit = {};
+    (em || []).forEach(r => {
+      const mk = String(r.month).slice(0, 7);
+      qbExpenses[mk] = +r.total || 0;
+      qbExpenseSplit[mk] = { labour: +r.labour || 0, other: +r.other || 0 };
+    });
     qbCompany = {};
     (cm || []).forEach(r => { qbCompany[String(r.month).slice(0, 7)] = {
       billed: +r.billed || 0, noProject: +r.billed_no_project || 0,
@@ -4397,6 +4413,7 @@ function revenueByMonthSplit() {
       netProfit: (qbCovers(m) && qbMonth(m) ? qbMonth(m).billed : monthBillable(m))
                  - (qbCovers(m) && qbMonth(m) ? qbMonth(m).cogs : 0) - fixed,
       expenses: fixed, expenseSrc: expenseSource(m),
+      labourCost: expenseParts(m).labour, otherCost: expenseParts(m).other,
       expectedProfit: total - payroll - fixed, contributors };
   });
 }
@@ -4579,7 +4596,7 @@ function renderForecast() {
       })()}</td>
       <td class="computed-cell" style="color:#8a6d3b;" title="${r.expenseSrc === 'actual' ? 'Billed in QuickBooks — all operating expenses including labour'
         : r.expenseSrc === 'average' ? 'Projected from a rolling ' + expenseAverageWindow() + '-month average of settled months'
-        : 'Entered by hand in the fixed-cost menu'}">${r.expenses ? fmtMoney(r.expenses) : '—'}<div class="computed-sub">${r.expenseSrc}</div></td>
+        : 'Entered by hand in the fixed-cost menu'}">${r.expenses ? fmtMoney(r.expenses) : '—'}<div class="computed-sub">${r.labourCost ? fmtMoney(r.labourCost) + ' labour · ' : ''}${r.expenseSrc}</div></td>
       <td class="computed-cell" style="color:${r.netProfit >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(r.netProfit)}</td>
       <td class="computed-sub">${qbCovers(r.mk) && r.qbGp !== null ? 'QuickBooks' : (total !== 0 ? 'forecast' : '')}</td>
     </tr>${breakout}`;
@@ -4598,8 +4615,12 @@ function renderForecast() {
         { label: 'Revenue (forecast)', stack: 'rev', backgroundColor: '#3bc9ac', isBilled: true,
           data: rows.map(r => qbCovers(r.mk) ? null : Math.round(r.billable)) },
         { label: 'COGS', data: rows.map(r => Math.round(r.cogs)), backgroundColor: '#c98a3b', stack: 'cogs', isLabor: true },
-        { label: 'Expenses', data: rows.map(r => Math.round(r.expenses)), backgroundColor: '#8a6d3b', stack: 'exp', isLabor: true },
-        { label: 'Net profit', data: rows.map(r => Math.round(r.netProfit)), backgroundColor: rows.map(r => r.netProfit >= 0 ? '#7a9d54' : '#B5482A'), stack: 'profit', isProfit: true },
+        { label: 'Labour', data: rows.map(r => Math.round(r.labourCost)), backgroundColor: '#8a6d3b', stack: 'exp' },
+        { label: 'Other expenses', data: rows.map(r => Math.round(r.otherCost)), backgroundColor: '#d9c9a3', stack: 'exp', isExpTop: true },
+        { type: 'line', label: 'Net profit', data: rows.map(r => Math.round(r.netProfit)),
+          borderColor: '#0a493c', backgroundColor: '#0a493c', borderWidth: 3, fill: false,
+          tension: 0.15, pointRadius: 3.5, pointBackgroundColor: rows.map(r => r.netProfit >= 0 ? '#7a9d54' : '#B5482A'),
+          pointBorderColor: '#0a493c', pointBorderWidth: 1.5, order: -1, stack: 'netline', isProfit: true },
 
       ]
     },
@@ -4618,17 +4639,25 @@ function renderForecast() {
             if (ds.isPayLine) return false;
             if (ds.isProfit) return true;
             if (ds.isLabor) return true;
+            if (ds.isExpTop) return true;          // top of the expense stack carries its total
             if (ds.isBilled) return true;
             const revSets = ctx.chart.data.datasets.filter(d => d.stack === 'rev');
             return ds === revSets[revSets.length - 1];
           },
           anchor: 'end', align: 'top', offset: 2, clip: false,
           font: { family: "'DM Mono', monospace", size: 9, weight: '700' },
-          color: ctx => ctx.dataset.isProfit ? (ctx.dataset.data[ctx.dataIndex] >= 0 ? '#7a9d54' : '#B5482A') : (ctx.dataset.isLabor ? '#c98a3b' : ctx.dataset.isBilled ? '#6b7f77' : '#0a493c'),
+          color: ctx => ctx.dataset.isProfit ? (ctx.dataset.data[ctx.dataIndex] >= 0 ? '#3d6b1f' : '#B5482A')
+            : ctx.dataset.isLabor ? '#c98a3b' : ctx.dataset.isExpTop ? '#8a6d3b'
+            : ctx.dataset.isBilled ? '#6b7f77' : '#0a493c',
           formatter: (v, ctx) => {
             const i = ctx.dataIndex;
             if (ctx.dataset.isProfit) return v !== 0 ? '$' + Math.round(v / 1000) + 'k' : '';
             if (ctx.dataset.isLabor) return v !== 0 ? '$' + Math.round(v / 1000) + 'k' : '';
+            if (ctx.dataset.isExpTop) {
+              const t = ctx.chart.data.datasets.filter(d => d.stack === 'exp')
+                .reduce((sum, d) => sum + (d.data[i] || 0), 0);
+              return t !== 0 ? '$' + Math.round(t / 1000) + 'k' : '';
+            }
             if (ctx.dataset.isBilled) return v !== 0 ? '$' + Math.round(v / 1000) + 'k' : '';
             const total = ctx.chart.data.datasets.filter(d => d.stack === 'rev').reduce((sum, ds) => sum + (ds.data[i] || 0), 0);
             return total !== 0 ? '$' + Math.round(total / 1000) + 'k' : '';
