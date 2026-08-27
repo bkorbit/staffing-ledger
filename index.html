@@ -923,7 +923,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2051 · 27 Aug 2026 20:51 UTC</div>
+      <div class="ver-tag">build b0827-2058 · 27 Aug 2026 20:58 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -988,7 +988,7 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
       </div>
       <div class="chart-card" style="margin-bottom:16px;">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
-          <h4 style="margin:0;">Revenue — billed once the month is over, forecast until then · COGS · profit after labor · line = expected profit</h4>
+          <h4 style="margin:0;">Revenue · COGS · operating expenses · net profit — measured from QuickBooks once a month is over, projected before that</h4>
           <button class="ghost" id="fc-costs-toggle" style="display:none;">Fixed costs ▸</button>
         </div>
         <div id="fc-costs-panel" style="display:none; border:1px solid var(--line); border-radius:6px; padding:12px 14px; margin:10px 0 4px; background:var(--paper-raised);">
@@ -1011,7 +1011,8 @@ table.hs-map select{border:1px solid var(--line);border-radius:4px;padding:3px 6
           <th class="num-col">Forecast GP</th>
           <th class="num-col">Actual GP</th>
           <th class="num-col">Variance</th>
-          <th class="num-col">Profit after labor</th>
+          <th class="num-col">Expenses</th>
+          <th class="num-col">Net profit</th>
           <th>Basis</th>
         </tr></thead>
         <tbody id="forecast-tbody"></tbody>
@@ -2157,7 +2158,7 @@ function qbConf() {
 /* Actuals from QuickBooks, held in memory and indexed two ways: by client for the
    roll-up, and by project for the breakdown underneath. revenueFor runs inside render
    loops, so this must be a lookup rather than a query. */
-let qbActuals = null, qbActualsLoading = false, qbCompany = null;
+let qbActuals = null, qbActualsLoading = false, qbCompany = null, qbExpenses = null;
 function qbMonth(mk) { return (qbCompany || {})[mk] || null; }
 
 async function loadQbActuals(force) {
@@ -2170,6 +2171,9 @@ async function loadQbActuals(force) {
   try {
     const { data: cm } = await sb.from('qb_company_month')
       .select('month,billed,billed_no_project,contra_excluded,cogs,gross_profit');
+    const { data: em } = await sb.from('qb_expense_month').select('month,expenses');
+    qbExpenses = {};
+    (em || []).forEach(r => { qbExpenses[String(r.month).slice(0, 7)] = +r.expenses || 0; });
     qbCompany = {};
     (cm || []).forEach(r => { qbCompany[String(r.month).slice(0, 7)] = {
       billed: +r.billed || 0, noProject: +r.billed_no_project || 0,
@@ -2509,6 +2513,10 @@ function renderSettings() {
   <div class="hs-row"><label style="display:flex;align-items:center;gap:7px;">
     <input type="checkbox" data-role="qb-use" ${qbConf().useActuals ? 'checked' : ''}> Use QuickBooks actuals</label></div>
   <div class="hs-row"><span>From</span><input type="month" data-role="qb-cutover" value="${qbConf().cutover}"></div>
+  <div class="hs-row"><span>Forecast expenses on</span>
+    <input type="text" inputmode="decimal" data-role="qb-avgmo" value="${qbConf().expenseAvgMonths || 6}" style="width:46px;"> month average
+    <span class="computed-sub">${(() => { const a = expenseRollingAverage(); return a ? 'currently ' + fmtMoney(a) + '/mo' : 'no settled months yet'; })()}</span></div>
+  <div class="computed-sub" style="margin-bottom:10px;">Settled months use what QuickBooks billed. Later months use this average, taken from settled months only so a part-billed month cannot drag it down. Manual fixed costs still apply to months that are not settled.</div>
   <div class="computed-sub" id="qb-use-status"></div>`;
   el.innerHTML = h;
   renderDataTools();
@@ -4240,7 +4248,34 @@ function fixedCostFor(c, mk) {
   const v = (c.amounts || {})[mk];
   return v !== undefined ? v : (c.default || 0);
 }
+/* Operating expenses for a month.
+   Settled months are measured — whatever QuickBooks billed, labour included. Future
+   months are projected from a rolling average of settled months, which beats asking
+   someone to type a number they would only be estimating anyway. A manual override
+   still wins, but only for months that are not settled: overriding a month QuickBooks
+   has already reported would be asserting a figure over a measurement. */
+function expenseAverageWindow() {
+  const c = qbConf();
+  return Math.max(1, Math.min(12, +c.expenseAvgMonths || 6));
+}
+function expenseRollingAverage() {
+  if (!qbExpenses) return null;
+  const now = monthKey(new Date());
+  const settled = Object.keys(qbExpenses).filter(mk => mk < now).sort();   // never the part-billed month
+  if (!settled.length) return null;
+  const take = settled.slice(-expenseAverageWindow());
+  return take.reduce((s, mk) => s + qbExpenses[mk], 0) / take.length;
+}
+function expenseSource(mk) {
+  if (qbConf().useActuals && qbExpenses && qbCovers(mk) && qbExpenses[mk] !== undefined) return 'actual';
+  if ((state.fixedCosts || []).some(c => fixedCostFor(c, mk) !== 0)) return 'manual';
+  if (qbConf().useActuals && expenseRollingAverage() !== null) return 'average';
+  return 'manual';
+}
 function fixedCostsTotal(mk) {
+  const src = expenseSource(mk);
+  if (src === 'actual') return qbExpenses[mk];
+  if (src === 'average') return expenseRollingAverage();
   return (state.fixedCosts || []).reduce((sum, c) => sum + fixedCostFor(c, mk), 0);
 }
 /* Months shown in the fixed-cost editor. Independent of the chart window so
@@ -4357,7 +4392,12 @@ function revenueByMonthSplit() {
       cogs: qbCovers(m) && qbMonth(m) ? qbMonth(m).cogs : 0,
       qbGp: qbCovers(m) && qbMonth(m) ? qbMonth(m).gp : null,
       noProject: qbCovers(m) && qbMonth(m) ? qbMonth(m).noProject : 0,
-      profit: total - labor, profitPayroll: total - payroll, expectedProfit: total - payroll - fixed, contributors };
+      profit: total - labor, profitPayroll: total - payroll,
+      // Whole-business bottom line, straight from QuickBooks for settled months.
+      netProfit: (qbCovers(m) && qbMonth(m) ? qbMonth(m).billed : monthBillable(m))
+                 - (qbCovers(m) && qbMonth(m) ? qbMonth(m).cogs : 0) - fixed,
+      expenses: fixed, expenseSrc: expenseSource(m),
+      expectedProfit: total - payroll - fixed, contributors };
   });
 }
 
@@ -4478,7 +4518,7 @@ function renderForecast() {
       });
       const ind = k => sk === k ? (sd === 1 ? ' ▲' : ' ▼') : '';
       breakout = `
-      <tr class="fc-breakout"><td colspan="9">
+      <tr class="fc-breakout"><td colspan="10">
         <div class="fc-head">
           <span>${withRev.length} project${withRev.length === 1 ? '' : 's'} contributing revenue</span>
           ${qbCovers(r.mk) ? '<span class="pmeta">actual — from QuickBooks</span>'
@@ -4537,7 +4577,10 @@ function renderForecast() {
         return `<span style="color:${d >= 0 ? 'var(--teal)' : 'var(--rust)'};">${d >= 0 ? '+' : '−'}${fmtMoney(Math.abs(d))}</span>` +
                `<div class="computed-sub">${Math.round(d / r.forecastGp * 100)}%</div>`;
       })()}</td>
-      <td class="computed-cell" style="color:${r.profitPayroll >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(r.profitPayroll)}<div class="computed-sub" style="color:${r.expectedProfit >= 0 ? 'var(--teal)' : 'var(--rust)'};">${fmtMoney(r.expectedProfit)} expected${r.fixed ? ' (incl. ' + fmtMoney(r.fixed) + ' fixed)' : ''}</div></td>
+      <td class="computed-cell" style="color:#8a6d3b;" title="${r.expenseSrc === 'actual' ? 'Billed in QuickBooks — all operating expenses including labour'
+        : r.expenseSrc === 'average' ? 'Projected from a rolling ' + expenseAverageWindow() + '-month average of settled months'
+        : 'Entered by hand in the fixed-cost menu'}">${r.expenses ? fmtMoney(r.expenses) : '—'}<div class="computed-sub">${r.expenseSrc}</div></td>
+      <td class="computed-cell" style="color:${r.netProfit >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">${fmtMoney(r.netProfit)}</td>
       <td class="computed-sub">${qbCovers(r.mk) && r.qbGp !== null ? 'QuickBooks' : (total !== 0 ? 'forecast' : '')}</td>
     </tr>${breakout}`;
   }).join('');
@@ -4555,8 +4598,9 @@ function renderForecast() {
         { label: 'Revenue (forecast)', stack: 'rev', backgroundColor: '#3bc9ac', isBilled: true,
           data: rows.map(r => qbCovers(r.mk) ? null : Math.round(r.billable)) },
         { label: 'COGS', data: rows.map(r => Math.round(r.cogs)), backgroundColor: '#c98a3b', stack: 'cogs', isLabor: true },
-        { label: 'Profit after labor', data: rows.map(r => Math.round(r.profitPayroll)), backgroundColor: rows.map(r => r.profitPayroll >= 0 ? '#7a9d54' : '#B5482A'), stack: 'profit', isProfit: true },
-        { type: 'line', label: 'Expected profit', data: rows.map(r => Math.round(r.expectedProfit)), borderColor: '#fabf4d', backgroundColor: '#fabf4d', borderWidth: 2.5, borderDash: [6, 4], fill: false, tension: 0, pointRadius: 2.5, order: -1, stack: 'payline', isPayLine: true }
+        { label: 'Expenses', data: rows.map(r => Math.round(r.expenses)), backgroundColor: '#8a6d3b', stack: 'exp', isLabor: true },
+        { label: 'Net profit', data: rows.map(r => Math.round(r.netProfit)), backgroundColor: rows.map(r => r.netProfit >= 0 ? '#7a9d54' : '#B5482A'), stack: 'profit', isProfit: true },
+
       ]
     },
     options: (() => {
@@ -6035,6 +6079,10 @@ document.addEventListener('input', (e) => {
         ? 'Revenue from ' + qbConf().cutover + ' onwards now comes from QuickBooks. Compare a month you know before relying on it.'
         : 'Back to the ledger\u2019s own revenue.', 9000); });
     return;
+  }
+  if (t.dataset.role === 'qb-avgmo') {
+    qbConf().expenseAvgMonths = Math.max(1, Math.min(12, parseFloat(t.value) || 6));
+    scheduleSave(); render(); return;
   }
   if (t.dataset.role === 'qb-cutover' && /^\d{4}-\d{2}$/.test(t.value)) {
     qbConf().cutover = t.value; scheduleSave(); render(); return;
