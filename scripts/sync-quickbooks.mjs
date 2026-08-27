@@ -25,8 +25,29 @@ const MINOR = '75';
 const JOBCODE_RE = /\b\d{2}[a-z]{3,6}\d{5,8}\b/i;   // e.g. 26hawt260810
 
 const fail = m => { console.error('✖ ' + m); process.exit(1); };
-if (!CLIENT_ID || !CLIENT_SECRET) fail('Missing QBO_CLIENT_ID / QBO_CLIENT_SECRET.');
-if (!SERVICE_KEY) fail('Missing SUPABASE_SERVICE_ROLE_KEY.');
+
+// Report every missing prerequisite in one go. Failing at the first one turns setup
+// into a sequence of one-item-per-run discoveries.
+function preflight(state) {
+  const missing = [];
+  if (!CLIENT_ID) missing.push('QBO_CLIENT_ID — GitHub repo secret, from your Intuit app (production keys)');
+  if (!CLIENT_SECRET) missing.push('QBO_CLIENT_SECRET — GitHub repo secret, from the same app');
+  if (!SERVICE_KEY) missing.push('SUPABASE_SERVICE_ROLE_KEY — GitHub repo secret');
+  if (state) {
+    const t = state.refresh_token;
+    if (!t || /^YOUR_/.test(t)) missing.push("refresh_token — authorise once in Intuit's OAuth playground, then: update qb_sync_state set refresh_token='…' where id='default';");
+    const r = state.realm_id;
+    if (!r || /^YOUR_/.test(r)) missing.push("realm_id — update qb_sync_state set realm_id='…' where id='default';");
+  }
+  if (!missing.length) return;
+  console.error('');
+  console.error('✖ Cannot run yet. ' + missing.length + ' thing' + (missing.length === 1 ? '' : 's') + ' still needed:');
+  missing.forEach((m, i) => console.error(`   ${i + 1}. ${m}`));
+  console.error('');
+  console.error('Everything else is ready — the tables exist and the schema is verified.');
+  process.exit(1);
+}
+preflight(null);   // secrets are checkable before touching the network
 
 const sb = { apikey: SERVICE_KEY, Authorization: 'Bearer ' + SERVICE_KEY, 'Content-Type': 'application/json' };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -133,14 +154,20 @@ const lineProject = l => {
 (async () => {
   const [st] = await sbGet('qb_sync_state?id=eq.default&select=*');
   if (!st) fail('No qb_sync_state row — run the schema SQL first.');
-  if (!st.refresh_token) fail('No refresh token stored. Authorise QuickBooks once and seed qb_sync_state.refresh_token.');
-  if (!st.realm_id) fail('No realm_id stored. Put your QuickBooks company id in qb_sync_state.realm_id.');
+  preflight(st);
 
   const realm = st.realm_id;
   const from = st.import_from || '2026-01-01';
   console.log(`QuickBooks sync · realm ${realm} · from ${from}`);
 
   const token = await refreshAccess(st.refresh_token);
+
+  // Development keys authorise fine but point at an empty sandbox company, which looks
+  // like a working sync that found no data. Check the realm actually answers.
+  const info = await qboQuery(realm, token, 'SELECT * FROM CompanyInfo');
+  const co = (info.CompanyInfo || [])[0];
+  if (co) console.log(`  connected to "${co.CompanyName}" (realm ${realm})`);
+  else console.log('  ⚠ CompanyInfo returned nothing — check the realm id and that these are production keys.');
 
   // ---- projects (sub-customers flagged as jobs) ----
   const customers = await qboAll(realm, token, 'Customer');
