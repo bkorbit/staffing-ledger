@@ -894,7 +894,7 @@ font-family:var(--font-mono);font-size:10px;text-align:right;background:#fff}
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2350 · 27 Aug 2026 23:50 UTC</div>
+      <div class="ver-tag">build b0827-2355 · 27 Aug 2026 23:55 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -5633,6 +5633,11 @@ function applyNavCollapsed(on) {
   if (shell) shell.classList.toggle('nav-collapsed', !!on);
   const ico = document.getElementById('nav-toggle-ico');
   if (ico) ico.textContent = on ? '\u203A' : '\u2039';
+  const btn = 
+/* Global delegated listeners. These sat INSIDE applyNavCollapsed, which meant every
+   sidebar collapse registered another copy of all of them, and the assignment that
+   made it parse (const btn = document.addEventListener(...)) left btn undefined so
+   the nav-toggle title was never set. Registered once, at top level, where they belong. */
 document.addEventListener('change', (e) => {
   const t = e.target;
   if (!t.dataset) return;
