@@ -1021,7 +1021,7 @@ td.bl-lockcell{background:#f2f4f3}
       <span class="user-chip" id="user-chip"></span>
       <button class="ghost" id="clear-month-btn" title="Remove every assignment and department demand entry in the selected month">Clear month's assignments</button>
       <button class="ghost" id="signout-btn" title="Sign out"><span class="nav-label">Sign out</span><span class="foot-ico">⎋</span></button>
-      <div class="ver-tag">build b0827-2204 · 27 Aug 2026 22:04 UTC</div>
+      <div class="ver-tag">build b0827-2206 · 27 Aug 2026 22:06 UTC</div>
     </div>
   </nav>
   <div class="content" id="content">
@@ -2708,9 +2708,12 @@ function clientsAwaitingDeals() {
   return state.projects
     .map(p => {
       const lines = ((p.billing || {}).lines || []).length;
-      if (!lines || dealsFor(p.id).length) return null;
+      const overrides = Object.keys(p.revenueOverrides || {}).length;
+      // The migration acts on either, so the offer has to as well — clients whose
+      // revenue was typed in by hand need a deal just as much as billed ones.
+      if ((!lines && !overrides) || dealsFor(p.id).length) return null;
       const twin = state.projects.find(o => o.id !== p.id && dealsFor(o.id).length && similarity(o.name, p.name) > 0.6);
-      return { p, lines, nearDuplicate: twin ? twin.name : null };
+      return { p, lines, overrides, nearDuplicate: twin ? twin.name : null };
     })
     .filter(Boolean);
 }
@@ -2944,6 +2947,12 @@ function renderSettings() {
   <div id="qb-match-body"></div>
 
   <div style="border-top:1px solid var(--line); margin:22px 0 14px;"></div>
+  <h3 style="margin:0 0 4px; font-size:15px; color:var(--brand);">Deals</h3>
+  <div class="computed-sub" style="margin-bottom:10px;">Billing lives on deals, not clients. This moves each client's existing billing onto a deal so campaigns can be edited individually. Revenue does not change — it reports the before and after so you can check.</div>
+  <div class="computed-sub" id="deal-migrate-status" style="margin-bottom:8px;"></div>
+  <button class="ghost" data-role="deal-migrate">Set up deals from client billing</button>
+
+  <div style="border-top:1px solid var(--line); margin:22px 0 14px;"></div>
   <h3 style="margin:0 0 4px; font-size:15px; color:var(--brand);">QuickBooks as the source of revenue</h3>
   <div class="computed-sub" style="margin-bottom:12px;">Once matching looks right, switch this on and revenue for months from the cutover onwards comes from QuickBooks instead of manual entry. Earlier months keep whatever the ledger already holds; future months stay on billing lines and pipeline. Leave it off to compare first.</div>
   <div class="hs-row"><label style="display:flex;align-items:center;gap:7px;">
@@ -2957,6 +2966,16 @@ function renderSettings() {
   el.innerHTML = h;
   renderDataTools();
   renderQbMatching();
+  const dm = document.getElementById('deal-migrate-status');
+  if (dm) {
+    const waiting = clientsAwaitingDeals();
+    dm.innerHTML = `<b>${deals().length}</b> deal${deals().length === 1 ? '' : 's'} across ` +
+      `<b>${new Set(deals().map(d => d.clientId)).size}</b> client${new Set(deals().map(d => d.clientId)).size === 1 ? '' : 's'}. ` +
+      (waiting.length
+        ? `<b>${waiting.length}</b> client${waiting.length === 1 ? '' : 's'} still holding billing of their own: ` +
+          waiting.slice(0, 8).map(x => escapeHtml(x.p.name || 'Untitled')).join(', ') + (waiting.length > 8 ? '…' : '')
+        : 'Every client with revenue data has a deal — nothing left to migrate.');
+  }
 }
 
 function renderHubspotSettings() {
@@ -4986,7 +5005,8 @@ function renderForecast() {
     setupBtn.textContent = 'Set up deals · ' + pendingList.length + ' client' + (pendingList.length === 1 ? '' : 's');
     setupBtn.title = pendingList.length
       ? 'Still holding billing of their own:\n' + pendingList.map(x =>
-          '· ' + (x.p.name || 'Untitled') + ' — ' + x.lines + ' line' + (x.lines === 1 ? '' : 's') +
+          '· ' + (x.p.name || 'Untitled') + ' — ' +
+          (x.lines ? x.lines + ' billing line' + (x.lines === 1 ? '' : 's') : x.overrides + ' month' + (x.overrides === 1 ? '' : 's') + ' entered by hand') +
           (x.nearDuplicate ? '  (deals exist under “' + x.nearDuplicate + '” — likely the same client twice)' : '')
         ).join('\n')
       : '';
