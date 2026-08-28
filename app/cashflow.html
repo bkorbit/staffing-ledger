@@ -5,12 +5,26 @@
 import { boot, fmt$, bandChart } from './assets/shell.js?v=fc8d5d3';
 
 boot('cashflow', async (supa, el) => {
-  el.innerHTML = `<div class="sc-panel"><div id="chart">loading…</div></div>
+  el.innerHTML = `<div class="range">
+      <span class="rl">Horizon</span>
+      <select id="cf-weeks" style="height:30px">
+        <option value="13">13 weeks</option><option value="26">26 weeks</option>
+        <option value="39">39 weeks</option><option value="52">52 weeks</option>
+      </select>
+      <span class="muted" style="font-size:10.5px">programmatic pays its media weeks before
+      the client pays the invoice — a short horizon shows the cost and cuts off the
+      collection. 26 weeks sees both sides.</span>
+    </div>
+    <div class="sc-panel"><div id="chart">loading…</div></div>
     <div class="sc-panel" style="overflow-x:auto"><table id="tbl"></table></div>
     <div class="muted">Tail caution: beyond the reach of open invoices and shaped deals,
     the model has no revenue and both lines sink. That is missing data, not a prophecy.</div>`;
 
-  const { data: rows, error } = await supa.rpc('cashflow_forecast', { weeks: 13 });
+  const weeks = +(localStorage.getItem('cf_weeks') || 26);
+  const sel = document.getElementById('cf-weeks');
+  sel.value = String(weeks);
+  sel.onchange = () => { localStorage.setItem('cf_weeks', sel.value); location.reload(); };
+  const { data: rows, error } = await supa.rpc('cashflow_forecast', { weeks });
   if (error) throw error;
   bandChart(document.getElementById('chart'),
     rows.map(r=>r.week_start.slice(5)),
