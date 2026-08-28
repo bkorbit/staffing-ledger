@@ -83,7 +83,8 @@ boot('forecast', async (supa, el) => {
         .gte('month', rangeFrom).lte('month', rangeTo),
       supa.from('deals')
         .select('id,name,client_id,reviewed_at,flight_start,flight_end,media_funding,promotions(source_payload)')
-        .in('status',['won','active']),
+        .in('status',['won','active'])
+        .gte('flight_end','2026-01-01'),   // the platform starts at 2026
       supa.from('clients').select('id,name,active').eq('active', true),
       supa.from('invoices').select('issued_on,total')
         .gte('issued_on', rangeFrom).lte('issued_on', shiftM(rangeTo,1)),
@@ -125,10 +126,7 @@ boot('forecast', async (supa, el) => {
         <span class="muted" style="font-size:12px">Forecast under actuals shows the difference for settled months</span>
       </div>
       <div class="sc-panel"><div id="chart"></div></div>
-      <div class="sc-panel" style="padding:0;overflow-x:auto"><table class="sum" id="sum"></table></div>
-      <div class="sc-panel" style="padding:0;overflow-x:auto">
-        <div class="sc-eyebrow" style="padding:12px 16px 0">Deals — click one to shape it</div>
-        <table id="deals" style="border:none"></table></div>`;
+      <div class="sc-panel" style="padding:0;overflow-x:auto"><table class="sum" id="sum"></table></div>`;
 
     el.querySelector('#r-from').onchange = e => { rangeFrom = e.target.value+'-01'; loadAll(); };
     el.querySelector('#r-to').onchange   = e => { rangeTo   = e.target.value+'-01'; loadAll(); };
@@ -149,8 +147,31 @@ boot('forecast', async (supa, el) => {
       const pct = Math.round((planByM[m]/gpActual[m] - 1)*100);
       return `<span class="pct ${Math.abs(pct)>15?'bad':'good'}">${pct>=0?'+':''}${pct}% vs actual</span>`;
     };
+    // one table: the three summary rows, then revenue by deal rolled into clients
+    const rows = Object.values(clientsById).filter(c =>
+      (dealsByClient[c.id]||[]).length).sort((a,b)=>a.name.localeCompare(b.name));
+    const nCols = months.length + 2;
+    const clientBlocks = rows.map(c => {
+      const ds = (dealsByClient[c.id]||[]).sort((a,b)=>(b.flight_end||'').localeCompare(a.flight_end||''));
+      const cByM = {}; ds.forEach(d => months.forEach(m => cByM[m]=(cByM[m]||0)+(d._plan[m]||0)));
+      const cTot = months.reduce((s,m)=>s+(cByM[m]||0),0);
+      return `<tr><td class="textleft" style="font-weight:600"><span class="ellip" title="${esc(c.name)}">${esc(c.name)}</span></td>
+          ${months.map(m=>`<td style="font-weight:600">${cByM[m]?fmtN(cByM[m]):''}</td>`).join('')}
+          <td style="font-weight:600">${cTot?fmtN(cTot):''}</td></tr>` +
+        ds.map(d => {
+          const tot = months.reduce((s,m)=>s+(d._plan[m]||0),0);
+          return `<tr class="deallist" data-id="${d.id}" title="click to shape">
+            <td class="textleft" style="padding-left:20px"><span class="muted">▸</span>
+              <span class="ellip" style="max-width:180px" title="${esc(d.name)}">${esc(d.name)}</span>
+              ${d.reviewed_at?'':'<span class="warn">•</span>'}</td>
+            ${months.map(m=>`<td>${d._plan[m]?`<span class="${d.reviewed_at?'':'warn'}">${fmtN(d._plan[m])}</span>`:''}</td>`).join('')}
+            <td class="muted">${tot?fmtN(tot):''}</td></tr>
+          <tr class="editor" data-for="${d.id}" hidden><td colspan="${nCols}" class="textleft"><div class="edbox"></div></td></tr>`;
+        }).join('');
+    }).join('');
+
     el.querySelector('#sum').innerHTML =
-      `<tr><th style="text-align:left;min-width:210px"></th>
+      `<tr><th style="text-align:left;min-width:170px"></th>
         ${months.map(m=>`<th ${m===thisMonth?'style="border-left:2px solid var(--brand)"':''}>${mLabel(m)}${past(m)?' ✓':''}</th>`).join('')}<th>total</th></tr>
       <tr><td class="textleft" style="font-weight:600">Revenue (actual)</td>
         ${months.map(m=>`<td>${(past(m)||m===thisMonth)&&revByM[m]?fmtN(revByM[m]):''}</td>`).join('')}
@@ -158,30 +179,10 @@ boot('forecast', async (supa, el) => {
       <tr><td class="textleft" style="font-weight:600">Gross profit (actual)</td>
         ${months.map(m=>`<td>${gpActual[m]!==undefined?fmtN(gpActual[m]):''}</td>`).join('')}
         <td style="font-weight:600">${fmtN(Object.values(gpActual).reduce((a,b)=>a+b,0))}</td></tr>
-      <tr><td class="textleft" style="font-weight:600;color:var(--brand)">Forecasted GP</td>
+      <tr class="gp"><td class="textleft" style="font-weight:600;color:var(--brand)">Forecasted GP</td>
         ${months.map(m=>`<td style="color:var(--brand)">${planByM[m]?fmtN(planByM[m]):''}${pctCell(m)}</td>`).join('')}
-        <td style="font-weight:600;color:var(--brand)">${fmtN(months.reduce((s,m)=>s+(planByM[m]||0),0))}</td></tr>`;
-
-    // ---- the deals list, editable ----
-    const rows = Object.values(clientsById).filter(c =>
-      (dealsByClient[c.id]||[]).length).sort((a,b)=>a.name.localeCompare(b.name));
-    el.querySelector('#deals').innerHTML =
-      `<tr><th style="text-align:left;min-width:280px">client / deal</th>
-        <th style="text-align:left">flight</th><th>forecast GP in range</th><th style="text-align:left">status</th></tr>` +
-      rows.map(c => {
-        const ds = (dealsByClient[c.id]||[]).sort((a,b)=>(b.flight_end||'').localeCompare(a.flight_end||''));
-        return `<tr><td class="textleft" style="font-weight:600" colspan="4">${esc(c.name)}</td></tr>` +
-          ds.map(d => {
-            const tot = months.reduce((s,m)=>s+(d._plan[m]||0),0);
-            return `<tr class="deallist" data-id="${d.id}">
-              <td class="textleft" style="padding-left:22px"><span class="muted">▸</span> ${esc(d.name)}</td>
-              <td class="textleft muted">${mLabel(d.flight_start)} → ${mLabel(d.flight_end)}</td>
-              <td>${tot?fmtN(tot):'<span class="muted">—</span>'}</td>
-              <td class="textleft">${d.reviewed_at?'<span class="pill good">reviewed</span>':'<span class="pill warn">to review</span>'}</td>
-            </tr>
-            <tr class="editor" data-for="${d.id}" hidden><td colspan="4" class="textleft"><div class="edbox"></div></td></tr>`;
-          }).join('');
-      }).join('') || '<tr><td class="muted">no deals for active clients</td></tr>';
+        <td style="font-weight:600;color:var(--brand)">${fmtN(months.reduce((s,m)=>s+(planByM[m]||0),0))}</td></tr>
+      ${clientBlocks}`;
 
     el.querySelectorAll('tr.deallist').forEach(tr => {
       tr.onclick = () => toggleEditor(tr.dataset.id);

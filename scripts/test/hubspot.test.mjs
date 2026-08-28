@@ -34,4 +34,25 @@ eq(m.jobcodeFromName('26akrn260101 Visit Akron World Cup'),'26akrn260101','extra
 eq(m.jobcodeFromName('Visit Akron AOR'),null,'absent -> null');
 
 console.log(`\n${pass} passed, ${fail} failed`);
+
+
+
+
+// ---- flightFromItems: the auto-flighting at the promotion door ----
+{
+  const F=m.flightFromItems;
+  const fl=F([{name:'Paid Search Media',amount:'180000'},{name:'Paid Search Fee',amount:'21600'}],'2026-09-01','2026-11-01');
+  eq(fl.lines.length===1&&fl.lines[0].kind==='search',true,'search media+fee -> one search line');
+  eq(fl.lines[0].fee_pct,12,'fee percent derived from the pair');
+  eq(Object.values(fl.lines[0].months).reduce((a,b)=>a+b,0),18000000,'budget spread preserves every cent');
+  eq(Object.keys(fl.lines[0].months).length,3,'spread across all 3 flight months');
+  const r=F([{name:'Creative Retainer',amount:'90000'}],'2026-01-01','2026-06-01');
+  eq(r.lines[0].kind==='retainer'&&r.lines[0].amount===1500000,true,'retainer flat becomes $/month');
+  const u=F([{name:'Programmatic Media',amount:'500000'},{name:'Mystery',amount:'5'}],'2026-01-01','2026-02-01');
+  eq(u.lines.length===0&&/unmapped/.test(u.reason),true,'one unmapped item -> no lines, a reason');
+  const feeOnly=F([{name:'Programmatic Buying Fee',amount:'575000'}],'2026-06-01','2026-11-01');
+  eq(feeOnly.lines[0].kind==='retainer'&&feeOnly.lines[0].amount===Math.round(57500000/6),true,'fee w/o media -> flat monthly');
+  eq(F([],'2026-01-01','2026-03-01').reason,'no line items','empty items -> skeleton with reason');
+}
+console.log(`flighting: ${pass} passed, ${fail} failed (cumulative)`);
 process.exit(fail?1:0);

@@ -66,6 +66,11 @@ const supa=http.createServer((req,res)=>{
       }
       res.statusCode=204;return res.end();
     }
+    if(req.method==='PATCH'){
+      const row=JSON.parse(b);
+      (writes[table]=writes[table]||[]).push(row);
+      res.statusCode=204;return res.end();
+    }
     res.statusCode=204;res.end();
   });
 });
@@ -107,6 +112,10 @@ const d1m=(writes.pipeline_deals||[]).find(x=>x.hubspot_deal_id==='D1')||{};
 check(d1m.jobcode==='26akrn260101','explicit job_code field wins over the name regex');
 check((d1m.qbo_link||'').includes('nameId=4102'),'qb_project_link mirrored');
 check(rpc.some(u=>u.includes('match_deals_to_projects')),'matcher called after promotion');
+// D1 carries no line items in the fixture -> skeleton with reason; add-lines path
+// is covered by unit fixtures; here assert the run log carries the counters
+const lastState=state[state.length-1]||{};
+check('flighted' in (lastState.last_run_log||{}), 'run log carries the flighted counter');
 
 console.log(bad?'\nE2E FAILED':'\nall e2e checks passed');
 hub.close();supa.close();process.exit(bad);

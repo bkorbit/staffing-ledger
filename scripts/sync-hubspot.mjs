@@ -10,7 +10,11 @@
 //
 // What promotion does NOT do: touch deal lines. Line items in HubSpot have not been
 // enforced, so the as-sold amount travels in the promotion snapshot for reference and
-// humans shape the actual forecast lines in the platform. A deal skeleton with no
+// humans shape MOST forecast lines in the platform, but when a won deal's line
+// items map cleanly onto ledger types, the door flights them out automatically —
+// budgets spread evenly over the flight, fees attached — still unreviewed until a
+// human blesses them. One unmapped item and NO lines are created: a skeleton plus a
+// reason beats a half-invented plan. A deal skeleton with no
 // lines is visible and reviewable; an invented line would be a guess wearing a
 // number's clothes.
 //
@@ -89,6 +93,64 @@ async function sbUpsert(table, rows, onConflict) {
     if (!r.ok) fail(`Supabase upsert ${table} \u2192 ${r.status}: ${(await r.text()).slice(0, 500)}`);
   }
 }
+// ---- line items -> deal lines, the same type map the Sales page uses ----------
+export const LI_MAP = {
+  'programmatic media': ['programmatic', 'budget'], 'programmatic buying fee': ['programmatic', 'fee'],
+  'paid search media': ['search', 'budget'], 'paid search fee': ['search', 'fee'],
+  'paid social media': ['social', 'budget'], 'paid social fee': ['social', 'fee'],
+  'paid search hourly': ['retainer', 'flat'], 'paid social hourly': ['retainer', 'flat'],
+  'creative retainer': ['retainer', 'flat'], 'creative services': ['retainer', 'flat'],
+  'planning': ['retainer', 'flat'], 'dashboard': ['retainer', 'flat'],
+};
+
+export function monthsOf(a, b) {
+  const out = []; let d = new Date(a + 'T00:00:00Z'); const end = new Date(b + 'T00:00:00Z');
+  while (d <= end && out.length < 48) { out.push(d.toISOString().slice(0, 10));
+    d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)); }
+  return out;
+}
+
+// Returns { lines:[{kind,fee_pct,amount,months:{iso:budgetCents}}], reason } —
+// lines only when EVERY item maps; total cents preserved against rounding by
+// putting the remainder on the last month.
+export function flightFromItems(items, flightStart, flightEnd) {
+  if (!items || !items.length) return { lines: [], reason: 'no line items' };
+  const months = monthsOf(flightStart, flightEnd);
+  if (!months.length) return { lines: [], reason: 'no flight months' };
+  const byType = {};
+  for (const li of items) {
+    const key = String(li.name || '').split(':').pop().trim().toLowerCase();
+    const m = LI_MAP[key];
+    if (!m) return { lines: [], reason: 'unmapped line item: ' + (li.name || '?') };
+    const cents = Math.round(parseFloat(li.amount || 0) * 100);
+    const [type, role] = m;
+    (byType[type] = byType[type] || { budget: 0, fee: 0, flat: 0 })[role] += cents;
+  }
+  const spread = total => {
+    const per = Math.floor(total / months.length), out = {};
+    months.forEach((m, i) => out[m] = per + (i === months.length - 1 ? total - per * months.length : 0));
+    return out;
+  };
+  const lines = [];
+  for (const [type, v] of Object.entries(byType)) {
+    if (type === 'retainer') {
+      const flat = v.flat + v.fee + v.budget;
+      if (flat > 0) lines.push({ kind: 'retainer',
+        amount: Math.round(flat / months.length), fee_pct: 0, months: null });
+    } else {
+      if (v.budget > 0) {
+        const feePct = v.fee > 0 ? +(v.fee / v.budget * 100).toFixed(2) : 0;
+        lines.push({ kind: type, amount: 0, fee_pct: feePct, months: spread(v.budget) });
+      } else if (v.fee > 0) {
+        // a fee with no media: a flat monthly amount is the honest shape
+        lines.push({ kind: 'retainer',
+          amount: Math.round(v.fee / months.length), fee_pct: 0, months: null });
+      }
+    }
+  }
+  return lines.length ? { lines } : { lines: [], reason: 'items sum to nothing' };
+}
+
 async function sbPatchState(patch) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/sync_state?id=eq.${STATE_ID}`, {
     method: 'PATCH', headers: { ...sb, Prefer: 'return=minimal' },
@@ -311,7 +373,7 @@ async function main() {
   aliases.forEach(a => { clientByKey[nameKey(a.alias)] = a.client_id; });
 
   const skipped = {};
-  let promoted = 0, newClients = 0;
+  let promoted = 0, flighted = 0, unflighted = [], newClients = 0;
 
   for (const m of gated) {
     if (already.has(m.hubspot_deal_id)) continue;
@@ -347,9 +409,35 @@ async function main() {
       source_payload: m            // the as-sold record, amount included, forever
     }]);
     promoted++;
+
+    // flight the line items out when they map cleanly; otherwise leave the
+    // skeleton and say why
+    const fl = flightFromItems(m.line_items, monthStart(m.campaign_start), monthStart(m.campaign_end));
+    if (!fl.lines.length) {
+      unflighted.push(`${m.name}: ${fl.reason}`);
+    } else {
+      for (const ln of fl.lines) {
+        const [row] = await sbInsert('deal_lines', [{
+          deal_id: deal.id, kind: ln.kind, amount: ln.amount, budget: 0,
+          fee_pct: ln.fee_pct, hours_per_month: 0, rate: 0,
+          billing_day: ln.kind === 'retainer' ? 'first' : 'last',
+          set_by: 'hubspot-sync:line-items'
+        }], { returning: true });
+        if (ln.months) {
+          await sbInsert('deal_line_months', Object.entries(ln.months).map(([mo, b]) => ({
+            deal_line_id: row.id, month: mo, budget: b, set_by: 'hubspot-sync:line-items'
+          })));
+        }
+      }
+      flighted++;
+    }
   }
 
   const skipCount = Object.values(skipped).reduce((s, a) => s + a.length, 0);
+  if (flighted || unflighted.length)
+    console.log(`  flighted ${flighted} promoted deal(s) from line items; ` +
+      `${unflighted.length} left as skeletons` +
+      (unflighted.length ? ' — ' + unflighted.slice(0, 5).join(' | ') : ''));
   console.log(`  promoted ${promoted} (${newClients} new clients)` +
     (skipCount ? `, ${skipCount} won deal(s) cannot promote yet:` : ''));
   Object.entries(skipped).forEach(([why, names]) =>
@@ -375,6 +463,7 @@ async function main() {
     last_run_log: {
       ok: true,
       matching: matchLog,
+      flighted, unflighted: unflighted.slice(0, 20),
       deals: mirrored.length, won: won.length,
       pipelines_enabled: [...allowed], held_at_door: heldBack,
       promoted, new_clients: newClients,

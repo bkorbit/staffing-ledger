@@ -65,11 +65,13 @@ import { boot, esc } from './assets/shell.js';
   the draft faked that base layer; here it is v_deal_month_forecast for real.
 */
 boot('sales', async (supa, el) => {
-  const [pd, st, fc] = await Promise.all([
+  const [pd, st, fc, promoted] = await Promise.all([
     supa.from('pipeline_deals').select('*'),
     supa.from('settings').select('key,value')
       .in('key', ['sales_probability_threshold','programmatic_margin_default']),
-    supa.from('v_deal_month_forecast').select('month,gp')
+    supa.from('v_deal_month_forecast').select('month,gp'),
+    supa.from('deals').select('hubspot_deal_id,reviewed_at')
+      .eq('origin','hubspot').in('status',['won','active'])
   ]);
   if (pd.error) throw pd.error;
   const setting = k => (st.data||[]).find(s=>s.key===k)?.value;
@@ -135,7 +137,12 @@ boot('sales', async (supa, el) => {
   }
 
   /* ------------------------------------------------------------- the rows */
-  const open = (pd.data||[]).filter(d => !d.is_won && (d.probability??0) > 0);
+  const CUTOFF = '2026-01-01';
+  const touches2026 = d => !d.campaign_end || d.campaign_end >= CUTOFF;
+  const open = (pd.data||[]).filter(d => !d.is_won && (d.probability??0) > 0 && touches2026(d));
+  // won deals pass over automatically: show the door's recent traffic
+  const promotedBy = {}; (promoted.data||[]).forEach(x => promotedBy[x.hubspot_deal_id] = x);
+  const wonRecent = (pd.data||[]).filter(d => d.is_won && touches2026(d));
   const pipelines = [...new Set(open.map(d=>d.pipeline).filter(Boolean))].sort();
   let pipeline = pipelines.includes('agency') ? 'agency' : (pipelines[0]||'__all__');
   let weighted=true, showAll=false, chartOn=true;
@@ -161,7 +168,8 @@ boot('sales', async (supa, el) => {
         const client = d.company || String(d.name||'').split(' - ')[0].trim();
         const rest = d.company ? d.name : (String(d.name||'').split(' - ').slice(1).join(' - ') || d.name);
         return { client, rest, name:d.name, amount:d.amount||0, stage:d.stage,
-                 prob:d.probability||0, tier:tierOf(d.probability||0),
+                 prob:d.probability||0, tier:tierOf(d.probability||0), close:d.close_date,
+                 items:d.line_items||[],
                  gp, parts, flags:f, months, forecastable: gp>0 && months.length>0 };
       });
   }
@@ -202,7 +210,7 @@ boot('sales', async (supa, el) => {
     el.querySelector('.chartpanel').classList.toggle('collapsed', !chartOn);
     if(!chartOn){ wrap.innerHTML=''; return; }
     const n=cols.length;
-    const W=Math.max(1080,Math.round(74*n)+90), H=318,PL=74,PR=22,PT=26,PB=56,IW=W-PL-PR,IH=H-PT-PB;
+    const W=Math.max(960,Math.round(60*n)+90), H=300,PL=70,PR=18,PT=26,PB=54,IW=W-PL-PR,IH=H-PT-PB;
     const dense=n>10, verydense=n>16;
     const data=cols.map(c=>{
       const byTier=[0,0,0,0,0];
@@ -240,7 +248,7 @@ boot('sales', async (supa, el) => {
     wrap.innerHTML =
       `<div class="chead"><h3>Committed revenue plus pipeline — ${weighted?'weighted by stage':'total value at 100%'}</h3>
        <div class="csum">${n} months · committed ${money(totals.l)} · pipeline ${money(Math.round(totals.p))} · total ${money(Math.round(totals.l+totals.p))}</div></div>
-       <div class="csvg${W>1240?' scroll':''}"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" class="sfchart">${g}</svg></div>
+       <div class="csvg"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" class="sfchart">${g}</svg></div>
        <div class="legend"><span><i style="background:${LEDGER_COLOR}"></i>Committed GP (shaped deals)</span>` +
        tiersPresent.map(t=>`<span><i style="background:${TIER_COLORS[t]}"></i>${esc(tierLabel(t))}</span>`).join('') + `</div>`;
   }
@@ -258,10 +266,16 @@ boot('sales', async (supa, el) => {
     const noLI=rows.filter(r=>r.flags.includes('no line items')).length;
     const stale=rows.filter(r=>r.flags.includes('close date passed')).length;
     const pct=rows.length?Math.round(nF/rows.length*100):0;
-    el.querySelector('#coverage').innerHTML = rows.length ? `<div class="cover ${pct>=70?'good':pct>=40?'warn':'bad'}">
+    const wonPromoted = wonRecent.filter(d=>promotedBy[d.hubspot_deal_id]);
+    const wonReview = wonPromoted.filter(d=>!promotedBy[d.hubspot_deal_id].reviewed_at);
+    const wonWaiting = wonRecent.length - wonPromoted.length;
+    el.querySelector('#coverage').innerHTML = (rows.length ? `<div class="cover ${pct>=70?'good':pct>=40?'warn':'bad'}">
       ${nF} of ${rows.length} deals forecastable (${pct}%) —
       ${noLI} without line items, ${stale} past their close date.
-      GP needs line items and campaign dates in HubSpot; fixing them there brings deals in on the next sync.</div>` : '';
+      GP needs line items and campaign dates in HubSpot; fixing them there brings deals in on the next sync.</div>` : '') +
+      (wonRecent.length ? `<div class="cover good">Closed won: ${wonPromoted.length} passed to the
+      <a href="./forecast.html">Forecast</a> automatically${wonReview.length?` — ${wonReview.length} still awaiting review there`:''}${wonWaiting?`; ${wonWaiting} will pass on the next sync`:''}.
+      Mappable line items are flighted out on arrival; the rest get a skeleton and a reason.</div>` : '');
 
     renderChart(cols, shown);
 
@@ -270,7 +284,7 @@ boot('sales', async (supa, el) => {
       const t=x=>by[x].reduce((s,r)=>s+r.gp*(weighted?r.prob:1),0);
       return t(b)-t(a);
     });
-    let h='<table class="fc"><thead><tr><th class="cl">Client / deal</th><th class="pr">Stage</th>'+
+    let h='<table class="fc"><thead><tr><th class="cl">Client / deal</th><th class="pr">Stage</th><th class="n">Close</th>'+
       cols.map(c=>`<th class="n">${label(c)}</th>`).join('')+'<th class="n tot">Total</th><th class="fl">Flags</th></tr></thead><tbody>';
     const colTot={}; let grand=0;
     clients.forEach(cn=>{
@@ -279,7 +293,7 @@ boot('sales', async (supa, el) => {
       ds.forEach(r=>{ const per=r.months.length? r.gp*(weighted?r.prob:1)/r.months.length : 0;
         r.months.forEach(m=>{ if(cols.includes(m)) cTot[m]=(cTot[m]||0)+per; });
         cSum+=r.gp*(weighted?r.prob:1); });
-      h+=`<tr class="crow"><td class="cl">${esc(cn)}</td><td></td>`+
+      h+=`<tr class="crow"><td class="cl">${esc(cn)}</td><td></td><td></td>`+
         cols.map(c=>`<td class="n">${cTot[c]?money(Math.round(cTot[c])):'<span class=z>·</span>'}</td>`).join('')+
         `<td class="n tot">${money(Math.round(cSum))}</td><td></td></tr>`;
       ds.sort((a,b)=>b.gp*(weighted?b.prob:1)-a.gp*(weighted?a.prob:1)).forEach(r=>{
@@ -287,15 +301,21 @@ boot('sales', async (supa, el) => {
         const tot=r.gp*(weighted?r.prob:1);
         cols.forEach(c=>{ if(r.months.includes(c)) colTot[c]=(colTot[c]||0)+per; });
         grand+=tot;
-        h+=`<tr class="drow${r.forecastable?'':' dim'}"><td class="cl">${esc(r.rest)}`+
+        h+=`<tr class="drow${r.forecastable?'':' dim'}"><td class="cl"><span class="ellip" title="${esc(r.rest)}">${esc(r.rest)}</span>`+
           (r.parts.length?`<div class="parts">${esc(r.parts.join(' · '))}</div>`:'')+`</td>`+
           `<td class="pr">${esc(r.stage)}<span class="p">${Math.round(r.prob*100)}%</span></td>`+
+          `<td class="n">${r.close?label(mk(r.close)):'<span class=z>·</span>'}</td>`+
           cols.map(c=>`<td class="n">${r.months.includes(c)&&per?money(Math.round(per)):'<span class=z>·</span>'}</td>`).join('')+
           `<td class="n tot">${tot?money(Math.round(tot)):'—'}</td>`+
           `<td class="fl">${r.flags.map(f=>`<span class="flag ${/passed|before/.test(f)?'t':/no line|unmapped/.test(f)?'w':'i'}">${esc(f)}</span>`).join('')}</td></tr>`;
+        (r.items||[]).forEach(li2=>{
+          h+=`<tr class="drow dim li"><td class="cl" style="padding-left:38px;font-size:9.5px;color:var(--slate)">↳ ${esc(li2.name||'?')}</td>`+
+            `<td></td><td></td>`+cols.map(()=>'<td class="n"><span class=z>·</span></td>').join('')+
+            `<td class="n" style="font-size:9.5px;color:var(--slate)">${money(Math.round(parseFloat(li2.amount||0)*100))}</td><td></td></tr>`;
+        });
       });
     });
-    h+=`<tr class="grand"><td class="cl">Pipeline total — ${weighted?'weighted':'unweighted'}</td><td></td>`+
+    h+=`<tr class="grand"><td class="cl">Pipeline total — ${weighted?'weighted':'unweighted'}</td><td></td><td></td>`+
       cols.map(c=>`<td class="n">${money(Math.round(colTot[c]||0))}</td>`).join('')+
       `<td class="n tot">${money(Math.round(grand))}</td><td></td></tr></tbody></table>`;
     el.querySelector('#tbl').innerHTML = shown.length ? h :
