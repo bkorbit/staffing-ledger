@@ -5,13 +5,13 @@
 import { boot, fmt$, bandChart } from './assets/shell.js';
 
 boot('cashflow', async (supa, el) => {
-  el.innerHTML = `<h1>Cashflow</h1>
+  el.innerHTML = `<h1 class="page">Cashflow</h1>
     <div class="sub">Weekly position from today. Open AR collects on each client's observed
     curve; contracted revenue is billed on its cadence and collects the same way. The
     conservative line dates every receipt at its client's p90 — its trough is the number
     to plan around.</div>
-    <div class="card"><div id="chart">loading…</div></div>
-    <div class="card" style="overflow-x:auto"><table id="tbl"></table></div>
+    <div class="sc-panel"><div id="chart">loading…</div></div>
+    <div class="sc-panel" style="overflow-x:auto"><table id="tbl"></table></div>
     <div class="muted">Tail caution: beyond the reach of open invoices and shaped deals,
     the model has no revenue and both lines sink. That is missing data, not a prophecy.</div>`;
 

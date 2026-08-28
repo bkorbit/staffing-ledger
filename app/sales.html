@@ -5,11 +5,11 @@
 import { boot, fmt$, esc } from './assets/shell.js';
 
 boot('sales', async (supa, el) => {
-  el.innerHTML = `<h1>Sales Forecast</h1>
+  el.innerHTML = `<h1 class="page">Sales Forecast</h1>
     <div class="sub">The open pipeline as HubSpot has it, weighted by stage probability.
     Won deals leave here through the promotion door and become real in Deals.</div>
-    <div class="tiles" id="tiles"></div>
-    <div class="card" style="overflow-x:auto"><table id="tbl">loading…</table></div>`;
+    <div class="summary-strip" id="tiles"></div>
+    <div class="sc-panel" style="overflow-x:auto"><table id="tbl">loading…</table></div>`;
 
   const { data, error } = await supa.from('pipeline_deals')
     .select('*').eq('is_won', false).not('stage','in','("Closed Lost","Not Placed")')
@@ -20,10 +20,10 @@ boot('sales', async (supa, el) => {
   const weighted = open.reduce((s,d)=>s+Math.round((d.amount||0)*(d.probability||0)),0);
 
   document.getElementById('tiles').innerHTML = `
-    <div class="tile"><div class="l">Open pipeline</div><div class="v">${fmt$(total)}</div>
-      <div class="s">${open.length} deals</div></div>
-    <div class="tile"><div class="l">Probability-weighted</div><div class="v">${fmt$(weighted)}</div>
-      <div class="s">by HubSpot stage probability</div></div>`;
+    <div class="summary-cell"><div class="summary-label">Open pipeline</div><div class="summary-value">${fmt$(total)}</div>
+      <div class="summary-note">${open.length} deals</div></div>
+    <div class="summary-cell"><div class="summary-label">Probability-weighted</div><div class="summary-value">${fmt$(weighted)}</div>
+      <div class="summary-note">by HubSpot stage probability</div></div>`;
 
   document.getElementById('tbl').innerHTML =
     `<tr><th>deal</th><th>company</th><th>stage</th><th>prob</th><th>amount</th><th>weighted</th><th>campaign</th></tr>` +

@@ -5,10 +5,10 @@
 import { boot, fmt$, esc, bandChart } from './assets/shell.js';
 
 boot('home', async (supa, el) => {
-  el.innerHTML = `<h1>Home</h1><div class="sub">Where the business stands, as of the last sync.</div>
-    <div class="tiles" id="tiles"></div>
-    <div class="card"><div class="muted" style="margin-bottom:8px">Cash position, 13 weeks</div><div id="chart">loading…</div></div>
-    <div class="card" id="queues"></div>`;
+  el.innerHTML = `<h1 class="page">Home</h1><div class="sub">Where the business stands, as of the last sync.</div>
+    <div class="summary-strip" id="tiles"></div>
+    <div class="sc-panel"><div class="muted" style="margin-bottom:8px">Cash position, 13 weeks</div><div id="chart">loading…</div></div>
+    <div class="sc-panel" id="queues"></div>`;
 
   const [banks, ar, review, unlinked, cf, syncs] = await Promise.all([
     supa.from('cash_accounts').select('balance,as_of'),
@@ -25,17 +25,17 @@ boot('home', async (supa, el) => {
   const trough = rows.length ? Math.min(...rows.map(r=>r.position_conservative)) : 0;
 
   document.getElementById('tiles').innerHTML = `
-    <div class="tile"><div class="l">In the bank</div><div class="v">${fmt$(bank)}</div>
-      <div class="s">as of ${(banks.data||[])[0]?.as_of||'—'}</div></div>
-    <div class="tile"><div class="l">Open AR</div><div class="v">${fmt$(arTotal)}</div>
-      <div class="s">${(ar.data||[]).length} open invoices</div></div>
-    <div class="tile"><div class="l">Conservative trough, 13 wk</div>
-      <div class="v ${trough<0?'err':'ok'}">${fmt$(trough)}</div>
-      <div class="s">worst week if every client pays at their p90</div></div>
-    <div class="tile"><div class="l">Deals awaiting review</div><div class="v">${review.count??'—'}</div>
-      <div class="s"><a href="../deals-shaping.html">shape them ↗</a></div></div>
-    <div class="tile"><div class="l">Clients needing a QuickBooks link</div><div class="v">${unlinked.count??'—'}</div>
-      <div class="s"><a href="../settings-clients.html">match them ↗</a></div></div>`;
+    <div class="summary-cell"><div class="summary-label">In the bank</div><div class="summary-value">${fmt$(bank)}</div>
+      <div class="summary-note">as of ${(banks.data||[])[0]?.as_of||'—'}</div></div>
+    <div class="summary-cell"><div class="summary-label">Open AR</div><div class="summary-value">${fmt$(arTotal)}</div>
+      <div class="summary-note">${(ar.data||[]).length} open invoices</div></div>
+    <div class="summary-cell"><div class="summary-label">Conservative trough, 13 wk</div>
+      <div class="summary-value ${trough<0?'neg':'pos'}">${fmt$(trough)}</div>
+      <div class="summary-note">worst week if every client pays at their p90</div></div>
+    <div class="summary-cell"><div class="summary-label">Deals awaiting review</div><div class="summary-value">${review.count??'—'}</div>
+      <div class="summary-note"><a href="./deals.html">shape them</a></div></div>
+    <div class="summary-cell"><div class="summary-label">Clients needing a QuickBooks link</div><div class="summary-value">${unlinked.count??'—'}</div>
+      <div class="summary-note"><a href="./clients.html">match them</a></div></div>`;
 
   if (rows.length) bandChart(document.getElementById('chart'),
     rows.map(r=>r.week_start.slice(5)),

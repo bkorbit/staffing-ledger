@@ -1,0 +1,135 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-size=1">
+<title>EMG — Clients</title><link rel="stylesheet" href="./assets/style.css"></head><body>
+<script type="module">
+import { boot, esc } from './assets/shell.js';
+
+boot('clients', async (supa, el) => {
+  el.innerHTML = `<h1 class="page">Client matching</h1>
+    <div class="sub">Link each client to its QuickBooks customer. Set once — invoices,
+    payment behaviour and hour tracking all follow this link from then on.</div>
+    <div class="toolbar">
+      <input id="filter" type="text" placeholder="filter clients…" style="max-width:260px">
+      <label class="mono" style="display:flex;align-items:center;gap:6px">
+        <input type="checkbox" id="onlytodo" checked style="height:auto"> only unlinked</label>
+      <label class="mono" style="display:flex;align-items:center;gap:6px">
+        <input type="checkbox" id="showinactive" style="height:auto"> show inactive</label>
+      <span class="muted" id="count" style="font-size:12px"></span>
+      <span style="flex:1"></span>
+      <button class="ghost" id="refresh">Refresh</button>
+    </div>
+    <div id="list"></div>`;
+
+  const $ = s => el.querySelector(s);
+
+
+let clients = [], parents = [], takenBy = {};
+
+
+async function load() {
+  const [c, q] = await Promise.all([
+    supa.from('clients').select('id,name,qbo_customer_id,active').order('name'),
+    supa.from('qbo_projects').select('id,name,active')
+        .is('parent_id', null).order('name')
+  ]);
+  if (c.error || q.error) { $('#list').innerHTML =
+    `<div class="sc-panel err">${(c.error||q.error).message}</div>`; return; }
+  clients = c.data; parents = q.data;
+  takenBy = {};
+  clients.forEach(cl => { if (cl.qbo_customer_id) takenBy[cl.qbo_customer_id] = cl.name; });
+  render();
+}
+
+function render() {
+  const f = $('#filter').value.trim().toLowerCase();
+  const onlyTodo = $('#onlytodo').checked;
+  const showInactive = $('#showinactive').checked;
+  const shown = clients.filter(c =>
+    (showInactive || c.active !== false) &&
+    (!onlyTodo || !c.qbo_customer_id) &&
+    (!f || c.name.toLowerCase().includes(f)));
+  const act = clients.filter(c => c.active !== false);
+  $('#count').textContent =
+    `${act.filter(c=>!c.qbo_customer_id).length} unlinked of ${act.length} active` +
+    (clients.length > act.length ? ` (${clients.length - act.length} inactive hidden)` : '');
+  $('#list').innerHTML = shown.map(c => {
+    const linkedName = c.qbo_customer_id
+      ? (parents.find(p => p.id === c.qbo_customer_id) || {}).name || c.qbo_customer_id
+      : null;
+    // Free parents first, then taken ones (visible but marked) — a wrong link is
+    // fixable here, so nothing is hidden, only labelled.
+    const opts = parents.map(p => {
+      const taken = takenBy[p.id] && takenBy[p.id] !== c.name;
+      return `<option value="${p.id}" ${taken ? 'data-taken="1"' : ''}>` +
+             `${esc(p.name)}${taken ? ` — already linked to ${esc(takenBy[p.id])}` : ''}</option>`;
+    }).join('');
+    return `<div class="sc-panel" data-id="${c.id}">
+      <div class="row">
+        <div class="grow">
+          <div class="name">${esc(c.name)}</div>
+          <div class="hint">${linkedName ? 'linked to ' + esc(linkedName) : 'not linked to QuickBooks'}</div>
+        </div>
+        <span class="pill ${linkedName ? 'linked' : 'todo'}">${linkedName ? 'linked' : 'needs link'}</span>
+        <div class="grow">
+          <select class="pick">
+            <option value="">— choose QuickBooks customer —</option>${opts}
+          </select>
+        </div>
+        <button class="save primary" disabled>Save</button>
+        ${linkedName ? '<button class="unlink">Unlink</button>' : ''}
+      </div>
+      <div class="hint msg"></div>
+    </div>`;
+  }).join('') || '<div class="sc-panel muted">Nothing to show.</div>';
+
+  document.querySelectorAll('.card[data-id]').forEach(card => {
+    const pick = card.querySelector('.pick');
+    const save = card.querySelector('.save');
+    const msg  = card.querySelector('.msg');
+    pick.onchange = () => { save.disabled = !pick.value; };
+    save.onclick = async () => {
+      save.disabled = true;
+      const chosen = pick.selectedOptions[0];
+      if (chosen.dataset.taken &&
+          !confirm(`${chosen.textContent.trim()}\n\nThis QuickBooks customer is already linked to another client. Move the link here?`)) {
+        save.disabled = false; return;
+      }
+      // Moving a link: clear it from the previous holder first (unique column).
+      if (chosen.dataset.taken) {
+        const prev = clients.find(x => x.qbo_customer_id === pick.value);
+        if (prev) {
+          const { error } = await supa.from('clients')
+            .update({ qbo_customer_id: null, set_by: userEmail(), set_at: new Date().toISOString() })
+            .eq('id', prev.id);
+          if (error) { msg.textContent = error.message; msg.className = 'hint err'; return; }
+        }
+      }
+      const { error } = await supa.from('clients')
+        .update({ qbo_customer_id: pick.value, set_by: userEmail(), set_at: new Date().toISOString() })
+        .eq('id', card.dataset.id);
+      msg.textContent = error ? error.message : 'saved';
+      msg.className = error ? 'hint err' : 'hint ok';
+      if (!error) load();
+    };
+    const unlink = card.querySelector('.unlink');
+    if (unlink) unlink.onclick = async () => {
+      const { error } = await supa.from('clients')
+        .update({ qbo_customer_id: null, set_by: userEmail(), set_at: new Date().toISOString() })
+        .eq('id', card.dataset.id);
+      if (!error) load();
+    };
+  });
+}
+
+function userEmail() { return window.__email || 'matching-page'; }
+
+
+
+
+  $('#filter').oninput = render;
+  $('#onlytodo').onchange = render;
+  $('#showinactive').onchange = render;
+  $('#refresh').onclick = load;
+  await load();
+});
+</script></body></html>
