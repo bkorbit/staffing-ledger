@@ -494,7 +494,9 @@ async function main() {
       if (!d.AccountRef && !d.ItemRef) return;
       billLines.push({
         id: `${id}:${l.Id || n}`, bill_id: id, line_no: +l.LineNum || n + 1,
-        item_name: (d.ItemRef || {}).name || '', account_name: (d.AccountRef || {}).name || '',
+        item_name: (d.ItemRef || {}).name || '',
+        account_id: (d.AccountRef || {}).value ? String(d.AccountRef.value) : null,
+        account_name: (d.AccountRef || {}).name || '',
         description: l.Description || '', amount: cents(l.Amount),
         qbo_project_id: lineProject(l)
       });
@@ -531,7 +533,9 @@ async function main() {
       const ent = d.Entity || {};
       billLines.push({
         id: `${id}:${l.Id || n}`, bill_id: id, line_no: +l.LineNum || n + 1,
-        item_name: '', account_name: (d.AccountRef || {}).name || '',
+        item_name: '',
+        account_id: (d.AccountRef || {}).value ? String(d.AccountRef.value) : null,
+        account_name: (d.AccountRef || {}).name || '',
         description: l.Description || '',
         amount: cents(d.PostingType === 'Credit' ? -(+l.Amount || 0) : (+l.Amount || 0)),
         qbo_project_id: ent.Type === 'Customer' ? String((ent.EntityRef || {}).value || '') || null : null

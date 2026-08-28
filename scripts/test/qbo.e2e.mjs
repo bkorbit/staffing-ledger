@@ -28,14 +28,14 @@ const qbo = http.createServer((req, res) => {
     Bill:    [{ Id:'600', TxnDate:'2026-02-01', DueDate:'2026-03-03', TotalAmt:20000, Balance:20000,
                 VendorRef:{name:'Trade Desk'}, SalesTermRef:{name:'Net 30'},
                 Line:[{Id:'1',LineNum:1,Amount:20000,
-                       AccountBasedExpenseLineDetail:{AccountRef:{name:'Media Buys'},CustomerRef:{value:'101'}}}] }],
+                       AccountBasedExpenseLineDetail:{AccountRef:{value:'2',name:'Media Buys'},CustomerRef:{value:'101'}}}] }],
     Purchase:[{ Id:'700', TxnDate:'2026-02-05', TotalAmt:900, PaymentType:'CreditCard',
                 Line:[{Id:'1',LineNum:1,Amount:900,
-                       AccountBasedExpenseLineDetail:{AccountRef:{name:'Rent'}}}] }],
+                       AccountBasedExpenseLineDetail:{AccountRef:{value:'4',name:'Rent'}}}] }],
     // journal rows deliberately lack qbo_customer_name — the PGRST102 shape trap
     JournalEntry:[{ Id:'800', TxnDate:'2026-02-28', DocNumber:'JE-2',
                 Line:[{Id:'1',LineNum:1,Amount:400,
-                       JournalEntryLineDetail:{PostingType:'Debit',AccountRef:{name:'Rent'}}}] }],
+                       JournalEntryLineDetail:{PostingType:'Debit',AccountRef:{value:'4',name:'Rent'}}}] }],
     BillPayment:[{ Id:'650', TxnDate:'2026-03-01', TotalAmt:20000,
                 Line:[{Amount:20000, LinkedTxn:[{TxnId:'600',TxnType:'Bill'}]}] }]
   };
@@ -92,4 +92,7 @@ expect.forEach(t=>{
 });
 if (missing.length){ console.log('\nMISSING WRITES: '+missing.join(', ')); process.exitCode=1; }
 else console.log('\nall expected tables written');
+const noId=(writes.bill_lines||[]).filter(l=>!l.account_id);
+console.log(noId.length? 'LINES WITHOUT account_id: '+noId.length : 'every bill line carries an account_id');
+if (noId.length) process.exitCode=1;
 qbo.close(); sb.close(); token.close();
