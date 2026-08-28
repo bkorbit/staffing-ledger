@@ -39,16 +39,28 @@ boot('cashflow', async (supa, el) => {
       if ((r.data||[]).length < 1000) return { data: out, error: null };
     }
   };
-  const [{ data: rows, error }, ar, ap] = await Promise.all([
+  const [{ data: rows, error }, ar, ap, pj, cl] = await Promise.all([
     supa.rpc('cashflow_forecast', { periods }),
     fetchAll(() => supa.from('invoices')
-      .select('qbo_customer_name,due_on,issued_on,balance').gt('balance', 0)),
+      .select('qbo_customer_name,qbo_project_id,due_on,issued_on,balance').gt('balance', 0)),
     fetchAll(() => supa.from('bills')
-      .select('vendor_name,due_on,issued_on,balance').gt('balance', 0))
+      .select('vendor_name,due_on,issued_on,balance').gt('balance', 0)),
+    fetchAll(() => supa.from('qbo_projects').select('id,name,parent_id')),
+    supa.from('clients').select('name,qbo_customer_id').not('qbo_customer_id','is',null)
   ]);
   if (error) throw error;
-  if (ar.error) throw ar.error;
-  if (ap.error) throw ap.error;
+  for (const r of [ar, ap, pj, cl]) if (r.error) throw r.error;
+
+  // roll AR up to the master client: invoice -> project -> QuickBooks parent ->
+  // the platform client linked to that parent, else the parent's own name
+  const parentOf = {}, projName = {};
+  (pj.data||[]).forEach(p => { parentOf[p.id] = p.parent_id || p.id; projName[p.id] = p.name; });
+  const clientByParent = {};
+  (cl.data||[]).forEach(c => clientByParent[c.qbo_customer_id] = c.name);
+  (ar.data||[]).forEach(i => {
+    const parent = parentOf[i.qbo_project_id] || i.qbo_project_id;
+    i.master = clientByParent[parent] || projName[parent] || i.qbo_customer_name || '(unnamed)';
+  });
 
   // ---- aging: bucket every open balance by days past due; not-yet-due is Current
   const BUCKETS = ['Current','1–30','31–60','61–90','90+'];
@@ -58,7 +70,7 @@ boot('cashflow', async (supa, el) => {
     const d = daysPast(r.due_on || r.issued_on);
     return d <= 0 ? 0 : d <= 30 ? 1 : d <= 60 ? 2 : d <= 90 ? 3 : 4;
   };
-  function agingTable(elId, items, nameKey) {
+  function agingTable(elId, items, nameKey, limit = 15) {
     const byName = {};
     items.forEach(r => {
       const n = r[nameKey] || '(unnamed)';
@@ -68,7 +80,7 @@ boot('cashflow', async (supa, el) => {
     const entries = Object.entries(byName)
       .map(([n,b]) => ({ n, b, total: b.reduce((s,v)=>s+v,0) }))
       .sort((a,z) => z.total - a.total);
-    const top = entries.slice(0, 15), rest = entries.slice(15);
+    const top = entries.slice(0, limit), rest = entries.slice(limit);
     const restRow = rest.length
       ? { n: `everyone else (${rest.length})`,
           b: rest.reduce((acc,e)=>acc.map((v,i)=>v+e.b[i]), [0,0,0,0,0]),
@@ -90,7 +102,7 @@ boot('cashflow', async (supa, el) => {
         ${totals.map(v=>`<td>${cell(v)}</td>`).join('')}
         <td style="font-weight:700">${fmt$(grand)}</td></tr>`;
   }
-  agingTable('ar-aging', ar.data, 'qbo_customer_name');
+  agingTable('ar-aging', ar.data, 'master', Infinity);   // every master client, all of it
   agingTable('ap-aging', ap.data, 'vendor_name');
   bandChart(document.getElementById('chart'),
     rows.map(r=>r.period_label.replace(/ \d\d$/,'')),
