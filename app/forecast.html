@@ -623,8 +623,8 @@ boot('forecast', async (supa, el) => {
               <option value="client" ${d.media_funding!=='agency'?'selected':''}>client pays</option>
               <option value="agency" ${d.media_funding==='agency'?'selected':''}>EMG pays &amp; rebills</option>
             </select></label>
-          ${achieved !== null ? `<span class="muted" style="font-size:10.5px">client's achieved margin
-            <b>${achieved}%</b> (invoiced vs COGS, all work)
+          ${achieved !== null ? `<span class="muted" style="font-size:10.5px">client's achieved programmatic margin
+            <b>${achieved}%</b> (invoiced vs media COGS)
             <button class="use-achieved" style="padding:2px 8px;font-size:10px">apply to programmatic</button></span>` : ''}
           <span style="flex:1"></span><span class="totals"></span>
         </div>
@@ -662,6 +662,8 @@ boot('forecast', async (supa, el) => {
       box.querySelectorAll('input.p').forEach(inp => inp.oninput = () => {
         const l = model[+inp.dataset.li];
         l.params[inp.dataset.p] = inp.value==='' ? (inp.dataset.p==='margin_pct'?null:0) : +inp.value;
+        preview();
+      });
         // the project picker: searchable over the FULL list; projects linked to
       // another deal stay visible and selectable — moving one is confirmed on save
       const qpSel = box.querySelector('.qp'), qpSearch = box.querySelector('.qpsearch');
@@ -682,8 +684,6 @@ boot('forecast', async (supa, el) => {
       };
       drawPicker();
       qpSearch.oninput = () => drawPicker(qpSearch.value);
-      preview();
-      });
       box.querySelectorAll('input.cell').forEach(inp => inp.oninput = () => {
         const l = model[+inp.dataset.li];
         if (inp.value==='') delete l.cells[inp.dataset.m];
