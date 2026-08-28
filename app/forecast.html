@@ -480,12 +480,20 @@ boot('forecast', async (supa, el) => {
         e.stopPropagation();
         const pid = tr.dataset.pid, cid = tr.dataset.cid;
         const ds = dealsByClient[cid]||[];
-        if (!ds.length) { alert('This client has no deals to link to — the project stays a grey row until one exists.'); return; }
+        // every other client's deals too — with On Location split in two, a
+        // project under one entity may belong to the other's deal, and the claims
+        // rule routes the money by the deal's client once linked
+        const others = Object.entries(dealsByClient)
+          .filter(([k]) => k !== cid)
+          .flatMap(([k, arr]) => arr.map(x => ({ ...x, _cn: (clientsById[k]||{}).name||'' })))
+          .sort((a,b)=>a._cn.localeCompare(b._cn) || a.name.localeCompare(b.name));
         const cell = tr.querySelector('.linkcell');
         if (cell.querySelector('select')) return;   // already open
-        cell.innerHTML = `<select style="height:26px;max-width:230px">
+        const opt = x => `<option value="${x.id}">${esc(x.name)}${x._cn?` — ${esc(x._cn)}`:''}${x.qbo_project_id?' · already linked':''}</option>`;
+        cell.innerHTML = `<select style="height:26px;max-width:300px">
             <option value="">— choose the deal that owns this project —</option>
-            ${ds.map(d=>`<option value="${d.id}">${esc(d.name)}${d.qbo_project_id?' — already linked':''}</option>`).join('')}
+            ${ds.length?`<optgroup label="this client's deals">${ds.map(d=>opt({...d,_cn:''})).join('')}</optgroup>`:''}
+            ${others.length?`<optgroup label="other clients' deals">${others.map(opt).join('')}</optgroup>`:''}
             <option value="__new__">+ create a new deal for this project…</option>
           </select> <button class="dolink primary" style="padding:2px 10px">Link</button>
           <button class="dohide danger" style="padding:2px 10px" title="remove this project from every list — its money still rolls up to the client">Hide project</button>`;
@@ -514,7 +522,8 @@ boot('forecast', async (supa, el) => {
             loadAll();   // opens as an unshaped deal ready to plan
             return;
           }
-          const deal = ds.find(x=>x.id===val);
+          const deal = ds.find(x=>x.id===val)
+            || Object.values(dealsByClient).flat().find(x=>x.id===val);
           if (deal.qbo_project_id &&
               !confirm(`"${deal.name}" is already linked to another project. Replace that link with this project?`)) return;
           const { error } = await supa.from('deals')
