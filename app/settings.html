@@ -47,6 +47,9 @@ boot('settings', async (supa, el) => {
           programmatic margin default %
           <input id="k-margin" style="width:120px;text-align:right"
             value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='programmatic_margin_default');return k?k.value:35})()}"></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">programmatic COGS due (days after spend-month end)
+          <input id="k-cogsdue" type="number" min="0" max="180" style="width:120px"
+            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='programmatic_cogs_due_days');return k?k.value:45})()}"></label>
         <button class="primary" id="k-save" style="align-self:flex-end">Save</button>
         <span id="k-msg" class="ok" style="align-self:flex-end;font-size:12px"></span>
       </div>
@@ -58,6 +61,8 @@ boot('settings', async (supa, el) => {
       const rows = [
         { key:'sales_probability_threshold', value:+document.getElementById('k-threshold').value||40,
           set_by:window.__email, set_at:new Date().toISOString() },
+        { key:'programmatic_cogs_due_days', value:+document.getElementById('k-cogsdue').value||45,
+          set_by:userEmail(), set_at:new Date().toISOString() },
         { key:'programmatic_margin_default', value:+document.getElementById('k-margin').value||35,
           set_by:window.__email, set_at:new Date().toISOString() }];
       const { error } = await supa.from('settings').upsert(rows, { onConflict:'key' });
