@@ -16,13 +16,15 @@ boot('cashflow', async (supa, el) => {
       pays on their curve, usually two to three halves later.</span>
     </div>
     <div class="sc-panel"><div id="chart">loading…</div></div>
-    <div class="sc-panel" style="overflow-x:auto"><table id="tbl"></table></div>
+    <div class="sc-panel" style="overflow-x:auto">
+      <div class="sc-eyebrow">Cash position by period</div>
+      <table id="tbl" class="ledger"></table></div>
     <div class="sc-panel" style="overflow-x:auto">
       <div class="sc-eyebrow">AR aging — who owes EMG, by how late</div>
-      <table id="ar-aging"></table></div>
+      <table id="ar-aging" class="ledger"></table></div>
     <div class="sc-panel" style="overflow-x:auto">
       <div class="sc-eyebrow">AP aging — what EMG owes, by how late</div>
-      <table id="ap-aging"></table></div>
+      <table id="ap-aging" class="ledger"></table></div>
     <div class="muted">Tail caution: beyond the reach of open invoices and shaped deals,
     the model has no revenue and both lines sink. That is missing data, not a prophecy.</div>`;
 
@@ -122,8 +124,8 @@ boot('cashflow', async (supa, el) => {
         <td>${fmt$(r.out_cogs_runrate)}</td><td>${fmt$(r.out_overhead)}</td>
         <td>${fmt$(r.out_agency_media)}</td>
         <td>${fmt$(r.out_contracted_cogs)}</td>
-        <td class="${r.position_expected<0?'err':''}">${fmt$(r.position_expected)}</td>
-        <td class="${r.position_conservative<0?'err':''}">${fmt$(r.position_conservative)}</td></tr>`).join('');
+        <td class="${r.position_expected<0?'err':r.position_expected>0?'pos':''}">${fmt$(r.position_expected)}</td>
+        <td class="${r.position_conservative<0?'err':r.position_conservative>0?'pos':''}">${fmt$(r.position_conservative)}</td></tr>`).join('');
   }
 
   const periods = +(localStorage.getItem('cf_periods') || 12);

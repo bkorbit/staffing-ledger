@@ -157,6 +157,23 @@ table.acct th:nth-child(5), table.acct td:nth-child(5) { border-left:1px solid v
    demands attention; give it a tint instead of relying on small colored text
    to compete with four columns of plain mono figures */
 table.acct .err { background:var(--rust-bg); border-radius:4px; padding:1px 5px; font-weight:700; }
+
+/* ---- the cashflow ledger tables: the .acct formula (no grid lines, a brand
+   header rule, an inverted totals row) applied wherever a plain <table> would
+   otherwise read as a pasted spreadsheet ---- */
+table.ledger { width:100%; border-collapse:collapse; background:var(--paper-raised); }
+table.ledger th { font-family:var(--font-mono); font-size:9px; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--slate); background:#f2f2f2; padding:7px 10px; border:none; border-bottom:2px solid var(--brand);
+  text-align:right; white-space:nowrap; position:sticky; top:0; }
+table.ledger th:first-child { text-align:left; }
+table.ledger td { padding:6px 10px; border:none; border-bottom:1px solid #efefef;
+  font-family:var(--font-mono); font-size:11px; text-align:right; white-space:nowrap;
+  font-variant-numeric:tabular-nums; }
+table.ledger td:first-child { text-align:left; }
+table.ledger tr:not(.gp):hover td { background:var(--mint); }
+table.ledger tr.gp td { background:var(--brand); color:#fff; font-weight:700; border-top:2px solid var(--brand); }
+table.ledger .err { background:var(--rust-bg); color:var(--rust); border-radius:4px; padding:1px 5px; font-weight:700; }
+table.ledger .pos { color:var(--brand); font-weight:600; }
 .tbltools { display:flex; align-items:center; gap:10px; padding:10px 14px; flex-wrap:wrap;
   border-bottom:1px solid var(--line); }
 .tbltools input[type=search] { width:240px; }
