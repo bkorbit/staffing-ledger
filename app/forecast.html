@@ -308,7 +308,8 @@ boot('forecast', async (supa, el) => {
         const rows = acctTotals.map(r => ({ cls:r.class, acct:r.account, v:r.total }))
           .sort((a,b)=> a.cls===b.cls ? b.v-a.v : a.cls.localeCompare(b.cls));
         const inChart = { cogs:'in chart', payroll:'in chart (labour)', overhead:'in chart',
-                          other:'in chart', income:'not a cost', excluded:'EXCLUDED from chart' };
+                          other:'in chart', income:'nets against revenue (contra)',
+                          excluded:'EXCLUDED from chart' };
         el.querySelector('#how-table').innerHTML =
           `<table class="acct"><tr><th style="text-align:left">class</th>
              <th style="text-align:left">account</th><th>total in range</th>
@@ -625,7 +626,7 @@ boot('forecast', async (supa, el) => {
         : Promise.resolve({ data: [] }),
       d.qbo_project_id
         ? supa.from('v_cost_lines_classified').select('month,amount')
-            .eq('qbo_project_id', d.qbo_project_id).eq('class','cogs')
+            .eq('qbo_project_id', d.qbo_project_id).in('class',['cogs','income'])
         : Promise.resolve({ data: [] })
     ]);
     if (lr.error) { box.innerHTML = `<span class="err">${lr.error.message}</span>`; return; }
@@ -633,6 +634,8 @@ boot('forecast', async (supa, el) => {
     const actualByM = {};
     (ai.data||[]).forEach(i => { const m = i.issued_on.slice(0,8)+'01';
       actualByM[m] = (actualByM[m]||0) + i.total; });
+    // cogs subtracts as cost; income-class subtracts as contra-revenue — the
+    // project's actual GP is what QuickBooks would recognize for it
     (ac.data||[]).forEach(c => { actualByM[c.month] = (actualByM[c.month]||0) - c.amount; });
     const mr = { data: (lr.data||[]).flatMap(l =>
       (l.deal_line_months||[]).map(o => ({ ...o, deal_line_id: l.id }))) };
