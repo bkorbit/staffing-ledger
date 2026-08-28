@@ -1,0 +1,35 @@
+name: Sync QBO (new)
+
+# Manual only for now. The nightly schedule goes on once a dispatch run has been
+# checked against the database — an unproven sync running unattended at 07:00 is how
+# you get a week of quietly wrong data.
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # The pure logic runs before anything touches QuickBooks or the database.
+      - name: Unit tests
+        run: node scripts/test/qbo.test.mjs
+
+  sync:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Sync QuickBooks Online into Postgres
+        env:
+          QBO_CLIENT_ID: ${{ secrets.QBO_CLIENT_ID }}
+          QBO_CLIENT_SECRET: ${{ secrets.QBO_CLIENT_SECRET }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+        run: node scripts/sync-qbo.mjs
