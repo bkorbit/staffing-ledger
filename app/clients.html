@@ -26,8 +26,16 @@ let clients = [], parents = [], takenBy = {};
 async function load() {
   const [c, q] = await Promise.all([
     supa.from('clients').select('id,name,qbo_customer_id,active').order('name'),
-    supa.from('qbo_projects').select('id,name,active')
-        .is('parent_id', null).order('name')
+    (async () => {  // paginate: Supabase caps responses at 1000 rows server-side
+      const out = [];
+      for (let i = 0; ; i++) {
+        const r = await supa.from('qbo_projects').select('id,name,active')
+          .is('parent_id', null).order('name').range(i*1000, (i+1)*1000-1);
+        if (r.error) return r;
+        out.push(...(r.data||[]));
+        if ((r.data||[]).length < 1000) return { data: out, error: null };
+      }
+    })()
   ]);
   if (c.error || q.error) { $('#list').innerHTML =
     `<div class="sc-panel err">${(c.error||q.error).message}</div>`; return; }
@@ -57,7 +65,8 @@ function render() {
     // fixable here, so nothing is hidden, only labelled.
     const opts = parents.map(p => {
       const taken = takenBy[p.id] && takenBy[p.id] !== c.name;
-      return `<option value="${p.id}" ${taken ? 'data-taken="1"' : ''}>` +
+      const sel = p.id === c.qbo_customer_id;
+      return `<option value="${p.id}" ${sel ? 'selected' : ''} ${taken ? 'data-taken="1"' : ''}>` +
              `${esc(p.name)}${taken ? ` — already linked to ${esc(takenBy[p.id])}` : ''}</option>`;
     }).join('');
     return `<div class="sc-panel" data-id="${c.id}">
@@ -69,7 +78,7 @@ function render() {
         <span class="pill ${linkedName ? 'good' : 'warn'}">${linkedName ? 'linked' : 'needs link'}</span>
         <div class="grow">
           <select class="pick">
-            <option value="">— choose QuickBooks customer —</option>${opts}
+            <option value="">${c.qbo_customer_id ? '— unchanged —' : '— choose QuickBooks customer —'}</option>${opts}
           </select>
         </div>
         <button class="save primary" disabled>Save</button>
