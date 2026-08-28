@@ -1,0 +1,23 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "app/assets/style.css"
+        ],
+        "createdAt": "2026-08-28T18:52:50.919Z",
+        "reason": "user confirmed: nav.side a.item.current's 3px Logo Teal border-right is the documented wayfinding indicator (DESIGN.md Colors > Tertiary), not decorative slop"
+      },
+      {
+        "rule": "overused-font",
+        "value": "montserrat",
+        "createdAt": "2026-08-28T18:52:50.970Z",
+        "reason": "user confirmed: Montserrat is the locked EMG brand-kit font per CLAUDE.md and DESIGN.md, not a default/lazy choice"
+      }
+    ]
+  }
+}

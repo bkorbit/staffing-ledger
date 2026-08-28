@@ -2,7 +2,7 @@
 
 :root{
   --paper:#ebebeb; --paper-raised:#ffffff; --ink:#23272b;
-  --brand:#0a493c; --brand-2:#48a278; --brand-3:#48a278; --brand-4:#19a789;
+  --brand:#0a493c; --brand-2:#48a278; --brand-4:#19a789;
   --accent:#3bc9ac; --mint:#e2f5ef; --gold:#fabf4d;   /* mint = logo color at ~14% on white */
   --slate:#67706d; --line:#d2d2d2;
   --rust:#d1453b; --rust-bg:#fbe7e4; --amber:#b07a14; --amber-bg:#fdf3dc;
@@ -62,7 +62,7 @@ button:disabled { background:var(--line); color:var(--slate); cursor:default; bo
 
 input,select { height:34px; border:1px solid var(--line); border-radius:4px; padding:0 9px;
   font-family:var(--font-mono); font-size:12.5px; background:var(--paper-raised); color:var(--ink); }
-input:focus,select:focus { outline:none; border-color:var(--brand-3); box-shadow:0 0 0 2px var(--mint); }
+input:focus,select:focus { outline:none; border-color:var(--brand-2); box-shadow:0 0 0 2px var(--mint); }
 input::placeholder { color:#b5b5b5; }
 label.mono { font-family:var(--font-mono); font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:var(--slate); }
 
@@ -76,8 +76,8 @@ td.textleft { text-align:left; font-family:var(--font-body); }
 
 .pill { font-family:var(--font-mono); font-size:10px; padding:2px 8px; border-radius:99px;
   border:1px solid var(--line); color:var(--slate); white-space:nowrap; }
-.pill.good { color:var(--brand); border-color:var(--brand-3); background:var(--mint); }
-.pill.warn { color:var(--amber); border-color:var(--gold); background:var(--amber-bg); }
+.pill.good { color:var(--brand); border-color:var(--brand-2); background:var(--mint); }
+.pill.warn { color:var(--amber); border-color:var(--amber); background:var(--amber-bg); }
 .pill.bad  { color:var(--rust); border-color:var(--rust); background:var(--rust-bg); }
 
 .ok { color:var(--brand-2); } .warn { color:var(--amber); } .err { color:var(--rust); white-space:pre-wrap; }
@@ -160,7 +160,7 @@ table.acct tr.totalrow .neg { color:#ffb4ac; }
 .modal-back { position:fixed; inset:0; background:rgba(20,24,22,.45); z-index:40;
   display:flex; align-items:flex-start; justify-content:center; padding:4vh 3vw; }
 .modal { background:var(--paper); border:1px solid var(--line); border-radius:8px;
-  width:min(1180px,96vw); max-height:92vh; overflow:auto; box-shadow:0 18px 60px rgba(0,0,0,.25); }
+  width:min(1180px,96vw); max-height:92vh; overflow:auto; }
 .modal-head { display:flex; align-items:center; gap:12px; padding:14px 18px;
   border-bottom:2px solid var(--brand); position:sticky; top:0; background:var(--paper); z-index:2; }
 .modal-title { font-family:var(--font-display); font-weight:700; font-size:15px; color:var(--brand); flex:1;
@@ -273,8 +273,7 @@ table.grid td .cell:focus { outline:none; border-color:var(--brand);
 .totalsgrid tr.linerow td { color:var(--slate); font-size:0.76rem; border-top:1px solid #e8e8e8; }
 .kbadge.sm { font-size:0.58rem; padding:2px 7px; }
 .linecards { display:flex; flex-direction:column; gap:10px; margin-top:14px; }
-.linecard { border:1px solid var(--line); border-radius:8px; background:var(--paper-raised);
-  box-shadow:0 1px 3px rgba(0,0,0,.04); }
+.linecard { border:1px solid var(--line); border-radius:8px; background:var(--paper-raised); }
 .cardhead { display:flex; align-items:center; gap:10px; padding:10px 12px;
   border-bottom:1px solid #e8e8e8; }
 .cardhead .lgp { font-family:var(--font-mono); font-size:0.78rem; color:var(--brand); font-weight:700; }
