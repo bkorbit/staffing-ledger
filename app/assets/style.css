@@ -302,3 +302,6 @@ details.permonth summary:hover { color:var(--brand); }
 .subrev { font-size:0.6rem; color:var(--slate); }
 .totalsgrid td .subrev { line-height:1.3; }
 .setrow input.dname { font-family:var(--font-body); }
+
+/* exact-date flight pickers need more room than the old month inputs */
+.setrow .month { width:170px; }

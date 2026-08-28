@@ -31,8 +31,11 @@ boot('forecast', async (supa, el) => {
   const thisMonth = iso(t0).slice(0,8)+'01';
   const shiftM = (m,n)=>{const[y,mm]=m.slice(0,7).split('-').map(Number);
     return new Date(Date.UTC(y,mm-1+n,1)).toISOString().slice(0,10);};
-  const monthsBetween = (a,b) => { const out=[]; let d=new Date(a+'T00:00:00Z');
-    const end=new Date(b+'T00:00:00Z');
+  const monthsBetween = (a,b) => { const out=[];
+    // flights carry exact dates; the covered months run first-of-start-month
+    // through first-of-end-month
+    let d=new Date(a.slice(0,7)+'-01T00:00:00Z');
+    const end=new Date(b.slice(0,7)+'-01T00:00:00Z');
     while (d<=end && out.length<48) { out.push(d.toISOString().slice(0,10));
       d=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,1)); } return out; };
   const past = m => m < thisMonth;
@@ -738,9 +741,9 @@ boot('forecast', async (supa, el) => {
               <option value="__new__">+ new client…</option>
             </select></div>
           <div class="setrow"><span class="setlabel">Flight</span>
-            <input type="month" class="month fstart" value="${flight.start.slice(0,7)}">
+            <input type="date" class="month fstart" value="${flight.start.slice(0,10)}">
             <span class="muted">→</span>
-            <input type="month" class="month fend" value="${flight.end.slice(0,7)}"></div>
+            <input type="date" class="month fend" value="${flight.end.slice(0,10)}"></div>
           <div class="setrow"><span class="setlabel">QB Project</span>
             <input class="qpsearch" placeholder="search projects…">
             <select class="qp"></select></div>
@@ -782,8 +785,8 @@ boot('forecast', async (supa, el) => {
         </div>
         <div class="msg"></div>`;
 
-      box.querySelector('.fstart').onchange = e => { flight.start = e.target.value+'-01'; clamp(); };
-      box.querySelector('.fend').onchange   = e => { flight.end   = e.target.value+'-01'; clamp(); };
+      box.querySelector('.fstart').onchange = e => { flight.start = e.target.value; clamp(); };
+      box.querySelector('.fend').onchange   = e => { flight.end   = e.target.value; clamp(); };
       function clamp() {
         if (flight.end < flight.start) flight.end = flight.start;
         const keep = new Set(monthsBetween(flight.start, flight.end));
