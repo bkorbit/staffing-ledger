@@ -19,6 +19,11 @@ colors:
   alert-amber-tint: "#fdf3dc"
   chart-neutral-gray: "#9e9e9e"
   chart-fixed-gray: "#b8b8b8"
+  table-header-wash: "#f6f6f6"
+  column-header-wash: "#f2f2f2"
+  client-row-tint: "#fafaf8"
+  deal-hover-tint: "#f4faf7"
+  rust-on-brand: "#ffb4ac"
 typography:
   title:
     fontFamily: "Montserrat, sans-serif"
@@ -166,10 +171,15 @@ A closed, two-green-plus-two-accents palette on a warm gray paper ground — not
 - **Slate** (`#67706d`): Secondary/muted text — eyebrows, hints, table headers, mono labels, and the chart's COGS series.
 - **Hairline** (`#d2d2d2`): The default 1px border/divider color, used everywhere a seam matters less than a section boundary.
 - **Mint Tint** (`#e2f5ef`): The logo color at roughly 14% on white — hover backgrounds for nav items and table rows, the good-pill fill, the input focus glow.
+- **Table Header Wash** (`#f6f6f6`): The default background for a plain `<th>` — any ordinary table that isn't the account table or the deal-editor grid.
+- **Column Header Wash** (`#f2f2f2`): A slightly darker header background reserved for the account table's and the deal-editor totals grid's column headers — one step more emphasis than Table Header Wash.
+- **Client Row Tint** (`#fafaf8`): The account table's client (parent) row background — distinguishes a client summary row from the plain-white deal rows nested under it.
+- **Deal Hover Tint** (`#f4faf7`): A faint mint-adjacent hover state for deal sub-rows in the account table, quieter than the standard Mint Tint used elsewhere.
 
 ### Functional (semantic — reserved for alert meaning only)
 - **Alert Rust** (`#d1453b`) / **Alert Rust Tint** (`#fbe7e4`): Errors, negative figures, the danger-button treatment, the bad-pill fill.
 - **Alert Amber** (`#b07a14`) / **Alert Amber Tint** (`#fdf3dc`): Warnings, the warn-pill treatment.
+- **Rust on Brand** (`#ffb4ac`): A lightened rust used only for negative figures sitting on the totals row's solid Deep Ledger Green background — plain Alert Rust doesn't have enough contrast there.
 
 ### Chart-only neutrals
 - **Chart Neutral Gray** (`#9e9e9e`) and **Chart Fixed-Cost Gray** (`#b8b8b8`): used exclusively inside the forecast combo chart, for the "other" and "fixed cost" series respectively — desaturated on purpose so they never compete with the two ledger greens or the gold net line.
