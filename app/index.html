@@ -5,8 +5,7 @@
 import { boot, fmt$, esc, bandChart } from './assets/shell.js';
 
 boot('home', async (supa, el) => {
-  el.innerHTML = `<h1 class="page">Home</h1><div class="sub">Where the business stands, as of the last sync.</div>
-    <div class="summary-strip" id="tiles"></div>
+  el.innerHTML = `<div class="summary-strip" id="tiles"></div>
     <div class="sc-panel"><div class="muted" style="margin-bottom:8px">Cash position, 13 weeks</div><div id="chart">loading…</div></div>
     <div class="sc-panel" id="queues"></div>`;
 

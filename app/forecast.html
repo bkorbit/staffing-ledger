@@ -5,10 +5,7 @@
 import { boot, fmt$, esc } from './assets/shell.js';
 
 boot('forecast', async (supa, el) => {
-  el.innerHTML = `<h1 class="page">Forecast</h1>
-    <div class="sub">Gross profit on accrual: settled months from invoices, forward months
-    from shaped deals. First cut — client rows, drill-down and actual-GP costing follow.</div>
-    <div class="sc-panel" style="overflow-x:auto"><table id="tbl">loading…</table></div>
+  el.innerHTML = `<div class="sc-panel" style="overflow-x:auto"><table id="tbl">loading…</table></div>
     <div class="muted">Forward months show only shaped deals. ${''}Unshaped deals are
     absent by design — the model does not invent lines from as-sold totals.</div>`;
 

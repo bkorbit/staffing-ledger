@@ -5,10 +5,7 @@
 import { boot, esc } from './assets/shell.js';
 
 boot('clients', async (supa, el) => {
-  el.innerHTML = `<h1 class="page">Client matching</h1>
-    <div class="sub">Link each client to its QuickBooks customer. Set once — invoices,
-    payment behaviour and hour tracking all follow this link from then on.</div>
-    <div class="toolbar">
+  el.innerHTML = `<div class="toolbar">
       <input id="filter" type="text" placeholder="filter clients…" style="max-width:260px">
       <label class="mono" style="display:flex;align-items:center;gap:6px">
         <input type="checkbox" id="onlytodo" checked style="height:auto"> only unlinked</label>

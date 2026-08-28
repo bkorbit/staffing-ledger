@@ -5,10 +5,7 @@
 import { boot, fmt$, esc } from './assets/shell.js';
 
 boot('sales', async (supa, el) => {
-  el.innerHTML = `<h1 class="page">Sales Forecast</h1>
-    <div class="sub">The open pipeline as HubSpot has it, weighted by stage probability.
-    Won deals leave here through the promotion door and become real in Deals.</div>
-    <div class="summary-strip" id="tiles"></div>
+  el.innerHTML = `<div class="summary-strip" id="tiles"></div>
     <div class="sc-panel" style="overflow-x:auto"><table id="tbl">loading…</table></div>`;
 
   const { data, error } = await supa.from('pipeline_deals')

@@ -5,8 +5,7 @@
 import { boot, fmt$, esc } from './assets/shell.js';
 
 boot('settings', async (supa, el) => {
-  el.innerHTML = `<h1 class="page">Settings</h1><div class="sub">Sync health, bank accounts, and the knobs.</div>
-    <div class="sc-panel" id="syncs">loading…</div>
+  el.innerHTML = `<div class="sc-panel" id="syncs">loading…</div>
     <div class="sc-panel" id="banks"></div>
     <div class="sc-panel" id="knobs"></div>`;
 

@@ -3,328 +3,374 @@
 <title>EMG — Deals</title><link rel="stylesheet" href="./assets/style.css"></head><body>
 <script type="module">
 import { boot, esc } from './assets/shell.js';
-
+/*
+  Deal shaping, matching how the old editor worked:
+    - retainers and custom are ONE number, spread over the flight — no month grid
+    - media kinds take budget per month; hourly takes a default hrs/mo with
+      per-month overrides
+    - months already closed are locked: planning must not disturb the past;
+      those months' actuals come from invoices
+    - flight dates are editable right here, and redrawing follows them
+*/
 boot('deals', async (supa, el) => {
-  el.innerHTML = `<h1 class="page">Deal shaping</h1>
-    <div class="sub">Clients, their deals inside. The flight dictates the months; type each
-    line's quantity straight into them — an empty month is an empty month. The GP row is
-    what the Forecast shows.</div>
+  el.innerHTML = `
     <div class="toolbar">
       <input id="filter" type="text" placeholder="filter clients or deals…" style="max-width:280px">
       <label class="mono" style="display:flex;align-items:center;gap:6px">
         <input type="checkbox" id="onlytodo" checked style="height:auto"> awaiting review</label>
       <span class="muted" id="count" style="font-size:12px"></span>
       <span style="flex:1"></span>
-      <button class="ghost" id="refresh">Refresh</button>
+      <button id="refresh">Refresh</button>
     </div>
     <div id="list"></div>`;
-
   const $ = s => el.querySelector(s);
+
+  /* ---------------------------------------------------------------- config */
+  // Per kind: default params (line-level, spread over flight) and whether a
+  // per-month cell row exists, holding which quantity.
+  const KIND = {
+    retainer:     { cells:null,     defaults:[['amount','$ / flight month']] },
+    custom:       { cells:null,     defaults:[['amount','$ / flight month']] },
+    search:       { cells:'budget', defaults:[['fee_pct','fee %']] },
+    social:       { cells:'budget', defaults:[['fee_pct','fee %']] },
+    programmatic: { cells:'budget', defaults:[['fee_pct','fee %'],['margin_pct','margin %']] },
+    hourly:       { cells:'hours',  defaults:[['rate','rate $/hr'],['hours_per_month','hrs/mo default']] },
+  };
+  const CELL_HINT = { budget:'budget $', hours:'hrs' };
+  const BILLING_BY_KIND = { retainer:'first', custom:'first', search:'last',
+                            social:'last', programmatic:'last', hourly:'last' };
+  const DOLLAR_PARAMS = new Set(['amount','rate']);
+  let marginDefault = 35;
   let deals = [], openDealId = null;
 
-
-
-/* --------------------------------------------------------------- config -- */
-// Each kind: which quantity the month cells hold, its unit, and its parameters.
-const KIND = {
-  retainer:     { cells:'amount', unit:'$/mo',  params:[] },
-  search:       { cells:'budget', unit:'media $/mo', params:['fee_pct'] },
-  social:       { cells:'budget', unit:'media $/mo', params:['fee_pct'] },
-  programmatic: { cells:'budget', unit:'budget $/mo', params:['margin_pct','fee_pct'] },
-  hourly:       { cells:'hours',  unit:'hrs/mo', params:['rate'] },
-  custom:       { cells:'amount', unit:'$/mo',  params:[] },
-};
-const PARAM_LABEL = { fee_pct:'fee %', margin_pct:'margin %', rate:'rate $/hr' };
-const BILLING_BY_KIND = { retainer:'first', custom:'first', search:'last',
-                          social:'last', programmatic:'last', hourly:'last' };
-let marginDefault = 35;
-
-/* ---------------------------------------------------------------- maths -- */
-// Mirrors v_deal_month_forecast. cents (or hours) in, GP cents out.
-function gpFor(kind, params, cellValue) {
-  const fee = params.fee_pct || 0, margin = params.margin_pct ?? marginDefault,
-        rate = params.rate || 0;
-  switch (kind) {
-    case 'retainer': case 'custom': return cellValue;
-    case 'hourly':       return Math.round(rate * cellValue);
-    case 'search': case 'social': return Math.round(cellValue * fee / 100);
-    case 'programmatic': return Math.round(cellValue * margin / 100 + cellValue * fee / 100);
-  }
-  return 0;
-}
-function monthsBetween(a, b) {
-  const out = []; let d = new Date(a + 'T00:00:00Z'); const end = new Date(b + 'T00:00:00Z');
-  while (d <= end) { out.push(d.toISOString().slice(0, 10));
-    d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)); }
-  return out;
-}
-const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const mLabel = iso => MONTHS_SHORT[+iso.slice(5, 7) - 1] + ' ' + iso.slice(2, 4);
-const fmtN = c => (c / 100).toLocaleString(undefined, { maximumFractionDigits: 0 });
-
-
-async function load() {
-  const [d, s] = await Promise.all([
-    supa.from('deals')
-      .select('id,name,status,flight_start,flight_end,media_funding,reviewed_at,client_id,clients(name,active),promotions(source_payload)')
-      .in('status', ['won', 'active']),
-    supa.from('settings').select('value').eq('key', 'programmatic_margin_default').single()
-  ]);
-  if (d.error) { $('#list').innerHTML = `<div class="err">${d.error.message}</div>`; return; }
-  marginDefault = s.data ? +s.data.value : 35;
-  deals = (d.data || []).filter(x => x.clients && x.clients.active !== false);
-  render();
-}
-
-/* --------------------------------------------------------------- render -- */
-function render() {
-  const f = $('#filter').value.trim().toLowerCase();
-  const onlyTodo = $('#onlytodo').checked;
-  const shown = deals.filter(d =>
-    (!onlyTodo || !d.reviewed_at) &&
-    (!f || d.name.toLowerCase().includes(f) || (d.clients.name || '').toLowerCase().includes(f)));
-
-  // group by client
-  const byClient = {};
-  shown.forEach(d => (byClient[d.clients.name] = byClient[d.clients.name] || []).push(d));
-  const clientNames = Object.keys(byClient).sort((a, b) => a.localeCompare(b));
-
-  $('#count').textContent =
-    `${deals.filter(d => !d.reviewed_at).length} deals awaiting review of ${deals.length}, ` +
-    `${clientNames.length} clients shown`;
-
-  $('#list').innerHTML = clientNames.map(cn => {
-    const ds = byClient[cn].sort((a, b) => (b.flight_end || '').localeCompare(a.flight_end || ''));
-    const todo = ds.filter(d => !d.reviewed_at).length;
-    const keepOpen = ds.some(d => d.id === openDealId);
-    return `<details class="client" ${keepOpen ? 'open' : ''}>
-      <summary>
-        <span class="cname">${esc(cn)}</span>
-        <span class="pill">${ds.length} deal${ds.length > 1 ? 's' : ''}</span>
-        ${todo ? `<span class="pill todo">${todo} to review</span>` : '<span class="pill rev">all reviewed</span>'}
-      </summary>
-      ${ds.map(d => {
-        const asSold = d.promotions?.[0]?.source_payload?.amount;
-        return `<div class="deal" data-id="${d.id}">
-          <div class="dhead">
-            <span class="dname">${esc(d.name)}</span>
-            <span class="muted">${mLabel(d.flight_start)} → ${mLabel(d.flight_end)}</span>
-            ${asSold ? `<span class="muted">sold $${fmtN(asSold)}</span>` : ''}
-            ${d.media_funding === 'agency' ? '<span class="pill agency">agency media</span>' : ''}
-            <span class="pill ${d.reviewed_at ? 'rev' : 'todo'}">${d.reviewed_at ? 'reviewed' : 'to review'}</span>
-            <button class="open">${openDealId === d.id ? 'Close' : 'Shape'}</button>
-          </div>
-          <div class="detail"></div>
-        </div>`;
-      }).join('')}
-    </details>`;
-  }).join('') || '<div class="muted">Nothing to show.</div>';
-
-  document.querySelectorAll('.deal .open').forEach(btn => {
-    btn.onclick = () => {
-      const id = btn.closest('.deal').dataset.id;
-      openDealId = openDealId === id ? null : id;
-      render();
-    };
-  });
-  if (openDealId) {
-    const box = document.querySelector(`.deal[data-id="${openDealId}"]`);
-    if (box) openDetail(box);
-  }
-}
-
-/* ---------------------------------------------------------- deal detail -- */
-async function openDetail(box) {
-  const d = deals.find(x => x.id === box.dataset.id);
-  const el = box.querySelector('.detail');
-  el.innerHTML = '<div class="muted" style="margin-top:8px">loading…</div>';
-
-  const lr = await supa.from('deal_lines').select('*').eq('deal_id', d.id).order('set_at');
-  if (lr.error) { el.innerHTML = `<div class="err">${lr.error.message}</div>`; return; }
-  const ids = (lr.data || []).map(l => l.id);
-  const mr = ids.length
-    ? await supa.from('deal_line_months').select('*').in('deal_line_id', ids)
-    : { data: [] };
-
-  const months = monthsBetween(d.flight_start, d.flight_end);
-  // in-memory model: cells hold display units (dollars or hours)
-  const model = (lr.data || []).map(l => {
+  /* ----------------------------------------------------------------- maths */
+  // Mirrors v_deal_month_forecast: defaults apply where no override exists.
+  function gpMonth(l, m) {
     const cfg = KIND[l.kind];
-    const cells = {};
-    (mr.data || []).filter(o => o.deal_line_id === l.id).forEach(o => {
-      const v = cfg.cells === 'hours' ? o.hours : o[cfg.cells];
-      if (v != null) cells[o.month] = cfg.cells === 'hours' ? +v : v / 100;
-    });
-    return { id: l.id, kind: l.kind, label: l.label || '',
-             params: { fee_pct: l.fee_pct || 0, margin_pct: l.margin_pct,
-                       rate: l.rate ? l.rate / 100 : 0 }, cells };
-  });
-
-  function draw() {
-    const headCells = months.map(m => `<th>${mLabel(m)}</th>`).join('');
-    const lineRows = model.map((l, li) => {
-      const cfg = KIND[l.kind];
-      const params = cfg.params.map(p => `
-        <label>${PARAM_LABEL[p]}
-          <input class="p" data-li="${li}" data-p="${p}"
-            value="${p === 'margin_pct' ? (l.params[p] ?? '') : (l.params[p] || '')}"
-            placeholder="${p === 'margin_pct' ? marginDefault : '0'}"></label>`).join('');
-      const cells = months.map(m => `
-        <td><input class="cell" data-li="${li}" data-m="${m}"
-          value="${l.cells[m] ?? ''}" placeholder=""></td>`).join('');
-      return `<tr>
-        <td class="linehead">
-          <span class="kbadge">${l.kind}</span>
-          <input data-li="${li}" data-label style="width:130px;margin-left:6px" placeholder="label" value="${esc(l.label)}">
-          <span class="params">${params}</span>
-          <span class="muted" style="margin-left:6px;font-size:11px">${cfg.unit}</span>
-          <button class="danger delline" data-li="${li}" style="margin-left:6px;padding:2px 8px">✕</button>
-        </td>${cells}<td class="muted gp-line" data-li="${li}"></td></tr>`;
-    }).join('');
-
-    el.innerHTML = `
-      <div class="gridwrap">
-        <table class="grid">
-          <tr><th style="text-align:left">line</th>${headCells}<th>line GP</th></tr>
-          ${lineRows}
-          <tr class="gp"><td class="linehead">GP — what the forecast shows</td>
-            ${months.map(m => `<td data-gpm="${m}"></td>`).join('')}<td data-gptotal></td></tr>
-        </table>
-      </div>
-      <div class="dhead" style="margin-top:10px">
-        <select class="newkind">
-          <option value="">+ add a line…</option>
-          ${Object.keys(KIND).map(k => `<option value="${k}">${k}</option>`).join('')}
-        </select>
-        <label class="muted">media funding
-          <select class="mf">
-            <option value="client" ${d.media_funding !== 'agency' ? 'selected' : ''}>client pays</option>
-            <option value="agency" ${d.media_funding === 'agency' ? 'selected' : ''}>EMG pays &amp; rebills</option>
-          </select></label>
-        <span style="flex:1"></span>
-        <span class="totals"></span>
-        <button class="saveall primary">Save</button>
-        <button class="reviewed" ${d.reviewed_at ? 'disabled' : ''}>Mark reviewed</button>
-      </div>
-      <div class="msg" style="margin-top:6px;font-size:12px"></div>`;
-
-    // wiring
-    el.querySelectorAll('input[data-label]').forEach(inp =>
-      inp.oninput = () => { model[+inp.dataset.li].label = inp.value; });
-    el.querySelectorAll('input.p').forEach(inp => inp.oninput = () => {
-      const l = model[+inp.dataset.li];
-      l.params[inp.dataset.p] = inp.value === '' ?
-        (inp.dataset.p === 'margin_pct' ? null : 0) : +inp.value;
-      preview();
-    });
-    el.querySelectorAll('input.cell').forEach(inp => inp.oninput = () => {
-      const l = model[+inp.dataset.li];
-      if (inp.value === '') delete l.cells[inp.dataset.m];
-      else l.cells[inp.dataset.m] = +inp.value;
-      preview();
-    });
-    el.querySelectorAll('.delline').forEach(btn => btn.onclick = async () => {
-      const li = +btn.dataset.li;
-      if (model[li].id) {
-        if (!confirm('Delete this line and its months?')) return;
-        await supa.from('deal_lines').delete().eq('id', model[li].id);
+    const cellRaw = cfg.cells ? l.cells[m] : undefined;
+    const fee = l.params.fee_pct || 0;
+    const margin = l.params.margin_pct ?? marginDefault;
+    switch (l.kind) {
+      case 'retainer': case 'custom':
+        return Math.round((l.params.amount || 0) * 100);
+      case 'hourly': {
+        const hrs = cellRaw !== undefined ? cellRaw : (l.params.hours_per_month || 0);
+        return Math.round((l.params.rate || 0) * 100 * hrs);
       }
-      model.splice(li, 1); draw();
-    });
-    el.querySelector('.newkind').onchange = e => {
-      if (!e.target.value) return;
-      model.push({ kind: e.target.value, label: '', params: { fee_pct: 0, margin_pct: null, rate: 0 }, cells: {} });
-      draw();
-    };
-    el.querySelector('.saveall').onclick = () => save();
-    el.querySelector('.reviewed').onclick = async () => {
-      const { error } = await supa.from('deals').update({
-        reviewed_at: new Date().toISOString(), set_by: window.__email, set_at: new Date().toISOString()
-      }).eq('id', d.id);
-      if (!error) { d.reviewed_at = new Date().toISOString(); render(); }
-    };
-    preview();
-  }
-
-  function preview() {
-    const asSold = d.promotions?.[0]?.source_payload?.amount;
-    let total = 0;
-    const monthGP = {};
-    model.forEach((l, li) => {
-      let lineTotal = 0;
-      months.forEach(m => {
-        const raw = l.cells[m];
-        if (raw === undefined) return;
-        const cellCents = KIND[l.kind].cells === 'hours' ? raw : Math.round(raw * 100);
-        const params = { ...l.params, rate: Math.round((l.params.rate || 0) * 100) };
-        const gp = gpFor(l.kind, params, cellCents);
-        monthGP[m] = (monthGP[m] || 0) + gp;
-        lineTotal += gp;
-      });
-      const cell = el.querySelector(`.gp-line[data-li="${li}"]`);
-      if (cell) cell.textContent = lineTotal ? fmtN(lineTotal) : '';
-      total += lineTotal;
-    });
-    months.forEach(m => {
-      const td = el.querySelector(`td[data-gpm="${m}"]`);
-      if (td) td.textContent = monthGP[m] ? fmtN(monthGP[m]) : '';
-    });
-    const tt = el.querySelector('td[data-gptotal]'); if (tt) tt.textContent = total ? fmtN(total) : '';
-    const cls = asSold && total && Math.abs(total - asSold) / asSold < 0.02 ? 'total-match' : 'total-off';
-    el.querySelector('.totals').innerHTML = total || asSold
-      ? `<span class="${cls}">GP total $${fmtN(total)}</span>` +
-        (asSold ? `<span class="muted"> · sold $${fmtN(asSold)}</span>` : '')
-      : '';
-  }
-
-  async function save() {
-    const msg = el.querySelector('.msg');
-    const mf = el.querySelector('.mf').value;
-    if (mf !== d.media_funding) {
-      const { error } = await supa.from('deals').update({
-        media_funding: mf, set_by: window.__email, set_at: new Date().toISOString() }).eq('id', d.id);
-      if (error) { msg.textContent = error.message; msg.className = 'msg err'; return; }
-      d.media_funding = mf;
+      case 'search': case 'social': {
+        const b = cellRaw !== undefined ? cellRaw * 100 : 0;
+        return Math.round(b * fee / 100);
+      }
+      case 'programmatic': {
+        const b = cellRaw !== undefined ? cellRaw * 100 : 0;
+        return Math.round(b * margin / 100 + b * fee / 100);
+      }
     }
-    for (const l of model) {
-      const row = {
-        deal_id: d.id, kind: l.kind, label: l.label || null,
-        amount: 0, budget: 0, hours_per_month: 0,
-        fee_pct: l.params.fee_pct || 0,
-        margin_pct: l.params.margin_pct ?? null,
-        rate: Math.round((l.params.rate || 0) * 100),
-        billing_day: BILLING_BY_KIND[l.kind],
-        set_by: window.__email, set_at: new Date().toISOString()
+    return 0;
+  }
+  function monthsBetween(a, b) {
+    const out = []; let d = new Date(a + 'T00:00:00Z'); const end = new Date(b + 'T00:00:00Z');
+    while (d <= end) { out.push(d.toISOString().slice(0, 10));
+      d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)); }
+    return out;
+  }
+  const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const mLabel = iso => MO[+iso.slice(5,7)-1] + ' ' + iso.slice(2,4);
+  const fmtN = c => (c/100).toLocaleString(undefined,{maximumFractionDigits:0});
+  const thisMonth = new Date().toISOString().slice(0,8) + '01';
+  const closed = m => m < thisMonth;   // planning never disturbs a closed month
+
+  /* ------------------------------------------------------------------ load */
+  async function load() {
+    const [d, s] = await Promise.all([
+      supa.from('deals')
+        .select('id,name,status,flight_start,flight_end,media_funding,reviewed_at,client_id,clients(name,active),promotions(source_payload)')
+        .in('status', ['won','active']),
+      supa.from('settings').select('value').eq('key','programmatic_margin_default').single()
+    ]);
+    if (d.error) { $('#list').innerHTML = `<div class="sc-panel err">${d.error.message}</div>`; return; }
+    marginDefault = s.data ? +s.data.value : 35;
+    deals = (d.data||[]).filter(x => x.clients && x.clients.active !== false);
+    render();
+  }
+
+  /* ---------------------------------------------------------------- render */
+  function render() {
+    const f = $('#filter').value.trim().toLowerCase();
+    const onlyTodo = $('#onlytodo').checked;
+    const shown = deals.filter(d =>
+      (!onlyTodo || !d.reviewed_at) &&
+      (!f || d.name.toLowerCase().includes(f) || (d.clients.name||'').toLowerCase().includes(f)));
+    const byClient = {};
+    shown.forEach(d => (byClient[d.clients.name] = byClient[d.clients.name]||[]).push(d));
+    const names = Object.keys(byClient).sort((a,b)=>a.localeCompare(b));
+    $('#count').textContent =
+      `${deals.filter(d=>!d.reviewed_at).length} deals awaiting review of ${deals.length}, ${names.length} clients shown`;
+
+    $('#list').innerHTML = names.map(cn => {
+      const ds = byClient[cn].sort((a,b)=>(b.flight_end||'').localeCompare(a.flight_end||''));
+      const todo = ds.filter(d=>!d.reviewed_at).length;
+      const keepOpen = ds.some(d=>d.id===openDealId);
+      return `<details class="client" ${keepOpen?'open':''}>
+        <summary>
+          <span class="cname">${esc(cn)}</span>
+          <span class="pill">${ds.length} deal${ds.length>1?'s':''}</span>
+          ${todo?`<span class="pill warn">${todo} to review</span>`:'<span class="pill good">all reviewed</span>'}
+        </summary>
+        ${ds.map(d => {
+          const asSold = d.promotions?.[0]?.source_payload?.amount;
+          return `<div class="deal" data-id="${d.id}">
+            <div class="dhead">
+              <span class="dname">${esc(d.name)}</span>
+              <span class="muted" style="font-size:12px">${mLabel(d.flight_start)} → ${mLabel(d.flight_end)}</span>
+              ${asSold?`<span class="muted" style="font-size:12px">sold $${fmtN(asSold)}</span>`:''}
+              ${d.media_funding==='agency'?'<span class="pill bad">agency media</span>':''}
+              <span class="pill ${d.reviewed_at?'good':'warn'}">${d.reviewed_at?'reviewed':'to review'}</span>
+              <button class="open">${openDealId===d.id?'Close':'Shape'}</button>
+            </div>
+            <div class="detail"></div>
+          </div>`;
+        }).join('')}
+      </details>`;
+    }).join('') || '<div class="muted">Nothing to show.</div>';
+
+    el.querySelectorAll('.deal .open').forEach(btn => {
+      btn.onclick = () => {
+        const id = btn.closest('.deal').dataset.id;
+        openDealId = openDealId===id ? null : id;
+        render();
       };
-      if (l.id) {
-        const { error } = await supa.from('deal_lines').update(row).eq('id', l.id);
-        if (error) { msg.textContent = error.message; msg.className = 'msg err'; return; }
-      } else {
-        const { data, error } = await supa.from('deal_lines').insert(row).select('id').single();
-        if (error) { msg.textContent = error.message; msg.className = 'msg err'; return; }
-        l.id = data.id;
-      }
-      // month cells: replace this line's rows with exactly what the grid shows
-      const del = await supa.from('deal_line_months').delete().eq('deal_line_id', l.id);
-      if (del.error) { msg.textContent = del.error.message; msg.className = 'msg err'; return; }
-      const field = KIND[l.kind].cells;
-      const rows = Object.entries(l.cells).map(([m, v]) => {
-        const r = { deal_line_id: l.id, month: m, set_by: window.__email, set_at: new Date().toISOString() };
-        r[field === 'hours' ? 'hours' : field] = field === 'hours' ? v : Math.round(v * 100);
-        return r;
-      });
-      if (rows.length) {
-        const ins = await supa.from('deal_line_months').insert(rows);
-        if (ins.error) { msg.textContent = ins.error.message; msg.className = 'msg err'; return; }
-      }
+    });
+    if (openDealId) {
+      const box = el.querySelector(`.deal[data-id="${openDealId}"]`);
+      if (box) openDetail(box);
     }
-    msg.textContent = 'saved — the forecast reflects it now';
-    msg.className = 'msg ok';
   }
 
-  draw();
-}
+  /* ----------------------------------------------------------- deal detail */
+  async function openDetail(box) {
+    const d = deals.find(x => x.id === box.dataset.id);
+    const det = box.querySelector('.detail');
+    det.innerHTML = '<div class="muted" style="margin-top:8px;font-size:12px">loading…</div>';
 
+    const lr = await supa.from('deal_lines').select('*').eq('deal_id', d.id).order('set_at');
+    if (lr.error) { det.innerHTML = `<div class="err">${lr.error.message}</div>`; return; }
+    const ids = (lr.data||[]).map(l=>l.id);
+    const mr = ids.length
+      ? await supa.from('deal_line_months').select('*').in('deal_line_id', ids)
+      : { data: [] };
+
+    // in-memory model; params in display units (dollars / percent / hours)
+    const model = (lr.data||[]).map(l => {
+      const cfg = KIND[l.kind] || KIND.custom;
+      const cells = {};
+      (mr.data||[]).filter(o=>o.deal_line_id===l.id).forEach(o => {
+        const v = cfg.cells==='hours' ? o.hours : o[cfg.cells];
+        if (v!=null) cells[o.month] = cfg.cells==='hours' ? +v : v/100;
+      });
+      return { id:l.id, kind:l.kind,
+        params: { amount: l.amount?l.amount/100:0, fee_pct:l.fee_pct||0,
+                  margin_pct:l.margin_pct, rate:l.rate?l.rate/100:0,
+                  hours_per_month:+l.hours_per_month||0 },
+        cells };
+    });
+    // flight edits live in local state until Save
+    let flight = { start: d.flight_start, end: d.flight_end };
+
+    function draw() {
+      const months = monthsBetween(flight.start, flight.end);
+      const anyCells = model.some(l => KIND[l.kind].cells);
+      const head = months.map(m =>
+        `<th title="${closed(m)?'closed month — actuals come from invoices':''}">${mLabel(m)}${closed(m)?' ✓':''}</th>`).join('');
+
+      const lineRows = model.map((l, li) => {
+        const cfg = KIND[l.kind];
+        const params = cfg.defaults.map(([p, label]) => `
+          <label class="mono" style="display:inline-flex;flex-direction:column;gap:2px;margin-right:10px">${label}
+            <input class="p" data-li="${li}" data-p="${p}"
+              value="${p==='margin_pct' ? (l.params[p] ?? '') : (l.params[p] || '')}"
+              placeholder="${p==='margin_pct' ? marginDefault : '0'}"></label>`).join('');
+        const cells = cfg.cells
+          ? months.map(m => `<td><input class="cell" data-li="${li}" data-m="${m}"
+              value="${l.cells[m] ?? ''}" placeholder="${closed(m)?'':CELL_HINT[cfg.cells]}"
+              ${closed(m)?'disabled':''}></td>`).join('')
+          : `<td colspan="${months.length}" class="muted" style="text-align:left;font-family:var(--font-body)">
+               spread over the flight — ${months.filter(m=>!closed(m)).length} open month(s)</td>`;
+        return `<tr>
+          <td class="linehead">
+            <span class="kbadge">${l.kind}</span>
+            <span class="params" style="margin-left:10px">${params}</span>
+            <button class="danger delline" data-li="${li}" style="margin-left:6px;padding:2px 8px">✕</button>
+          </td>${cells}<td class="muted gp-line" data-li="${li}"></td></tr>`;
+      }).join('');
+
+      det.innerHTML = `
+        <div class="dhead" style="margin-top:10px">
+          <label class="mono" style="display:flex;align-items:center;gap:6px">flight
+            <input type="month" class="month fstart" value="${flight.start.slice(0,7)}">
+            <span class="muted">→</span>
+            <input type="month" class="month fend" value="${flight.end.slice(0,7)}"></label>
+          <label class="mono" style="display:flex;align-items:center;gap:6px">media funding
+            <select class="mf" style="height:30px">
+              <option value="client" ${d.media_funding!=='agency'?'selected':''}>client pays</option>
+              <option value="agency" ${d.media_funding==='agency'?'selected':''}>EMG pays &amp; rebills</option>
+            </select></label>
+          <span style="flex:1"></span>
+          <span class="totals"></span>
+        </div>
+        <div class="gridwrap">
+          <table class="grid">
+            <tr><th style="text-align:left">line</th>${head}<th>line GP</th></tr>
+            ${lineRows || `<tr><td class="linehead muted" colspan="${months.length+2}">no lines yet — add one below</td></tr>`}
+            <tr class="gp"><td class="linehead">GP — what the forecast shows</td>
+              ${months.map(m=>`<td data-gpm="${m}"></td>`).join('')}<td data-gptotal></td></tr>
+          </table>
+        </div>
+        <div class="dhead" style="margin-top:10px">
+          <select class="newkind" style="height:32px">
+            <option value="">+ add a line…</option>
+            ${Object.keys(KIND).map(k=>`<option value="${k}">${k}</option>`).join('')}
+          </select>
+          <span style="flex:1"></span>
+          <button class="saveall primary">Save</button>
+          <button class="reviewed" ${d.reviewed_at?'disabled':''}>Mark reviewed</button>
+        </div>
+        <div class="msg" style="margin-top:6px;font-size:12px"></div>`;
+
+      det.querySelector('.fstart').onchange = e => { flight.start = e.target.value + '-01'; clampAndRedraw(); };
+      det.querySelector('.fend').onchange   = e => { flight.end   = e.target.value + '-01'; clampAndRedraw(); };
+      function clampAndRedraw() {
+        if (flight.end < flight.start) flight.end = flight.start;
+        const keep = new Set(monthsBetween(flight.start, flight.end));
+        model.forEach(l => Object.keys(l.cells).forEach(m => { if (!keep.has(m)) delete l.cells[m]; }));
+        draw();
+      }
+      det.querySelectorAll('input.p').forEach(inp => inp.oninput = () => {
+        const l = model[+inp.dataset.li];
+        l.params[inp.dataset.p] = inp.value==='' ?
+          (inp.dataset.p==='margin_pct' ? null : 0) : +inp.value;
+        preview();
+      });
+      det.querySelectorAll('input.cell').forEach(inp => inp.oninput = () => {
+        const l = model[+inp.dataset.li];
+        if (inp.value==='') delete l.cells[inp.dataset.m];
+        else l.cells[inp.dataset.m] = +inp.value;
+        preview();
+      });
+      det.querySelectorAll('.delline').forEach(btn => btn.onclick = async () => {
+        const li = +btn.dataset.li;
+        if (model[li].id) {
+          if (!confirm('Delete this line and its months?')) return;
+          await supa.from('deal_lines').delete().eq('id', model[li].id);
+        }
+        model.splice(li,1); draw();
+      });
+      det.querySelector('.newkind').onchange = e => {
+        if (!e.target.value) return;
+        model.push({ kind:e.target.value,
+          params:{ amount:0, fee_pct:0, margin_pct:null, rate:0, hours_per_month:0 }, cells:{} });
+        draw();
+      };
+      det.querySelector('.saveall').onclick = save;
+      det.querySelector('.reviewed').onclick = async () => {
+        const { error } = await supa.from('deals').update({
+          reviewed_at:new Date().toISOString(), set_by:window.__email, set_at:new Date().toISOString()
+        }).eq('id', d.id);
+        if (!error) { d.reviewed_at = new Date().toISOString(); render(); }
+      };
+      preview();
+    }
+
+    function preview() {
+      const months = monthsBetween(flight.start, flight.end);
+      const asSold = d.promotions?.[0]?.source_payload?.amount;
+      let total = 0; const monthGP = {};
+      model.forEach((l, li) => {
+        let lineTotal = 0;
+        months.forEach(m => {
+          const gp = gpMonth(l, m);
+          if (gp) { monthGP[m] = (monthGP[m]||0) + gp; lineTotal += gp; }
+        });
+        const cell = det.querySelector(`.gp-line[data-li="${li}"]`);
+        if (cell) cell.textContent = lineTotal ? fmtN(lineTotal) : '';
+        total += lineTotal;
+      });
+      months.forEach(m => {
+        const td = det.querySelector(`td[data-gpm="${m}"]`);
+        if (td) td.textContent = monthGP[m] ? fmtN(monthGP[m]) : '';
+      });
+      const tt = det.querySelector('td[data-gptotal]'); if (tt) tt.textContent = total ? fmtN(total) : '';
+      const cls = asSold && total && Math.abs(total-asSold)/asSold < 0.02 ? 'total-match' : 'total-off';
+      det.querySelector('.totals').innerHTML = (total||asSold)
+        ? `<span class="${cls}">GP total $${fmtN(total)}</span>` +
+          (asSold?`<span class="muted" style="font-size:12px"> · sold $${fmtN(asSold)}</span>`:'')
+        : '';
+    }
+
+    async function save() {
+      const msg = det.querySelector('.msg');
+      const mf = det.querySelector('.mf').value;
+      // deal-level: flight + media funding, one attributed write
+      const dealPatch = {};
+      if (flight.start !== d.flight_start) dealPatch.flight_start = flight.start;
+      if (flight.end !== d.flight_end)     dealPatch.flight_end   = flight.end;
+      if (mf !== d.media_funding)          dealPatch.media_funding = mf;
+      if (Object.keys(dealPatch).length) {
+        dealPatch.set_by = window.__email; dealPatch.set_at = new Date().toISOString();
+        const { error } = await supa.from('deals').update(dealPatch).eq('id', d.id);
+        if (error) { msg.textContent = error.message; msg.className='msg err'; return; }
+        Object.assign(d, dealPatch);
+      }
+      for (const l of model) {
+        const row = {
+          deal_id: d.id, kind: l.kind, label: null,
+          amount: Math.round((l.params.amount||0)*100),
+          budget: 0,
+          hours_per_month: l.params.hours_per_month || 0,
+          fee_pct: l.params.fee_pct || 0,
+          margin_pct: l.params.margin_pct ?? null,
+          rate: Math.round((l.params.rate||0)*100),
+          billing_day: BILLING_BY_KIND[l.kind],
+          set_by: window.__email, set_at: new Date().toISOString()
+        };
+        if (l.id) {
+          const { error } = await supa.from('deal_lines').update(row).eq('id', l.id);
+          if (error) { msg.textContent = error.message; msg.className='msg err'; return; }
+        } else {
+          const { data, error } = await supa.from('deal_lines').insert(row).select('id').single();
+          if (error) { msg.textContent = error.message; msg.className='msg err'; return; }
+          l.id = data.id;
+        }
+        const cfg = KIND[l.kind];
+        if (cfg.cells) {
+          // closed months keep their stored values: delete only open-month rows,
+          // then write exactly what the open cells show
+          const openMonths = monthsBetween(flight.start, flight.end).filter(m=>!closed(m));
+          if (openMonths.length) {
+            const del = await supa.from('deal_line_months').delete()
+              .eq('deal_line_id', l.id).in('month', openMonths);
+            if (del.error) { msg.textContent = del.error.message; msg.className='msg err'; return; }
+          }
+          const rows = Object.entries(l.cells)
+            .filter(([m]) => !closed(m))
+            .map(([m, v]) => {
+              const r = { deal_line_id:l.id, month:m, set_by:window.__email, set_at:new Date().toISOString() };
+              r[cfg.cells==='hours' ? 'hours' : cfg.cells] = cfg.cells==='hours' ? v : Math.round(v*100);
+              return r;
+            });
+          if (rows.length) {
+            const ins = await supa.from('deal_line_months').insert(rows);
+            if (ins.error) { msg.textContent = ins.error.message; msg.className='msg err'; return; }
+          }
+        }
+      }
+      msg.textContent = 'saved — the forecast reflects it now';
+      msg.className = 'msg ok';
+      render();
+    }
+
+    draw();
+  }
 
   $('#filter').oninput = render;
   $('#onlytodo').onchange = render;
