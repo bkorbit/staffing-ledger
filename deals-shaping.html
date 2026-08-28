@@ -5,13 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>EMG — Deal Shaping</title>
 <!--
-  Where promoted skeletons become forecast. Pick a deal, add its commercial lines,
-  override individual months where reality differs, watch the computed GP/billable
-  match (or challenge) the as-sold number, mark it reviewed.
+  Where promoted skeletons become forecast, organised the way the business thinks:
+  clients first, their deals inside. Entry is month-first — the flight dictates the
+  columns, each line's driving quantity is typed straight into the months, and an
+  empty cell means nothing happens that month. Each kind shows only its own fields.
 
-  The maths here MIRRORS v_deal_month_forecast exactly — the database view remains
-  the truth; this page only previews it. Nothing on this page reads hours worked or
-  assignments: revenue never reads the operational side.
+  The month values are stored in deal_line_months; line-level defaults stay zero, so
+  what you see in the grid IS the plan, with no invisible fallback filling months
+  behind your back. GP mirrors v_deal_month_forecast exactly.
 -->
 <style>
   :root { --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --text:#e6e9ef; --dim:#8b93a3;
@@ -19,47 +20,60 @@
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--text);
          font:14px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
-  .wrap { max-width:1060px; margin:0 auto; padding:28px 20px 90px; }
+  .wrap { max-width:1240px; margin:0 auto; padding:26px 20px 90px; }
   h1 { font-size:18px; margin:0 0 4px; }
-  .sub { color:var(--dim); margin-bottom:20px; }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
-          padding:14px 16px; margin-bottom:10px; }
-  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-  .grow { flex:1 1 200px; }
-  .name { font-weight:600; }
-  .hint { color:var(--dim); font-size:12px; }
-  select,input { padding:7px 9px; background:#0c0e12; color:var(--text);
-    border:1px solid var(--line); border-radius:8px; font:inherit; }
-  input.num { width:110px; text-align:right; }
-  input.mo { width:96px; text-align:right; }
-  button { padding:7px 13px; border-radius:8px; border:1px solid var(--line);
-           background:#20242e; color:var(--text); font:inherit; cursor:pointer; }
-  button.primary { background:var(--accent); border-color:var(--accent); color:#06231d; font-weight:600; }
-  button.danger { border-color:var(--danger); color:var(--danger); background:transparent; }
-  button:disabled { opacity:.45; cursor:default; }
-  .pill { font-size:12px; padding:2px 8px; border-radius:99px; border:1px solid var(--line); color:var(--dim); }
+  .sub { color:var(--dim); margin-bottom:18px; }
+  .toolbar { display:flex; gap:10px; align-items:center; margin:12px 0 18px; flex-wrap:wrap; }
+  .muted { color:var(--dim); }
+  details.client { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    margin-bottom:10px; overflow:hidden; }
+  details.client > summary { list-style:none; cursor:pointer; padding:12px 16px;
+    display:flex; align-items:center; gap:12px; }
+  details.client > summary::-webkit-details-marker { display:none; }
+  details.client[open] > summary { border-bottom:1px solid var(--line); }
+  .cname { font-weight:700; flex:1; }
+  .deal { border-top:1px solid var(--line); padding:12px 16px; }
+  .deal:first-of-type { border-top:none; }
+  .dhead { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .dname { font-weight:600; flex:1; }
+  .pill { font-size:12px; padding:2px 8px; border-radius:99px; border:1px solid var(--line); color:var(--dim); white-space:nowrap; }
   .pill.rev { color:var(--accent); border-color:var(--accent); }
   .pill.todo { color:var(--warn); border-color:var(--warn); }
   .pill.agency { color:var(--danger); border-color:var(--danger); }
-  table { border-collapse:collapse; width:100%; margin-top:8px; }
-  th,td { border:1px solid var(--line); padding:5px 8px; font-size:13px; text-align:right; }
-  th:first-child, td:first-child { text-align:left; }
-  th { color:var(--dim); font-weight:500; }
+  select,input { padding:6px 8px; background:#0c0e12; color:var(--text);
+    border:1px solid var(--line); border-radius:7px; font:inherit; }
+  input.cell { width:84px; text-align:right; border-radius:5px; padding:4px 6px; }
+  input.cell:placeholder-shown { background:transparent; border-color:#20242e; }
+  input.p { width:64px; text-align:right; }
+  button { padding:6px 12px; border-radius:8px; border:1px solid var(--line);
+    background:#20242e; color:var(--text); font:inherit; cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#06231d; font-weight:600; }
+  button.danger { border-color:var(--danger); color:var(--danger); background:transparent; }
+  button:disabled { opacity:.45; cursor:default; }
+  .gridwrap { overflow-x:auto; margin-top:10px; }
+  table.grid { border-collapse:collapse; }
+  .grid th, .grid td { border:1px solid var(--line); padding:4px 6px; font-size:12.5px;
+    text-align:right; white-space:nowrap; }
+  .grid th { color:var(--dim); font-weight:500; }
+  .grid td.linehead { text-align:left; min-width:230px; }
+  .grid tr.gp td { color:var(--accent); border-top:2px solid var(--line); }
+  .kbadge { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--dim); }
+  .params { display:inline-flex; gap:8px; align-items:center; margin-left:8px; }
+  .params label { color:var(--dim); font-size:12px; }
   .ok { color:var(--accent); } .err { color:var(--danger); white-space:pre-wrap; }
-  .toolbar { display:flex; gap:10px; align-items:center; margin:14px 0; flex-wrap:wrap; }
-  .muted { color:var(--dim); }
   .total-match { color:var(--accent); font-weight:600; }
   .total-off { color:var(--warn); font-weight:600; }
-  #login { max-width:360px; margin:80px auto; }
-  details.lines summary { cursor:pointer; color:var(--dim); margin:6px 0; }
+  #login { max-width:360px; margin:80px auto; background:var(--panel);
+    border:1px solid var(--line); border-radius:10px; padding:16px; }
+  #login .col { display:flex; flex-direction:column; gap:10px; }
 </style>
 </head>
 <body>
 
-<div id="login" class="card" hidden>
+<div id="login" hidden>
   <h1>EMG Ledger</h1>
   <p class="sub">Sign in to shape deals.</p>
-  <div class="row" style="flex-direction:column;align-items:stretch;">
+  <div class="col">
     <input id="email" type="email" placeholder="email" autocomplete="username">
     <input id="password" type="password" placeholder="password" autocomplete="current-password">
     <button id="signin" class="primary">Sign in</button>
@@ -69,18 +83,17 @@
 
 <div id="app" class="wrap" hidden>
   <h1>Deal shaping</h1>
-  <div class="sub">Give each promoted deal its commercial lines. The forecast and the
-    cashflow read exactly what is saved here — nothing more, nothing invented.</div>
-
+  <div class="sub">Clients, their deals inside. The flight dictates the months; type each
+    line's quantity straight into them — an empty month is an empty month. GP is what the
+    forecast will show.</div>
   <div class="toolbar">
-    <input id="filter" type="text" placeholder="filter deals or clients…" style="max-width:280px">
+    <input id="filter" type="text" placeholder="filter clients or deals…" style="max-width:280px">
     <label class="muted"><input type="checkbox" id="onlytodo" checked> awaiting review</label>
     <span class="muted" id="count"></span>
     <span style="flex:1"></span>
     <button id="refresh">Refresh</button>
     <button id="signout">Sign out</button>
   </div>
-
   <div id="list"></div>
 </div>
 
@@ -91,45 +104,52 @@ const supa = createClient(
   'sb_publishable_0kcl48Yn5YsoTB0zrK-Rsg_c76JTGvR'
 );
 const $ = s => document.querySelector(s);
-const KINDS = ['retainer','search','social','programmatic','hourly','custom'];
-let deals = [], settingsMargin = 35, openDeal = null;
 
-/* ------------------------------------------------ the maths, mirrored ---- */
-// Identical to v_deal_month_forecast. cents in, cents out.
-function monthCalc(kind, mediaFunding, v, marginDefault) {
-  const amount = v.amount||0, budget = v.budget||0, fee = v.fee_pct||0,
-        margin = (v.margin_pct ?? marginDefault), rate = v.rate||0, hours = v.hours||0;
-  let gp = 0, billable = 0, mediaOut = 0;
+/* --------------------------------------------------------------- config -- */
+// Each kind: which quantity the month cells hold, its unit, and its parameters.
+const KIND = {
+  retainer:     { cells:'amount', unit:'$/mo',  params:[] },
+  search:       { cells:'budget', unit:'media $/mo', params:['fee_pct'] },
+  social:       { cells:'budget', unit:'media $/mo', params:['fee_pct'] },
+  programmatic: { cells:'budget', unit:'budget $/mo', params:['margin_pct','fee_pct'] },
+  hourly:       { cells:'hours',  unit:'hrs/mo', params:['rate'] },
+  custom:       { cells:'amount', unit:'$/mo',  params:[] },
+};
+const PARAM_LABEL = { fee_pct:'fee %', margin_pct:'margin %', rate:'rate $/hr' };
+const BILLING_BY_KIND = { retainer:'first', custom:'first', search:'last',
+                          social:'last', programmatic:'last', hourly:'last' };
+let marginDefault = 35;
+
+/* ---------------------------------------------------------------- maths -- */
+// Mirrors v_deal_month_forecast. cents (or hours) in, GP cents out.
+function gpFor(kind, params, cellValue) {
+  const fee = params.fee_pct || 0, margin = params.margin_pct ?? marginDefault,
+        rate = params.rate || 0;
   switch (kind) {
-    case 'retainer': case 'custom': gp = amount; billable = amount; break;
-    case 'hourly': gp = Math.round(rate*hours); billable = gp; break;
-    case 'search': case 'social':
-      gp = Math.round(budget*fee/100);
-      billable = gp + (mediaFunding==='agency' ? budget : 0);
-      mediaOut = mediaFunding==='agency' ? budget : 0;
-      break;
-    case 'programmatic':
-      gp = Math.round(budget*margin/100 + budget*fee/100);
-      billable = budget + Math.round(budget*fee/100);
-      break;
+    case 'retainer': case 'custom': return cellValue;
+    case 'hourly':       return Math.round(rate * cellValue);
+    case 'search': case 'social': return Math.round(cellValue * fee / 100);
+    case 'programmatic': return Math.round(cellValue * margin / 100 + cellValue * fee / 100);
   }
-  return { gp, billable, mediaOut };
+  return 0;
 }
 function monthsBetween(a, b) {
-  const out = []; let d = new Date(a + 'T00:00:00Z');
-  const end = new Date(b + 'T00:00:00Z');
-  while (d <= end) { out.push(d.toISOString().slice(0,10)); d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth()+1, 1)); }
+  const out = []; let d = new Date(a + 'T00:00:00Z'); const end = new Date(b + 'T00:00:00Z');
+  while (d <= end) { out.push(d.toISOString().slice(0, 10));
+    d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)); }
   return out;
 }
-const fmt$ = c => (c/100).toLocaleString(undefined,{maximumFractionDigits:0});
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-// The per-month override edits the field that drives the kind's money.
-const OVERRIDE_FIELD = { retainer:'amount', custom:'amount', hourly:'hours',
-                         search:'budget', social:'budget', programmatic:'budget' };
+const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const mLabel = iso => MONTHS_SHORT[+iso.slice(5, 7) - 1] + ' ' + iso.slice(2, 4);
+const fmt$ = c => (c / 100).toLocaleString(undefined, { maximumFractionDigits: 0 });
+const esc = s => String(s ?? '').replace(/[&<>"']/g,
+  c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 
-/* ----------------------------------------------------------- auth/load --- */
+/* ------------------------------------------------------------ auth/load -- */
+let deals = [], openDealId = null;
+
 async function requireSession() {
-  const { data:{ session } } = await supa.auth.getSession();
+  const { data: { session } } = await supa.auth.getSession();
   $('#login').hidden = !!session; $('#app').hidden = !session;
   window.__email = session?.user?.email || 'shaping-page';
   return session;
@@ -146,13 +166,12 @@ async function load() {
   const [d, s] = await Promise.all([
     supa.from('deals')
       .select('id,name,status,flight_start,flight_end,media_funding,reviewed_at,client_id,clients(name,active),promotions(source_payload)')
-      .in('status', ['won','active'])
-      .order('flight_end', { ascending:false }),
-    supa.from('settings').select('value').eq('key','programmatic_margin_default').single()
+      .in('status', ['won', 'active']),
+    supa.from('settings').select('value').eq('key', 'programmatic_margin_default').single()
   ]);
-  if (d.error) { $('#list').innerHTML = `<div class="card err">${d.error.message}</div>`; return; }
-  settingsMargin = s.data ? +s.data.value : 35;
-  deals = (d.data||[]).filter(x => x.clients && x.clients.active !== false);
+  if (d.error) { $('#list').innerHTML = `<div class="err">${d.error.message}</div>`; return; }
+  marginDefault = s.data ? +s.data.value : 35;
+  deals = (d.data || []).filter(x => x.clients && x.clients.active !== false);
   render();
 }
 
@@ -162,213 +181,247 @@ function render() {
   const onlyTodo = $('#onlytodo').checked;
   const shown = deals.filter(d =>
     (!onlyTodo || !d.reviewed_at) &&
-    (!f || d.name.toLowerCase().includes(f) || (d.clients.name||'').toLowerCase().includes(f)));
-  $('#count').textContent =
-    `${deals.filter(d=>!d.reviewed_at).length} awaiting review of ${deals.length}`;
-  $('#list').innerHTML = shown.map(d => {
-    const asSold = d.promotions?.[0]?.source_payload?.amount;
-    return `<div class="card" data-id="${d.id}">
-      <div class="row">
-        <div class="grow">
-          <div class="name">${esc(d.clients.name)} — ${esc(d.name)}</div>
-          <div class="hint">${d.flight_start} → ${d.flight_end}
-            ${asSold ? ' · as sold $' + fmt$(asSold) : ''}</div>
-        </div>
-        ${d.media_funding==='agency' ? '<span class="pill agency">agency-funded media</span>' : ''}
-        <span class="pill ${d.reviewed_at?'rev':'todo'}">${d.reviewed_at?'reviewed':'awaiting review'}</span>
-        <button class="open">${openDeal===d.id?'Close':'Shape'}</button>
-      </div>
-      <div class="detail"></div>
-    </div>`;
-  }).join('') || '<div class="card muted">Nothing to show.</div>';
+    (!f || d.name.toLowerCase().includes(f) || (d.clients.name || '').toLowerCase().includes(f)));
 
-  document.querySelectorAll('.card[data-id]').forEach(card => {
-    card.querySelector('.open').onclick = async () => {
-      openDeal = openDeal === card.dataset.id ? null : card.dataset.id;
+  // group by client
+  const byClient = {};
+  shown.forEach(d => (byClient[d.clients.name] = byClient[d.clients.name] || []).push(d));
+  const clientNames = Object.keys(byClient).sort((a, b) => a.localeCompare(b));
+
+  $('#count').textContent =
+    `${deals.filter(d => !d.reviewed_at).length} deals awaiting review of ${deals.length}, ` +
+    `${clientNames.length} clients shown`;
+
+  $('#list').innerHTML = clientNames.map(cn => {
+    const ds = byClient[cn].sort((a, b) => (b.flight_end || '').localeCompare(a.flight_end || ''));
+    const todo = ds.filter(d => !d.reviewed_at).length;
+    const keepOpen = ds.some(d => d.id === openDealId);
+    return `<details class="client" ${keepOpen ? 'open' : ''}>
+      <summary>
+        <span class="cname">${esc(cn)}</span>
+        <span class="pill">${ds.length} deal${ds.length > 1 ? 's' : ''}</span>
+        ${todo ? `<span class="pill todo">${todo} to review</span>` : '<span class="pill rev">all reviewed</span>'}
+      </summary>
+      ${ds.map(d => {
+        const asSold = d.promotions?.[0]?.source_payload?.amount;
+        return `<div class="deal" data-id="${d.id}">
+          <div class="dhead">
+            <span class="dname">${esc(d.name)}</span>
+            <span class="muted">${mLabel(d.flight_start)} → ${mLabel(d.flight_end)}</span>
+            ${asSold ? `<span class="muted">sold $${fmt$(asSold)}</span>` : ''}
+            ${d.media_funding === 'agency' ? '<span class="pill agency">agency media</span>' : ''}
+            <span class="pill ${d.reviewed_at ? 'rev' : 'todo'}">${d.reviewed_at ? 'reviewed' : 'to review'}</span>
+            <button class="open">${openDealId === d.id ? 'Close' : 'Shape'}</button>
+          </div>
+          <div class="detail"></div>
+        </div>`;
+      }).join('')}
+    </details>`;
+  }).join('') || '<div class="muted">Nothing to show.</div>';
+
+  document.querySelectorAll('.deal .open').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.closest('.deal').dataset.id;
+      openDealId = openDealId === id ? null : id;
       render();
-      if (openDeal) await openDetail(document.querySelector(`.card[data-id="${openDeal}"]`));
     };
   });
-  if (openDeal) {
-    const card = document.querySelector(`.card[data-id="${openDeal}"]`);
-    if (card) openDetail(card);
+  if (openDealId) {
+    const box = document.querySelector(`.deal[data-id="${openDealId}"]`);
+    if (box) openDetail(box);
   }
 }
 
-/* --------------------------------------------------------- deal detail --- */
-async function openDetail(card) {
-  const d = deals.find(x => x.id === card.dataset.id);
-  const el = card.querySelector('.detail');
-  el.innerHTML = '<div class="hint">loading…</div>';
-  const [lr, mr] = await Promise.all([
-    supa.from('deal_lines').select('*').eq('deal_id', d.id).order('set_at'),
-    supa.from('deal_line_months').select('*')
-  ]);
+/* ---------------------------------------------------------- deal detail -- */
+async function openDetail(box) {
+  const d = deals.find(x => x.id === box.dataset.id);
+  const el = box.querySelector('.detail');
+  el.innerHTML = '<div class="muted" style="margin-top:8px">loading…</div>';
+
+  const lr = await supa.from('deal_lines').select('*').eq('deal_id', d.id).order('set_at');
   if (lr.error) { el.innerHTML = `<div class="err">${lr.error.message}</div>`; return; }
-  const lines = lr.data || [];
-  const overrides = {};
-  (mr.data||[]).forEach(o => { (overrides[o.deal_line_id] = overrides[o.deal_line_id]||{})[o.month] = o; });
+  const ids = (lr.data || []).map(l => l.id);
+  const mr = ids.length
+    ? await supa.from('deal_line_months').select('*').in('deal_line_id', ids)
+    : { data: [] };
+
   const months = monthsBetween(d.flight_start, d.flight_end);
-
-  const lineRow = l => `
-    <div class="row" data-line="${l.id||''}" style="margin:8px 0;">
-      <select class="k">${KINDS.map(k=>`<option ${l.kind===k?'selected':''}>${k}</option>`).join('')}</select>
-      <input class="label grow" type="text" placeholder="label" value="${esc(l.label||'')}">
-      <label class="hint">$/mo <input class="num f-amount" value="${l.amount?(l.amount/100):''}" placeholder="0"></label>
-      <label class="hint">budget/mo <input class="num f-budget" value="${l.budget?(l.budget/100):''}" placeholder="0"></label>
-      <label class="hint">fee % <input class="num f-fee" style="width:70px" value="${l.fee_pct||''}" placeholder="0"></label>
-      <label class="hint">margin % <input class="num f-margin" style="width:70px" value="${l.margin_pct??''}" placeholder="${settingsMargin}"></label>
-      <label class="hint">rate/hr <input class="num f-rate" style="width:80px" value="${l.rate?(l.rate/100):''}" placeholder="0"></label>
-      <label class="hint">hrs/mo <input class="num f-hours" style="width:70px" value="${l.hours_per_month||''}" placeholder="0"></label>
-      <select class="bday"><option ${l.billing_day==='first'?'selected':''}>first</option><option ${l.billing_day!=='first'?'selected':''}>last</option></select>
-      <button class="danger delline">✕</button>
-    </div>`;
-
-  el.innerHTML = `
-    <div style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px;">
-      <div class="row">
-        <label class="hint">media funding
-          <select class="mf">
-            <option value="client" ${d.media_funding!=='agency'?'selected':''}>client pays (default)</option>
-            <option value="agency" ${d.media_funding==='agency'?'selected':''}>EMG pays &amp; rebills</option>
-          </select>
-        </label>
-        <span class="hint">search/social media becomes EMG cash out + rebill only when agency-funded</span>
-      </div>
-      <div class="linesbox">${lines.map(lineRow).join('')}</div>
-      <div class="row" style="margin:8px 0;">
-        <button class="addline">+ add line</button>
-        <span style="flex:1"></span>
-        <button class="saveall primary">Save lines</button>
-        <button class="reviewed" ${d.reviewed_at?'disabled':''}>Mark reviewed</button>
-      </div>
-      <div class="msg hint"></div>
-      <details class="lines"><summary>per-month overrides</summary><div class="ovbox hint">save lines first</div></details>
-      <div class="preview"></div>
-    </div>`;
-
-  const readLine = row => ({
-    id: row.dataset.line || undefined,
-    deal_id: d.id,
-    kind: row.querySelector('.k').value,
-    label: row.querySelector('.label').value || null,
-    amount: Math.round((+row.querySelector('.f-amount').value||0)*100),
-    budget: Math.round((+row.querySelector('.f-budget').value||0)*100),
-    fee_pct: +row.querySelector('.f-fee').value||0,
-    margin_pct: row.querySelector('.f-margin').value==='' ? null : +row.querySelector('.f-margin').value,
-    rate: Math.round((+row.querySelector('.f-rate').value||0)*100),
-    hours_per_month: +row.querySelector('.f-hours').value||0,
-    billing_day: row.querySelector('.bday').value,
-    set_by: window.__email, set_at: new Date().toISOString()
+  // in-memory model: cells hold display units (dollars or hours)
+  const model = (lr.data || []).map(l => {
+    const cfg = KIND[l.kind];
+    const cells = {};
+    (mr.data || []).filter(o => o.deal_line_id === l.id).forEach(o => {
+      const v = cfg.cells === 'hours' ? o.hours : o[cfg.cells];
+      if (v != null) cells[o.month] = cfg.cells === 'hours' ? +v : v / 100;
+    });
+    return { id: l.id, kind: l.kind, label: l.label || '',
+             params: { fee_pct: l.fee_pct || 0, margin_pct: l.margin_pct,
+                       rate: l.rate ? l.rate / 100 : 0 }, cells };
   });
 
-  function preview() {
-    const rows = [...el.querySelectorAll('.linesbox .row')].map(readLine);
-    const mf = el.querySelector('.mf').value;
-    let tg=0, tb=0;
-    const per = months.map(m => {
-      let gp=0, billable=0, mediaOut=0;
-      rows.forEach(l => {
-        const ov = (overrides[l.id]||{})[m] || {};
-        const v = { amount: ov.amount ?? l.amount, budget: ov.budget ?? l.budget,
-                    hours: ov.hours ?? l.hours_per_month,
-                    fee_pct:l.fee_pct, margin_pct:l.margin_pct, rate:l.rate };
-        const r = monthCalc(l.kind, mf, v, settingsMargin);
-        gp+=r.gp; billable+=r.billable; mediaOut+=r.mediaOut;
-      });
-      tg+=gp; tb+=billable;
-      return `<tr><td>${m.slice(0,7)}</td><td>${fmt$(gp)}</td><td>${fmt$(billable)}</td><td>${fmt$(mediaOut)}</td></tr>`;
+  function draw() {
+    const headCells = months.map(m => `<th>${mLabel(m)}</th>`).join('');
+    const lineRows = model.map((l, li) => {
+      const cfg = KIND[l.kind];
+      const params = cfg.params.map(p => `
+        <label>${PARAM_LABEL[p]}
+          <input class="p" data-li="${li}" data-p="${p}"
+            value="${p === 'margin_pct' ? (l.params[p] ?? '') : (l.params[p] || '')}"
+            placeholder="${p === 'margin_pct' ? marginDefault : '0'}"></label>`).join('');
+      const cells = months.map(m => `
+        <td><input class="cell" data-li="${li}" data-m="${m}"
+          value="${l.cells[m] ?? ''}" placeholder=""></td>`).join('');
+      return `<tr>
+        <td class="linehead">
+          <span class="kbadge">${l.kind}</span>
+          <input data-li="${li}" data-label style="width:130px;margin-left:6px" placeholder="label" value="${esc(l.label)}">
+          <span class="params">${params}</span>
+          <span class="muted" style="margin-left:6px;font-size:11px">${cfg.unit}</span>
+          <button class="danger delline" data-li="${li}" style="margin-left:6px;padding:2px 8px">✕</button>
+        </td>${cells}<td class="muted gp-line" data-li="${li}"></td></tr>`;
     }).join('');
-    const asSold = d.promotions?.[0]?.source_payload?.amount;
-    const cls = asSold && Math.abs(tb-asSold)/asSold < 0.02 ? 'total-match' : 'total-off';
-    el.querySelector('.preview').innerHTML = `
-      <table><tr><th>month</th><th>GP</th><th>billable</th><th>agency media out</th></tr>${per}
-      <tr><th>total</th><th>${fmt$(tg)}</th>
-        <th class="${cls}">${fmt$(tb)}${asSold ? ' / sold ' + fmt$(asSold) : ''}</th><th></th></tr></table>`;
-  }
 
-  function renderOverrides() {
-    const saved = lines.filter(l => l.id);
-    el.querySelector('.ovbox').innerHTML = !saved.length ? 'save lines first' :
-      saved.map(l => `<div style="margin:8px 0;"><div class="hint">${esc(l.label||l.kind)} — override ${OVERRIDE_FIELD[l.kind]}${OVERRIDE_FIELD[l.kind]==='hours'?'':' ($)'} per month, blank = default</div>
-        <div class="row">${months.map(m => {
-          const o = (overrides[l.id]||{})[m];
-          const field = OVERRIDE_FIELD[l.kind];
-          const val = o ? (field==='hours' ? o.hours : (o[field]!=null ? o[field]/100 : '')) : '';
-          return `<label class="hint">${m.slice(2,7)}<br><input class="mo" data-line="${l.id}" data-month="${m}" value="${val??''}"></label>`;
-        }).join('')}</div></div>`).join('') +
-      `<div class="row" style="margin-top:6px;"><button class="saveov primary">Save overrides</button></div>`;
-    const btn = el.querySelector('.saveov');
-    if (btn) btn.onclick = async () => {
-      const ups = [], dels = [];
-      el.querySelectorAll('.ovbox .mo').forEach(inp => {
-        const l = lines.find(x => x.id === inp.dataset.line);
-        const field = OVERRIDE_FIELD[l.kind];
-        if (inp.value === '') { dels.push({ line: inp.dataset.line, month: inp.dataset.month }); return; }
-        const row = { deal_line_id: inp.dataset.line, month: inp.dataset.month,
-                      set_by: window.__email, set_at: new Date().toISOString() };
-        row[field] = field==='hours' ? +inp.value : Math.round(+inp.value*100);
-        ups.push(row);
-      });
-      for (const del of dels)
-        await supa.from('deal_line_months').delete()
-          .eq('deal_line_id', del.line).eq('month', del.month);
-      if (ups.length) {
-        const { error } = await supa.from('deal_line_months')
-          .upsert(ups, { onConflict: 'deal_line_id,month' });
-        if (error) { el.querySelector('.msg').textContent = error.message; el.querySelector('.msg').className='msg err'; return; }
-      }
-      el.querySelector('.msg').textContent = 'overrides saved'; el.querySelector('.msg').className='msg ok';
-      openDetail(card);
-    };
-  }
+    el.innerHTML = `
+      <div class="gridwrap">
+        <table class="grid">
+          <tr><th style="text-align:left">line</th>${headCells}<th>line GP</th></tr>
+          ${lineRows}
+          <tr class="gp"><td class="linehead">GP — what the forecast shows</td>
+            ${months.map(m => `<td data-gpm="${m}"></td>`).join('')}<td data-gptotal></td></tr>
+        </table>
+      </div>
+      <div class="dhead" style="margin-top:10px">
+        <select class="newkind">
+          <option value="">+ add a line…</option>
+          ${Object.keys(KIND).map(k => `<option value="${k}">${k}</option>`).join('')}
+        </select>
+        <label class="muted">media funding
+          <select class="mf">
+            <option value="client" ${d.media_funding !== 'agency' ? 'selected' : ''}>client pays</option>
+            <option value="agency" ${d.media_funding === 'agency' ? 'selected' : ''}>EMG pays &amp; rebills</option>
+          </select></label>
+        <span style="flex:1"></span>
+        <span class="totals"></span>
+        <button class="saveall primary">Save</button>
+        <button class="reviewed" ${d.reviewed_at ? 'disabled' : ''}>Mark reviewed</button>
+      </div>
+      <div class="msg" style="margin-top:6px;font-size:12px"></div>`;
 
-  el.querySelector('.addline').onclick = () => {
-    el.querySelector('.linesbox').insertAdjacentHTML('beforeend',
-      lineRow({ kind:'retainer', billing_day:'first' }));
-    wireRows(); preview();
-  };
-  function wireRows() {
-    el.querySelectorAll('.linesbox .row').forEach(row => {
-      row.oninput = preview;
-      row.querySelector('.delline').onclick = async () => {
-        if (row.dataset.line) {
-          if (!confirm('Delete this line and its month overrides?')) return;
-          await supa.from('deal_lines').delete().eq('id', row.dataset.line);
-        }
-        row.remove(); preview();
-      };
+    // wiring
+    el.querySelectorAll('input[data-label]').forEach(inp =>
+      inp.oninput = () => { model[+inp.dataset.li].label = inp.value; });
+    el.querySelectorAll('input.p').forEach(inp => inp.oninput = () => {
+      const l = model[+inp.dataset.li];
+      l.params[inp.dataset.p] = inp.value === '' ?
+        (inp.dataset.p === 'margin_pct' ? null : 0) : +inp.value;
+      preview();
     });
+    el.querySelectorAll('input.cell').forEach(inp => inp.oninput = () => {
+      const l = model[+inp.dataset.li];
+      if (inp.value === '') delete l.cells[inp.dataset.m];
+      else l.cells[inp.dataset.m] = +inp.value;
+      preview();
+    });
+    el.querySelectorAll('.delline').forEach(btn => btn.onclick = async () => {
+      const li = +btn.dataset.li;
+      if (model[li].id) {
+        if (!confirm('Delete this line and its months?')) return;
+        await supa.from('deal_lines').delete().eq('id', model[li].id);
+      }
+      model.splice(li, 1); draw();
+    });
+    el.querySelector('.newkind').onchange = e => {
+      if (!e.target.value) return;
+      model.push({ kind: e.target.value, label: '', params: { fee_pct: 0, margin_pct: null, rate: 0 }, cells: {} });
+      draw();
+    };
+    el.querySelector('.saveall').onclick = () => save();
+    el.querySelector('.reviewed').onclick = async () => {
+      const { error } = await supa.from('deals').update({
+        reviewed_at: new Date().toISOString(), set_by: window.__email, set_at: new Date().toISOString()
+      }).eq('id', d.id);
+      if (!error) { d.reviewed_at = new Date().toISOString(); render(); }
+    };
+    preview();
   }
-  el.querySelector('.saveall').onclick = async () => {
-    const rows = [...el.querySelectorAll('.linesbox .row')].map(readLine);
+
+  function preview() {
+    const asSold = d.promotions?.[0]?.source_payload?.amount;
+    let total = 0;
+    const monthGP = {};
+    model.forEach((l, li) => {
+      let lineTotal = 0;
+      months.forEach(m => {
+        const raw = l.cells[m];
+        if (raw === undefined) return;
+        const cellCents = KIND[l.kind].cells === 'hours' ? raw : Math.round(raw * 100);
+        const params = { ...l.params, rate: Math.round((l.params.rate || 0) * 100) };
+        const gp = gpFor(l.kind, params, cellCents);
+        monthGP[m] = (monthGP[m] || 0) + gp;
+        lineTotal += gp;
+      });
+      const cell = el.querySelector(`.gp-line[data-li="${li}"]`);
+      if (cell) cell.textContent = lineTotal ? fmt$(lineTotal) : '';
+      total += lineTotal;
+    });
+    months.forEach(m => {
+      const td = el.querySelector(`td[data-gpm="${m}"]`);
+      if (td) td.textContent = monthGP[m] ? fmt$(monthGP[m]) : '';
+    });
+    const tt = el.querySelector('td[data-gptotal]'); if (tt) tt.textContent = total ? fmt$(total) : '';
+    const cls = asSold && total && Math.abs(total - asSold) / asSold < 0.02 ? 'total-match' : 'total-off';
+    el.querySelector('.totals').innerHTML = total || asSold
+      ? `<span class="${cls}">GP total $${fmt$(total)}</span>` +
+        (asSold ? `<span class="muted"> · sold $${fmt$(asSold)}</span>` : '')
+      : '';
+  }
+
+  async function save() {
     const msg = el.querySelector('.msg');
     const mf = el.querySelector('.mf').value;
     if (mf !== d.media_funding) {
-      const { error } = await supa.from('deals')
-        .update({ media_funding: mf, set_by: window.__email, set_at: new Date().toISOString() })
-        .eq('id', d.id);
-      if (error) { msg.textContent = error.message; msg.className='msg err'; return; }
+      const { error } = await supa.from('deals').update({
+        media_funding: mf, set_by: window.__email, set_at: new Date().toISOString() }).eq('id', d.id);
+      if (error) { msg.textContent = error.message; msg.className = 'msg err'; return; }
       d.media_funding = mf;
     }
-    for (const r of rows) {
-      const q = r.id
-        ? supa.from('deal_lines').update(r).eq('id', r.id)
-        : supa.from('deal_lines').insert(r);
-      const { error } = await q;
-      if (error) { msg.textContent = error.message; msg.className='msg err'; return; }
+    for (const l of model) {
+      const row = {
+        deal_id: d.id, kind: l.kind, label: l.label || null,
+        amount: 0, budget: 0, hours_per_month: 0,
+        fee_pct: l.params.fee_pct || 0,
+        margin_pct: l.params.margin_pct ?? null,
+        rate: Math.round((l.params.rate || 0) * 100),
+        billing_day: BILLING_BY_KIND[l.kind],
+        set_by: window.__email, set_at: new Date().toISOString()
+      };
+      if (l.id) {
+        const { error } = await supa.from('deal_lines').update(row).eq('id', l.id);
+        if (error) { msg.textContent = error.message; msg.className = 'msg err'; return; }
+      } else {
+        const { data, error } = await supa.from('deal_lines').insert(row).select('id').single();
+        if (error) { msg.textContent = error.message; msg.className = 'msg err'; return; }
+        l.id = data.id;
+      }
+      // month cells: replace this line's rows with exactly what the grid shows
+      const del = await supa.from('deal_line_months').delete().eq('deal_line_id', l.id);
+      if (del.error) { msg.textContent = del.error.message; msg.className = 'msg err'; return; }
+      const field = KIND[l.kind].cells;
+      const rows = Object.entries(l.cells).map(([m, v]) => {
+        const r = { deal_line_id: l.id, month: m, set_by: window.__email, set_at: new Date().toISOString() };
+        r[field === 'hours' ? 'hours' : field] = field === 'hours' ? v : Math.round(v * 100);
+        return r;
+      });
+      if (rows.length) {
+        const ins = await supa.from('deal_line_months').insert(rows);
+        if (ins.error) { msg.textContent = ins.error.message; msg.className = 'msg err'; return; }
+      }
     }
-    msg.textContent = 'saved'; msg.className = 'msg ok';
-    openDetail(card);
-  };
-  el.querySelector('.reviewed').onclick = async () => {
-    const { error } = await supa.from('deals')
-      .update({ reviewed_at: new Date().toISOString(), set_by: window.__email, set_at: new Date().toISOString() })
-      .eq('id', d.id);
-    if (!error) { d.reviewed_at = new Date().toISOString(); render(); }
-  };
+    msg.textContent = 'saved — the forecast reflects it now';
+    msg.className = 'msg ok';
+  }
 
-  wireRows(); preview(); renderOverrides();
+  draw();
 }
 
 $('#filter').oninput = render;
