@@ -2,114 +2,388 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EMG — Forecast</title><link rel="stylesheet" href="./assets/style.css"></head><body>
 <script type="module">
-import { boot, esc, fmt$ } from './assets/shell.js';
+import { boot, esc, fmt$, barChart } from './assets/shell.js';
 /*
-  The Forecast: clients and their deals across months, GP on accrual.
-  Past months are locked and filled from QuickBooks — attributed at the CLIENT level
-  through the client↔QBO link, because deal↔project matching does not exist yet and
-  faking deal-level actuals would be worse than showing none. Forward months come
-  from shaped deal lines and nothing else.
+  The Forecast, whole: the v1 shape. Bars up top — invoiced actuals behind, planned
+  GP ahead. The table beneath: clients, their deals, months across, past locked and
+  filled from QuickBooks. And every deal editable right here: the shaping editor
+  opens inline under its row. No separate Deals tab.
+
+  Invariants carried through: past months come from invoices (client level always,
+  deal level when the deal is matched to its project); forward months come from
+  shaped lines and nothing else; unreviewed GP is amber; nothing here reads hours.
 */
 boot('forecast', async (supa, el) => {
   const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const mLabel = iso => MO[+iso.slice(5,7)-1] + ' ' + iso.slice(2,4);
+  const fmtN = c => (c/100).toLocaleString(undefined,{maximumFractionDigits:0});
   const iso = d => d.toISOString().slice(0,10);
-  const t = new Date(); t.setUTCDate(1);
-  const thisMonth = iso(t).slice(0,8)+'01';
+  const t0 = new Date(); t0.setUTCDate(1);
+  const thisMonth = iso(t0).slice(0,8)+'01';
   const months = [];
-  for (let i=-3;i<=9;i++) months.push(iso(new Date(Date.UTC(t.getUTCFullYear(),t.getUTCMonth()+i,1))));
-
-  const [fc, dl, cl, inv, qp] = await Promise.all([
-    supa.from('v_deal_month_forecast').select('deal_id,client_id,month,gp,reviewed')
-      .gte('month', months[0]).lte('month', months.at(-1)),
-    supa.from('deals').select('id,name,client_id,reviewed_at,flight_start,flight_end,qbo_project_id')
-      .in('status',['won','active']),
-    supa.from('clients').select('id,name,qbo_customer_id,active').eq('active', true),
-    supa.from('invoices').select('qbo_project_id,issued_on,total')
-      .gte('issued_on', months[0]).lt('issued_on', thisMonth),
-    supa.from('qbo_projects').select('id,parent_id')
-  ]);
-  for (const r of [fc,dl,cl,inv,qp]) if (r.error) throw r.error;
-
-  // client-level actuals: invoice -> project -> parent -> client
-  const parentOf = {}; (qp.data||[]).forEach(p => parentOf[p.id] = p.parent_id || p.id);
-  const clientByQbo = {}; (cl.data||[]).forEach(c => { if (c.qbo_customer_id) clientByQbo[c.qbo_customer_id] = c.id; });
-  const actual = {};        // clientId -> month -> cents invoiced (client total)
-  const actualByProj = {};  // qbo project -> month -> cents (feeds matched deal rows)
-  let unattributed = {};
-  (inv.data||[]).forEach(i => {
-    const m = i.issued_on.slice(0,8)+'01';
-    (actualByProj[i.qbo_project_id] = actualByProj[i.qbo_project_id]||{})[m] =
-      ((actualByProj[i.qbo_project_id]||{})[m]||0) + i.total;
-    const cid = clientByQbo[parentOf[i.qbo_project_id]];
-    if (cid) (actual[cid] = actual[cid]||{})[m] = ((actual[cid]||{})[m]||0) + i.total;
-    else unattributed[m] = (unattributed[m]||0) + i.total;
-  });
-
-  // forward plan: deal -> month -> gp
-  const plan = {};
-  (fc.data||[]).forEach(r => { if (r.month >= thisMonth) (plan[r.deal_id] = plan[r.deal_id]||{})[r.month] = ((plan[r.deal_id]||{})[r.month]||0) + r.gp; });
-
-  const clientsById = {}; (cl.data||[]).forEach(c => clientsById[c.id] = c);
-  const dealsByClient = {};
-  (dl.data||[]).forEach(d => { if (clientsById[d.client_id]) (dealsByClient[d.client_id] = dealsByClient[d.client_id]||[]).push(d); });
-
-  // clients worth a row: any actuals in window, planned GP, or a matched deal
-  const rows = Object.values(clientsById).filter(c =>
-    actual[c.id] || (dealsByClient[c.id]||[]).some(d => plan[d.id] || d.qbo_project_id))
-    .sort((a,b)=>a.name.localeCompare(b.name));
-
+  for (let i=-3;i<=9;i++) months.push(iso(new Date(Date.UTC(t0.getUTCFullYear(),t0.getUTCMonth()+i,1))));
   const past = m => m < thisMonth;
-  const cellCls = m => past(m) ? 'style="background:#f6f6f6;color:var(--slate)"' : '';
-  const colTotal = {};
+  const monthsBetween = (a,b) => { const out=[]; let d=new Date(a+'T00:00:00Z');
+    const end=new Date(b+'T00:00:00Z');
+    while (d<=end) { out.push(d.toISOString().slice(0,10));
+      d=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,1)); } return out; };
 
-  el.innerHTML = `
-    <div class="toolbar">
-      <span class="muted" style="font-size:12px">Past months are locked — QuickBooks
-      invoiced totals at client level. Forward months are GP from shaped deals only;
-      <span class="warn">amber</span> marks unreviewed deals.</span>
-      <span style="flex:1"></span>
-      <span class="muted" style="font-size:12px">${rows.length} clients</span>
-    </div>
-    <div class="sc-panel" style="padding:0;overflow-x:auto">
-      <table class="grid" style="width:100%">
-        <tr><th style="text-align:left;min-width:220px">client / deal</th>
-          ${months.map(m=>`<th ${m===thisMonth?'style="border-left:2px solid var(--brand)"':''}>${mLabel(m)}${past(m)?' ✓':''}</th>`).join('')}
-          <th>total</th></tr>
-        ${rows.map(c => {
-          const ds = (dealsByClient[c.id]||[]).filter(d => plan[d.id] || d.qbo_project_id);
-          let cTotal = 0;
-          const clientCells = months.map(m => {
-            let v, locked = past(m);
-            if (locked) v = (actual[c.id]||{})[m] || 0;
-            else v = ds.reduce((s,d)=>s+((plan[d.id]||{})[m]||0),0);
-            cTotal += v; colTotal[m] = (colTotal[m]||0) + v;
-            return `<td ${cellCls(m)} ${m===thisMonth?'style="border-left:2px solid var(--brand)"':''}>${v?fmt$(v):''}</td>`;
-          }).join('');
-          const dealRows = ds.map(d => {
-            const proj = d.qbo_project_id ? (actualByProj[d.qbo_project_id]||{}) : null;
-            return `<tr>
-            <td class="textleft muted" style="padding-left:22px">${esc(d.name)}${d.reviewed_at?'':' <span class="warn">•</span>'}${d.qbo_project_id?'':' <span class="muted" title="no QuickBooks project matched — past months shown at client level only">?</span>'}</td>
+  /* ------------------------------------------------- shaping configuration */
+  const KIND = {
+    retainer:     { cells:null,     defaults:[['amount','$ / flight month']] },
+    custom:       { cells:null,     defaults:[['amount','$ / flight month']] },
+    search:       { cells:'budget', defaults:[['fee_pct','fee %']] },
+    social:       { cells:'budget', defaults:[['fee_pct','fee %']] },
+    programmatic: { cells:'budget', defaults:[['fee_pct','fee %'],['margin_pct','margin %']] },
+    hourly:       { cells:'hours',  defaults:[['rate','rate $/hr'],['hours_per_month','hrs/mo default']] },
+  };
+  const CELL_HINT = { budget:'budget $', hours:'hrs' };
+  const BILLING_BY_KIND = { retainer:'first', custom:'first', search:'last',
+                            social:'last', programmatic:'last', hourly:'last' };
+  let marginDefault = 35;
+  function gpMonth(l, m) {
+    const cfg = KIND[l.kind];
+    const cellRaw = cfg.cells ? l.cells[m] : undefined;
+    const fee = l.params.fee_pct || 0;
+    const margin = l.params.margin_pct ?? marginDefault;
+    switch (l.kind) {
+      case 'retainer': case 'custom': return Math.round((l.params.amount||0)*100);
+      case 'hourly': {
+        const hrs = cellRaw !== undefined ? cellRaw : (l.params.hours_per_month||0);
+        return Math.round((l.params.rate||0)*100*hrs);
+      }
+      case 'search': case 'social': {
+        const b = cellRaw !== undefined ? cellRaw*100 : 0;
+        return Math.round(b*fee/100);
+      }
+      case 'programmatic': {
+        const b = cellRaw !== undefined ? cellRaw*100 : 0;
+        return Math.round(b*margin/100 + b*fee/100);
+      }
+    }
+    return 0;
+  }
+
+  /* -------------------------------------------------------------- the data */
+  let clientsById, dealsByClient, plan, actual, actualByProj, unattributed, openEditor = null;
+
+  async function loadAll() {
+    const [fc, dl, cl, inv, qp, st] = await Promise.all([
+      supa.from('v_deal_month_forecast').select('deal_id,month,gp')
+        .gte('month', thisMonth).lte('month', months.at(-1)),
+      supa.from('deals')
+        .select('id,name,client_id,reviewed_at,flight_start,flight_end,media_funding,qbo_project_id,promotions(source_payload)')
+        .in('status',['won','active']),
+      supa.from('clients').select('id,name,qbo_customer_id,active').eq('active', true),
+      supa.from('invoices').select('qbo_project_id,issued_on,total')
+        .gte('issued_on', months[0]).lt('issued_on', thisMonth),
+      supa.from('qbo_projects').select('id,parent_id'),
+      supa.from('settings').select('value').eq('key','programmatic_margin_default').single()
+    ]);
+    for (const r of [fc,dl,cl,inv,qp]) if (r.error) throw r.error;
+    marginDefault = st.data ? +st.data.value : 35;
+
+    const parentOf = {}; (qp.data||[]).forEach(p => parentOf[p.id] = p.parent_id || p.id);
+    const clientByQbo = {}; (cl.data||[]).forEach(c => { if (c.qbo_customer_id) clientByQbo[c.qbo_customer_id] = c.id; });
+    actual = {}; actualByProj = {}; unattributed = {};
+    (inv.data||[]).forEach(i => {
+      const m = i.issued_on.slice(0,8)+'01';
+      (actualByProj[i.qbo_project_id] = actualByProj[i.qbo_project_id]||{})[m] =
+        ((actualByProj[i.qbo_project_id]||{})[m]||0) + i.total;
+      const cid = clientByQbo[parentOf[i.qbo_project_id]];
+      if (cid) (actual[cid] = actual[cid]||{})[m] = ((actual[cid]||{})[m]||0) + i.total;
+      else unattributed[m] = (unattributed[m]||0) + i.total;
+    });
+    plan = {};
+    (fc.data||[]).forEach(r => (plan[r.deal_id] = plan[r.deal_id]||{})[r.month] =
+      ((plan[r.deal_id]||{})[r.month]||0) + r.gp);
+    clientsById = {}; (cl.data||[]).forEach(c => clientsById[c.id] = c);
+    dealsByClient = {};
+    (dl.data||[]).forEach(d => { if (clientsById[d.client_id])
+      (dealsByClient[d.client_id] = dealsByClient[d.client_id]||[]).push(d); });
+    render();
+  }
+
+  /* ---------------------------------------------------------------- render */
+  function render() {
+    const rows = Object.values(clientsById).filter(c =>
+      actual[c.id] || (dealsByClient[c.id]||[]).some(d => plan[d.id] || d.qbo_project_id))
+      .sort((a,b)=>a.name.localeCompare(b.name));
+
+    // chart series: invoiced in the past, planned GP ahead
+    const invoicedByM = {}, planByM = {};
+    months.forEach(m => {
+      if (past(m)) {
+        invoicedByM[m] = rows.reduce((s,c)=>s+((actual[c.id]||{})[m]||0),0) + (unattributed[m]||0);
+      } else {
+        planByM[m] = rows.reduce((s,c)=>s+(dealsByClient[c.id]||[])
+          .reduce((s2,d)=>s2+((plan[d.id]||{})[m]||0),0),0);
+      }
+    });
+
+    el.innerHTML = `
+      <div class="sc-panel"><div id="chart"></div></div>
+      <div class="toolbar">
+        <span class="muted" style="font-size:12px">Past ✓ months are invoiced (QuickBooks,
+        locked). Forward months are planned GP; <span class="warn">amber</span> = unreviewed.
+        Click a deal to edit it here.</span>
+        <span style="flex:1"></span>
+        <span class="muted" style="font-size:12px">${rows.length} clients</span>
+      </div>
+      <div class="sc-panel" style="padding:0;overflow-x:auto"><table class="grid" style="width:100%" id="tbl"></table></div>`;
+
+    barChart(el.querySelector('#chart'), months.map(mLabel), [
+      { name:'invoiced (actual)', color:'#67706d', values: months.map(m=>invoicedByM[m]||0) },
+      { name:'planned GP (shaped deals)', color:'#19a789', values: months.map(m=>planByM[m]||0) }
+    ]);
+
+    const colTotal = {};
+    const cellCls = m => past(m) ? 'style="background:#f6f6f6;color:var(--slate)"' : '';
+    el.querySelector('#tbl').innerHTML =
+      `<tr><th style="text-align:left;min-width:230px">client / deal</th>
+        ${months.map(m=>`<th ${m===thisMonth?'style="border-left:2px solid var(--brand)"':''}>${mLabel(m)}${past(m)?' ✓':''}</th>`).join('')}
+        <th>total</th></tr>` +
+      rows.map(c => {
+        const ds = (dealsByClient[c.id]||[]).filter(d => plan[d.id] || d.qbo_project_id || !d.reviewed_at);
+        let cTotal = 0;
+        const clientCells = months.map(m => {
+          let v = past(m) ? ((actual[c.id]||{})[m]||0)
+                          : ds.reduce((s,d)=>s+((plan[d.id]||{})[m]||0),0);
+          cTotal += v; colTotal[m] = (colTotal[m]||0)+v;
+          return `<td ${cellCls(m)}>${v?fmtN(v):''}</td>`;
+        }).join('');
+        const dealRows = ds.map(d => {
+          const proj = d.qbo_project_id ? (actualByProj[d.qbo_project_id]||{}) : null;
+          const tot = months.reduce((s,m)=>s+(past(m)?(proj?(proj[m]||0):0):((plan[d.id]||{})[m]||0)),0);
+          return `<tr class="dealrow" data-id="${d.id}">
+            <td class="textleft" style="padding-left:22px;cursor:pointer" title="click to edit">
+              <span class="muted">▸</span> ${esc(d.name)}${d.reviewed_at?'':' <span class="warn">•</span>'}${d.qbo_project_id?'':' <span class="muted" title="no QuickBooks project matched">?</span>'}</td>
             ${months.map(m => past(m)
-              ? `<td ${cellCls(m)}>${proj && proj[m] ? fmt$(proj[m]) : ''}</td>`
-              : `<td>${(plan[d.id]||{})[m] ? `<span class="${d.reviewed_at?'':'warn'}">${fmt$((plan[d.id]||{})[m])}</span>` : ''}</td>`).join('')}
-            <td class="muted">${fmt$(months.reduce((s,m)=>s+(past(m)?(proj?(proj[m]||0):0):((plan[d.id]||{})[m]||0)),0))}</td>
-          </tr>`;}).join('');
-          return `<tr><td class="textleft" style="font-weight:600">${esc(c.name)}</td>
-            ${clientCells}<td style="font-weight:600">${fmt$(cTotal)}</td></tr>` + dealRows;
-        }).join('')}
-        ${Object.keys(unattributed).length ? `<tr>
-          <td class="textleft muted">unattributed QBO invoices</td>
-          ${months.map(m=>`<td ${cellCls(m)}>${unattributed[m]?fmt$(unattributed[m]):''}</td>`).join('')}
-          <td class="muted">${fmt$(Object.values(unattributed).reduce((a,b)=>a+b,0))}</td></tr>` : ''}
-        <tr class="gp"><td class="textleft">total</td>
-          ${months.map(m=>`<td>${fmt$((colTotal[m]||0)+(past(m)?(unattributed[m]||0):0))}</td>`).join('')}
-          <td></td></tr>
-      </table>
-    </div>
-    <div class="muted" style="font-size:11.5px">Past = invoiced (QuickBooks, client level);
-    forward = planned GP. The two are different quantities shown on one timeline — actual
-    GP costing for past months arrives with deal↔project matching. Unattributed rows
-    shrink as clients get linked on the Clients tab.</div>`;
+              ? `<td ${cellCls(m)}>${proj && proj[m] ? fmtN(proj[m]) : ''}</td>`
+              : `<td>${(plan[d.id]||{})[m] ? `<span class="${d.reviewed_at?'':'warn'}">${fmtN((plan[d.id]||{})[m])}</span>` : ''}</td>`).join('')}
+            <td class="muted">${fmtN(tot)}</td>
+          </tr>
+          <tr class="editor" data-for="${d.id}" hidden><td colspan="${months.length+2}" class="textleft"><div class="edbox"></div></td></tr>`;
+        }).join('');
+        return `<tr><td class="textleft" style="font-weight:600">${esc(c.name)}</td>
+          ${clientCells}<td style="font-weight:600">${fmtN(cTotal)}</td></tr>` + dealRows;
+      }).join('') +
+      (Object.keys(unattributed).length ? `<tr>
+        <td class="textleft muted">unattributed QBO invoices</td>
+        ${months.map(m=>`<td ${cellCls(m)}>${unattributed[m]?fmtN(unattributed[m]):''}</td>`).join('')}
+        <td class="muted">${fmtN(Object.values(unattributed).reduce((a,b)=>a+b,0))}</td></tr>` : '') +
+      `<tr class="gp"><td class="textleft">total</td>
+        ${months.map(m=>`<td>${fmtN((colTotal[m]||0)+(past(m)?(unattributed[m]||0):0))}</td>`).join('')}<td></td></tr>`;
+
+    el.querySelectorAll('tr.dealrow td:first-child').forEach(td => {
+      td.onclick = () => toggleEditor(td.closest('tr').dataset.id);
+    });
+    if (openEditor) toggleEditor(openEditor, true);
+  }
+
+  /* --------------------------------------------------- the inline editor -- */
+  async function toggleEditor(dealId, forceOpen = false) {
+    const row = el.querySelector(`tr.editor[data-for="${dealId}"]`);
+    if (!row) { openEditor = null; return; }
+    const isOpen = !row.hidden;
+    el.querySelectorAll('tr.editor').forEach(r => r.hidden = true);
+    if (isOpen && !forceOpen) { openEditor = null; return; }
+    openEditor = dealId; row.hidden = false;
+    const d = Object.values(dealsByClient).flat().find(x => x.id === dealId);
+    const box = row.querySelector('.edbox');
+    box.innerHTML = '<span class="muted" style="font-size:12px">loading…</span>';
+
+    const lr = await supa.from('deal_lines').select('*').eq('deal_id', d.id).order('set_at');
+    if (lr.error) { box.innerHTML = `<span class="err">${lr.error.message}</span>`; return; }
+    const ids = (lr.data||[]).map(l=>l.id);
+    const mr = ids.length
+      ? await supa.from('deal_line_months').select('*').in('deal_line_id', ids)
+      : { data: [] };
+    const model = (lr.data||[]).map(l => {
+      const cfg = KIND[l.kind] || KIND.custom;
+      const cells = {};
+      (mr.data||[]).filter(o=>o.deal_line_id===l.id).forEach(o => {
+        const v = cfg.cells==='hours' ? o.hours : o[cfg.cells];
+        if (v!=null) cells[o.month] = cfg.cells==='hours' ? +v : v/100;
+      });
+      return { id:l.id, kind:l.kind,
+        params:{ amount:l.amount?l.amount/100:0, fee_pct:l.fee_pct||0,
+                 margin_pct:l.margin_pct, rate:l.rate?l.rate/100:0,
+                 hours_per_month:+l.hours_per_month||0 }, cells };
+    });
+    let flight = { start: d.flight_start, end: d.flight_end };
+    const closed = m => m < thisMonth;
+
+    function draw() {
+      const fm = monthsBetween(flight.start, flight.end);
+      const asSold = d.promotions?.[0]?.source_payload?.amount;
+      const head = fm.map(m=>`<th title="${closed(m)?'closed month':''}">${mLabel(m)}${closed(m)?' ✓':''}</th>`).join('');
+      const lineRows = model.map((l, li) => {
+        const cfg = KIND[l.kind];
+        const params = cfg.defaults.map(([p,label]) => `
+          <label class="mono" style="display:inline-flex;flex-direction:column;gap:2px;margin-right:10px">${label}
+            <input class="p" data-li="${li}" data-p="${p}"
+              value="${p==='margin_pct' ? (l.params[p] ?? '') : (l.params[p]||'')}"
+              placeholder="${p==='margin_pct' ? marginDefault : '0'}"></label>`).join('');
+        const cells = cfg.cells
+          ? fm.map(m=>`<td><input class="cell" data-li="${li}" data-m="${m}"
+              value="${l.cells[m] ?? ''}" placeholder="${closed(m)?'':CELL_HINT[cfg.cells]}"
+              ${closed(m)?'disabled':''}></td>`).join('')
+          : `<td colspan="${fm.length}" class="muted" style="text-align:left;font-family:var(--font-body)">
+               spread over the flight — ${fm.filter(m=>!closed(m)).length} open month(s)</td>`;
+        return `<tr><td class="linehead">
+            <span class="kbadge">${l.kind}</span>
+            <span class="params" style="margin-left:10px">${params}</span>
+            <button class="danger delline" data-li="${li}" style="margin-left:6px;padding:2px 8px">✕</button>
+          </td>${cells}<td class="muted gp-line" data-li="${li}"></td></tr>`;
+      }).join('');
+
+      box.innerHTML = `
+        <div class="dhead">
+          <label class="mono" style="display:flex;align-items:center;gap:6px">flight
+            <input type="month" class="month fstart" value="${flight.start.slice(0,7)}">
+            <span class="muted">→</span>
+            <input type="month" class="month fend" value="${flight.end.slice(0,7)}"></label>
+          <label class="mono" style="display:flex;align-items:center;gap:6px">media funding
+            <select class="mf" style="height:30px">
+              <option value="client" ${d.media_funding!=='agency'?'selected':''}>client pays</option>
+              <option value="agency" ${d.media_funding==='agency'?'selected':''}>EMG pays &amp; rebills</option>
+            </select></label>
+          <span style="flex:1"></span><span class="totals"></span>
+        </div>
+        <div class="gridwrap"><table class="grid">
+          <tr><th style="text-align:left">line</th>${head}<th>line GP</th></tr>
+          ${lineRows || `<tr><td class="linehead muted" colspan="${fm.length+2}">no lines yet — add one below</td></tr>`}
+          <tr class="gp"><td class="linehead">GP</td>
+            ${fm.map(m=>`<td data-gpm="${m}"></td>`).join('')}<td data-gptotal></td></tr>
+        </table></div>
+        <div class="dhead" style="margin-top:8px">
+          <select class="newkind" style="height:32px"><option value="">+ add a line…</option>
+            ${Object.keys(KIND).map(k=>`<option value="${k}">${k}</option>`).join('')}</select>
+          <span style="flex:1"></span>
+          <button class="saveall primary">Save</button>
+          <button class="reviewed" ${d.reviewed_at?'disabled':''}>Mark reviewed</button>
+        </div>
+        <div class="msg" style="margin-top:6px;font-size:12px"></div>`;
+
+      box.querySelector('.fstart').onchange = e => { flight.start = e.target.value+'-01'; clamp(); };
+      box.querySelector('.fend').onchange   = e => { flight.end   = e.target.value+'-01'; clamp(); };
+      function clamp() {
+        if (flight.end < flight.start) flight.end = flight.start;
+        const keep = new Set(monthsBetween(flight.start, flight.end));
+        model.forEach(l => Object.keys(l.cells).forEach(m => { if (!keep.has(m)) delete l.cells[m]; }));
+        draw();
+      }
+      box.querySelectorAll('input.p').forEach(inp => inp.oninput = () => {
+        const l = model[+inp.dataset.li];
+        l.params[inp.dataset.p] = inp.value==='' ? (inp.dataset.p==='margin_pct'?null:0) : +inp.value;
+        preview();
+      });
+      box.querySelectorAll('input.cell').forEach(inp => inp.oninput = () => {
+        const l = model[+inp.dataset.li];
+        if (inp.value==='') delete l.cells[inp.dataset.m];
+        else l.cells[inp.dataset.m] = +inp.value;
+        preview();
+      });
+      box.querySelectorAll('.delline').forEach(btn => btn.onclick = async () => {
+        const li = +btn.dataset.li;
+        if (model[li].id) {
+          if (!confirm('Delete this line and its months?')) return;
+          await supa.from('deal_lines').delete().eq('id', model[li].id);
+        }
+        model.splice(li,1); draw();
+      });
+      box.querySelector('.newkind').onchange = e => {
+        if (!e.target.value) return;
+        model.push({ kind:e.target.value,
+          params:{ amount:0, fee_pct:0, margin_pct:null, rate:0, hours_per_month:0 }, cells:{} });
+        draw();
+      };
+      box.querySelector('.saveall').onclick = save;
+      box.querySelector('.reviewed').onclick = async () => {
+        const { error } = await supa.from('deals').update({
+          reviewed_at:new Date().toISOString(), set_by:window.__email, set_at:new Date().toISOString()
+        }).eq('id', d.id);
+        if (!error) loadAll();
+      };
+      preview();
+
+      function preview() {
+        let total = 0; const mgp = {};
+        model.forEach((l, li) => {
+          let lt = 0;
+          fm.forEach(m => { const g = gpMonth(l, m);
+            if (g) { mgp[m]=(mgp[m]||0)+g; lt += g; } });
+          const cell = box.querySelector(`.gp-line[data-li="${li}"]`);
+          if (cell) cell.textContent = lt ? fmtN(lt) : '';
+          total += lt;
+        });
+        fm.forEach(m => { const td = box.querySelector(`td[data-gpm="${m}"]`);
+          if (td) td.textContent = mgp[m] ? fmtN(mgp[m]) : ''; });
+        const tt = box.querySelector('td[data-gptotal]'); if (tt) tt.textContent = total?fmtN(total):'';
+        const cls = asSold && total && Math.abs(total-asSold)/asSold < 0.02 ? 'total-match' : 'total-off';
+        box.querySelector('.totals').innerHTML = (total||asSold)
+          ? `<span class="${cls}">GP total $${fmtN(total)}</span>` +
+            (asSold?`<span class="muted" style="font-size:12px"> · sold $${fmtN(asSold)}</span>`:'') : '';
+      }
+
+      async function save() {
+        const msg = box.querySelector('.msg');
+        const mf = box.querySelector('.mf').value;
+        const patch = {};
+        if (flight.start !== d.flight_start) patch.flight_start = flight.start;
+        if (flight.end !== d.flight_end)     patch.flight_end   = flight.end;
+        if (mf !== d.media_funding)          patch.media_funding = mf;
+        if (Object.keys(patch).length) {
+          patch.set_by = window.__email; patch.set_at = new Date().toISOString();
+          const { error } = await supa.from('deals').update(patch).eq('id', d.id);
+          if (error) { msg.textContent = error.message; msg.className='msg err'; return; }
+        }
+        for (const l of model) {
+          const rowData = {
+            deal_id:d.id, kind:l.kind, label:null,
+            amount:Math.round((l.params.amount||0)*100), budget:0,
+            hours_per_month:l.params.hours_per_month||0,
+            fee_pct:l.params.fee_pct||0, margin_pct:l.params.margin_pct ?? null,
+            rate:Math.round((l.params.rate||0)*100),
+            billing_day:BILLING_BY_KIND[l.kind],
+            set_by:window.__email, set_at:new Date().toISOString()
+          };
+          if (l.id) {
+            const { error } = await supa.from('deal_lines').update(rowData).eq('id', l.id);
+            if (error) { msg.textContent = error.message; msg.className='msg err'; return; }
+          } else {
+            const { data, error } = await supa.from('deal_lines').insert(rowData).select('id').single();
+            if (error) { msg.textContent = error.message; msg.className='msg err'; return; }
+            l.id = data.id;
+          }
+          const cfg = KIND[l.kind];
+          if (cfg.cells) {
+            const openMonths = monthsBetween(flight.start, flight.end).filter(m=>!closed(m));
+            if (openMonths.length) {
+              const del = await supa.from('deal_line_months').delete()
+                .eq('deal_line_id', l.id).in('month', openMonths);
+              if (del.error) { msg.textContent = del.error.message; msg.className='msg err'; return; }
+            }
+            const rows = Object.entries(l.cells).filter(([m])=>!closed(m)).map(([m,v]) => {
+              const r = { deal_line_id:l.id, month:m, set_by:window.__email, set_at:new Date().toISOString() };
+              r[cfg.cells==='hours'?'hours':cfg.cells] = cfg.cells==='hours' ? v : Math.round(v*100);
+              return r;
+            });
+            if (rows.length) {
+              const ins = await supa.from('deal_line_months').insert(rows);
+              if (ins.error) { msg.textContent = ins.error.message; msg.className='msg err'; return; }
+            }
+          }
+        }
+        box.querySelector('.msg').textContent = 'saved';
+        box.querySelector('.msg').className = 'msg ok';
+        loadAll();   // the table and the bars re-read the truth
+      }
+    }
+    draw();
+  }
+
+  await loadAll();
 });
 </script></body></html>

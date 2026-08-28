@@ -22,7 +22,6 @@ const NAV = [
   { id: 'cashflow',  label: 'Cashflow',        href: './cashflow.html' },
   { sect: 'Revenue' },
   { id: 'sales',     label: 'Sales Forecast',  href: './sales.html' },
-  { id: 'deals',     label: 'Deals',           href: './deals.html' },
   { id: 'scoping',   label: 'Scoping',         href: './scoping.html', soon: true },
   { sect: 'Delivery' },
   { id: 'hourplan',  label: 'Hour Planning',   href: './hour-planning.html', soon: true },
@@ -92,6 +91,37 @@ export async function boot(pageId, main) {
     document.getElementById('content').innerHTML =
       `<div class="sc-panel err">${esc(e.message || e)}</div>`;
   }
+}
+
+// Monthly bars: two stacked meanings on one axis — past (invoiced) and forward
+// (planned GP) — drawn as one bar per month in its own colour.
+export function barChart(el, labels, series) {
+  const W = 940, H = 220, P = { l: 68, r: 10, t: 14, b: 26 };
+  const totals = labels.map((_, i) => series.reduce((s, sr) => s + (sr.values[i] || 0), 0));
+  const max = Math.max(...totals, 1);
+  const bw = (W - P.l - P.r) / labels.length;
+  const y = v => P.t + (H - P.t - P.b) * (1 - v / max);
+  const ticks = 4;
+  const grid = Array.from({ length: ticks + 1 }, (_, i) => {
+    const v = max * i / ticks;
+    return `<line x1="${P.l}" y1="${y(v)}" x2="${W - P.r}" y2="${y(v)}" stroke="#e2e2e2"/>
+      <text x="${P.l - 6}" y="${y(v) + 4}" fill="#67706d" font-size="10" font-family="DM Mono" text-anchor="end">${fmt$(v)}</text>`;
+  }).join('');
+  const bars = labels.map((_, i) => {
+    let acc = 0;
+    return series.map(sr => {
+      const v = sr.values[i] || 0; if (!v) return '';
+      const y1 = y(acc + v), h = y(acc) - y(acc + v); acc += v;
+      return `<rect x="${P.l + i * bw + bw * 0.15}" y="${y1}" width="${bw * 0.7}" height="${h}" fill="${sr.color}"/>`;
+    }).join('');
+  }).join('');
+  const xl = labels.map((l, i) => i % 2 ? '' :
+    `<text x="${P.l + i * bw + bw / 2}" y="${H - 8}" fill="#67706d" font-size="10" font-family="DM Mono" text-anchor="middle">${l}</text>`).join('');
+  const legend = series.map((sr, i) =>
+    `<rect x="${P.l + i * 190}" y="0" width="10" height="10" fill="${sr.color}"/>
+     <text x="${P.l + i * 190 + 14}" y="9" fill="#67706d" font-size="11" font-family="DM Mono">${sr.name}</text>`).join('');
+  el.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H + 16}">
+    <g transform="translate(0,14)">${grid}${bars}${xl}</g>${legend}</svg>`;
 }
 
 // A light-theme SVG band chart. bands = [{name,color,values}].
