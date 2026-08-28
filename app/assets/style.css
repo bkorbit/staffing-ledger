@@ -138,7 +138,10 @@ table.acct th:first-child { text-align:left; }
 table.acct th .dir { color:var(--brand); margin-left:3px; }
 table.acct td { padding:6px 10px; border:none; border-bottom:1px solid #efefef;
   font-family:var(--font-mono); font-size:11px; text-align:right; white-space:nowrap; }
-table.acct td:first-child { text-align:left; font-family:var(--font-body); }
+table.acct td:first-child { text-align:left; font-family:var(--font-body);
+  white-space:normal; word-break:break-word; }
+table.acct td.namecell { line-height:1.35; padding-top:8px; padding-bottom:8px; }
+.namewrap { display:inline; overflow-wrap:anywhere; }
 table.acct tr.clientrow { cursor:pointer; }
 table.acct tr.clientrow:hover td { background:var(--mint); }
 table.acct tr.clientrow td { background:#fafaf8; font-weight:600; font-size:11.5px;

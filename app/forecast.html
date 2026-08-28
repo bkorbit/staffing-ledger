@@ -417,8 +417,8 @@ boot('forecast', async (supa, el) => {
         .sort((a,b)=>(b.flight_end||'').localeCompare(a.flight_end||''));
       const isOpen = openClients.has(c.id) || (q && ds.length);
       const head = `<tr class="clientrow" data-cid="${c.id}">
-        <td><span class="muted">${ds.length?(isOpen?'▾':'▸'):'·'}</span>
-          <span class="ellip" style="max-width:240px" title="${esc(c.name)}">${esc(c.name)}</span>
+        <td class="namecell"><span class="muted">${ds.length?(isOpen?'▾':'▸'):'·'}</span>
+          <span class="namewrap">${esc(c.name)}</span>
           ${missing?`<span class="pill warn" style="margin-left:6px" title="${missing} deal(s) with no forecast">${missing} missing forecast</span>`:''}
           ${noProj?`<span class="pill bad" style="margin-left:6px" title="${noProj} deal(s) with no QuickBooks project — no actuals until linked">${noProj} no QB project</span>`:''}</td>
         <td>${num(agg.revenue)}</td><td>${num(agg.cogs)}</td>
@@ -436,8 +436,8 @@ boot('forecast', async (supa, el) => {
           const cg = cogsByProj[pid]||0;
           const pj = projects.find(p=>p.id===pid)||{};
           return `<tr class="dealsub projrow" data-pid="${pid}" data-cid="${c.id}" title="click to link this project to one of ${esc(c.name)}'s deals">
-            <td style="padding-left:28px;color:var(--slate)">◦
-              <span class="ellip" style="max-width:210px" title="${esc(pj.name||pid)}">${esc(pj.name||pid)}</span></td>
+            <td class="namecell" style="padding-left:28px;color:var(--slate)">◦
+              <span class="namewrap">${esc(pj.name||pid)}</span></td>
             <td>${rv?fmtM(rv):''}</td><td>${cg?fmtM(cg):''}</td><td></td>
             <td>${(rv||cg)?fmtM(rv-cg):''}</td><td></td>
             <td style="text-align:left" class="muted linkcell">QB project — <u>link to a deal…</u></td></tr>`;
@@ -445,8 +445,8 @@ boot('forecast', async (supa, el) => {
       const kids = (!isOpen ? '' : ds.map(d => {
         const r = dealRow(d);
         return `<tr class="dealsub deallist" data-id="${d.id}" title="click to shape">
-          <td style="padding-left:28px">▸
-            <span class="ellip" style="max-width:210px" title="${esc(d.name)}">${esc(d.name)}</span>
+          <td class="namecell" style="padding-left:28px">▸
+            <span class="namewrap">${esc(d.name)}</span>
             ${d.reviewed_at?'':'<span class="warn" title="awaiting review">•</span>'}${r.matched?'':' <span class="pill bad" title="no QuickBooks project linked — open the deal and pick one">no QB project</span>'}</td>
           <td>${num(r.revenue)}</td><td>${num(r.cogs)}</td>
           <td class="muted">${num(r.fcCogs)}</td>
