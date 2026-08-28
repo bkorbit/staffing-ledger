@@ -129,13 +129,20 @@ boot('forecast', async (supa, el) => {
     const opexOf = r => r.labour + r.other + r.misc + r.fixed;
     const maxBar = Math.max(1, ...rows.map(r=>Math.max(r.revenue, r.cogs, opexOf(r))));
     const nets = rows.map(r=>r.net);
-    const min = Math.min(0, ...nets), max = Math.max(maxBar, ...nets, 1);
+    // axis snaps to \$250k multiples; gridlines and labels every \$500k
+    const SNAP = 25000000;                     // \$250k in cents
+    const rawMin = Math.min(0, ...nets), rawMax = Math.max(maxBar, ...nets, 1);
+    const min = Math.floor(rawMin/SNAP)*SNAP;
+    const max = Math.max(Math.ceil(rawMax/SNAP)*SNAP, min + SNAP);
     const y = v => P.t + (H-P.t-P.b) * (1 - (v-min)/((max-min)||1));
     const gap = (W-P.l-P.r)/rows.length, bw = Math.min(13, gap*0.2);
     let g='';
-    for(let i=0;i<=4;i++){const v=min+(max-min)*i/4;
+    let step = 50000000;                       // \$500k lines
+    if ((max-min)/step > 13) step = 100000000; // very tall ranges thin to \$1M
+    for (let v = Math.ceil(min/step)*step; v <= max; v += step) {
       g+=`<line x1="${P.l}" y1="${y(v)}" x2="${W-P.r}" y2="${y(v)}" stroke="#e2e2e2"/>
-        <text x="${P.l-6}" y="${y(v)+3.5}" fill="#67706d" font-size="9" font-family="DM Mono" text-anchor="end">${fmtC(v)}</text>`;}
+        <text x="${P.l-6}" y="${y(v)+3.5}" fill="#67706d" font-size="9" font-family="DM Mono" text-anchor="end">${fmtC(v)}</text>`;
+    }
     if(min<0) g+=`<line x1="${P.l}" y1="${y(0)}" x2="${W-P.r}" y2="${y(0)}" stroke="#d1453b" stroke-dasharray="4 3"/>`;
     const y0=y(Math.max(min,0));
     rows.forEach((r,i)=>{
