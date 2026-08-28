@@ -30,7 +30,7 @@ const TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
 const MINOR     = '75';
 const STATE_ID  = 'quickbooks';
 
-const fail  = m => { console.error('\u2716 ' + m); process.exit(1); };
+const fail  = m => { throw new Error(m); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // Anything that goes wrong after the credentials check is recorded in sync_state
@@ -241,7 +241,9 @@ export function lineProject(l) {
 if (process.env.NODE_ENV !== 'test') main().catch(e => die('unhandled', e));
 
 async function main() {
-  const rows = await sbGet(`sync_state?id=eq.${STATE_ID}&select=*`);
+  let rows;
+  try { rows = await sbGet(`sync_state?id=eq.${STATE_ID}&select=*`); }
+  catch (e) { console.error('\u2716 [db-read] ' + (e.message || e)); process.exit(1); }
   if (!rows.length) fail(`No sync_state row for '${STATE_ID}'. Run db/001_init.sql.`);
   const state = rows[0];
   if (!state.refresh_token) fail(
@@ -252,7 +254,9 @@ async function main() {
   const from = day(state.import_from) || '2025-01-01';
   console.log(`QuickBooks Online sync — window from ${from}`);
 
-  const token = await refreshAccess(state.refresh_token).catch(e => die('token-refresh', e));
+  let token;
+  try { token = await refreshAccess(state.refresh_token); }
+  catch (e) { await die('token-refresh', e); }
   const realm = state.realm_id;
 
   // Probe before the real work. A refresh can succeed while the realm is wrong, and
