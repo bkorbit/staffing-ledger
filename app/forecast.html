@@ -208,7 +208,7 @@ boot('forecast', async (supa, el) => {
   let acctTotals = [], fullProjects = null;
   let revByProj = {}, cogsByProj = {}, openClients = new Set();
   let warnings = [];
-  let tableSort = { key:'revenue', dir:-1 }, tableQuery = '';
+  let tableSort = { key:'value', dir:-1 }, tableQuery = '';
   let plRowsCache = [];
 
   async function loadAll() {
@@ -375,15 +375,16 @@ boot('forecast', async (supa, el) => {
       const matched = !!d.qbo_project_id;
       const revA = matched ? ((revByProj[d.qbo_project_id]||{}).total||0) : 0;
       const cogsA = matched ? (cogsByProj[d.qbo_project_id]||0) : 0;
-      const revenue = revA + p.billFuture;
-      const fcCogs = Math.max(0, p.billFuture - (p.gpAll - p.gpSettled));
-      const actualGP = matched ? revA - cogsA : null;
-      const variance = matched && p.gpSettled && actualGP !== null
-        ? Math.round((actualGP/p.gpSettled - 1)*100) : null;
+      const value = revA + p.billFuture;              // billed to date + forecast billable
+      const gpBilled = matched ? revA - cogsA : null;  // gross profit earned so far
+      const gpFc = p.gpAll - p.gpSettled;              // plan GP still ahead (current + future)
+      // variance: what the PAST months' forecast promised vs what actually landed
+      const variance = matched && p.gpSettled && gpBilled !== null
+        ? Math.round((gpBilled/p.gpSettled - 1)*100) : null;
       const ended = d.flight_end < thisMonth;
       const basis = ended ? (matched ? 'ended (actual)' : 'ended · no QB link')
         : (matched ? 'actual + ' : (revA||cogsA ? '' : 'no QB link · ')) + (ended ? '' : 'forecast');
-      return { revenue, cogs:cogsA, fcCogs, forecastGP:p.gpAll, actualGP, variance, basis, matched, ended };
+      return { value, gpBilled, gpFc, variance, basis, matched, ended };
     };
     const clientRow = c => {
       const ds = dealsByClient[c.id]||[];
@@ -396,12 +397,13 @@ boot('forecast', async (supa, el) => {
       const billFuture = ds.reduce((s,d)=>s+((d._agg||{}).billFuture||0),0);
       const gpAll = ds.reduce((s,d)=>s+((d._agg||{}).gpAll||0),0);
       const gpSettled = ds.reduce((s,d)=>s+((d._agg||{}).gpSettled||0),0);
-      const fcCogs = ds.reduce((s,d)=>s+Math.max(0,((d._agg||{}).billFuture||0)-(((d._agg||{}).gpAll||0)-((d._agg||{}).gpSettled||0))),0);
-      const actualGP = (revA||cogsA) ? revA - cogsA : null;
-      const variance = gpSettled && actualGP !== null
-        ? Math.round((actualGP/gpSettled - 1)*100) : null;
+      const value = revA + billFuture;
+      const gpBilled = (revA||cogsA) ? revA - cogsA : null;
+      const gpFc = gpAll - gpSettled;
+      const variance = gpSettled && gpBilled !== null
+        ? Math.round((gpBilled/gpSettled - 1)*100) : null;
       const basis = (revA||cogsA ? 'actual (QuickBooks) + ' : '') + (gpAll ? 'forecast' : '—');
-      return { revenue:revA+billFuture, cogs:cogsA, fcCogs, forecastGP:gpAll, actualGP, variance, basis };
+      return { value, gpBilled, gpFc, variance, basis };
     };
 
     const num = v => v ? fmtM(v) : '';
@@ -429,6 +431,9 @@ boot('forecast', async (supa, el) => {
     const dir = tableSort.dir, key = tableSort.key;
     const sv = a => key==='name' ? a.c.name.toLowerCase()
       : key==='variance' ? (a.agg.variance ?? -1e15*dir)
+      : key==='value' ? (a.agg.value||0)
+      : key==='gpBilled' ? (a.agg.gpBilled ?? -1e15*dir)
+      : key==='gpFc' ? (a.agg.gpFc||0)
       : (a.agg[key] ?? 0);
     clients.sort((a,b)=>{ const x=sv(a), y=sv(b);
       return (x<y?-1:x>y?1:0) * (key==='name'?-dir:dir) * -1; });
@@ -436,10 +441,9 @@ boot('forecast', async (supa, el) => {
     const totalMissing = Object.values(clientsById).map(visibleDeals).flat()
       .filter(d=>!(d._agg||{}).gpAll && d.flight_end >= thisMonth).length;
 
-    let totals = { revenue:0, cogs:0, forecastGP:0, actualGP:0 };
+    let totals = { value:0, gpBilled:0, gpFc:0 };
     const bodyRows = clients.map(({c, agg, missing, noProj}) => {
-      totals.revenue+=agg.revenue; totals.cogs+=agg.cogs;
-      totals.forecastGP+=agg.forecastGP; totals.actualGP+=agg.actualGP||0;
+      totals.value+=agg.value; totals.gpBilled+=agg.gpBilled||0; totals.gpFc+=agg.gpFc;
       const ds = visibleDeals(c)
         .filter(d => !q || d.name.toLowerCase().includes(q) || c.name.toLowerCase().includes(q))
         .sort((a,b)=>(b.flight_end||'').localeCompare(a.flight_end||''));
@@ -449,10 +453,9 @@ boot('forecast', async (supa, el) => {
           <span class="namewrap">${esc(c.name)}</span>
           ${missing?`<span class="pill warn" style="margin-left:6px" title="${missing} deal(s) with no forecast">${missing} missing forecast</span>`:''}
           ${noProj?`<span class="pill bad" style="margin-left:6px" title="${noProj} deal(s) with no QuickBooks project — no actuals until linked">${noProj} no QB project</span>`:''}</td>
-        <td>${num(agg.revenue)}</td><td>${num(agg.cogs)}</td>
-        <td class="muted">${num(agg.fcCogs)}</td>
-        <td style="color:var(--brand)">${agg.forecastGP?fmtM(agg.forecastGP):''}</td>
-        <td>${agg.actualGP!==null?`<span class="${agg.actualGP<0?'neg':''}">${fmtM(agg.actualGP)}</span>`:'<span class="muted">—</span>'}</td>
+        <td>${num(agg.value)}</td>
+        <td>${agg.gpBilled!==null?`<span class="${agg.gpBilled<0?'neg':''}">${fmtM(agg.gpBilled)}</span>`:'<span class="muted">—</span>'}</td>
+        <td style="color:var(--brand)">${agg.gpFc?fmtM(agg.gpFc):''}</td>
         <td>${varCell(agg.variance)}</td>
         <td style="text-align:left" class="muted">${agg.basis}</td></tr>`;
       const takenProjects = new Set(ds.map(d=>d.qbo_project_id).filter(Boolean));
@@ -466,8 +469,8 @@ boot('forecast', async (supa, el) => {
           return `<tr class="dealsub projrow" data-pid="${pid}" data-cid="${c.id}" title="click to link this project to one of ${esc(c.name)}'s deals">
             <td class="namecell" style="padding-left:28px;color:var(--slate)">◦
               <span class="namewrap">${esc(pj.name||pid)}</span></td>
-            <td>${rv?fmtM(rv):''}</td><td>${cg?fmtM(cg):''}</td><td></td>
-            <td>${(rv||cg)?fmtM(rv-cg):''}</td><td></td>
+            <td>${rv?fmtM(rv):''}</td>
+            <td>${(rv||cg)?fmtM(rv-cg):''}</td><td></td><td></td>
             <td style="text-align:left" class="muted linkcell">QB project — <u>link to a deal…</u></td></tr>`;
         }).join('');
       const kids = (!isOpen ? '' : ds.map(d => {
@@ -479,19 +482,20 @@ boot('forecast', async (supa, el) => {
               !(d._agg||{}).gpAll && d.flight_end >= thisMonth
                 ? ' <span class="pill warn" title="flight runs into the future but no forecast is shaped — open the deal and give it lines">!</span>' : ''
             }${r.matched?'':' <span class="pill bad" title="no QuickBooks project linked — open the deal and pick one">no QB project</span>'}</td>
-          <td>${num(r.revenue)}</td><td>${num(r.cogs)}</td>
-          <td class="muted">${num(r.fcCogs)}</td>
-          <td style="color:var(--brand)">${r.forecastGP?fmtM(r.forecastGP):''}</td>
-          <td>${r.actualGP!==null?`<span class="${r.actualGP<0?'neg':''}">${fmtM(r.actualGP)}</span>`:'<span class="muted">—</span>'}</td>
+          <td>${num(r.value)}</td>
+          <td>${r.gpBilled!==null?`<span class="${r.gpBilled<0?'neg':''}">${fmtM(r.gpBilled)}</span>`:'<span class="muted">—</span>'}</td>
+          <td style="color:var(--brand)">${r.gpFc?fmtM(r.gpFc):''}</td>
           <td>${varCell(r.variance)}</td>
           <td style="text-align:left" class="muted">${r.basis}</td></tr>`;
       }).join('')) + projRows;
       return head + kids;
     }).join('');
 
-    const unattributedRev = plRows.reduce((s,r)=>s+r.revenue,0) - totals.revenue;
-    const HCOLS = [['name','Client / deal'],['revenue','Revenue billed'],['cogs','COGS (actual)'],
-      ['fcCogs','Forecast COGS'],['forecastGP','Forecast GP'],['actualGP','Actual GP'],
+    const unattributedRev = plRows.reduce((s,r)=>s+r.revenue,0) - totals.value;
+    const HCOLS = [['name','Client / deal'],
+      ['value','Total Value (Billed + Forecasted)'],
+      ['gpBilled','GP Billed'],
+      ['gpFc','GP Forecasted'],
       ['variance','Variance'],[null,'Basis']];
 
     el.querySelector('#sum').innerHTML =
@@ -502,13 +506,11 @@ boot('forecast', async (supa, el) => {
       (Math.abs(unattributedRev) > 100 ? `<tr>
         <td class="muted">unattributed (no client link)</td>
         <td class="muted">${fmtM(unattributedRev)}</td>
-        <td colspan="5"></td><td style="text-align:left" class="muted">link clients on the Clients tab</td></tr>` : '') +
+        <td colspan="3"></td><td style="text-align:left" class="muted">link clients on the Clients tab</td></tr>` : '') +
       `<tr class="totalrow"><td>company — ${months.length} months</td>
         <td>${fmtM(plRows.reduce((s,r)=>s+r.revenue,0))}</td>
-        <td>${fmtM(plRows.filter(r=>r.measured).reduce((s,r)=>s+r.cogs,0))}</td>
-        <td>${fmtM(plRows.filter(r=>!r.measured).reduce((s,r)=>s+r.cogs,0))}</td>
-        <td>${fmtM(plRows.reduce((s,r)=>s+r.forecastGP,0))}</td>
         <td>${fmtM(plRows.filter(r=>r.measured).reduce((s,r)=>s+(r.actualGP||0),0))}</td>
+        <td>${fmtM(plRows.filter(r=>!r.measured).reduce((s,r)=>s+r.forecastGP,0))}</td>
         <td></td>
         <td style="text-align:left;font-size:9.5px;font-weight:400">labour &amp; overhead live in the chart — 6-month trailing average forward</td></tr>`;
 
