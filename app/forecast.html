@@ -207,12 +207,8 @@ boot('forecast', async (supa, el) => {
         <input type="month" id="r-from" value="${rangeFrom.slice(0,7)}">
         <span class="rd">to</span>
         <input type="month" id="r-to" value="${rangeTo.slice(0,7)}">
-        <span class="muted" style="font-size:11px;margin-left:6px">six back, six forward by default</span>
         <span style="flex:1"></span>
-        <span class="muted" style="font-size:11px">dark = confirmed actual · light = forecasted —
-        measured from QuickBooks once a month is over, projected before that</span>
         <button id="costs-how">How costs are counted ▸</button>
-        <button id="fixed-toggle">Fixed costs ▸</button>
       </div>
       <div id="how-panel" class="sc-panel" style="display:none">
         <div class="sc-eyebrow">How every number is counted</div>
@@ -230,19 +226,6 @@ boot('forecast', async (supa, el) => {
           reclassifies an account everywhere at once.</div>
         <div id="how-table" style="margin-top:10px;max-height:340px;overflow-y:auto"></div>
       </div>
-      <div id="fixed-panel" class="sc-panel" style="display:none">
-        <div class="muted" style="font-size:10.5px;margin-bottom:8px">Monthly fixed costs —
-        non-tracked labour, rent-like items. Subtracted from the projected net-profit line
-        only; settled months stay as QuickBooks measured them.</div>
-        <div id="fixed-list"></div>
-        <div class="dhead" style="margin-top:8px">
-          <button id="fixed-add">+ add fixed cost</button>
-          <span style="flex:1"></span>
-          <span id="fixed-total" class="muted" style="font-size:11px"></span>
-          <button id="fixed-save" class="primary">Save</button>
-          <span id="fixed-msg" class="ok" style="font-size:11px"></span>
-        </div>
-      </div>
       <div class="sc-panel"><div id="chart"></div></div>
       <div class="sc-panel" style="padding:0">
         <div class="tbltools">
@@ -258,23 +241,8 @@ boot('forecast', async (supa, el) => {
     el.querySelector('#r-from').onchange = e => { rangeFrom = e.target.value+'-01'; loadAll(); };
     el.querySelector('#r-to').onchange   = e => { rangeTo   = e.target.value+'-01'; loadAll(); };
 
-    // ---- fixed costs panel ----
+    // ---- fixed costs still feed the projected net line; edited on Settings ----
     const fixedTotal = () => fixedCosts.reduce((s,f)=>s+(f.amount||0),0);
-    function drawFixed() {
-      el.querySelector('#fixed-list').innerHTML = fixedCosts.map((f,i)=>`
-        <div class="dhead" style="margin:4px 0">
-          <input data-fl="${i}" value="${esc(f.label||'')}" placeholder="label" style="width:220px">
-          <input data-fa="${i}" value="${f.amount?f.amount/100:''}" placeholder="$/month" style="width:110px;text-align:right">
-          <button class="danger" data-fx="${i}" style="padding:2px 8px">✕</button>
-        </div>`).join('') || '<div class="muted" style="font-size:11px">none yet</div>';
-      el.querySelector('#fixed-total').textContent = fixedCosts.length
-        ? `total $${fmtN(fixedTotal())}/month, projected months only` : '';
-      el.querySelectorAll('[data-fl]').forEach(inp=>inp.oninput=()=>{fixedCosts[+inp.dataset.fl].label=inp.value;});
-      el.querySelectorAll('[data-fa]').forEach(inp=>inp.oninput=()=>{
-        fixedCosts[+inp.dataset.fa].amount=Math.round((+inp.value||0)*100);
-        el.querySelector('#fixed-total').textContent=`total $${fmtN(fixedTotal())}/month, projected months only`;});
-      el.querySelectorAll('[data-fx]').forEach(b=>b.onclick=()=>{fixedCosts.splice(+b.dataset.fx,1);drawFixed();});
-    }
     el.querySelector('#costs-how').onclick = () => {
       const p = el.querySelector('#how-panel');
       const opening = p.style.display==='none';
@@ -295,19 +263,7 @@ boot('forecast', async (supa, el) => {
           `</table>`;
       }
     };
-    el.querySelector('#fixed-toggle').onclick = () => {
-      const p = el.querySelector('#fixed-panel');
-      p.style.display = p.style.display==='none' ? '' : 'none';
-    };
-    el.querySelector('#fixed-add').onclick = () => { fixedCosts.push({label:'',amount:0}); drawFixed(); };
-    el.querySelector('#fixed-save').onclick = async () => {
-      const { error } = await supa.from('settings').upsert(
-        [{ key:'forecast_fixed_costs', value:fixedCosts,
-           set_by:window.__email, set_at:new Date().toISOString() }], { onConflict:'key' });
-      el.querySelector('#fixed-msg').textContent = error ? error.message : 'saved';
-      if (!error) render();
-    };
-    drawFixed();
+    // fixed-costs panel retired from the header; values live on Settings
 
     // ---- per-month rows still feed the chart; the table is per client now ----
     const cur = thisMonth;

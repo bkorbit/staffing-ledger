@@ -10,6 +10,7 @@
   --font-mono:'DM Mono',monospace;
 }
 * { box-sizing:border-box; }
+html { font-size: clamp(13px, 0.55vw + 11.2px, 16px); }   /* fluid type: small screens shrink, large grow */
 body { margin:0; font-family:var(--font-body); background:var(--paper); color:var(--ink); }
 .layout { display:flex; min-height:100vh; }
 nav.side { width:184px; flex:none; background:var(--paper-raised); border-right:1px solid var(--line);
@@ -165,3 +166,20 @@ table.acct tr.totalrow .neg { color:#ffb4ac; }
 .modal-title { font-family:var(--font-display); font-weight:700; font-size:15px; color:var(--brand); flex:1;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .modal-body { padding:16px 18px 22px; }
+
+/* ---- collapsible sidebar ---- */
+.brand { display:flex; align-items:center; gap:8px; }
+.navtoggle { background:transparent; border:none; font-size:18px; line-height:1; padding:2px 4px;
+  color:var(--brand); cursor:pointer; }
+.navtoggle:hover { color:var(--ink); }
+.layout.nav-collapsed nav.side { width:52px; }
+.layout.nav-collapsed nav.side .brandwords,
+.layout.nav-collapsed nav.side .lbl,
+.layout.nav-collapsed nav.side .soon,
+.layout.nav-collapsed nav.side .sect,
+.layout.nav-collapsed nav.side .who { display:none; }
+.layout.nav-collapsed nav.side a.item { justify-content:center; padding:9px 0; }
+.layout.nav-collapsed nav.side .side-foot { padding:14px 6px 0; text-align:center; }
+nav.side { transition: width .12s ease; }
+/* type scale honours the OS/browser preference already via rem; keep table numerics tabular */
+table.acct td, table.grid td, table.grid th { font-variant-numeric: tabular-nums; }

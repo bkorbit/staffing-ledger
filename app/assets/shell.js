@@ -35,16 +35,19 @@ const NAV = [
 
 function renderShell(current) {
   document.body.innerHTML = `
-    <div class="layout">
+    <div class="layout ${localStorage.getItem('nav_collapsed')==='1'?'nav-collapsed':''}">
       <nav class="side">
         <div class="brand">
-          <div class="eyebrow">STAFFING &amp; PROFITABILITY</div>
-          <div class="brand-name">EMG Ledger</div>
+          <button class="navtoggle" id="navtoggle" title="collapse / expand">☰</button>
+          <div class="brandwords">
+            <div class="eyebrow">STAFFING &amp; PROFITABILITY</div>
+            <div class="brand-name">EMG Ledger</div>
+          </div>
         </div>
         ${NAV.map(n => n.sect
           ? `<div class="sect">${n.sect}</div>`
           : `<a class="item ${n.id === current ? 'current' : ''}" href="${n.href}">
-               <span>${n.label}</span>${n.soon ? '<span class="soon">soon</span>' : ''}</a>`).join('')}
+               <span class="lbl">${n.label}</span>${n.soon ? '<span class="soon">soon</span>' : ''}</a>`).join('')}
         <div class="side-foot">
           <div class="who">${esc(window.__email || '')}</div>
           <button class="ghost" id="signout">Sign out</button>
@@ -54,6 +57,11 @@ function renderShell(current) {
     </div>`;
   document.getElementById('signout').onclick = async () => {
     await supa.auth.signOut(); location.reload();
+  };
+  document.getElementById('navtoggle').onclick = () => {
+    const layout = document.querySelector('.layout');
+    const now = layout.classList.toggle('nav-collapsed');
+    localStorage.setItem('nav_collapsed', now ? '1' : '0');
   };
 }
 
