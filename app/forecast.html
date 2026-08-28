@@ -329,8 +329,6 @@ boot('forecast', async (supa, el) => {
     Object.values(dealsByClient).flat().forEach(d => {
       if (d.qbo_project_id) projClaimedBy[d.qbo_project_id] = d.client_id;
     });
-    const nSettled = months.filter(m=>past(m)).length;
-    const nFuture  = months.length - nSettled - (months.includes(cur)?1:0);
 
     const dealRow = d => {
       const p = d._agg || { gpAll:0, gpSettled:0, billFuture:0 };
