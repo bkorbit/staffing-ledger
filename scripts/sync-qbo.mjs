@@ -33,6 +33,25 @@ const STATE_ID  = 'quickbooks';
 const fail  = m => { console.error('\u2716 ' + m); process.exit(1); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// Anything that goes wrong after the credentials check is recorded in sync_state
+// before exiting, so a failure is queryable from the database rather than only
+// visible in an Actions log. Best-effort: if the database itself is what failed,
+// the console message is all there is.
+async function die(stage, err) {
+  const msg = err && err.message ? err.message : String(err);
+  console.error(`\u2716 [${stage}] ${msg}`);
+  try {
+    await sbPatchState({
+      last_run_at: new Date().toISOString(),
+      last_run_log: { ok: false, stage, error: msg.slice(0, 2000), at: new Date().toISOString() }
+    });
+    console.error('  (recorded in sync_state.last_run_log)');
+  } catch (e) {
+    console.error('  (could not record it: ' + (e.message || e) + ')');
+  }
+  process.exit(1);
+}
+
 // Money is stored as integer cents. Rounding once here means no float ever reaches the
 // database, so sums are exact and the earned/invoiced/collected distinction can never
 // hide behind a rounding artefact.
@@ -116,7 +135,7 @@ async function qboQuery(realm, token, sql, tries = 0) {
     await sleep(wait);
     return qboQuery(realm, token, sql, tries + 1);
   }
-  if (!r.ok) fail(`QuickBooks query \u2192 ${r.status}: ${(await r.text()).slice(0, 400)}\n  query: ${sql}`);
+  if (!r.ok) throw new Error(`QuickBooks query \u2192 ${r.status}: ${(await r.text()).slice(0, 400)}`);
   return (await r.json()).QueryResponse || {};
 }
 
@@ -219,7 +238,7 @@ export function lineProject(l) {
 
 /* ----------------------------------------------------------------- main -- */
 
-if (process.env.NODE_ENV !== 'test') main();
+if (process.env.NODE_ENV !== 'test') main().catch(e => die('unhandled', e));
 
 async function main() {
   const rows = await sbGet(`sync_state?id=eq.${STATE_ID}&select=*`);
@@ -233,8 +252,19 @@ async function main() {
   const from = day(state.import_from) || '2025-01-01';
   console.log(`QuickBooks Online sync — window from ${from}`);
 
-  const token = await refreshAccess(state.refresh_token);
+  const token = await refreshAccess(state.refresh_token).catch(e => die('token-refresh', e));
   const realm = state.realm_id;
+
+  // Probe before the real work. A refresh can succeed while the realm is wrong, and
+  // the resulting error is far clearer here than buried in the first bulk query.
+  try {
+    const probe = await qboQuery(realm, token, 'SELECT COUNT(*) FROM Invoice');
+    console.log(`  connected to realm ${realm} — ${probe.totalCount ?? '?'} invoices in the file`);
+  } catch (e) {
+    await die('realm-check', new Error(
+      `realm_id '${realm}' was rejected. The token refreshed fine, so the credentials are ` +
+      `good but the company id is wrong. Check the realmId shown in the OAuth playground. (${e.message || e})`));
+  }
 
   // ---- bank accounts: the cashflow opening position ----
   const accounts = await qboAll(realm, token, 'Account', "AccountType = 'Bank'");
