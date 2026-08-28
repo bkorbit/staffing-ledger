@@ -4,7 +4,6 @@ description: The Ledger Console — a flat, brand-locked financial operations sh
 colors:
   deep-ledger-green: "#0a493c"
   muted-ledger-green: "#48a278"
-  labour-green: "#19a789"
   signal-gold: "#fabf4d"
   logo-teal: "#3bc9ac"
   ledger-paper: "#ebebeb"
@@ -17,8 +16,12 @@ colors:
   alert-rust-tint: "#fbe7e4"
   alert-amber: "#b07a14"
   alert-amber-tint: "#fdf3dc"
-  chart-neutral-gray: "#9e9e9e"
-  chart-fixed-gray: "#b8b8b8"
+  chart-revenue-green: "#2f8a68"
+  chart-cogs-blue: "#4f74b3"
+  chart-labour-amber: "#c07f2e"
+  chart-overhead-violet: "#a15fc4"
+  chart-other-terracotta: "#b06b4a"
+  chart-fixed-teal: "#0f9999"
   table-header-wash: "#f6f6f6"
   column-header-wash: "#f2f2f2"
   client-row-tint: "#fafaf8"
@@ -66,6 +69,7 @@ typography:
     brand-mark: "17px"
     kpi-value: "18px"
     login-heading: "22px"
+    chart-hero-figure: "48px"
     editor-micro-1: "0.56rem"
     editor-micro-2: "0.58rem"
     editor-micro-3: "0.6rem"
@@ -154,11 +158,10 @@ The system is flat by rule. There is no drop shadow anywhere in this design lang
 A closed, two-green-plus-two-accents palette on a warm gray paper ground — nothing decorative, every color assigned a job.
 
 ### Primary
-- **Deep Ledger Green** (`#0a493c`): The system's authority color. The sidebar brand mark, table totals rows, positive figures, and the forecast chart's revenue series. If a number or heading needs to read as "this is the real, settled truth," it's this green.
+- **Deep Ledger Green** (`#0a493c`): The system's authority color. The sidebar brand mark, table totals rows, positive figures. If a number or heading needs to read as "this is the real, settled truth," it's this green.
 
 ### Secondary
-- **Muted Ledger Green** (`#48a278`): The active/positive/hover register — primary-button hover, "matched" and "ok" status text, links inside summary notes, the forecast chart's overhead series, the good-pill border, and the input focus ring.
-- **Labour Green** (`#19a789`): Chart-only. Exists solely as the forecast combo chart's labour-cost series color; not otherwise used in the UI chrome.
+- **Muted Ledger Green** (`#48a278`): The active/positive/hover register — primary-button hover, "matched" and "ok" status text, links inside summary notes, the good-pill border, and the input focus ring.
 
 ### Tertiary
 - **Signal Gold** (`#fabf4d`): The single most important color in the system. Reserved for the forecast chart's net-profit line — nothing else. The comment at its point of use in the codebase says it plainly: "Net wears accent gold: the most important line."
@@ -168,7 +171,7 @@ A closed, two-green-plus-two-accents palette on a warm gray paper ground — not
 - **Ledger Paper** (`#ebebeb`): The page background — a warm, slightly warm-gray paper, never pure white.
 - **Raised Paper** (`#ffffff`): Every card, panel, table, and input surface that sits above the page paper.
 - **Ink** (`#23272b`): Primary text.
-- **Slate** (`#67706d`): Secondary/muted text — eyebrows, hints, table headers, mono labels, and the chart's COGS series.
+- **Slate** (`#67706d`): Secondary/muted text — eyebrows, hints, table headers, mono labels.
 - **Hairline** (`#d2d2d2`): The default 1px border/divider color, used everywhere a seam matters less than a section boundary.
 - **Mint Tint** (`#e2f5ef`): The logo color at roughly 14% on white — hover backgrounds for nav items and table rows, the good-pill fill, the input focus glow.
 - **Table Header Wash** (`#f6f6f6`): The default background for a plain `<th>` — any ordinary table that isn't the account table or the deal-editor grid.
@@ -181,11 +184,12 @@ A closed, two-green-plus-two-accents palette on a warm gray paper ground — not
 - **Alert Amber** (`#b07a14`) / **Alert Amber Tint** (`#fdf3dc`): Warnings, the warn-pill treatment.
 - **Rust on Brand** (`#ffb4ac`): A lightened rust used only for negative figures sitting on the totals row's solid Deep Ledger Green background — plain Alert Rust doesn't have enough contrast there.
 
-### Chart-only neutrals
-- **Chart Neutral Gray** (`#9e9e9e`) and **Chart Fixed-Cost Gray** (`#b8b8b8`): used exclusively inside the forecast combo chart, for the "other" and "fixed cost" series respectively — desaturated on purpose so they never compete with the two ledger greens or the gold net line.
+### Chart-only categorical ramp
+Six hues reserved entirely for chart series identity — never nav, buttons, tables, or any other UI chrome, and never a stand-in for a status color. Validated as a set (OKLCH lightness, chroma, CVD adjacent-pair separation, normal-vision separation, contrast — see Chart System below); change one and the whole set needs revalidating, not just the one swatch.
+- **Chart Revenue Green** (`#2f8a68`), **Chart COGS Blue** (`#4f74b3`), **Chart Labour Amber** (`#c07f2e`), **Chart Overhead Violet** (`#a15fc4`), **Chart Other Terracotta** (`#b06b4a`), **Chart Fixed Teal** (`#0f9999`): the six bar-stack categories on every chart built to this system.
 
 ### Named Rules
-**The One Gold Rule.** Signal Gold appears in exactly one place: the forecast chart's net line. It is not a general accent, a warning color, or a highlight — its rarity is what makes it legible as "the number that matters."
+**The One Gold Rule.** Signal Gold marks net profit and nothing else — the forecast chart's net line, and a chart's hero figure when that figure is net. It is not a general accent, a warning color, or a highlight; its rarity is what makes it legible as "the number that matters." A hero figure showing a loss wears Alert Rust instead — gold promises a real number, not a specific sign, but a loss is a different fact and reads with the app's established negative-value color, not a euphemism.
 
 ## Typography
 
@@ -269,8 +273,27 @@ Buttons, inputs, and cards read as **terminal-tactile**: small, precise, and den
 - **States:** default ink text; hover and current both tint to Mint background with Deep-Ledger-Green text; current additionally gets a 3px Logo-Teal right border as the "you are here" mark.
 - **Collapsed:** the sidebar can shrink to 52px, hiding every label and centering the icon-only nav items; the transition is a quick 0.12s width ease.
 
-### Signature: The Forecast Combo Chart
-The flagship deliverable and the clearest expression of this system's whole color discipline. Revenue and the cost stack (COGS, labour, overhead, misc, fixed) render as side-by-side bars in the palette above; net profit renders as the single Signal Gold line — the only line, and the only place gold appears. Settled months render at full color strength; projected months render lighter, so a viewer can always tell forecast from fact without reading a label. The legend sits at the bottom and is clickable: hiding a series persists to `localStorage` and the y-axis rescales to whatever remains visible.
+### Chart System — the template for every chart in the platform
+Built for `forecast.html`'s combo chart, this is the reusable pattern for every future chart and dashboard here, not a one-off. It deliberately departs from the app chrome's dense-mono-everywhere register: a chart leads with one editorial headline number, then earns the right to be quiet and detailed underneath. Two things forced this rather than settled it by taste: the finance-deck direction chosen for this pass, and the chart-only categorical palette below, whose predecessor **failed an accessibility check on real data** (documented as evidence, not decoration).
+
+**The mechanism — hero figure, then evidence.** Every chart in this system opens with one number: net for the latest fully-measured period, Montserrat, 48px, proportional figures (never `tabular-nums` at display size — `121` looks loose with equal-width digits), Signal Gold if positive, Alert Rust if it's a loss. Labeled in small mono above it (`NET — JUL 2026`, plus `(forecast)` when no month in range has closed yet). The chart below is supporting evidence for that headline, not a second competing focal point — this is the "finance deck" mechanism: one number a leadership slide would put on its own line, then the detail underneath for whoever wants it.
+
+**The bars — a validated chart-only categorical ramp.** Six cost categories (revenue, COGS, labour, overhead, other, fixed) each need a genuinely distinguishable hue — the UI chrome's closed palette can't supply that (it has exactly one green family, and the old chart palette proved why that matters: it put three different greens and two different grays adjacent on the same chart and **failed color-vision-deficiency separation outright** — `#48a278` and `#19a789` measured ΔE 2.3 under deuteranopia and 2.8 even for full-color vision, "hard to tell apart even with full color vision," not a marginal case). The replacement is validated, not eyeballed:
+
+```
+revenue  #2f8a68   cogs     #4f74b3   labour   #c07f2e
+overhead #a15fc4   other    #b06b4a   fixed    #0f9999
+```
+
+All six clear OKLCH lightness (0.43–0.77), chroma floor (≥0.10), CVD adjacent-pair separation (worst ΔE 11.2 deutan), the normal-vision floor (worst ΔE 15.5), and 3:1 contrast against the paper surface, checked with the `dataviz` skill's `validate_palette.js` — rerun that check before ever changing one of these six. These hues are chart-only: they never appear in nav, buttons, tables, or any UI chrome, and they never stand in for a status color (good/warn/bad stay reserved). Net keeps Signal Gold, validated separately as a singular hue nowhere near this set — see The One Gold Rule.
+
+**Marks.** Bars are ≤13px, top corners rounded (4px), square at the baseline, growing from one shared axis. A stacked segment rounds only when nothing sits above it in that stack — the visual top of the whole stack, not every boundary. A 1–2px gap separates every touching bar and every stacked segment; nothing is separated by a drawn border. Net-line markers are 4px radius with a 2px paper-color ring, so they stay legible crossing the line or each other. Gridlines and the zero-baseline stay hairline and recessive (`var(--line)`, solid, never dashed — dashing reads as a threshold or projection when it's just a grid).
+
+**Labels — selective, not exhaustive.** The old chart put a number on every bar segment on every month, which the `dataviz` skill's own anti-pattern list names directly: "a value beside every dot or segment is chaos and goes unread." This system labels the endpoint, the extreme, or the one series the story is about, and lets the legend, the axis, and the hover title carry the rest — here, that means only the net line's first and last points carry a direct value; the bars carry none, relying on the legend, the Y-axis ticks, and each mark's native hover tooltip.
+
+**Measured vs. forecast** stays exactly as before: settled months render at full color strength, projected months at 55% opacity with the net line's projected segments dashed — so a viewer can always tell forecast from fact without reading a label. The legend sits at the bottom, is clickable and keyboard-operable, and hiding a series persists to `localStorage` and rescales the y-axis to whatever remains visible.
+
+**Not yet extended.** `shell.js`'s `barChart`/`bandChart` (used on the home dashboard and Sales) and any future chart still draw with the old approach. This system is the documented template for bringing them into line, not something already applied there — ask for that pass explicitly rather than assuming it shipped with this one.
 
 ## Do's and Don'ts
 
