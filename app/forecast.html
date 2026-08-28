@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Forecast</title><link rel="stylesheet" href="./assets/style.css">
+<title>EMG — Forecast</title><link rel="stylesheet" href="./assets/style.css?v=fc8d5d3">
 <style>
 .range{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:12px}
 .rl{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.09em;color:var(--slate)}
@@ -10,7 +10,7 @@ table.sum td .pct.bad{color:var(--rust)} table.sum td .pct.good{color:var(--bran
 tr.deallist td{cursor:pointer}
 </style></head><body>
 <script type="module">
-import { boot, esc, fmt$, barChart } from './assets/shell.js';
+import { boot, esc, fmt$, barChart } from './assets/shell.js?v=fc8d5d3';
 /*
   The Forecast, remodelled on the v1 ledger's Forecast view, recovered from git:
   months as ROWS in a P&L ledger — Revenue billed, COGS, Forecast GP, Actual GP,
@@ -113,9 +113,21 @@ boot('forecast', async (supa, el) => {
   }
 
   /* -------------------------------------------------------------- the data */
+  // Supabase caps every response at 1000 rows SERVER-side — .limit() cannot exceed
+  // it. Anything that can outgrow a thousand rows must page.
+  async function fetchAll(build) {
+    const out = []; const page = 1000;
+    for (let i = 0; ; i++) {
+      const { data, error } = await build().range(i * page, (i + 1) * page - 1);
+      if (error) return { data: out, error };
+      out.push(...(data || []));
+      if (!data || data.length < page) return { data: out, error: null };
+    }
+  }
+
   let months, clientsById, dealsByClient, planByM, planBillByM, revByM, costByCM, openEditor = null;
   let projects = [], projTakenBy = {}, fixedCosts = [], runrate = { payroll:0, overhead:0 };
-  let revByProj = {}, cogsByProj = {}, contraByProj = {}, openClients = new Set();
+  let revByProj = {}, cogsByProj = {}, openClients = new Set();
   let warnings = [];
   let tableSort = { key:'revenue', dir:-1 }, tableQuery = '';
 
@@ -123,20 +135,18 @@ boot('forecast', async (supa, el) => {
     if (rangeTo < rangeFrom) rangeTo = rangeFrom;
     months = monthsBetween(rangeFrom, rangeTo);
     const [fc, dl, cl, inv, cog, st, qp, rrPay, rrOver] = await Promise.all([
-      supa.from('v_deal_month_forecast').select('deal_id,month,gp,billable')
-        .gte('month', rangeFrom).lte('month', rangeTo).limit(20000),
+      fetchAll(() => supa.from('v_deal_month_forecast').select('deal_id,month,gp,billable')
+        .gte('month', rangeFrom).lte('month', rangeTo)),
       supa.from('deals')
         .select('id,name,client_id,reviewed_at,flight_start,flight_end,media_funding,qbo_project_id,promotions(source_payload)')
         .in('status',['won','active'])
         .gte('flight_end','2026-01-01'),   // the platform starts at 2026
       supa.from('clients').select('id,name,active,qbo_customer_id').eq('active', true),
-      supa.from('invoices').select('issued_on,total,qbo_project_id')
-        .gte('issued_on', rangeFrom).lte('issued_on', shiftM(rangeTo,1)).limit(20000),
-      // income here = contra-revenue: expense-side lines hitting income accounts
-      // (paid search/social contras). They NET against revenue billed.
-      supa.from('v_cost_lines_classified').select('month,amount,class,qbo_project_id')
-        .in('class',['cogs','payroll','overhead','income'])
-        .gte('month', rangeFrom).lte('month', rangeTo).limit(20000),
+      fetchAll(() => supa.from('invoices').select('issued_on,total,qbo_project_id')
+        .gte('issued_on', rangeFrom).lte('issued_on', shiftM(rangeTo,1))),
+      fetchAll(() => supa.from('v_cost_lines_classified').select('month,amount,class,qbo_project_id')
+        .in('class',['cogs','payroll','overhead'])
+        .gte('month', rangeFrom).lte('month', rangeTo)),
       supa.from('settings').select('key,value')
         .in('key',['programmatic_margin_default','forecast_fixed_costs']),
       supa.from('qbo_projects').select('id,name,parent_id,jobcode'),
@@ -165,12 +175,6 @@ boot('forecast', async (supa, el) => {
       (costByCM[c.class] = costByCM[c.class]||{})[c.month] = ((costByCM[c.class]||{})[c.month]||0) + c.amount;
       if (c.class === 'cogs' && c.month <= thisMonth)
         cogsByProj[c.qbo_project_id] = (cogsByProj[c.qbo_project_id]||0) + c.amount;
-      if (c.class === 'income' && c.month <= thisMonth)
-        contraByProj[c.qbo_project_id] = (contraByProj[c.qbo_project_id]||0) + c.amount;
-    });
-    // contra revenue nets against billed revenue, month by month
-    Object.keys(costByCM.income||{}).forEach(m => {
-      if (m <= thisMonth) revByM[m] = (revByM[m]||0) - costByCM.income[m];
     });
     planByM = {}; planBillByM = {}; const planByDeal = {};
     (fc.data||[]).forEach(r => {
@@ -226,7 +230,6 @@ boot('forecast', async (supa, el) => {
           <span class="sc-eyebrow" style="margin:0">Clients over the range</span>
           <input type="search" id="tq" placeholder="search clients & deals…" value="${esc(tableQuery)}">
           <span id="missing-note" class="muted" style="font-size:11px"></span>
-          <span class="muted" style="font-size:10px">revenue netted of contra-revenue accounts</span>
           ${warnings.length?`<span class="err" style="font-size:10.5px">⚠ ${warnings.map(esc).join(' · ')}</span>`:''}
           <span style="flex:1"></span>
           <span class="muted" style="font-size:10.5px">arrow opens deals · click a deal to shape it · click a header to sort</span>
@@ -296,9 +299,7 @@ boot('forecast', async (supa, el) => {
     const dealRow = d => {
       const p = d._agg || { gpAll:0, gpSettled:0, billFuture:0 };
       const matched = !!d.qbo_project_id;
-      const revA = matched
-        ? ((revByProj[d.qbo_project_id]||{}).total||0) - (contraByProj[d.qbo_project_id]||0)
-        : 0;
+      const revA = matched ? ((revByProj[d.qbo_project_id]||{}).total||0) : 0;
       const cogsA = matched ? (cogsByProj[d.qbo_project_id]||0) : 0;
       const revenue = revA + p.billFuture;
       const fcCogs = Math.max(0, p.billFuture - (p.gpAll - p.gpSettled));
@@ -313,7 +314,7 @@ boot('forecast', async (supa, el) => {
     const clientRow = c => {
       const ds = dealsByClient[c.id]||[];
       const myProjects = c.qbo_customer_id ? (projsUnder[c.qbo_customer_id]||[]) : [];
-      const revA = myProjects.reduce((s,pid)=>s+((revByProj[pid]||{}).total||0)-(contraByProj[pid]||0),0);
+      const revA = myProjects.reduce((s,pid)=>s+((revByProj[pid]||{}).total||0),0);
       const cogsA = myProjects.reduce((s,pid)=>s+(cogsByProj[pid]||0),0);
       const billFuture = ds.reduce((s,d)=>s+((d._agg||{}).billFuture||0),0);
       const gpAll = ds.reduce((s,d)=>s+((d._agg||{}).gpAll||0),0);
@@ -376,7 +377,7 @@ boot('forecast', async (supa, el) => {
         .filter(pid => !takenProjects.has(pid) &&
           (((revByProj[pid]||{}).total||0) || (cogsByProj[pid]||0)))
         .map(pid => {
-          const rv = ((revByProj[pid]||{}).total||0) - (contraByProj[pid]||0);
+          const rv = ((revByProj[pid]||{}).total||0);
           const cg = cogsByProj[pid]||0;
           const pj = projects.find(p=>p.id===pid)||{};
           return `<tr class="dealsub">
