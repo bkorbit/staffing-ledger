@@ -285,11 +285,12 @@ boot('forecast', async (supa, el) => {
       const revA = matched ? ((revByProj[d.qbo_project_id]||{}).total||0) : 0;
       const cogsA = matched ? (cogsByProj[d.qbo_project_id]||0) : 0;
       const revenue = revA + p.billFuture;
+      const fcCogs = Math.max(0, p.billFuture - (p.gpAll - p.gpSettled));
       const actualGP = matched ? revA - cogsA : null;
       const variance = matched && p.gpSettled && actualGP !== null
         ? Math.round((actualGP/p.gpSettled - 1)*100) : null;
       const basis = (matched ? 'actual + ' : (revA||cogsA ? '' : 'no QB link · ')) + 'forecast';
-      return { revenue, cogs:cogsA, forecastGP:p.gpAll, actualGP, variance, basis, matched };
+      return { revenue, cogs:cogsA, fcCogs, forecastGP:p.gpAll, actualGP, variance, basis, matched };
     };
     const clientRow = c => {
       const ds = dealsByClient[c.id]||[];
@@ -299,11 +300,12 @@ boot('forecast', async (supa, el) => {
       const billFuture = ds.reduce((s,d)=>s+((d._agg||{}).billFuture||0),0);
       const gpAll = ds.reduce((s,d)=>s+((d._agg||{}).gpAll||0),0);
       const gpSettled = ds.reduce((s,d)=>s+((d._agg||{}).gpSettled||0),0);
+      const fcCogs = ds.reduce((s,d)=>s+Math.max(0,((d._agg||{}).billFuture||0)-(((d._agg||{}).gpAll||0)-((d._agg||{}).gpSettled||0))),0);
       const actualGP = (revA||cogsA) ? revA - cogsA : null;
       const variance = gpSettled && actualGP !== null
         ? Math.round((actualGP/gpSettled - 1)*100) : null;
       const basis = (revA||cogsA ? 'actual (QuickBooks) + ' : '') + (gpAll ? 'forecast' : '—');
-      return { revenue:revA+billFuture, cogs:cogsA, forecastGP:gpAll, actualGP, variance, basis };
+      return { revenue:revA+billFuture, cogs:cogsA, fcCogs, forecastGP:gpAll, actualGP, variance, basis };
     };
 
     const num = v => v ? fmtM(v) : '';
@@ -345,6 +347,7 @@ boot('forecast', async (supa, el) => {
           <span class="ellip" style="max-width:240px" title="${esc(c.name)}">${esc(c.name)}</span>
           ${missing?`<span class="pill warn" style="margin-left:6px" title="${missing} deal(s) with no forecast">${missing} unshaped</span>`:''}</td>
         <td>${num(agg.revenue)}</td><td>${num(agg.cogs)}</td>
+        <td class="muted">${num(agg.fcCogs)}</td>
         <td style="color:var(--brand)">${agg.forecastGP?fmtM(agg.forecastGP):(ds.length?noFc:'')}</td>
         <td>${agg.actualGP!==null?`<span class="${agg.actualGP<0?'neg':''}">${fmtM(agg.actualGP)}</span>`:'<span class="muted">—</span>'}</td>
         <td>${varCell(agg.variance)}</td>
@@ -356,6 +359,7 @@ boot('forecast', async (supa, el) => {
             <span class="ellip" style="max-width:210px" title="${esc(d.name)}">${esc(d.name)}</span>
             ${d.reviewed_at?'':'<span class="warn" title="awaiting review">•</span>'}${r.matched?'':' <span class="muted" title="no QuickBooks project linked — pick one in the editor">?</span>'}</td>
           <td>${num(r.revenue)}</td><td>${num(r.cogs)}</td>
+          <td class="muted">${num(r.fcCogs)}</td>
           <td style="color:var(--brand)">${r.forecastGP?fmtM(r.forecastGP):noFc}</td>
           <td>${r.actualGP!==null?`<span class="${r.actualGP<0?'neg':''}">${fmtM(r.actualGP)}</span>`:'<span class="muted">—</span>'}</td>
           <td>${varCell(r.variance)}</td>
@@ -365,8 +369,9 @@ boot('forecast', async (supa, el) => {
     }).join('');
 
     const unattributedRev = plRows.reduce((s,r)=>s+r.revenue,0) - totals.revenue;
-    const HCOLS = [['name','Client / deal'],['revenue','Revenue billed'],['cogs','COGS'],
-      ['forecastGP','Forecast GP'],['actualGP','Actual GP'],['variance','Variance'],[null,'Basis']];
+    const HCOLS = [['name','Client / deal'],['revenue','Revenue billed'],['cogs','COGS (actual)'],
+      ['fcCogs','Forecast COGS'],['forecastGP','Forecast GP'],['actualGP','Actual GP'],
+      ['variance','Variance'],[null,'Basis']];
 
     el.querySelector('#sum').innerHTML =
       `<tr>${HCOLS.map(([k,label]) => k
@@ -376,10 +381,11 @@ boot('forecast', async (supa, el) => {
       (Math.abs(unattributedRev) > 100 ? `<tr>
         <td class="muted">unattributed (no client link)</td>
         <td class="muted">${fmtM(unattributedRev)}</td>
-        <td colspan="4"></td><td style="text-align:left" class="muted">link clients on the Clients tab</td></tr>` : '') +
+        <td colspan="5"></td><td style="text-align:left" class="muted">link clients on the Clients tab</td></tr>` : '') +
       `<tr class="totalrow"><td>company — ${months.length} months</td>
         <td>${fmtM(plRows.reduce((s,r)=>s+r.revenue,0))}</td>
-        <td>${fmtM(plRows.reduce((s,r)=>s+r.cogs,0))}</td>
+        <td>${fmtM(plRows.filter(r=>r.measured).reduce((s,r)=>s+r.cogs,0))}</td>
+        <td>${fmtM(plRows.filter(r=>!r.measured).reduce((s,r)=>s+r.cogs,0))}</td>
         <td>${fmtM(plRows.reduce((s,r)=>s+r.forecastGP,0))}</td>
         <td>${fmtM(plRows.filter(r=>r.measured).reduce((s,r)=>s+(r.actualGP||0),0))}</td>
         <td></td>
@@ -436,6 +442,9 @@ boot('forecast', async (supa, el) => {
     document.onkeydown = e => { if (e.key === 'Escape') closeModal(); };
     const box = back.querySelector('.edbox');
 
+    const marginHint = await supa.from('v_client_achieved_margin')
+      .select('achieved_margin_pct,revenue').eq('client_id', d.client_id).maybeSingle();
+    const achieved = marginHint.data?.achieved_margin_pct ?? null;
     const lr = await supa.from('deal_lines').select('*').eq('deal_id', d.id).order('set_at');
     if (lr.error) { box.innerHTML = `<span class="err">${lr.error.message}</span>`; return; }
     const ids = (lr.data||[]).map(l=>l.id);
@@ -512,6 +521,9 @@ boot('forecast', async (supa, el) => {
               <option value="client" ${d.media_funding!=='agency'?'selected':''}>client pays</option>
               <option value="agency" ${d.media_funding==='agency'?'selected':''}>EMG pays &amp; rebills</option>
             </select></label>
+          ${achieved !== null ? `<span class="muted" style="font-size:10.5px">client's achieved margin
+            <b>${achieved}%</b> (invoiced vs COGS, all work)
+            <button class="use-achieved" style="padding:2px 8px;font-size:10px">apply to programmatic</button></span>` : ''}
           <span style="flex:1"></span><span class="totals"></span>
         </div>
         <div class="gridwrap"><table class="grid">
@@ -561,6 +573,11 @@ boot('forecast', async (supa, el) => {
         if (!e.target.value) return;
         model.push({ kind:e.target.value,
           params:{ amount:0, fee_pct:0, margin_pct:null, rate:0, hours_per_month:0 }, cells:{} });
+        draw();
+      };
+      const ua = box.querySelector('.use-achieved');
+      if (ua) ua.onclick = () => {
+        model.forEach(l => { if (l.kind === 'programmatic') l.params.margin_pct = achieved; });
         draw();
       };
       box.querySelector('.saveall').onclick = save;

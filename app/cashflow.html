@@ -20,12 +20,13 @@ boot('cashflow', async (supa, el) => {
 
   document.getElementById('tbl').innerHTML =
     `<tr><th>week</th><th>AR in</th><th>contracted in</th><th>bills</th><th>payroll</th>
-     <th>COGS rate</th><th>overhead</th><th>agency media</th><th>position</th><th>worst</th></tr>` +
+     <th>COGS rate</th><th>overhead</th><th>agency media</th><th>fcst COGS</th><th>position</th><th>worst</th></tr>` +
     rows.map(r=>`<tr><td>${r.week_start}</td>
       <td>${fmt$(r.cash_in_expected)}</td><td>${fmt$(r.in_contracted_expected)}</td>
       <td>${fmt$(r.out_bills)}</td><td>${fmt$(r.out_payroll)}</td>
       <td>${fmt$(r.out_cogs_runrate)}</td><td>${fmt$(r.out_overhead)}</td>
       <td>${fmt$(r.out_agency_media)}</td>
+      <td>${fmt$(r.out_contracted_cogs)}</td>
       <td class="${r.position_expected<0?'err':''}">${fmt$(r.position_expected)}</td>
       <td class="${r.position_conservative<0?'err':''}">${fmt$(r.position_conservative)}</td></tr>`).join('');
 });
