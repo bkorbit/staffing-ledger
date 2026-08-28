@@ -170,7 +170,7 @@ boot('forecast', async (supa, el) => {
       (revByProj[i.qbo_project_id] = revByProj[i.qbo_project_id]||{total:0,_:0})[
         m <= thisMonth ? 'total' : '_'] += i.total;
     });
-    costByCM = {}; cogsByProj = {}; contraByProj = {};
+    costByCM = {}; cogsByProj = {};
     (cog.data||[]).forEach(c => {
       (costByCM[c.class] = costByCM[c.class]||{})[c.month] = ((costByCM[c.class]||{})[c.month]||0) + c.amount;
       if (c.class === 'cogs' && c.month <= thisMonth)
