@@ -378,7 +378,6 @@ boot('forecast', async (supa, el) => {
     const num = v => v ? fmtM(v) : '';
     const varCell = v => v===null||v===undefined ? '' :
       `<span class="${Math.abs(v)>15?'err':'ok'}">${v>=0?'+':''}${v}%</span>`;
-    const noFc = `<span class="pill warn" title="no lines shaped — open the deal and give it a plan">missing forecast</span>`;
 
     const q = tableQuery.trim().toLowerCase();
     // active in the period = the flight overlaps the range window. A deal spanning
@@ -423,7 +422,7 @@ boot('forecast', async (supa, el) => {
           ${noProj?`<span class="pill bad" style="margin-left:6px" title="${noProj} deal(s) with no QuickBooks project — no actuals until linked">${noProj} no QB project</span>`:''}</td>
         <td>${num(agg.revenue)}</td><td>${num(agg.cogs)}</td>
         <td class="muted">${num(agg.fcCogs)}</td>
-        <td style="color:var(--brand)">${agg.forecastGP?fmtM(agg.forecastGP):(ds.length?noFc:'')}</td>
+        <td style="color:var(--brand)">${agg.forecastGP?fmtM(agg.forecastGP):''}</td>
         <td>${agg.actualGP!==null?`<span class="${agg.actualGP<0?'neg':''}">${fmtM(agg.actualGP)}</span>`:'<span class="muted">—</span>'}</td>
         <td>${varCell(agg.variance)}</td>
         <td style="text-align:left" class="muted">${agg.basis}</td></tr>`;
@@ -450,7 +449,7 @@ boot('forecast', async (supa, el) => {
             ${d.reviewed_at?'':'<span class="warn" title="awaiting review">•</span>'}${r.matched?'':' <span class="pill bad" title="no QuickBooks project linked — open the deal and pick one">no QB project</span>'}</td>
           <td>${num(r.revenue)}</td><td>${num(r.cogs)}</td>
           <td class="muted">${num(r.fcCogs)}</td>
-          <td style="color:var(--brand)">${r.forecastGP?fmtM(r.forecastGP):(r.ended?'':noFc)}</td>
+          <td style="color:var(--brand)">${r.forecastGP?fmtM(r.forecastGP):''}</td>
           <td>${r.actualGP!==null?`<span class="${r.actualGP<0?'neg':''}">${fmtM(r.actualGP)}</span>`:'<span class="muted">—</span>'}</td>
           <td>${varCell(r.variance)}</td>
           <td style="text-align:left" class="muted">${r.basis}</td></tr>`;
