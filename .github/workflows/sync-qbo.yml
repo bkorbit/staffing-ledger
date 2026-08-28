@@ -17,6 +17,8 @@ jobs:
       # The pure logic runs before anything touches QuickBooks or the database.
       - name: Unit tests
         run: node scripts/test/qbo.test.mjs
+      - name: End-to-end run against stubbed QuickBooks and Supabase
+        run: node scripts/test/qbo.e2e.mjs
 
   sync:
     needs: test

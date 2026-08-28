@@ -25,8 +25,8 @@ const CLIENT_ID    = process.env.QBO_CLIENT_ID;
 const CLIENT_SECRET= process.env.QBO_CLIENT_SECRET;
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;   // no longer hardcoded
-const QBO       = 'https://quickbooks.api.intuit.com/v3/company';
-const TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
+const QBO       = process.env.QBO_BASE_URL || 'https://quickbooks.api.intuit.com/v3/company';
+const TOKEN_URL = process.env.QBO_TOKEN_URL || 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
 const MINOR     = '75';
 const STATE_ID  = 'quickbooks';
 
@@ -335,6 +335,35 @@ async function main() {
   const nProjects = customers.filter(c => c.Job).length;
   const nJob = customers.filter(c => jobcodeFromName(c.FullyQualifiedName || '')).length;
   console.log(`  ${customers.length} customers (${nProjects} projects, ${nJob} carrying a jobcode)`);
+
+  // ---- chart of accounts ----
+  // Every account, not just banks. QuickBooks types them itself, which is the same
+  // COGS-versus-overhead judgement the old system kept in hand-built rule tables.
+  // is_operating and the override columns are never written here: those are human
+  // decisions and a re-run must not clobber them.
+  const accounts = await qboAll(realm, token, 'Account');
+  await sbUpsert('qbo_accounts', accounts.map(a => ({
+    id: String(a.Id),
+    name: a.Name || '',
+    fully_qualified_name: a.FullyQualifiedName || a.Name || '',
+    account_type: a.AccountType || '',
+    account_sub_type: a.AccountSubType || '',
+    parent_id: (a.ParentRef || {}).value ? String(a.ParentRef.value) : null,
+    active: a.Active !== false,
+    balance: cents(a.CurrentBalance),
+    as_of: new Date().toISOString().slice(0, 10),
+    derived_class: classifyAccount(a.AccountType, a.AccountSubType, a.Name),
+    synced_at: new Date().toISOString()
+  })), 'id');
+  const banks = accounts.filter(a => a.AccountType === 'Bank');
+  const byClass = {};
+  accounts.forEach(a => {
+    const c = classifyAccount(a.AccountType, a.AccountSubType, a.Name);
+    byClass[c] = (byClass[c] || 0) + 1;
+  });
+  console.log(`  ${accounts.length} accounts (${banks.length} bank) — ` +
+    Object.entries(byClass).map(([k, v]) => `${v} ${k}`).join(', '));
+  console.log(`  bank total ${banks.reduce((s, a) => s + (+a.CurrentBalance || 0), 0).toLocaleString()}`);
 
   // ---- invoices ----
   // The window is REPLACED, not merged: invoices are deleted rather than voided in this
