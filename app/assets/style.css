@@ -82,6 +82,10 @@ td.textleft { text-align:left; font-family:var(--font-body); }
 .placeholder { border:1px dashed var(--line); border-radius:6px; padding:44px; text-align:center;
   color:var(--slate); background:var(--paper-raised); }
 svg.chart { width:100%; height:240px; display:block; }
+.chart-tip { position:absolute; pointer-events:none; z-index:5; opacity:0;
+  transition:opacity .1s ease; background:var(--paper-raised); border:1px solid var(--line);
+  border-radius:4px; padding:5px 9px; font-family:var(--font-mono); font-size:11px;
+  color:var(--ink); white-space:nowrap; }
 #login { max-width:380px; margin:90px auto; background:var(--paper-raised); border:1px solid var(--line);
   border-radius:6px; padding:22px; }
 #login .col { display:flex; flex-direction:column; gap:10px; }

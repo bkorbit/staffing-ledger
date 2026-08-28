@@ -171,23 +171,20 @@ boot('forecast', async (supa, el) => {
     rows.forEach((r,i)=>{
       const cx=P.l+gap*i+gap/2, op=r.measured?1:0.55;
       const x0=cx-1.5*bw-2;
-      const labY = [];
-      const dodge = yv => { let yy=yv-3;
-        while (labY.some(o=>Math.abs(o-yy)<10)) yy-=10;
-        labY.push(yy); return yy; };
-      if(on('revenue') && r.revenue>0) g+=`<rect x="${x0}" y="${y(r.revenue)}" width="${bw}" height="${y0-y(r.revenue)}" fill="${colorOf.revenue}" opacity="${op}"><title>${mLabel(r.m)} revenue ${fmtM(r.revenue)}</title></rect>
-        <text x="${x0+bw/2}" y="${dodge(y(r.revenue))}" fill="${INK}" font-size="9" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(r.revenue)}</text>`;
-      if(on('cogs') && r.cogs>0) g+=`<rect x="${x0+bw+2}" y="${y(r.cogs)}" width="${bw}" height="${y0-y(r.cogs)}" fill="${colorOf.cogs}" opacity="${op}"><title>${mLabel(r.m)} COGS ${fmtM(r.cogs)}</title></rect>
-        <text x="${x0+1.5*bw+2}" y="${dodge(y(r.cogs))}" fill="${INK}" font-size="9" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(r.cogs)}</text>`;
+      // called out directly on the chart: revenue and net only. Everything
+      // else (COGS, the opex stack) carries its value in the hover tip, not
+      // a permanent label — that was the clutter.
+      if(on('revenue') && r.revenue>0) g+=`<rect x="${x0}" y="${y(r.revenue)}" width="${bw}" height="${y0-y(r.revenue)}" fill="${colorOf.revenue}" opacity="${op}" data-tip="${mLabel(r.m)} revenue ${fmtM(r.revenue)}"><title>${mLabel(r.m)} revenue ${fmtM(r.revenue)}</title></rect>
+        <text x="${x0+bw/2}" y="${y(r.revenue)-4}" fill="${INK}" font-size="9" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(r.revenue)}</text>`;
+      if(on('cogs') && r.cogs>0) g+=`<rect x="${x0+bw+2}" y="${y(r.cogs)}" width="${bw}" height="${y0-y(r.cogs)}" fill="${colorOf.cogs}" opacity="${op}" data-tip="${mLabel(r.m)} COGS ${fmtM(r.cogs)}"><title>${mLabel(r.m)} COGS ${fmtM(r.cogs)}</title></rect>`;
       let acc=0; const xs=x0+2*(bw+2);
       [['labour'],['other'],['misc'],['fixed']].forEach(([k])=>{
         if(!on(k)) return;
         const v=r[k]; if(!v) return;
         const y1=y(acc+v), h=y(acc)-y(acc+v); acc+=v;
         const nm = k==='other'?'overhead':k==='misc'?'other accts':k;
-        g+=`<rect x="${xs}" y="${y1}" width="${bw}" height="${h}" fill="${colorOf[k]}" opacity="${op}"><title>${mLabel(r.m)} ${nm} ${fmtM(v)}</title></rect>`;
+        g+=`<rect x="${xs}" y="${y1}" width="${bw}" height="${h}" fill="${colorOf[k]}" opacity="${op}" data-tip="${mLabel(r.m)} ${nm} ${fmtM(v)}"><title>${mLabel(r.m)} ${nm} ${fmtM(v)}</title></rect>`;
       });
-      if(acc>0) g+=`<text x="${xs+bw/2}" y="${dodge(y(acc))}" fill="${INK}" font-size="9" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(acc)}</text>`;
       g+=`<text x="${cx}" y="${H-8}" fill="${INK}" font-size="${rows.length>14?8:9.5}" font-family="IBM Plex Mono" text-anchor="middle">${mLabel(r.m)}</text>`;
     });
     if (on('net')) {
@@ -201,8 +198,9 @@ boot('forecast', async (supa, el) => {
           ${segMeasured?'':'stroke-dasharray="5 3"'}/>`;
       }
       rows.forEach((r,i)=>{const cx=P.l+gap*i+gap/2, cy=y(r.net);
-        g+=`<circle cx="${cx}" cy="${cy}" r="4" fill="${colorOf.net}" stroke="var(--paper-raised)" stroke-width="2" opacity="${r.measured?1:0.55}"><title>${mLabel(r.m)} net ${fmtM(r.net)} — ${r.measured?'measured':'forecast: GP − labour − overhead − other − fixed'}</title></circle>
-        <text x="${cx}" y="${cy-10}" fill="${INK}" font-size="9.5" font-weight="600" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(r.net)}</text>`;});
+        const tip = `${mLabel(r.m)} net ${fmtM(r.net)} — ${r.measured?'measured':'forecast: GP − labour − overhead − other − fixed'}`;
+        g+=`<circle cx="${cx}" cy="${cy}" r="4" fill="${colorOf.net}" stroke="var(--paper-raised)" stroke-width="2" opacity="${r.measured?1:0.55}" data-tip="${tip}"><title>${tip}</title></circle>
+        <text x="${cx}" y="${cy+17}" fill="${INK}" font-size="9.5" font-weight="600" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(r.net)}</text>`;});
     }
     // the legend lives at the BOTTOM and toggles series on click or Enter/Space
     const LEG_Y = H + 10;
@@ -215,7 +213,8 @@ boot('forecast', async (supa, el) => {
         <text x="${x+13}" y="${LEG_Y+8}" fill="${INK}" font-size="10" font-family="IBM Plex Mono" ${off?'text-decoration="line-through"':''}>${label}</text>
         <title>${off?'show':'hide'} ${label}</title></g>`;
     }).join('');
-    elc.innerHTML=`<svg class="chart" viewBox="0 0 ${W} ${H+26}"><g>${g}</g>${leg}</svg>`;
+    elc.style.position='relative';
+    elc.innerHTML=`<svg class="chart" viewBox="0 0 ${W} ${H+26}"><g>${g}</g>${leg}</svg><div class="chart-tip"></div>`;
     const toggleSeries = k => {
       hidden.has(k) ? hidden.delete(k) : hidden.add(k);
       localStorage.setItem('fc_hidden', JSON.stringify([...hidden]));
@@ -224,6 +223,18 @@ boot('forecast', async (supa, el) => {
     elc.querySelectorAll('.lgd').forEach(el2 => {
       el2.onclick = () => toggleSeries(el2.dataset.k);
       el2.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSeries(el2.dataset.k); } };
+    });
+    // real hover tooltip — the native <title> tooltip stays as a no-JS/a11y
+    // floor, but it's slow to appear and easy to miss; this is instant
+    const tip = elc.querySelector('.chart-tip');
+    elc.querySelectorAll('[data-tip]').forEach(mark => {
+      mark.addEventListener('mouseenter', () => { tip.textContent = mark.dataset.tip; tip.style.opacity = '1'; });
+      mark.addEventListener('mousemove', e => {
+        const box = elc.getBoundingClientRect();
+        tip.style.left = (e.clientX - box.left + 12) + 'px';
+        tip.style.top = (e.clientY - box.top - 10) + 'px';
+      });
+      mark.addEventListener('mouseleave', () => { tip.style.opacity = '0'; });
     });
   }
 
