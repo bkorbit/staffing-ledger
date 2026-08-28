@@ -159,20 +159,43 @@ export function barChart(el, labels, series) {
 export function bandChart(el, labels, bands) {
   const W = 940, H = 240, P = { l: 68, r: 10, t: 14, b: 24 };
   const all = bands.flatMap(b => b.values);
-  const min = Math.min(...all, 0), max = Math.max(...all, 0);
+  // bounds snap to $250k, gridlines every $500k ($1M past 13 lines) — the same
+  // axis rule the Forecast chart uses, values here are cents
+  const SNAP = 25000000;
+  const rawMin = Math.min(0, ...all), rawMax = Math.max(0, ...all);
+  const min = Math.floor(rawMin / SNAP) * SNAP;
+  const max = Math.max(Math.ceil(rawMax / SNAP) * SNAP, min + SNAP);
   const x = i => P.l + (W - P.l - P.r) * (labels.length === 1 ? 0.5 : i / (labels.length - 1));
   const y = v => P.t + (H - P.t - P.b) * (1 - (v - min) / ((max - min) || 1));
-  const ticks = 4;
-  const grid = Array.from({ length: ticks + 1 }, (_, i) => {
-    const v = min + (max - min) * i / ticks;
-    return `<line x1="${P.l}" y1="${y(v)}" x2="${W - P.r}" y2="${y(v)}" stroke="#e2e2e2"/>
+  let step = 50000000;
+  if ((max - min) / step > 13) step = 100000000;
+  let grid = '';
+  // the `|| 0` guards against a -0 tick (e.g. Math.ceil(-0.5) is -0 in JS) —
+  // without it a gridline that lands exactly on zero prints "$-0"
+  for (let v = (Math.ceil(min / step) * step) || 0; v <= max; v += step) {
+    grid += `<line x1="${P.l}" y1="${y(v)}" x2="${W - P.r}" y2="${y(v)}" stroke="#e2e2e2"/>
       <text x="${P.l - 6}" y="${y(v) + 4}" fill="#67706d" font-size="10" font-family="IBM Plex Mono" text-anchor="end">${fmt$(v)}</text>`;
-  }).join('');
+  }
   const zero = (min < 0 && max > 0)
     ? `<line x1="${P.l}" y1="${y(0)}" x2="${W - P.r}" y2="${y(0)}" stroke="#d1453b" stroke-dasharray="4 3"/>` : '';
+  // Catmull-Rom -> cubic Bezier: an interpolating spline that still passes
+  // through every real data point, so the curve reads smoother without
+  // bending what the numbers actually say.
+  const smoothPath = pts => {
+    if (pts.length < 2) return '';
+    if (pts.length === 2) return `M${pts[0][0]},${pts[0][1]} L${pts[1][0]},${pts[1][1]}`;
+    let d = `M${pts[0][0]},${pts[0][1]}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+      const c1x = p1[0] + (p2[0] - p0[0]) / 6, c1y = p1[1] + (p2[1] - p0[1]) / 6;
+      const c2x = p2[0] - (p3[0] - p1[0]) / 6, c2y = p2[1] - (p3[1] - p1[1]) / 6;
+      d += ` C${c1x},${c1y} ${c2x},${c2y} ${p2[0]},${p2[1]}`;
+    }
+    return d;
+  };
   const lines = bands.map(b =>
-    `<polyline fill="none" stroke="${b.color}" stroke-width="2"
-       points="${b.values.map((v, i) => x(i) + ',' + y(v)).join(' ')}"/>`).join('');
+    `<path fill="none" stroke="${b.color}" stroke-width="2"
+       d="${smoothPath(b.values.map((v, i) => [x(i), y(v)]))}"/>`).join('');
   const xlabels = labels.map((l, i) => i % 2 ? '' :
     `<text x="${x(i)}" y="${H - 6}" fill="#67706d" font-size="10" font-family="IBM Plex Mono" text-anchor="middle">${l}</text>`).join('');
   const legend = bands.map((b, i) =>

@@ -15,6 +15,7 @@ boot('cashflow', async (supa, el) => {
       H2 the 16th to month end. Programmatic pays its media in the spend half; the client
       pays on their curve, usually two to three halves later.</span>
     </div>
+    <div class="summary-strip" id="kpis"></div>
     <div class="sc-panel"><div id="chart">loading…</div></div>
     <div class="sc-panel" style="overflow-x:auto">
       <div class="sc-eyebrow">Cash position by period</div>
@@ -31,7 +32,7 @@ boot('cashflow', async (supa, el) => {
   const sel = document.getElementById('cf-weeks');
 
   // ---- everything below is independent of the horizon — loaded once
-  const [ar, ap, pj, cl, dl] = await Promise.all([
+  const [ar, ap, pj, cl, dl, bk] = await Promise.all([
     fetchAll(() => supa.from('invoices')
       .select('qbo_customer_name,qbo_project_id,due_on,issued_on,balance').gt('balance', 0)),
     fetchAll(() => supa.from('bills')
@@ -39,9 +40,18 @@ boot('cashflow', async (supa, el) => {
     fetchAll(() => supa.from('qbo_projects').select('id,name,parent_id')),
     supa.from('clients').select('id,name,qbo_customer_id'),
     supa.from('deals').select('client_id,qbo_project_id')
-      .in('status',['won','active']).eq('hidden', false).not('qbo_project_id','is',null)
+      .in('status',['won','active']).eq('hidden', false).not('qbo_project_id','is',null),
+    supa.from('qbo_accounts').select('balance,is_operating,as_of').eq('account_type','Bank')
   ]);
-  for (const r of [ar, ap, pj, cl, dl]) if (r.error) throw r.error;
+  for (const r of [ar, ap, pj, cl, dl, bk]) if (r.error) throw r.error;
+
+  // today's cash: the same "operating banks only, if any are flagged" rule
+  // cashflow_forecast() uses server-side for its own opening balance
+  const banksOperatingSet = (bk.data||[]).some(b => b.is_operating);
+  const cashToday = (bk.data||[])
+    .filter(b => !banksOperatingSet || b.is_operating)
+    .reduce((s,b) => s + b.balance, 0);
+  const cashAsOf = (bk.data||[])[0]?.as_of || '—';
 
   // roll AR up to the master client: a project claimed by a deal belongs to that
   // deal's client (claims attribution — lets two platform clients split one QBO
@@ -94,21 +104,44 @@ boot('cashflow', async (supa, el) => {
         <span class="ellip" style="max-width:240px;display:inline-block;vertical-align:bottom">${e.n}</span></td>
       ${e.b.map((v,i)=>`<td class="${i>=3&&v?'err':''}">${cell(v)}</td>`).join('')}
       <td style="font-weight:600">${fmt$(e.total)}</td></tr>`;
+    const overduePct = grand ? Math.round(100*overdue/grand) : 0;
     document.getElementById(elId).innerHTML =
       `<tr><th style="text-align:left"></th>${BUCKETS.map(b=>`<th>${b}</th>`).join('')}<th>total</th></tr>` +
       top.map(line).join('') + (restRow ? line(restRow) : '') +
-      `<tr class="gp"><td style="text-align:left">total${grand ?
-          ` — ${Math.round(100*overdue/grand)}% overdue` : ''}</td>
+      `<tr class="gp"><td style="text-align:left">total${grand ? ` — ${overduePct}% overdue` : ''}</td>
         ${totals.map(v=>`<td>${cell(v)}</td>`).join('')}
         <td style="font-weight:700">${fmt$(grand)}</td></tr>`;
+    return { grand, overduePct };
   }
-  agingTable('ar-aging', ar.data, 'master', Infinity);   // every master client, all of it
-  agingTable('ap-aging', ap.data, 'vendor_name');
+  const arSummary = agingTable('ar-aging', ar.data, 'master', Infinity);   // every master client, all of it
+  const apSummary = agingTable('ap-aging', ap.data, 'vendor_name');
 
   // ---- horizon-dependent: the only part that needs to re-run on a horizon change
   async function renderPeriods(periods) {
     const { data: rows, error } = await supa.rpc('cashflow_forecast', { periods });
     if (error) throw error;
+
+    const months = periods / 2;
+    const endExpected = rows[rows.length-1].position_expected;
+    const trough = Math.min(...rows.map(r=>r.position_conservative));
+    const runrate = Math.round((endExpected - cashToday) / months);
+    document.getElementById('kpis').innerHTML = `
+      <div class="summary-cell"><div class="summary-label">In the bank</div>
+        <div class="summary-value">${fmt$(cashToday)}</div>
+        <div class="summary-note">as of ${cashAsOf}</div></div>
+      <div class="summary-cell"><div class="summary-label">Monthly cash runrate</div>
+        <div class="summary-value ${runrate<0?'neg':'pos'}">${runrate<0?'-':'+'}${fmt$(Math.abs(runrate))}</div>
+        <div class="summary-note">avg net flow over the ${months}-month horizon</div></div>
+      <div class="summary-cell"><div class="summary-label">Projected position, ${months} mo</div>
+        <div class="summary-value ${endExpected<0?'neg':'pos'}">${fmt$(endExpected)}</div>
+        <div class="summary-note">${fmt$(trough)} conservative trough</div></div>
+      <div class="summary-cell"><div class="summary-label">Open AR</div>
+        <div class="summary-value">${fmt$(arSummary.grand)}</div>
+        <div class="summary-note">${arSummary.overduePct}% overdue</div></div>
+      <div class="summary-cell"><div class="summary-label">Open AP</div>
+        <div class="summary-value">${fmt$(apSummary.grand)}</div>
+        <div class="summary-note">${apSummary.overduePct}% overdue</div></div>`;
+
     bandChart(document.getElementById('chart'),
       rows.map(r=>r.period_label.replace(/ \d\d$/,'')),
       [{name:'optimistic (p25)', color:'#67706d', values: rows.map(r=>r.position_optimistic)},
