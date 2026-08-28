@@ -64,7 +64,7 @@ boot('forecast', async (supa, el) => {
   const creativeMode = l => (l.label||'').startsWith('creative:hourly') ? 'hourly' : 'retainer';
   // billable revenue per month — media lines bill budget+fee (or fee only when the
   // client funds search/social directly); service lines bill what they earn
-  function revMonth(l, m, mediaFunding) {
+  function revMonth(l, m, mediaFunding, flight) {
     const fee = l.params.fee_pct || 0;
     const b = l.cells[m] !== undefined ? l.cells[m]*100 : 0;
     switch (l.kind) {
@@ -72,22 +72,35 @@ boot('forecast', async (supa, el) => {
       case 'search': case 'social':
         return mediaFunding === 'agency' ? Math.round(b * (1 + fee/100))
                                          : Math.round(b * fee/100);
-      default: return gpMonth(l, m);   // retainer / creative / hourly bill what they earn
+      default: return gpMonth(l, m, flight);   // retainer / creative / hourly bill what they earn
     }
   }
   let marginDefault = 35;
-  function gpMonth(l, m) {
+  // covered-day fraction of month m within the flight — 1 for fully covered
+  function dayFrac(m, flight) {
+    if (!flight) return 1;
+    const y = +m.slice(0,4), mo = +m.slice(5,7);
+    const dim = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+    const monthStart = m, monthEnd = m.slice(0,8) + String(dim).padStart(2,'0');
+    const s = flight.start > monthStart ? flight.start : monthStart;
+    const e = flight.end   < monthEnd   ? flight.end   : monthEnd;
+    const covered = Math.round((new Date(e+'T00:00:00Z') - new Date(s+'T00:00:00Z'))/864e5) + 1;
+    return covered >= dim ? 1 : covered / dim;
+  }
+  function gpMonth(l, m, flight) {
     const cfg = KIND[l.kind];
     const fee = l.params.fee_pct || 0;
     const margin = l.params.margin_pct ?? marginDefault;
-    const cell = k => l.cells[m];   // per-month override when present
+    const flat = amt => l.cells[m] !== undefined
+      ? Math.round(l.cells[m]*100)                       // explicit override: never scaled
+      : Math.round(amt*100*dayFrac(m, flight));          // default: day-weighted
     switch (l.kind) {
       case 'retainer': case 'custom':
-        return Math.round((l.params.amount||0)*100);
+        return flat(l.params.amount||0);
       case 'creative':
         return creativeMode(l) === 'hourly'
           ? Math.round((l.params.rate||0)*100*(l.cells[m] ?? l.params.hours_per_month ?? 0))
-          : Math.round((l.params.amount||0)*100);
+          : flat(l.params.amount||0);
       case 'hourly': {
         const hrs = l.cells[m] !== undefined ? l.cells[m] : (l.params.hours_per_month||0);
         return Math.round((l.params.rate||0)*100*hrs);
@@ -812,11 +825,16 @@ boot('forecast', async (supa, el) => {
         const total = +inp.value;
         l.cells = {};
         if (total > 0 && openM.length) {
-          const per = Math.floor((total / openM.length) * 100) / 100;
+          // day-weighted: each open month takes its covered-days share of the flight
+          const w = openM.map(m => dayFrac(m, flight) *
+            new Date(Date.UTC(+m.slice(0,4), +m.slice(5,7), 0)).getUTCDate());
+          const wSum = w.reduce((a,b)=>a+b,0);
           let acc = 0;
           openM.forEach((m,i) => {
-            const v = i===openM.length-1 ? Math.round((total - acc)*100)/100 : per;
-            l.cells[m] = v; acc += per;
+            const v = i===openM.length-1
+              ? Math.round((total - acc)*100)/100
+              : Math.round(total * w[i]/wSum * 100)/100;
+            l.cells[m] = v; acc += v;
           });
         }
         box.querySelectorAll(`.linecard[data-li="${inp.dataset.li}"] input.cell`).forEach(ci => {
@@ -907,14 +925,14 @@ boot('forecast', async (supa, el) => {
         let total = 0, revTotal = 0; const mgp = {}, mrev = {};
         model.forEach((l, li) => {
           let lt = 0;
-          fm.forEach(m => { const g = gpMonth(l, m);
+          fm.forEach(m => { const g = gpMonth(l, m, flight);
             if (g) { mgp[m]=(mgp[m]||0)+g; lt += g; } });
           // card title GP + the greyed callout under the entry box
           const lg = box.querySelector(`.lgp[data-li="${li}"]`);
           if (lg) lg.textContent = lt ? `line GP $${fmtN(lt)}` : '';
           const co = box.querySelector(`.gpcallout[data-li="${li}"]`);
           if (co) {
-            const lrev = fm.reduce((s,m)=>s+revMonth(l,m,mf),0);
+            const lrev = fm.reduce((s,m)=>s+revMonth(l,m,mf,flight),0);
             if (l.kind==='programmatic') {
               const mgn = l.params.margin_pct ?? marginDefault;
               co.textContent = lt ? `Revenue ${fmtMoney(lrev)} · GP ${fmtMoney(lt)} — margin ${mgn}% + fee ${l.params.fee_pct||0}%` : '';
@@ -928,14 +946,14 @@ boot('forecast', async (supa, el) => {
           cols.forEach((c, ci) => {
             const td = box.querySelector(`td[data-lrc="${li}:${ci}"]`);
             if (td) {
-              const g = c.months.reduce((s,m)=>s+gpMonth(l,m),0);
+              const g = c.months.reduce((s,m)=>s+gpMonth(l,m,flight),0);
               const rv = c.months.reduce((s,m)=>s+revMonth(l,m,mf),0);
               td.innerHTML = g||rv
                 ? `<div>${fmtMoney(g)}</div>${rv!==g?`<div class="subrev">rev ${fmtMoney(rv)}</div>`:''}`
                 : '';
             }
           });
-          fm.forEach(m => { const r = revMonth(l, m, mf); if (r) mrev[m]=(mrev[m]||0)+r; revTotal += r; });
+          fm.forEach(m => { const r = revMonth(l, m, mf, flight); if (r) mrev[m]=(mrev[m]||0)+r; revTotal += r; });
           const lrt = box.querySelector(`td[data-lrt="${li}"]`);
           if (lrt) lrt.textContent = lt ? fmtMoney(lt) : '';
           total += lt;
