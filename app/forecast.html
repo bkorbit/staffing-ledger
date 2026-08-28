@@ -154,7 +154,7 @@ boot('forecast', async (supa, el) => {
         .gte('month', rangeFrom).lte('month', rangeTo)),
       supa.from('settings').select('key,value')
         .in('key',['programmatic_margin_default','forecast_fixed_costs']),
-      supa.from('qbo_projects').select('id,name,parent_id,jobcode'),
+      fetchAll(() => supa.from('qbo_projects').select('id,name,parent_id,jobcode').order('name')),
       supa.rpc('cost_runrate_monthly', { p_class:'payroll', months:6 }),
       supa.rpc('cost_runrate_monthly', { p_class:'overhead', months:6 }),
       supa.rpc('cost_runrate_monthly', { p_class:'other', months:6 })
@@ -452,7 +452,7 @@ boot('forecast', async (supa, el) => {
         return `<tr class="dealsub deallist" data-id="${d.id}" title="click to shape">
           <td style="padding-left:28px">▸
             <span class="ellip" style="max-width:210px" title="${esc(d.name)}">${esc(d.name)}</span>
-            ${d.reviewed_at?'':'<span class="warn" title="awaiting review">•</span>'}${r.matched?'':' <span class="muted" title="no QuickBooks project linked — pick one in the editor">?</span>'}</td>
+            ${d.reviewed_at?'':'<span class="warn" title="awaiting review">•</span>'}${r.matched?'':' <span class="pill warn" title="no QuickBooks project linked — open the deal and pick one">no QB project</span>'}</td>
           <td>${num(r.revenue)}</td><td>${num(r.cogs)}</td>
           <td class="muted">${num(r.fcCogs)}</td>
           <td style="color:var(--brand)">${r.forecastGP?fmtM(r.forecastGP):(r.ended?'':noFc)}</td>
@@ -616,19 +616,8 @@ boot('forecast', async (supa, el) => {
               <option value="__new__">+ new client…</option>
             </select></label>
           <label class="mono" style="display:flex;align-items:center;gap:6px">QB project
-            <select class="qp" style="height:30px;max-width:250px">
-              <option value="">— none —</option>
-              ${(() => {
-                const client = clientsById[d.client_id] || {};
-                const free = p => !projTakenBy[p.id] || p.id === d.qbo_project_id;
-                const mine = projects.filter(p => client.qbo_customer_id &&
-                  (p.parent_id === client.qbo_customer_id || p.id === client.qbo_customer_id) && free(p));
-                const rest = projects.filter(p => !mine.includes(p) && free(p));
-                const opt = p => `<option value="${p.id}" ${p.id===d.qbo_project_id?'selected':''}>${esc(p.name)}</option>`;
-                return (mine.length?`<optgroup label="this client's projects">${mine.map(opt).join('')}</optgroup>`:'') +
-                       `<optgroup label="all unlinked projects">${rest.map(opt).join('')}</optgroup>`;
-              })()}
-            </select></label>
+            <input class="qpsearch" placeholder="search projects…" style="height:30px;width:140px">
+            <select class="qp" style="height:30px;max-width:280px"></select></label>
           <label class="mono" style="display:flex;align-items:center;gap:6px">media funding
             <select class="mf" style="height:30px">
               <option value="client" ${d.media_funding!=='agency'?'selected':''}>client pays</option>
@@ -673,7 +662,27 @@ boot('forecast', async (supa, el) => {
       box.querySelectorAll('input.p').forEach(inp => inp.oninput = () => {
         const l = model[+inp.dataset.li];
         l.params[inp.dataset.p] = inp.value==='' ? (inp.dataset.p==='margin_pct'?null:0) : +inp.value;
-        preview();
+        // the project picker: searchable over the FULL list; projects linked to
+      // another deal stay visible and selectable — moving one is confirmed on save
+      const qpSel = box.querySelector('.qp'), qpSearch = box.querySelector('.qpsearch');
+      const drawPicker = (q = '') => {
+        const needle = q.trim().toLowerCase();
+        const client = clientsById[d.client_id] || {};
+        const match = p => !needle || p.name.toLowerCase().includes(needle);
+        const label = p => esc(p.name) +
+          (projTakenBy[p.id] && p.id !== d.qbo_project_id ? ` — linked to: ${esc(projTakenBy[p.id])}` : '');
+        const mine = projects.filter(p => client.qbo_customer_id &&
+          (p.parent_id === client.qbo_customer_id || p.id === client.qbo_customer_id) && match(p));
+        const rest = projects.filter(p => !mine.includes(p) && match(p));
+        const opt = p => `<option value="${p.id}" ${p.id===d.qbo_project_id?'selected':''}>${label(p)}</option>`;
+        qpSel.innerHTML = `<option value="">— none —</option>` +
+          (mine.length?`<optgroup label="this client's projects">${mine.map(opt).join('')}</optgroup>`:'') +
+          `<optgroup label="${needle?'matching':'all'} projects">${rest.slice(0,400).map(opt).join('')}</optgroup>` +
+          (rest.length>400?`<option disabled>… ${rest.length-400} more — narrow the search</option>`:'');
+      };
+      drawPicker();
+      qpSearch.oninput = () => drawPicker(qpSearch.value);
+      preview();
       });
       box.querySelectorAll('input.cell').forEach(inp => inp.oninput = () => {
         const l = model[+inp.dataset.li];
