@@ -248,6 +248,8 @@ Buttons, inputs, and cards read as **terminal-tactile**: small, precise, and den
 - **Header:** uppercase IBM Plex Mono label at 9px, light gray background, 2px Deep-Ledger-Green bottom border on the most important table variant (`.acct`); sortable headers show a small directional indicator in brand green.
 - **Rows:** client/parent rows are bold with a hairline top border and a light background tint; child/deal rows sit on plain white; hovering a clickable row tints it Mint.
 - **Totals row:** solid Deep Ledger Green background, white bold text — the one row in a table allowed to invert the palette.
+- **Column grouping:** on the account table, a hairline (`border-left`) marks the start of the Value column and again before Variance, quietly grouping GP Billed and GP Forecast as a pair with no divider between them — proximity signals relationship without a new visual language.
+- **Out-of-tolerance flag:** a variance beyond ±15% gets a Rust Tint chip (background, weight, small radius) instead of plain colored text — the one number per row worth interrupting the scan for. Everything inside tolerance stays quiet text; flagging every number would defeat the flag.
 
 ### Status Pills
 - **Style:** full-round (`99px`), IBM Plex Mono at 10px, 2px/8px padding, hairline border by default.

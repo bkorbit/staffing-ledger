@@ -91,6 +91,10 @@ svg.chart { width:100%; height:240px; display:block; }
 .gridwrap { overflow-x:auto; margin-top:10px; }
 input.month { height:30px; font-size:12px; }
 input.p { width:64px; height:28px; text-align:right; }
+.pf input[type="number"], .pmcell input[type="number"] { -moz-appearance:textfield; }
+.pf input[type="number"]::-webkit-outer-spin-button, .pf input[type="number"]::-webkit-inner-spin-button,
+.pmcell input[type="number"]::-webkit-outer-spin-button, .pmcell input[type="number"]::-webkit-inner-spin-button
+  { -webkit-appearance:none; margin:0; }
 .total-match { color:var(--brand-2); font-weight:600; font-family:var(--font-mono); }
 .total-off { color:var(--amber); font-weight:600; font-family:var(--font-mono); }
 .toolbar { display:flex; gap:10px; align-items:center; margin:0 0 16px; flex-wrap:wrap; }
@@ -131,6 +135,15 @@ table.acct tr.totalrow td { background:var(--brand); color:#fff; font-weight:700
   border-top:2px solid var(--brand); }
 table.acct .neg { color:var(--rust); }
 table.acct tr.totalrow .neg { color:#ffb4ac; }
+/* group the four numeric columns by meaning: Value stands alone, GP Billed
+   and GP Forecast read as a pair (no divider between them), Variance is
+   the derived comparison and gets its own edge */
+table.acct th:nth-child(2), table.acct td:nth-child(2),
+table.acct th:nth-child(5), table.acct td:nth-child(5) { border-left:1px solid var(--line); }
+/* an out-of-tolerance variance (>15%) is the one number in this table that
+   demands attention; give it a tint instead of relying on small colored text
+   to compete with four columns of plain mono figures */
+table.acct .err { background:var(--rust-bg); border-radius:4px; padding:1px 5px; font-weight:700; }
 .tbltools { display:flex; align-items:center; gap:10px; padding:10px 14px; flex-wrap:wrap;
   border-bottom:1px solid var(--line); }
 .tbltools input[type=search] { width:240px; }

@@ -8,6 +8,8 @@
 table.sum td .pct{display:block;font-size:9px;color:var(--slate);margin-top:1px}
 table.sum td .pct.bad{color:var(--rust)} table.sum td .pct.good{color:var(--brand-2)}
 tr.deallist td{cursor:pointer}
+tr.clientrow:focus-visible,tr.deallist:focus-visible,tr.projrow:focus-visible,th[data-sort]:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--brand-2),inset 0 0 0 4px var(--mint)}
+.lgd:focus-visible{outline:2px solid var(--brand-2);outline-offset:2px}
 </style></head><body>
 <script type="module">
 import { boot, esc, fmt$, barChart } from './assets/shell.js?v=2f1a092';
@@ -170,9 +172,9 @@ boot('forecast', async (supa, el) => {
         while (labY.some(o=>Math.abs(o-yy)<10)) yy-=10;
         labY.push(yy); return yy; };
       if(on('revenue') && r.revenue>0) g+=`<rect x="${x0}" y="${y(r.revenue)}" width="${bw}" height="${y0-y(r.revenue)}" fill="${colorOf.revenue}" opacity="${op}"><title>${mLabel(r.m)} revenue ${fmtM(r.revenue)}</title></rect>
-        <text x="${x0+bw/2}" y="${dodge(y(r.revenue))}" fill="${TXT}" font-size="8.5" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(r.revenue)}</text>`;
+        <text x="${x0+bw/2}" y="${dodge(y(r.revenue))}" fill="${TXT}" font-size="9" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(r.revenue)}</text>`;
       if(on('cogs') && r.cogs>0) g+=`<rect x="${x0+bw+2}" y="${y(r.cogs)}" width="${bw}" height="${y0-y(r.cogs)}" fill="${colorOf.cogs}" opacity="${op}"><title>${mLabel(r.m)} COGS ${fmtM(r.cogs)}</title></rect>
-        <text x="${x0+1.5*bw+2}" y="${dodge(y(r.cogs))}" fill="${TXT}" font-size="8.5" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(r.cogs)}</text>`;
+        <text x="${x0+1.5*bw+2}" y="${dodge(y(r.cogs))}" fill="${TXT}" font-size="9" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(r.cogs)}</text>`;
       let acc=0; const xs=x0+2*(bw+2);
       [['labour'],['other'],['misc'],['fixed']].forEach(([k])=>{
         if(!on(k)) return;
@@ -181,31 +183,42 @@ boot('forecast', async (supa, el) => {
         const nm = k==='other'?'overhead':k==='misc'?'other accts':k;
         g+=`<rect x="${xs}" y="${y1}" width="${bw}" height="${h}" fill="${colorOf[k]}" opacity="${op}"><title>${mLabel(r.m)} ${nm} ${fmtM(v)}</title></rect>`;
       });
-      if(acc>0) g+=`<text x="${xs+bw/2}" y="${dodge(y(acc))}" fill="${TXT}" font-size="8.5" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(acc)}</text>`;
+      if(acc>0) g+=`<text x="${xs+bw/2}" y="${dodge(y(acc))}" fill="${TXT}" font-size="9" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(acc)}</text>`;
       g+=`<text x="${cx}" y="${H-8}" fill="${TXT}" font-size="${rows.length>14?8:9.5}" font-family="IBM Plex Mono" text-anchor="middle">${mLabel(r.m)}</text>`;
     });
     if (on('net')) {
-      g+=`<polyline fill="none" stroke="${colorOf.net}" stroke-width="2.5"
-        points="${rows.map((r,i)=>(P.l+gap*i+gap/2)+','+y(r.net)).join(' ')}"/>`;
+      // the net line honors the same measured/forecast weighting as the bars —
+      // each segment dims and dashes when either end is still a projection
+      for (let i = 0; i < rows.length - 1; i++) {
+        const segMeasured = rows[i].measured && rows[i+1].measured;
+        const x1 = P.l+gap*i+gap/2, x2 = P.l+gap*(i+1)+gap/2;
+        g+=`<line x1="${x1}" y1="${y(rows[i].net)}" x2="${x2}" y2="${y(rows[i+1].net)}"
+          stroke="${colorOf.net}" stroke-width="2.5" opacity="${segMeasured?1:0.55}"
+          ${segMeasured?'':'stroke-dasharray="5 3"'}/>`;
+      }
       rows.forEach((r,i)=>{const cx=P.l+gap*i+gap/2;
-        g+=`<circle cx="${cx}" cy="${y(r.net)}" r="3" fill="${colorOf.net}" stroke="#111111" stroke-width="0.6"><title>${mLabel(r.m)} net ${fmtM(r.net)} — ${r.measured?'measured':'forecast: GP − labour − overhead − other − fixed'}</title></circle>`;});
+        g+=`<circle cx="${cx}" cy="${y(r.net)}" r="3" fill="${colorOf.net}" stroke="#111111" stroke-width="0.6" opacity="${r.measured?1:0.55}"><title>${mLabel(r.m)} net ${fmtM(r.net)} — ${r.measured?'measured':'forecast: GP − labour − overhead − other − fixed'}</title></circle>`;});
     }
-    // the legend lives at the BOTTOM and toggles series on click
+    // the legend lives at the BOTTOM and toggles series on click or Enter/Space
     const LEG_Y = H + 10;
     const leg = SERIES.map(([k,c,label],i)=>{
       const x = P.l + i*118;
       const off = hidden.has(k);
-      return `<g class="lgd" data-k="${k}" style="cursor:pointer" opacity="${off?0.35:1}">
+      return `<g class="lgd" data-k="${k}" style="cursor:pointer" opacity="${off?0.35:1}"
+          tabindex="0" role="button" aria-pressed="${!off}" aria-label="${off?'show':'hide'} ${label} series">
         <rect x="${x}" y="${LEG_Y}" width="9" height="9" fill="${c}" ${off?'stroke="#67706d" stroke-dasharray="2 1.5"':''}/>
         <text x="${x+13}" y="${LEG_Y+8}" fill="#111111" font-size="10" font-family="IBM Plex Mono" ${off?'text-decoration="line-through"':''}>${label}</text>
         <title>${off?'show':'hide'} ${label}</title></g>`;
     }).join('');
     elc.innerHTML=`<svg class="chart" viewBox="0 0 ${W} ${H+26}"><g>${g}</g>${leg}</svg>`;
-    elc.querySelectorAll('.lgd').forEach(el2 => el2.onclick = () => {
-      const k = el2.dataset.k;
+    const toggleSeries = k => {
       hidden.has(k) ? hidden.delete(k) : hidden.add(k);
       localStorage.setItem('fc_hidden', JSON.stringify([...hidden]));
       comboChart(elc, rows);
+    };
+    elc.querySelectorAll('.lgd').forEach(el2 => {
+      el2.onclick = () => toggleSeries(el2.dataset.k);
+      el2.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSeries(el2.dataset.k); } };
     });
   }
 
@@ -408,7 +421,7 @@ boot('forecast', async (supa, el) => {
         ? Math.round((gpBilled/p.gpSettled - 1)*100) : null;
       const ended = d.flight_end < thisMonth;
       const basis = ended ? (matched ? 'ended (actual)' : 'ended · no QB link')
-        : (matched ? 'actual + ' : (revA||cogsA ? '' : 'no QB link · ')) + (ended ? '' : 'forecast');
+        : (matched ? 'actual (QuickBooks) + ' : (revA||cogsA ? '' : 'no QB link · ')) + (ended ? '' : 'forecast');
       return { value, gpBilled, gpFc, variance, basis, matched, ended };
     };
     const clientRow = c => {
@@ -473,7 +486,9 @@ boot('forecast', async (supa, el) => {
         .filter(d => !q || d.name.toLowerCase().includes(q) || c.name.toLowerCase().includes(q))
         .sort((a,b)=>(b.flight_end||'').localeCompare(a.flight_end||''));
       const isOpen = openClients.has(c.id) || (q && ds.length);
-      const head = `<tr class="clientrow" data-cid="${c.id}">
+      // clickable rows are also real keyboard targets: tabbable, role=button,
+      // and (for the expandable client row) aria-expanded reflects open state
+      const head = `<tr class="clientrow" data-cid="${c.id}" tabindex="0" role="button" aria-expanded="${isOpen}">
         <td class="namecell"><span class="muted">${ds.length?(isOpen?'▾':'▸'):'·'}</span>
           <span class="namewrap">${esc(c.name)}</span>
           ${missing?`<span class="pill warn" style="margin-left:6px" title="${missing} deal(s) with no forecast">${missing} missing forecast</span>`:''}
@@ -491,7 +506,7 @@ boot('forecast', async (supa, el) => {
           const rv = ((revByProj[pid]||{}).total||0);
           const cg = cogsByProj[pid]||0;
           const pj = projects.find(p=>p.id===pid)||{};
-          return `<tr class="dealsub projrow" data-pid="${pid}" data-cid="${c.id}" title="click to link this project to one of ${esc(c.name)}'s deals">
+          return `<tr class="dealsub projrow" data-pid="${pid}" data-cid="${c.id}" title="click to link this project to one of ${esc(c.name)}'s deals" tabindex="0" role="button">
             <td class="namecell" style="padding-left:28px;color:var(--slate)">◦
               <span class="namewrap">${esc(pj.name||pid)}</span></td>
             <td>${rv?fmtM(rv):''}</td>
@@ -500,7 +515,7 @@ boot('forecast', async (supa, el) => {
         }).join('');
       const kids = (!isOpen ? '' : ds.map(d => {
         const r = dealRow(d);
-        return `<tr class="dealsub deallist" data-id="${d.id}" title="click to shape">
+        return `<tr class="dealsub deallist" data-id="${d.id}" title="click to shape" tabindex="0" role="button">
           <td class="namecell" style="padding-left:28px">▸
             <span class="namewrap">${esc(d.name)}</span>
             ${d.reviewed_at?'':'<span class="warn" title="awaiting review">•</span>'}${
@@ -518,14 +533,14 @@ boot('forecast', async (supa, el) => {
 
     const unattributedRev = plRows.reduce((s,r)=>s+r.revenue,0) - totals.value;
     const HCOLS = [['name','Client / deal'],
-      ['value','Total Value (Billed + Forecasted)'],
+      ['value','Value','Billed + forecasted, across the range'],
       ['gpBilled','GP Billed'],
-      ['gpFc','GP Forecasted'],
+      ['gpFc','GP Forecast'],
       ['variance','Variance'],[null,'Basis']];
 
     el.querySelector('#sum').innerHTML =
-      `<tr>${HCOLS.map(([k,label]) => k
-        ? `<th data-sort="${k}">${label}${tableSort.key===k?`<span class="dir">${tableSort.dir<0?'▼':'▲'}</span>`:''}</th>`
+      `<tr>${HCOLS.map(([k,label,hint]) => k
+        ? `<th data-sort="${k}"${hint?` title="${hint}"`:''} tabindex="0" role="columnheader" aria-sort="${tableSort.key===k?(tableSort.dir<0?'descending':'ascending'):'none'}">${label}${tableSort.key===k?`<span class="dir">${tableSort.dir<0?'▼':'▲'}</span>`:''}</th>`
         : `<th style="cursor:default;text-align:left">${label}</th>`).join('')}</tr>` +
       bodyRows +
       (Math.abs(unattributedRev) > 100 ? `<tr>
@@ -544,14 +559,18 @@ boot('forecast', async (supa, el) => {
 
     const tq = el.querySelector('#tq');
     tq.oninput = () => { tableQuery = tq.value; renderTable(); };
-    el.querySelectorAll('th[data-sort]').forEach(th => th.onclick = () => {
-      const k = th.dataset.sort;
-      tableSort = { key:k, dir: tableSort.key===k ? -tableSort.dir : -1 };
-      renderTable();
+    el.querySelectorAll('th[data-sort]').forEach(th => {
+      const activate = () => {
+        const k = th.dataset.sort;
+        tableSort = { key:k, dir: tableSort.key===k ? -tableSort.dir : -1 };
+        renderTable();
+      };
+      th.onclick = activate;
+      th.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); } };
     });
 
     el.querySelectorAll('tr.projrow').forEach(tr => {
-      tr.onclick = e => {
+      const activate = e => {
         e.stopPropagation();
         const pid = tr.dataset.pid, cid = tr.dataset.cid;
         const ds = dealsByClient[cid]||[];
@@ -608,36 +627,52 @@ boot('forecast', async (supa, el) => {
           loadAll();
         };
       };
+      tr.onclick = activate;
+      // ignore bubbled keydowns from focusable children (the select/buttons the
+      // activation itself renders) — only the row's own focus should re-trigger it
+      tr.onkeydown = e => {
+        if (e.target !== tr) return;
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(e); }
+      };
     });
     el.querySelectorAll('tr.clientrow').forEach(tr => {
-      tr.onclick = () => {
+      const activate = () => {
         const id = tr.dataset.cid;
         openClients.has(id) ? openClients.delete(id) : openClients.add(id);
         renderTable();
       };
+      tr.onclick = activate;
+      tr.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); } };
     });
 
     el.querySelectorAll('tr.deallist').forEach(tr => {
-      tr.onclick = () => toggleEditor(tr.dataset.id);
+      const activate = () => toggleEditor(tr.dataset.id);
+      tr.onclick = activate;
+      tr.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); } };
     });
   }
 
   /* -------------------------------------------- the editor, focus overlay -- */
+  let modalOpener = null;   // the element to return focus to once the modal closes
   function closeModal() {
     document.querySelector('.modal-back')?.remove();
     document.onkeydown = null;
     openEditor = null;
+    if (modalOpener && document.contains(modalOpener)) modalOpener.focus();
+    modalOpener = null;
   }
   async function toggleEditor(dealId) {
+    const opener = document.activeElement !== document.body ? document.activeElement : null;
     closeModal();
+    modalOpener = opener;
     openEditor = dealId;
     const d = Object.values(dealsByClient).flat().find(x => x.id === dealId);
     if (!d) return;
     const back = document.createElement('div');
     back.className = 'modal-back';
-    back.innerHTML = `<div class="modal">
+    back.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <div class="modal-head">
-        <span class="modal-title">${esc((clientsById[d.client_id]||{}).name||'')} — ${esc(d.name)}</span>
+        <span class="modal-title" id="modal-title">${esc((clientsById[d.client_id]||{}).name||'')} — ${esc(d.name)}</span>
         <button class="mclose">Close ✕</button>
       </div>
       <div class="modal-body edbox"><span class="muted" style="font-size:12px">loading…</span></div>
@@ -645,7 +680,21 @@ boot('forecast', async (supa, el) => {
     document.body.appendChild(back);
     back.onclick = e => { if (e.target === back) closeModal(); };
     back.querySelector('.mclose').onclick = closeModal;
-    document.onkeydown = e => { if (e.key === 'Escape') closeModal(); };
+    const modal = back.querySelector('.modal');
+    // a simple focus trap: Escape closes, Tab/Shift+Tab cycles within the dialog
+    // instead of escaping to the page behind it
+    document.onkeydown = e => {
+      if (e.key === 'Escape') { closeModal(); return; }
+      if (e.key !== 'Tab') return;
+      const focusable = [...modal.querySelectorAll(
+        'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+      )].filter(fe => fe.offsetParent !== null);
+      if (!focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    back.querySelector('.mclose').focus();
     const box = back.querySelector('.edbox');
 
     // one parallel wave: lines WITH their months embedded, the margin hint, and
@@ -708,7 +757,7 @@ boot('forecast', async (supa, el) => {
       const asSold = d.promotions?.[0]?.as_sold;
       const field = (li, p, label, val, ph='0') =>
         `<label class="pf"><span class="pfl">${label}</span>
-           <input class="p" data-li="${li}" data-p="${p}" value="${val}" placeholder="${ph}"></label>`;
+           <input class="p" type="number" step="any" inputmode="decimal" data-li="${li}" data-p="${p}" value="${val}" placeholder="${ph}"></label>`;
 
       // month columns: one collapsed closed column (if any), then each open month
       const cols = (closedM.length ? [{ closed:true, label:`${closedM.length} closed`, months:closedM }] : [])
@@ -758,11 +807,11 @@ boot('forecast', async (supa, el) => {
         const curTotal = openM.reduce((s,m)=>s+(+l.cells[m]||0),0);
         const totalBox = useTotal
           ? `<label class="pf tb"><span class="pfl">${isBudgetL(l)?'Total budget $':'Total hours'}</span>
-               <input class="totalbudget" data-li="${li}" value="${curTotal||''}" placeholder="spread evenly"></label>`
+               <input class="totalbudget" type="number" step="any" inputmode="decimal" data-li="${li}" value="${curTotal||''}" placeholder="spread evenly"></label>`
           : '';
         // per-month override, tucked away
         const pmCells = openM.map(m=>`<label class="pmcell"><span>${mLabel(m)}</span>
-            <input class="cell" data-li="${li}" data-m="${m}" value="${l.cells[m] ?? ''}"></label>`).join('');
+            <input class="cell" type="number" step="any" inputmode="decimal" data-li="${li}" data-m="${m}" value="${l.cells[m] ?? ''}"></label>`).join('');
         return `<div class="linecard" data-li="${li}">
           <div class="cardhead">
             <span class="kbadge">${kindLabelOf(l)}</span>${structSel}
@@ -849,7 +898,9 @@ boot('forecast', async (supa, el) => {
       box.querySelector('.mf').onchange = () => preview();   // revenue depends on funding
       box.querySelectorAll('input.p').forEach(inp => inp.oninput = () => {
         const l = model[+inp.dataset.li];
-        l.params[inp.dataset.p] = inp.value==='' ? (inp.dataset.p==='margin_pct'?null:0) : +inp.value;
+        const n = +inp.value;
+        l.params[inp.dataset.p] = inp.value==='' || !Number.isFinite(n)
+          ? (inp.dataset.p==='margin_pct'?null:0) : n;
         preview();
       });
       box.querySelectorAll('select.cmode').forEach(sel => sel.onchange = () => {
@@ -861,7 +912,8 @@ boot('forecast', async (supa, el) => {
       // Total box: spread evenly across the open months, remainder on the last
       box.querySelectorAll('input.totalbudget').forEach(inp => inp.oninput = () => {
         const l = model[+inp.dataset.li];
-        const total = +inp.value;
+        const n = +inp.value;
+        const total = Number.isFinite(n) ? n : 0;
         l.cells = {};
         if (total > 0 && openM.length) {
           // media budgets spread by covered days — dollars follow days in market.
@@ -887,8 +939,9 @@ boot('forecast', async (supa, el) => {
       // per-month override cells inside the card
       box.querySelectorAll('input.cell').forEach(inp => inp.oninput = () => {
         const l = model[+inp.dataset.li];
-        if (inp.value==='') delete l.cells[inp.dataset.m];
-        else l.cells[inp.dataset.m] = +inp.value;
+        const n = +inp.value;
+        if (inp.value==='' || !Number.isFinite(n)) delete l.cells[inp.dataset.m];
+        else l.cells[inp.dataset.m] = n;
         if (!KIND[l.kind].cells && !isHourlyL(l)) l.manual = Object.keys(l.cells).length > 0;
         const tb = box.querySelector(`input.totalbudget[data-li="${inp.dataset.li}"]`);
         if (tb) { const t = openM.reduce((s,m)=>s+(+l.cells[m]||0),0); tb.value = t || ''; }
