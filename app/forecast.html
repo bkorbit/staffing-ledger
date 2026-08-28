@@ -344,6 +344,12 @@ boot('forecast', async (supa, el) => {
     // ---- ONE table: clients over the range, deals under a collapsible arrow ----
     const parentOf = {}; projects.forEach(p => parentOf[p.id] = p.parent_id || p.id);
     const projsUnder = {}; projects.forEach(p => (projsUnder[parentOf[p.id]] = projsUnder[parentOf[p.id]]||[]).push(p.id));
+    // a project matched to a deal belongs to THAT deal's client — this is what lets
+    // two platform clients split one QuickBooks parent (On Location WC vs Events)
+    const projClaimedBy = {};
+    Object.values(dealsByClient).flat().forEach(d => {
+      if (d.qbo_project_id) projClaimedBy[d.qbo_project_id] = d.client_id;
+    });
     const nSettled = months.filter(m=>past(m)).length;
     const nFuture  = months.length - nSettled - (months.includes(cur)?1:0);
 
@@ -364,7 +370,10 @@ boot('forecast', async (supa, el) => {
     };
     const clientRow = c => {
       const ds = dealsByClient[c.id]||[];
-      const myProjects = c.qbo_customer_id ? (projsUnder[c.qbo_customer_id]||[]) : [];
+      const fromParent = (c.qbo_customer_id ? (projsUnder[c.qbo_customer_id]||[]) : [])
+        .filter(pid => !projClaimedBy[pid] || projClaimedBy[pid] === c.id);
+      const fromDeals = ds.map(d=>d.qbo_project_id).filter(Boolean);
+      const myProjects = [...new Set([...fromParent, ...fromDeals])];
       const revA = myProjects.reduce((s,pid)=>s+((revByProj[pid]||{}).total||0),0);
       const cogsA = myProjects.reduce((s,pid)=>s+(cogsByProj[pid]||0),0);
       const billFuture = ds.reduce((s,d)=>s+((d._agg||{}).billFuture||0),0);
@@ -425,7 +434,7 @@ boot('forecast', async (supa, el) => {
         <td style="text-align:left" class="muted">${agg.basis}</td></tr>`;
       const takenProjects = new Set(ds.map(d=>d.qbo_project_id).filter(Boolean));
       const projRows = !isOpen ? '' : (c.qbo_customer_id ? (projsUnder[c.qbo_customer_id]||[]) : [])
-        .filter(pid => !takenProjects.has(pid) &&
+        .filter(pid => !takenProjects.has(pid) && !projClaimedBy[pid] &&
           (((revByProj[pid]||{}).total||0) || (cogsByProj[pid]||0)))
         .map(pid => {
           const rv = ((revByProj[pid]||{}).total||0);
