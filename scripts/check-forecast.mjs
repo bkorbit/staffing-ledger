@@ -40,4 +40,13 @@ for (const v of renderLocals) {
   if (re.test(rtCode)) { console.log('renderTable references render-local:', v); bad = 1; }
 }
 if (bad) { console.log('SCOPE LEAK'); process.exit(1); }
-console.log('forecast checks clean: syntax ok, renderTable self-contained');
+
+// -- 3. retired table-field names: clientRow/dealRow aggregates renamed in the
+//    four-column restructure; plRows (rowFor) and the chart keep the old names
+for (const dead of ['agg.revenue','agg.cogs','agg.fcCogs','agg.forecastGP','agg.actualGP',
+                    'cr.revenue','cr.cogs','cr.forecastGP','cr.actualGP',
+                    'totals.revenue','totals.cogs','totals.forecastGP','totals.actualGP']) {
+  if (src.includes(dead)) { console.log('retired field still read:', dead); bad = 1; }
+}
+if (bad) { console.log('RETIRED KEYS'); process.exit(1); }
+console.log('forecast checks clean: syntax ok, renderTable self-contained, no retired keys');

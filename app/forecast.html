@@ -419,7 +419,7 @@ boot('forecast', async (supa, el) => {
     const clients = Object.values(clientsById).filter(c => {
       const ds = visibleDeals(c);
       const cr = clientRow(c);
-      const hasData = ds.length || cr.revenue || cr.cogs;
+      const hasData = ds.length || cr.value || cr.gpBilled !== null;
       if (!hasData) return false;
       if (!q) return true;
       return c.name.toLowerCase().includes(q) ||
