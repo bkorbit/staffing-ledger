@@ -133,7 +133,7 @@ table.fc td.cl .ellip { max-width:230px; }
 /* ---- the forecast account table, made presentable ---- */
 table.acct { width:100%; border-collapse:collapse; background:var(--paper-raised); }
 table.acct th { font-family:var(--font-mono); font-size:9px; letter-spacing:.08em; text-transform:uppercase;
-  color:var(--slate); background:#f4f4f2; padding:8px 10px; border:none; border-bottom:2px solid var(--brand);
+  color:var(--slate); background:#f2f2f2; padding:8px 10px; border:none; border-bottom:2px solid var(--brand);
   text-align:right; white-space:nowrap; cursor:pointer; user-select:none; position:sticky; top:0; }
 table.acct th:first-child { text-align:left; }
 table.acct th .dir { color:var(--brand); margin-left:3px; }
@@ -226,7 +226,7 @@ table.grid td .cell:focus { outline:none; border-color:var(--brand);
 .gridwrap { overflow-x:auto; }
 .colhead, .linegrid, .totalsgrid { width:100%; border-collapse:collapse; table-layout:fixed; }
 .colhead th { font-family:var(--font-mono); font-size:0.6rem; letter-spacing:.06em; text-transform:uppercase;
-  color:var(--slate); background:#f4f4f2; padding:7px 8px; text-align:right; white-space:nowrap;
+  color:var(--slate); background:#f2f2f2; padding:7px 8px; text-align:right; white-space:nowrap;
   border-bottom:2px solid var(--brand); }
 .colhead .rowlabelcol, .totalsgrid .rowlabelcol { text-align:left; width:190px; }
 .colhead .closedcol { color:var(--slate); font-style:italic; }
@@ -247,7 +247,7 @@ table.grid td .cell:focus { outline:none; border-color:var(--brand);
   font-family:var(--font-mono); font-size:0.8rem; background:var(--paper-raised); color:var(--ink); text-align:right; }
 .pf.tb input { border-color:var(--brand); width:140px; }
 /* the month cells: GP on top, small budget input below */
-.linegrid td { padding:4px 6px; text-align:right; vertical-align:top; border-left:1px solid #f0f0ee; }
+.linegrid td { padding:4px 6px; text-align:right; vertical-align:top; border-left:1px solid #e8e8e8; }
 .linegrid td.closedcol { background:#fafafa; color:var(--slate); font-family:var(--font-mono);
   font-size:0.76rem; vertical-align:middle; }
 .linegrid td.cellwrap .cgp { font-family:var(--font-mono); font-size:0.78rem; font-weight:600; color:var(--ink);
@@ -267,16 +267,16 @@ table.grid td .cell:focus { outline:none; border-color:var(--brand);
 
 /* ---- deal editor v3: display table + entry cards ---- */
 .totalsgrid tr.colheadrow th { font-family:var(--font-mono); font-size:0.6rem; letter-spacing:.06em;
-  text-transform:uppercase; color:var(--slate); background:#f4f4f2; padding:7px 8px; text-align:right;
+  text-transform:uppercase; color:var(--slate); background:#f2f2f2; padding:7px 8px; text-align:right;
   white-space:nowrap; border-bottom:2px solid var(--brand); border-top:none; }
 .totalsgrid tr.colheadrow th.rowlabelcol { text-align:left; }
-.totalsgrid tr.linerow td { color:var(--slate); font-size:0.76rem; border-top:1px solid #f0f0ee; }
+.totalsgrid tr.linerow td { color:var(--slate); font-size:0.76rem; border-top:1px solid #e8e8e8; }
 .kbadge.sm { font-size:0.58rem; padding:2px 7px; }
 .linecards { display:flex; flex-direction:column; gap:10px; margin-top:14px; }
 .linecard { border:1px solid var(--line); border-radius:8px; background:var(--paper-raised);
   box-shadow:0 1px 3px rgba(0,0,0,.04); }
 .cardhead { display:flex; align-items:center; gap:10px; padding:10px 12px;
-  border-bottom:1px solid #f0f0ee; }
+  border-bottom:1px solid #e8e8e8; }
 .cardhead .lgp { font-family:var(--font-mono); font-size:0.78rem; color:var(--brand); font-weight:700; }
 .cardbody { padding:10px 12px 12px; }
 .cardbody .lparams { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; }

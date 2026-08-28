@@ -123,60 +123,90 @@ boot('forecast', async (supa, el) => {
   // Revenue and the cost stack as side-by-side bars per month, net profit as the
   // line. Settled months full-strength; projected months lighter — the v1 rule.
   function comboChart(elc, rows) {
+    // series palette — kit only. Net wears accent gold: the most important line.
+    // Labour takes Color 3, freed by the net line's move to amber.
+    const SERIES = [
+      ['revenue',  '#0a493c', 'revenue'],
+      ['cogs',     '#67706d', 'COGS'],
+      ['labour',   '#19a789', 'labour'],
+      ['other',    '#48a278', 'overhead'],
+      ['misc',     '#9e9e9e', 'other'],
+      ['fixed',    '#b8b8b8', 'fixed'],
+      ['net',      '#fabf4d', 'net (line)'],
+    ];
+    const colorOf = Object.fromEntries(SERIES.map(([k,c])=>[k,c]));
+    const hidden = new Set(JSON.parse(localStorage.getItem('fc_hidden')||'[]'));
+    const on = k => !hidden.has(k);
+    const TXT = '#111111';
     const W=960,H=280,P={l:64,r:12,t:16,b:26};
     const fmtC = c => { const d=c/100, a=Math.abs(d);
       return (d<0?'-$':'$') + (a>=1e6?(a/1e6).toFixed(1)+'M':a>=1e3?Math.round(a/1e3)+'k':Math.round(a)); };
-    const opexOf = r => r.labour + r.other + r.misc + r.fixed;
-    const maxBar = Math.max(1, ...rows.map(r=>Math.max(r.revenue, r.cogs, opexOf(r))));
-    const nets = rows.map(r=>r.net);
-    // axis snaps to \$250k multiples; gridlines and labels every \$500k
-    const SNAP = 25000000;                     // \$250k in cents
+    const opexOf = r => (on('labour')?r.labour:0) + (on('other')?r.other:0)
+                      + (on('misc')?r.misc:0) + (on('fixed')?r.fixed:0);
+    // scale adapts to what is visible
+    const maxBar = Math.max(1, ...rows.map(r=>Math.max(
+      on('revenue')?r.revenue:0, on('cogs')?r.cogs:0, opexOf(r))));
+    const nets = on('net') ? rows.map(r=>r.net) : [0];
+    const SNAP = 25000000;
     const rawMin = Math.min(0, ...nets), rawMax = Math.max(maxBar, ...nets, 1);
     const min = Math.floor(rawMin/SNAP)*SNAP;
     const max = Math.max(Math.ceil(rawMax/SNAP)*SNAP, min + SNAP);
     const y = v => P.t + (H-P.t-P.b) * (1 - (v-min)/((max-min)||1));
     const gap = (W-P.l-P.r)/rows.length, bw = Math.min(13, gap*0.2);
     let g='';
-    let step = 50000000;                       // \$500k lines
-    if ((max-min)/step > 13) step = 100000000; // very tall ranges thin to \$1M
+    let step = 50000000;
+    if ((max-min)/step > 13) step = 100000000;
     for (let v = Math.ceil(min/step)*step; v <= max; v += step) {
-      g+=`<line x1="${P.l}" y1="${y(v)}" x2="${W-P.r}" y2="${y(v)}" stroke="#e2e2e2"/>
-        <text x="${P.l-6}" y="${y(v)+3.5}" fill="#67706d" font-size="9" font-family="DM Mono" text-anchor="end">${fmtC(v)}</text>`;
+      g+=`<line x1="${P.l}" y1="${y(v)}" x2="${W-P.r}" y2="${y(v)}" stroke="#d6d6d6"/>
+        <text x="${P.l-6}" y="${y(v)+3.5}" fill="${TXT}" font-size="9" font-family="DM Mono" text-anchor="end">${fmtC(v)}</text>`;
     }
-    if(min<0) g+=`<line x1="${P.l}" y1="${y(0)}" x2="${W-P.r}" y2="${y(0)}" stroke="#d1453b" stroke-dasharray="4 3"/>`;
+    if(min<0) g+=`<line x1="${P.l}" y1="${y(0)}" x2="${W-P.r}" y2="${y(0)}" stroke="var(--rust)" stroke-dasharray="4 3"/>`;
     const y0=y(Math.max(min,0));
     rows.forEach((r,i)=>{
       const cx=P.l+gap*i+gap/2, op=r.measured?1:0.55;
       const x0=cx-1.5*bw-2;
-      // label rows dodge each other: if two bar tops are within 10px, the later
-      // label steps up a row so compact figures never overprint
       const labY = [];
       const dodge = yv => { let yy=yv-3;
         while (labY.some(o=>Math.abs(o-yy)<10)) yy-=10;
         labY.push(yy); return yy; };
-      // revenue bar
-      if(r.revenue>0) g+=`<rect x="${x0}" y="${y(r.revenue)}" width="${bw}" height="${y0-y(r.revenue)}" fill="#0a493c" opacity="${op}"><title>${mLabel(r.m)} revenue ${fmtM(r.revenue)}</title></rect>
-        <text x="${x0+bw/2}" y="${dodge(y(r.revenue))}" fill="#0a493c" font-size="8.5" font-family="DM Mono" text-anchor="middle">${fmtC(r.revenue)}</text>`;
-      // COGS bar, on its own
-      if(r.cogs>0) g+=`<rect x="${x0+bw+2}" y="${y(r.cogs)}" width="${bw}" height="${y0-y(r.cogs)}" fill="#67706d" opacity="${op}"><title>${mLabel(r.m)} COGS ${fmtM(r.cogs)}</title></rect>
-        <text x="${x0+1.5*bw+2}" y="${dodge(y(r.cogs))}" fill="#67706d" font-size="8.5" font-family="DM Mono" text-anchor="middle">${fmtC(r.cogs)}</text>`;
-      // opex stack: labour, overhead, other, fixed
+      if(on('revenue') && r.revenue>0) g+=`<rect x="${x0}" y="${y(r.revenue)}" width="${bw}" height="${y0-y(r.revenue)}" fill="${colorOf.revenue}" opacity="${op}"><title>${mLabel(r.m)} revenue ${fmtM(r.revenue)}</title></rect>
+        <text x="${x0+bw/2}" y="${dodge(y(r.revenue))}" fill="${TXT}" font-size="8.5" font-family="DM Mono" text-anchor="middle">${fmtC(r.revenue)}</text>`;
+      if(on('cogs') && r.cogs>0) g+=`<rect x="${x0+bw+2}" y="${y(r.cogs)}" width="${bw}" height="${y0-y(r.cogs)}" fill="${colorOf.cogs}" opacity="${op}"><title>${mLabel(r.m)} COGS ${fmtM(r.cogs)}</title></rect>
+        <text x="${x0+1.5*bw+2}" y="${dodge(y(r.cogs))}" fill="${TXT}" font-size="8.5" font-family="DM Mono" text-anchor="middle">${fmtC(r.cogs)}</text>`;
       let acc=0; const xs=x0+2*(bw+2);
-      [['labour','#fabf4d'],['other','#48a278'],['misc','#9a9a94'],['fixed','#b0b0b0']].forEach(([k,c])=>{
+      [['labour'],['other'],['misc'],['fixed']].forEach(([k])=>{
+        if(!on(k)) return;
         const v=r[k]; if(!v) return;
         const y1=y(acc+v), h=y(acc)-y(acc+v); acc+=v;
-        g+=`<rect x="${xs}" y="${y1}" width="${bw}" height="${h}" fill="${c}" opacity="${op}"><title>${mLabel(r.m)} ${k==='other'?'overhead':k==='misc'?'other accts':k} ${fmtM(v)}</title></rect>`;
+        const nm = k==='other'?'overhead':k==='misc'?'other accts':k;
+        g+=`<rect x="${xs}" y="${y1}" width="${bw}" height="${h}" fill="${colorOf[k]}" opacity="${op}"><title>${mLabel(r.m)} ${nm} ${fmtM(v)}</title></rect>`;
       });
-      if(acc>0) g+=`<text x="${xs+bw/2}" y="${dodge(y(acc))}" fill="#b07a14" font-size="8.5" font-family="DM Mono" text-anchor="middle">${fmtC(acc)}</text>`;
-      g+=`<text x="${cx}" y="${H-8}" fill="#67706d" font-size="${rows.length>14?8:9.5}" font-family="DM Mono" text-anchor="middle">${mLabel(r.m)}</text>`;
+      if(acc>0) g+=`<text x="${xs+bw/2}" y="${dodge(y(acc))}" fill="${TXT}" font-size="8.5" font-family="DM Mono" text-anchor="middle">${fmtC(acc)}</text>`;
+      g+=`<text x="${cx}" y="${H-8}" fill="${TXT}" font-size="${rows.length>14?8:9.5}" font-family="DM Mono" text-anchor="middle">${mLabel(r.m)}</text>`;
     });
-    g+=`<polyline fill="none" stroke="#19a789" stroke-width="2"
-      points="${rows.map((r,i)=>(P.l+gap*i+gap/2)+','+y(r.net)).join(' ')}"/>`;
-    rows.forEach((r,i)=>{const cx=P.l+gap*i+gap/2;
-      g+=`<circle cx="${cx}" cy="${y(r.net)}" r="2.6" fill="#19a789"><title>${mLabel(r.m)} net ${fmtM(r.net)} — ${r.measured?'measured':'forecast: GP − labour − overhead − other − fixed'}</title></circle>`;});
-    const leg=[['#0a493c','revenue'],['#67706d','COGS'],['#fabf4d','labour'],['#48a278','overhead'],['#9a9a94','other'],['#b0b0b0','fixed'],['#19a789','net (line)']]
-      .map(([c,n],i)=>`<rect x="${P.l+i*112}" y="0" width="9" height="9" fill="${c}"/><text x="${P.l+i*112+13}" y="8" fill="#67706d" font-size="10" font-family="DM Mono">${n}</text>`).join('');
-    elc.innerHTML=`<svg class="chart" viewBox="0 0 ${W} ${H+14}"><g transform="translate(0,12)">${g}</g>${leg}</svg>`;
+    if (on('net')) {
+      g+=`<polyline fill="none" stroke="${colorOf.net}" stroke-width="2.5"
+        points="${rows.map((r,i)=>(P.l+gap*i+gap/2)+','+y(r.net)).join(' ')}"/>`;
+      rows.forEach((r,i)=>{const cx=P.l+gap*i+gap/2;
+        g+=`<circle cx="${cx}" cy="${y(r.net)}" r="3" fill="${colorOf.net}" stroke="#111111" stroke-width="0.6"><title>${mLabel(r.m)} net ${fmtM(r.net)} — ${r.measured?'measured':'forecast: GP − labour − overhead − other − fixed'}</title></circle>`;});
+    }
+    // the legend lives at the BOTTOM and toggles series on click
+    const LEG_Y = H + 10;
+    const leg = SERIES.map(([k,c,label],i)=>{
+      const x = P.l + i*118;
+      const off = hidden.has(k);
+      return `<g class="lgd" data-k="${k}" style="cursor:pointer" opacity="${off?0.35:1}">
+        <rect x="${x}" y="${LEG_Y}" width="9" height="9" fill="${c}" ${off?'stroke="#67706d" stroke-dasharray="2 1.5"':''}/>
+        <text x="${x+13}" y="${LEG_Y+8}" fill="#111111" font-size="10" font-family="DM Mono" ${off?'text-decoration="line-through"':''}>${label}</text>
+        <title>${off?'show':'hide'} ${label}</title></g>`;
+    }).join('');
+    elc.innerHTML=`<svg class="chart" viewBox="0 0 ${W} ${H+26}"><g>${g}</g>${leg}</svg>`;
+    elc.querySelectorAll('.lgd').forEach(el2 => el2.onclick = () => {
+      const k = el2.dataset.k;
+      hidden.has(k) ? hidden.delete(k) : hidden.add(k);
+      localStorage.setItem('fc_hidden', JSON.stringify([...hidden]));
+      comboChart(elc, rows);
+    });
   }
 
   /* -------------------------------------------------------------- the data */
