@@ -105,40 +105,52 @@ boot('forecast', async (supa, el) => {
   // Revenue and the cost stack as side-by-side bars per month, net profit as the
   // line. Settled months full-strength; projected months lighter — the v1 rule.
   function comboChart(elc, rows) {
-    const W=960,H=270,P={l:64,r:12,t:16,b:26};
-    const maxBar=Math.max(1,...rows.map(r=>Math.max(r.revenue,r.cogs+r.labour+r.other+r.misc+r.fixed)));
-    const nets=rows.map(r=>r.net);
-    const min=Math.min(0,...nets), max=Math.max(maxBar,...nets,1);
-    const y=v=>P.t+(H-P.t-P.b)*(1-(v-min)/((max-min)||1));
-    const gap=(W-P.l-P.r)/rows.length, bw=Math.min(18,gap*0.28);
+    const W=960,H=280,P={l:64,r:12,t:16,b:26};
+    const fmtC = c => { const d=c/100, a=Math.abs(d);
+      return (d<0?'-$':'$') + (a>=1e6?(a/1e6).toFixed(1)+'M':a>=1e3?Math.round(a/1e3)+'k':Math.round(a)); };
+    const opexOf = r => r.labour + r.other + r.misc + r.fixed;
+    const maxBar = Math.max(1, ...rows.map(r=>Math.max(r.revenue, r.cogs, opexOf(r))));
+    const nets = rows.map(r=>r.net);
+    const min = Math.min(0, ...nets), max = Math.max(maxBar, ...nets, 1);
+    const y = v => P.t + (H-P.t-P.b) * (1 - (v-min)/((max-min)||1));
+    const gap = (W-P.l-P.r)/rows.length, bw = Math.min(13, gap*0.2);
     let g='';
     for(let i=0;i<=4;i++){const v=min+(max-min)*i/4;
       g+=`<line x1="${P.l}" y1="${y(v)}" x2="${W-P.r}" y2="${y(v)}" stroke="#e2e2e2"/>
-        <text x="${P.l-6}" y="${y(v)+3.5}" fill="#67706d" font-size="9.5" font-family="DM Mono" text-anchor="end">$${fmtN(v)}</text>`;}
+        <text x="${P.l-6}" y="${y(v)+3.5}" fill="#67706d" font-size="9" font-family="DM Mono" text-anchor="end">${fmtC(v)}</text>`;}
     if(min<0) g+=`<line x1="${P.l}" y1="${y(0)}" x2="${W-P.r}" y2="${y(0)}" stroke="#d1453b" stroke-dasharray="4 3"/>`;
+    const y0=y(Math.max(min,0));
     rows.forEach((r,i)=>{
       const cx=P.l+gap*i+gap/2, op=r.measured?1:0.55;
+      const x0=cx-1.5*bw-2;
+      // label rows dodge each other: if two bar tops are within 10px, the later
+      // label steps up a row so compact figures never overprint
+      const labY = [];
+      const dodge = yv => { let yy=yv-3;
+        while (labY.some(o=>Math.abs(o-yy)<10)) yy-=10;
+        labY.push(yy); return yy; };
       // revenue bar
-      if(r.revenue>0) g+=`<rect x="${cx-bw-1.5}" y="${y(r.revenue)}" width="${bw}" height="${y(Math.max(min,0))-y(r.revenue)}" fill="#0a493c" opacity="${op}"><title>${mLabel(r.m)} revenue ${fmtN(r.revenue)}</title></rect>`;
-      // cost stack
-      let acc=0;
-      [['cogs','#67706d'],['labour','#fabf4d'],['other','#d1453b'],['misc','#9a9a94'],['fixed','#b0b0b0']].forEach(([k,c])=>{
+      if(r.revenue>0) g+=`<rect x="${x0}" y="${y(r.revenue)}" width="${bw}" height="${y0-y(r.revenue)}" fill="#0a493c" opacity="${op}"><title>${mLabel(r.m)} revenue ${fmtM(r.revenue)}</title></rect>
+        <text x="${x0+bw/2}" y="${dodge(y(r.revenue))}" fill="#0a493c" font-size="8.5" font-family="DM Mono" text-anchor="middle">${fmtC(r.revenue)}</text>`;
+      // COGS bar, on its own
+      if(r.cogs>0) g+=`<rect x="${x0+bw+2}" y="${y(r.cogs)}" width="${bw}" height="${y0-y(r.cogs)}" fill="#67706d" opacity="${op}"><title>${mLabel(r.m)} COGS ${fmtM(r.cogs)}</title></rect>
+        <text x="${x0+1.5*bw+2}" y="${dodge(y(r.cogs))}" fill="#67706d" font-size="8.5" font-family="DM Mono" text-anchor="middle">${fmtC(r.cogs)}</text>`;
+      // opex stack: labour, overhead, other, fixed
+      let acc=0; const xs=x0+2*(bw+2);
+      [['labour','#fabf4d'],['other','#d1453b'],['misc','#9a9a94'],['fixed','#b0b0b0']].forEach(([k,c])=>{
         const v=r[k]; if(!v) return;
         const y1=y(acc+v), h=y(acc)-y(acc+v); acc+=v;
-        g+=`<rect x="${cx+1.5}" y="${y1}" width="${bw}" height="${h}" fill="${c}" opacity="${op}"><title>${mLabel(r.m)} ${k} ${fmtN(v)}</title></rect>`;
+        g+=`<rect x="${xs}" y="${y1}" width="${bw}" height="${h}" fill="${c}" opacity="${op}"><title>${mLabel(r.m)} ${k==='other'?'overhead':k==='misc'?'other accts':k} ${fmtM(v)}</title></rect>`;
       });
+      if(acc>0) g+=`<text x="${xs+bw/2}" y="${dodge(y(acc))}" fill="#9a6b1e" font-size="8.5" font-family="DM Mono" text-anchor="middle">${fmtC(acc)}</text>`;
       g+=`<text x="${cx}" y="${H-8}" fill="#67706d" font-size="${rows.length>14?8:9.5}" font-family="DM Mono" text-anchor="middle">${mLabel(r.m)}</text>`;
-      // each bar carries its total
-      const costTotal = r.cogs+r.labour+r.other+r.misc+r.fixed;
-      if(r.revenue>0) g+=`<text x="${cx-bw/2-1.5}" y="${y(r.revenue)-3}" fill="#0a493c" font-size="8" font-family="DM Mono" text-anchor="middle">${fmtN(r.revenue)}</text>`;
-      if(costTotal>0) g+=`<text x="${cx+bw/2+1.5}" y="${y(costTotal)-3}" fill="#67706d" font-size="8" font-family="DM Mono" text-anchor="middle">${fmtN(costTotal)}</text>`;
     });
     g+=`<polyline fill="none" stroke="#19a789" stroke-width="2"
       points="${rows.map((r,i)=>(P.l+gap*i+gap/2)+','+y(r.net)).join(' ')}"/>`;
     rows.forEach((r,i)=>{const cx=P.l+gap*i+gap/2;
-      g+=`<circle cx="${cx}" cy="${y(r.net)}" r="2.6" fill="#19a789"><title>${mLabel(r.m)} net ${fmtN(r.net)}</title></circle>`;});
+      g+=`<circle cx="${cx}" cy="${y(r.net)}" r="2.6" fill="#19a789"><title>${mLabel(r.m)} net ${fmtM(r.net)} — ${r.measured?'measured':'forecast: GP − labour − overhead − other − fixed'}</title></circle>`;});
     const leg=[['#0a493c','revenue'],['#67706d','COGS'],['#fabf4d','labour'],['#d1453b','overhead'],['#9a9a94','other'],['#b0b0b0','fixed'],['#19a789','net (line)']]
-      .map(([c,n],i)=>`<rect x="${P.l+i*118}" y="0" width="9" height="9" fill="${c}"/><text x="${P.l+i*118+13}" y="8" fill="#67706d" font-size="10" font-family="DM Mono">${n}</text>`).join('');
+      .map(([c,n],i)=>`<rect x="${P.l+i*112}" y="0" width="9" height="9" fill="${c}"/><text x="${P.l+i*112+13}" y="8" fill="#67706d" font-size="10" font-family="DM Mono">${n}</text>`).join('');
     elc.innerHTML=`<svg class="chart" viewBox="0 0 ${W} ${H+14}"><g transform="translate(0,12)">${g}</g>${leg}</svg>`;
   }
 
@@ -296,7 +308,9 @@ boot('forecast', async (supa, el) => {
     const cur = thisMonth;
     const rowFor = m => {
       const settled = past(m), current = m === cur;
-      const measured = settled || current;
+      // a month is actual only once it is fully over — the in-progress month runs
+      // entirely on forecast, so August never shows a half-month's fake net
+      const measured = settled;
       const revenue = measured ? (revByM[m]||0) : (planBillByM[m]||0);
       const cogs = measured ? ((costByCM.cogs||{})[m]||0)
                             : Math.max(0,(planBillByM[m]||0)-(planByM[m]||0));
