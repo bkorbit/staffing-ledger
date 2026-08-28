@@ -25,11 +25,14 @@ from clients cl
 join qbo_projects p  on coalesce(p.parent_id, p.id) = cl.qbo_customer_id
 join invoices i      on i.qbo_project_id = p.id
 left join lateral (
-  select sum(amount) as media_cogs
+  select sum(c.amount) as media_cogs
   from v_cost_lines_classified c
   where c.qbo_project_id = p.id
     and c.class = 'cogs'
-    and c.account_name ilike '%media%'
+    and ( exists (select 1 from qbo_accounts a
+                  where a.id = c.account_id
+                    and (a.name ilike '%media%' or a.fully_qualified_name ilike '%media%'))
+          or c.account_name ilike '%media%' )
 ) cg on true
 where cl.qbo_customer_id is not null
 group by cl.id, cl.name
