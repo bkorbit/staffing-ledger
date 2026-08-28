@@ -4,6 +4,7 @@
 import http from 'node:http';
 
 const writes = {};              // table -> rows written
+const rpcCalls = [];
 const qboHits = [];
 
 const qbo = http.createServer((req, res) => {
@@ -54,11 +55,19 @@ const sb = http.createServer((req, res) => {
       return res.end(JSON.stringify([{id:'quickbooks',realm_id:'999',refresh_token:'RT1-x',import_from:'2025-01-01'}]));
     }
     if (req.method==='GET') { res.setHeader('content-type','application/json'); return res.end('[]'); }
+    if (req.method==='POST' && req.url.includes('/rpc/')) {
+      rpcCalls.push(req.url.split('/rpc/')[1]);
+      res.setHeader('content-type','application/json');
+      return res.end('[]');
+    }
     if (req.method==='POST' && b) {
       const rows=JSON.parse(b);
-      (writes[table]=writes[table]||[]).push(...rows);
-      const shapes=new Set(rows.map(r=>Object.keys(r).sort().join('|')));
-      if (shapes.size>1) { console.log(`  !! ${table}: ${shapes.size} different key shapes in one batch`); process.exitCode=1; }
+      if (!Array.isArray(rows)) { console.log(`  !! non-array POST to ${table}`); process.exitCode=1; }
+      else {
+        (writes[table]=writes[table]||[]).push(...rows);
+        const shapes=new Set(rows.map(r=>Object.keys(r).sort().join('|')));
+        if (shapes.size>1) { console.log(`  !! ${table}: ${shapes.size} different key shapes in one batch`); process.exitCode=1; }
+      }
     }
     res.statusCode=204; res.end();
   });
@@ -92,6 +101,9 @@ expect.forEach(t=>{
 });
 if (missing.length){ console.log('\nMISSING WRITES: '+missing.join(', ')); process.exitCode=1; }
 else console.log('\nall expected tables written');
+console.log(rpcCalls.includes('refresh_payment_behaviour')
+  ? 'payment curves refreshed as part of the run'
+  : (process.exitCode=1, 'CURVE REFRESH WAS NOT CALLED'));
 const noId=(writes.bill_lines||[]).filter(l=>!l.account_id);
 console.log(noId.length? 'LINES WITHOUT account_id: '+noId.length : 'every bill line carries an account_id');
 if (noId.length) process.exitCode=1;
