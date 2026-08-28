@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-28T06:00:00.000Z",
+  "generatedAt": "2026-08-28T07:00:00.000Z",
   "title": "Design System: EMG Staffing Ledger",
   "extensions": {
     "colorMeta": {
@@ -14,6 +14,7 @@
       "raised-paper": { "role": "neutral", "displayName": "Raised Paper", "canonical": "#ffffff" },
       "hairline": { "role": "neutral", "displayName": "Hairline", "canonical": "#d2d2d2" },
       "mint-tint": { "role": "neutral", "displayName": "Mint Tint", "canonical": "#e2f5ef" },
+      "placeholder-gray": { "role": "neutral", "displayName": "Placeholder Gray", "canonical": "#b5b5b5" },
       "alert-rust": { "role": "semantic", "displayName": "Alert Rust", "canonical": "#d1453b", "tonalRamp": ["#34110f", "#5e1f1b", "#882d26", "#b23b32", "#d1453b", "#da6a62", "#e69993", "#f1c7c4"] },
       "alert-rust-tint": { "role": "semantic", "displayName": "Alert Rust Tint", "canonical": "#fbe7e4" },
       "alert-amber": { "role": "semantic", "displayName": "Alert Amber", "canonical": "#b07a14", "tonalRamp": ["#2c1f05", "#4f3709", "#724f0d", "#966811", "#b07a14", "#c09543", "#d4b67e", "#e7d7b9"] },

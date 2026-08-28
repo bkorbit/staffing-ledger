@@ -12,6 +12,7 @@ colors:
   slate: "#67706d"
   hairline: "#d2d2d2"
   mint-tint: "#e2f5ef"
+  placeholder-gray: "#b5b5b5"
   alert-rust: "#d1453b"
   alert-rust-tint: "#fbe7e4"
   alert-amber: "#b07a14"
@@ -174,6 +175,7 @@ A closed, two-green-plus-two-accents palette on a warm gray paper ground — not
 - **Slate** (`#67706d`): Secondary/muted text — eyebrows, hints, table headers, mono labels.
 - **Hairline** (`#d2d2d2`): The default 1px border/divider color, used everywhere a seam matters less than a section boundary.
 - **Mint Tint** (`#e2f5ef`): The logo color at roughly 14% on white — hover backgrounds for nav items and table rows, the good-pill fill, the input focus glow.
+- **Placeholder Gray** (`#b5b5b5`): Every input's placeholder text, sitewide — one step lighter than Slate so an empty field never reads as a filled one.
 - **Table Header Wash** (`#f6f6f6`): The default background for a plain `<th>` — any ordinary table that isn't the account table or the deal-editor grid.
 - **Column Header Wash** (`#f2f2f2`): A slightly darker header background reserved for the account table's and the deal-editor totals grid's column headers — one step more emphasis than Table Header Wash.
 - **Client Row Tint** (`#fafaf8`): The account table's client (parent) row background — distinguishes a client summary row from the plain-white deal rows nested under it.
