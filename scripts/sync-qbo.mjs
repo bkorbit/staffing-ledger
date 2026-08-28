@@ -330,13 +330,65 @@ async function main() {
     `cashflow will fall back to observed client behaviour for these.`);
 
   // ---- customer payments ----
+  // A payment inside the window can settle an invoice issued BEFORE it. Those invoices
+  // are not in the fetch above, so the link would break the foreign key — and, worse,
+  // silently lose the pairing that makes payment lag measurable. Pull the stragglers by
+  // id rather than widening the whole window.
   const payments = await qboAll(realm, token, 'Payment', `TxnDate >= '${from}'`);
-  const payRows = payments.flatMap(splitPaymentLines);
+  let payRows = payments.flatMap(splitPaymentLines);
+
+  const haveInv = new Set(invRows.map(r => r.id));
+  const missing = [...new Set(payRows.map(p => p.invoice_id).filter(id => id && !haveInv.has(id)))];
+  if (missing.length) {
+    console.log(`  fetching ${missing.length} earlier invoice(s) referenced by payments in the window…`);
+    const extraRows = [], extraLines = [];
+    for (let i = 0; i < missing.length; i += 100) {
+      const ids = missing.slice(i, i + 100).map(x => `'${x}'`).join(',');
+      const q = await qboQuery(realm, token, `SELECT * FROM Invoice WHERE Id IN (${ids})`);
+      (q.Invoice || []).forEach(inv => {
+        const issued = day(inv.TxnDate);
+        const terms  = (inv.SalesTermRef || {}).name || '';
+        extraRows.push({
+          id: String(inv.Id),
+          qbo_project_id: (inv.CustomerRef || {}).value ? String(inv.CustomerRef.value) : null,
+          doc_number: inv.DocNumber || '', issued_on: issued,
+          due_on: day(inv.DueDate) || deriveDueDate(issued, terms), terms,
+          total: cents(inv.TotalAmt), balance: cents(inv.Balance),
+          synced_at: new Date().toISOString()
+        });
+        (inv.Line || []).forEach((l, n) => {
+          if (l.DetailType !== 'SalesItemLineDetail') return;
+          const d = l.SalesItemLineDetail || {};
+          extraLines.push({
+            id: `${inv.Id}:${l.Id || n}`, invoice_id: String(inv.Id), line_no: +l.LineNum || n + 1,
+            item_id: (d.ItemRef || {}).value || null, item_name: (d.ItemRef || {}).name || '',
+            description: l.Description || '', qty: d.Qty !== undefined ? +d.Qty : null,
+            unit_price: d.UnitPrice !== undefined ? cents(d.UnitPrice) : null,
+            amount: cents(l.Amount)
+          });
+        });
+      });
+    }
+    await sbUpsert('invoices', extraRows);
+    await sbUpsert('invoice_lines', extraLines);
+    extraRows.forEach(r => haveInv.add(r.id));
+    console.log(`  recovered ${extraRows.length} of ${missing.length}`);
+  }
+
+  // Anything still unresolvable (deleted or voided in QuickBooks) is kept as an
+  // unlinked payment rather than dropped, so total cash in still reconciles even
+  // though that one cannot contribute to a lag figure.
+  let orphaned = 0;
+  payRows = payRows.map(p => {
+    if (p.invoice_id && !haveInv.has(p.invoice_id)) { orphaned++; return { ...p, invoice_id: null }; }
+    return p;
+  });
+
   await sbDelete(`payments?paid_on=gte.${from}`);
   await sbUpsert('payments', payRows);
   const unlinked = payRows.filter(p => !p.invoice_id).length;
-  console.log(`  ${payments.length} payments \u2192 ${payRows.length} invoice links` +
-    (unlinked ? ` (${unlinked} unlinked — deposits or prepayments)` : ''));
+  console.log(`  ${payments.length} payments \u2192 ${payRows.length} rows` +
+    (unlinked ? ` (${unlinked} unlinked` + (orphaned ? `, ${orphaned} of them pointing at invoices no longer in QuickBooks` : '') + ')' : ''));
 
   // ---- bills, card charges, journals ----
   const bills     = await qboAll(realm, token, 'Bill', `TxnDate >= '${from}'`);
@@ -412,11 +464,44 @@ async function main() {
     `(${(openBills.reduce((s, b) => s + b.balance, 0) / 100).toLocaleString()})`);
 
   // ---- vendor payments ----
+  // Same hazard as customer payments: a payment in the window can settle a bill from
+  // before it. Bills are cheap to re-fetch by id, but a Purchase is already paid and
+  // never appears in a BillPayment, so only 'bill:' ids need recovering.
   const billPmts = await qboAll(realm, token, 'BillPayment', `TxnDate >= '${from}'`);
-  const bpRows = billPmts.flatMap(splitBillPaymentLines);
+  let bpRows = billPmts.flatMap(splitBillPaymentLines);
+
+  const haveBill = new Set(billRows.map(b => b.id));
+  const missingBills = [...new Set(bpRows.map(b => b.bill_id)
+    .filter(id => id && !haveBill.has(id)))].map(id => id.replace(/^bill:/, ''));
+  if (missingBills.length) {
+    console.log(`  fetching ${missingBills.length} earlier bill(s) referenced by payments…`);
+    const extra = [];
+    for (let i = 0; i < missingBills.length; i += 100) {
+      const ids = missingBills.slice(i, i + 100).map(x => `'${x}'`).join(',');
+      const q = await qboQuery(realm, token, `SELECT * FROM Bill WHERE Id IN (${ids})`);
+      (q.Bill || []).forEach(b => extra.push({
+        id: `bill:${b.Id}`, kind: 'bill', vendor_name: (b.VendorRef || {}).name || '',
+        issued_on: day(b.TxnDate),
+        due_on: day(b.DueDate) || deriveDueDate(day(b.TxnDate), (b.SalesTermRef || {}).name),
+        balance: cents(b.Balance), terms: (b.SalesTermRef || {}).name || '',
+        total: cents(b.TotalAmt), synced_at: new Date().toISOString()
+      }));
+    }
+    await sbUpsert('bills', extra);
+    extra.forEach(b => haveBill.add(b.id));
+    console.log(`  recovered ${extra.length} of ${missingBills.length}`);
+  }
+
+  let bpOrphaned = 0;
+  bpRows = bpRows.map(b => {
+    if (b.bill_id && !haveBill.has(b.bill_id)) { bpOrphaned++; return { ...b, bill_id: null }; }
+    return b;
+  });
+
   await sbDelete(`bill_payments?paid_on=gte.${from}`);
   await sbUpsert('bill_payments', bpRows);
-  console.log(`  ${billPmts.length} bill payments \u2192 ${bpRows.length} bill links`);
+  console.log(`  ${billPmts.length} bill payments \u2192 ${bpRows.length} rows` +
+    (bpOrphaned ? ` (${bpOrphaned} unlinked)` : ''));
 
   // ---- attribution coverage, so a broken match map is visible immediately ----
   const links = await sbGet('qbo_project_links?select=qbo_project_id');
@@ -436,7 +521,7 @@ async function main() {
       payments: payments.length, payment_links: payRows.length, payments_unlinked: unlinked,
       bills: bills.length, purchases: purchases.length, journals: journals.length,
       bill_lines: billLines.length, bills_open: openBills.length,
-      bill_payments: billPmts.length, bill_payment_links: bpRows.length,
+      bill_payments: billPmts.length, bill_payment_links: bpRows.length, payments_orphaned: orphaned, bill_payments_orphaned: bpOrphaned,
       unmatched_projects: unmatched.size
     }
   });
