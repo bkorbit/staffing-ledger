@@ -264,3 +264,32 @@ table.grid td .cell:focus { outline:none; border-color:var(--brand);
   border-top:1px solid var(--line); white-space:nowrap; }
 .totalsgrid tr.gp td { color:var(--brand); font-weight:700; }
 .totalsgrid .linegpcol { width:96px; }
+
+/* ---- deal editor v3: display table + entry cards ---- */
+.totalsgrid tr.colheadrow th { font-family:var(--font-mono); font-size:0.6rem; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--slate); background:#f4f4f2; padding:7px 8px; text-align:right;
+  white-space:nowrap; border-bottom:2px solid var(--brand); border-top:none; }
+.totalsgrid tr.colheadrow th.rowlabelcol { text-align:left; }
+.totalsgrid tr.linerow td { color:var(--slate); font-size:0.76rem; border-top:1px solid #f0f0ee; }
+.kbadge.sm { font-size:0.58rem; padding:2px 7px; }
+.linecards { display:flex; flex-direction:column; gap:10px; margin-top:14px; }
+.linecard { border:1px solid var(--line); border-radius:8px; background:var(--paper-raised);
+  box-shadow:0 1px 3px rgba(0,0,0,.04); }
+.cardhead { display:flex; align-items:center; gap:10px; padding:10px 12px;
+  border-bottom:1px solid #f0f0ee; }
+.cardhead .lgp { font-family:var(--font-mono); font-size:0.78rem; color:var(--brand); font-weight:700; }
+.cardbody { padding:10px 12px 12px; }
+.cardbody .lparams { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; }
+.gpcallout { font-family:var(--font-mono); font-size:0.72rem; margin-top:8px; min-height:1em; }
+.cardnote { font-size:0.66rem; color:var(--slate); margin-top:6px; }
+.cardnote button { padding:1px 8px; font-size:0.62rem; margin-left:4px; }
+details.permonth { margin-top:8px; }
+details.permonth summary { font-family:var(--font-mono); font-size:0.66rem; letter-spacing:.05em;
+  text-transform:uppercase; color:var(--slate); cursor:pointer; user-select:none; }
+details.permonth summary:hover { color:var(--brand); }
+.pmrow { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+.pmcell { display:inline-flex; flex-direction:column; gap:2px; }
+.pmcell span { font-family:var(--font-mono); font-size:0.56rem; text-transform:uppercase; color:var(--slate); }
+.pmcell input { width:84px; height:26px; border:1px solid var(--line); border-radius:5px; text-align:right;
+  padding:0 6px; font-family:var(--font-mono); font-size:0.72rem; background:var(--paper-raised); }
+.pmcell input:focus { outline:none; border-color:var(--brand); }

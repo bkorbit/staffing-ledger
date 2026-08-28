@@ -606,99 +606,79 @@ boot('forecast', async (supa, el) => {
       const openM = fm.filter(m=>!closed(m));
       const closedM = fm.filter(m=>closed(m));
       const asSold = d.promotions?.[0]?.as_sold;
-      // a labelled param input, stacked label-over-box
       const field = (li, p, label, val, ph='0') =>
         `<label class="pf"><span class="pfl">${label}</span>
            <input class="p" data-li="${li}" data-p="${p}" value="${val}" placeholder="${ph}"></label>`;
 
-      // the month columns shown in every line's grid: one collapsed "closed" column
-      // (if any), then each open month
+      // month columns: one collapsed closed column (if any), then each open month
       const cols = (closedM.length ? [{ closed:true, label:`${closedM.length} closed`, months:closedM }] : [])
         .concat(openM.map(m => ({ closed:false, label:mLabel(m), months:[m] })));
       const colHead = cols.map(c =>
         `<th class="${c.closed?'closedcol':''}">${c.label}${c.closed?' ✓':''}</th>`).join('');
 
-      // ---- one block per line: a control strip, then that line's month cells ----
-      const lineBlocks = model.map((l, li) => {
+      const kindLabelOf = l => l.kind === 'creative' ? `creative · ${creativeMode(l)}` : l.kind;
+      const isHourlyL = l => l.kind==='hourly' || (l.kind==='creative' && creativeMode(l)==='hourly');
+      const isBudgetL = l => KIND[l.kind].cells==='budget';
+
+      // ---- the overview TABLE: one display row per line, then the totals ----
+      const lineRows = model.map((l, li) => `<tr class="linerow">
+          <td class="rowlabelcol"><span class="kbadge sm">${kindLabelOf(l)}</span></td>
+          ${cols.map((c,ci)=>`<td class="muted" data-lrc="${li}:${ci}"></td>`).join('')}
+          <td class="linegpcol muted" data-lrt="${li}"></td>
+        </tr>`).join('');
+
+      // ---- the CARDS: one entry box per channel, below the table ----
+      const cards = model.map((l, li) => {
         const cfg = KIND[l.kind];
         const mode = l.kind === 'creative' ? creativeMode(l) : null;
-        const kindLabel = l.kind === 'creative' ? `creative · ${mode}` : l.kind;
-        const isHourly = l.kind==='hourly' || (l.kind==='creative' && mode==='hourly');
-        const isBudget = cfg.cells==='budget';
-        const usesCells = isBudget || isHourly || (l.manual && !cfg.cells);
-
         const structSel = l.kind === 'creative'
-          ? `<select class="cmode" data-li="${li}" title="how creative bills">
+          ? `<select class="cmode" data-li="${li}">
                <option value="retainer" ${mode==='retainer'?'selected':''}>retainer $/mo</option>
                <option value="hourly" ${mode==='hourly'?'selected':''}>hourly</option>
              </select>` : '';
-
-        // params: amount / rate+hours / fee / margin as the kind needs
-        const params = (() => {
-          const wantsAmount = (l.kind==='retainer'||l.kind==='custom'||(l.kind==='creative'&&mode==='retainer'));
-          const bits = [];
-          if (wantsAmount) bits.push(field(li,'amount','$ / flight month', l.params.amount||''));
-          if (isHourly) {
-            bits.push(field(li,'rate','rate $/hr', l.params.rate||''));
-            bits.push(field(li,'hours_per_month','hrs / mo', l.params.hours_per_month||''));
-          }
-          (cfg.defaults||[]).forEach(([p,label]) => {
-            if (p==='amount'||p==='rate'||p==='hours_per_month') return;
-            bits.push(field(li,p,label, p==='margin_pct'?(l.params[p]??''):(l.params[p]||''),
-              p==='margin_pct'?marginDefault:'0'));
-          });
-          return bits.join('');
-        })();
-
-        // the Total Budget box — for budget lines and hourly, an inline total that
-        // spreads across open months as you type. Flat lines use a per-month toggle.
-        let totalBox = '';
-        if (usesCells) {
-          const curTotal = openM.reduce((s,m)=>s+(+l.cells[m]||0),0);
-          const unit = isBudget ? 'Total budget $' : 'Total hours';
-          totalBox = `<label class="pf tb"><span class="pfl">${unit}</span>
-            <input class="totalbudget" data-li="${li}" value="${curTotal||''}" placeholder="spread evenly"></label>`;
-        } else {
-          totalBox = l.manual
-            ? `<button class="spreadbtn" data-li="${li}" data-auto="1">back to flat</button>`
-            : `<button class="spreadbtn" data-li="${li}" data-manual="1">per-month override…</button>`;
+        const bits = [];
+        if (l.kind==='retainer'||l.kind==='custom'||(l.kind==='creative'&&mode==='retainer'))
+          bits.push(field(li,'amount','$ / flight month', l.params.amount||''));
+        if (isHourlyL(l)) {
+          bits.push(field(li,'rate','rate $/hr', l.params.rate||''));
+          bits.push(field(li,'hours_per_month','hrs / mo', l.params.hours_per_month||''));
         }
-
-        // the cells for this line, aligned to cols
-        const gpFor = m => gpMonth(l, m);
-        const cellFor = c => {
-          if (c.closed) {
-            const gp = c.months.reduce((s,m)=>s+gpFor(m),0);
-            return `<td class="closedcol muted">${gp?fmtMoney(gp):''}</td>`;
-          }
-          const m = c.months[0];
-          const gp = gpFor(m);
-          if (!usesCells) {
-            // flat auto line: derived $, read-only
-            return `<td class="cellwrap"><div class="cgp">${gp?fmtMoney(gp):''}</div></td>`;
-          }
-          // editable: GP on top (derived), the input (budget or hours) below
-          const raw = l.cells[m] ?? '';
-          const sub = isBudget ? 'budget' : 'hrs';
-          return `<td class="cellwrap">
-            <div class="cgp">${gp?fmtMoney(gp):''}</div>
-            <input class="cell" data-li="${li}" data-m="${m}" value="${raw}"
-              placeholder="${sub}" ${closed(m)?'disabled':''}></td>`;
-        };
-        const cells = cols.map(cellFor).join('');
-
-        return `<div class="lineblock">
-          <div class="linestrip">
-            <span class="kbadge">${kindLabel}</span>
-            ${structSel}
-            <div class="lparams">${params}${totalBox}</div>
+        (cfg.defaults||[]).forEach(([p,label]) => {
+          if (p==='amount'||p==='rate'||p==='hours_per_month') return;
+          bits.push(field(li,p,label, p==='margin_pct'?(l.params[p]??''):(l.params[p]||''),
+            p==='margin_pct'?String(marginDefault):'0'));
+        });
+        // programmatic margin context lives ON the card, always
+        const marginNote = l.kind==='programmatic'
+          ? `<div class="cardnote">margin blank = default ${marginDefault}%${achieved!==null
+              ? ` · client achieved <b>${achieved}%</b> <button class="use-achieved-one" data-li="${li}">use</button>` : ''}</div>`
+          : '';
+        // the total box (budget kinds & hourly get a spreadable total)
+        const useTotal = isBudgetL(l) || isHourlyL(l);
+        const curTotal = openM.reduce((s,m)=>s+(+l.cells[m]||0),0);
+        const totalBox = useTotal
+          ? `<label class="pf tb"><span class="pfl">${isBudgetL(l)?'Total budget $':'Total hours'}</span>
+               <input class="totalbudget" data-li="${li}" value="${curTotal||''}" placeholder="spread evenly"></label>`
+          : '';
+        // per-month override, tucked away
+        const pmCells = openM.map(m=>`<label class="pmcell"><span>${mLabel(m)}</span>
+            <input class="cell" data-li="${li}" data-m="${m}" value="${l.cells[m] ?? ''}"></label>`).join('');
+        return `<div class="linecard" data-li="${li}">
+          <div class="cardhead">
+            <span class="kbadge">${kindLabelOf(l)}</span>${structSel}
             <span style="flex:1"></span>
             <span class="lgp" data-li="${li}"></span>
             <button class="danger delline" data-li="${li}" title="remove line">✕</button>
           </div>
-          <table class="linegrid"><tr>
-            <td class="rowlabelcol"></td>${cells}<td class="linegpcol"></td>
-          </tr></table>
+          <div class="cardbody">
+            <div class="lparams">${bits.join('')}${totalBox}</div>
+            <div class="gpcallout muted" data-li="${li}"></div>
+            ${marginNote}
+            <details class="permonth"><summary>per-month override</summary>
+              <div class="pmrow">${pmCells}</div>
+              <div class="cardnote">typing here overrides the even spread for that month</div>
+            </details>
+          </div>
         </div>`;
       }).join('');
 
@@ -722,15 +702,12 @@ boot('forecast', async (supa, el) => {
               <option value="client" ${d.media_funding!=='agency'?'selected':''}>client pays</option>
               <option value="agency" ${d.media_funding==='agency'?'selected':''}>EMG pays &amp; rebills</option>
             </select></div>
-          ${achieved !== null ? `<div class="setrow"><span class="setlabel">Achieved margin</span>
-            <span class="muted"><b>${achieved}%</b> programmatic media vs media COGS
-            <button class="use-achieved">apply to programmatic</button></span></div>` : ''}
         </div>
         <div class="editorbar"><span class="totals"></span></div>
         <div class="gridwrap">
-          <table class="colhead"><tr><th class="rowlabelcol">Line / month</th>${colHead}<th class="linegpcol">line GP</th></tr></table>
-          ${lineBlocks || `<div class="muted" style="padding:12px">no lines yet — add one below</div>`}
           <table class="totalsgrid">
+            <tr class="colheadrow"><th class="rowlabelcol">Line / month</th>${colHead}<th class="linegpcol">line GP</th></tr>
+            ${lineRows}
             <tr class="gp"><td class="rowlabelcol">GP forecast</td>
               ${cols.map((c,ci)=>`<td data-gpcol="${ci}"></td>`).join('')}<td data-gptotal class="linegpcol"></td></tr>
             <tr><td class="rowlabelcol muted">GP actual (QuickBooks)${d.qbo_project_id?'':' — no project'}</td>
@@ -738,13 +715,14 @@ boot('forecast', async (supa, el) => {
                 c.months.some(m=>closed(m)&&actualByM[m]!==undefined)
                   ? fmtMoney(c.months.reduce((s,m)=>s+(closed(m)?(actualByM[m]||0):0),0)) : ''
               }</td>`).join('')}
-              <td class="muted">${fmtMoney(fm.reduce((s,m)=>s+(closed(m)?(actualByM[m]||0):0),0))||''}</td></tr>
+              <td class="muted linegpcol">${fmtMoney(fm.reduce((s,m)=>s+(closed(m)?(actualByM[m]||0):0),0))||''}</td></tr>
             <tr><td class="rowlabelcol muted">Δ actual vs forecast</td>
-              ${cols.map((c,ci)=>`<td data-diffcol="${ci}"></td>`).join('')}<td></td></tr>
+              ${cols.map((c,ci)=>`<td data-diffcol="${ci}"></td>`).join('')}<td class="linegpcol"></td></tr>
           </table>
         </div>
         <div class="muted lockednote">✓ months are locked: their actuals come from QuickBooks
         and their forecast froze when the month closed — accuracy is measured, never rewritten.</div>
+        <div class="linecards">${cards}</div>
         <div class="editorbar">
           <select class="newkind"><option value="">+ add a line…</option>
             ${OFFERED.map(k=>`<option value="${k}">${k}</option>`).join('')}</select>
@@ -763,29 +741,19 @@ boot('forecast', async (supa, el) => {
         model.forEach(l => Object.keys(l.cells).forEach(m => { if (!keep.has(m)) delete l.cells[m]; }));
         draw();
       }
+
       box.querySelectorAll('input.p').forEach(inp => inp.oninput = () => {
         const l = model[+inp.dataset.li];
         l.params[inp.dataset.p] = inp.value==='' ? (inp.dataset.p==='margin_pct'?null:0) : +inp.value;
-        // a flat line that isn't in manual mode previews its per-month note live
-        if (!KIND[l.kind].cells || (l.kind==='creative' && creativeMode(l)==='retainer')) {
-          if (!l.manual) draw();
-        }
         preview();
       });
-      // creative structure: retainer-like or hourly-like
       box.querySelectorAll('select.cmode').forEach(sel => sel.onchange = () => {
         const l = model[+sel.dataset.li];
         l.label = 'creative:' + sel.value;
-        l.cells = {};            // structure changed — clear stale cells
+        l.cells = {};
         draw();
       });
-      // the flighting button: spread a total, drop to per-month, or back to flat
-      box.querySelectorAll('.spreadbtn').forEach(btn => btn.onclick = () => {
-        const l = model[+btn.dataset.li];
-        if (btn.dataset.manual) { l.manual = true; draw(); return; }
-        if (btn.dataset.auto)   { l.manual = false; l.cells = {}; draw(); return; }
-      });
-      // Total Budget box: spread evenly across open months, remainder on the last
+      // Total box: spread evenly across the open months, remainder on the last
       box.querySelectorAll('input.totalbudget').forEach(inp => inp.oninput = () => {
         const l = model[+inp.dataset.li];
         const total = +inp.value;
@@ -798,14 +766,61 @@ boot('forecast', async (supa, el) => {
             l.cells[m] = v; acc += per;
           });
         }
-        // refresh only this line's cells + totals, not the whole editor
-        box.querySelectorAll(`td.cellwrap input.cell[data-li="${inp.dataset.li}"]`).forEach(ci => {
+        box.querySelectorAll(`.linecard[data-li="${inp.dataset.li}"] input.cell`).forEach(ci => {
           ci.value = l.cells[ci.dataset.m] ?? '';
         });
         preview();
       });
-        // the project picker: searchable over the FULL list; projects linked to
-      // another deal stay visible and selectable — moving one is confirmed on save
+      // per-month override cells inside the card
+      box.querySelectorAll('input.cell').forEach(inp => inp.oninput = () => {
+        const l = model[+inp.dataset.li];
+        if (inp.value==='') delete l.cells[inp.dataset.m];
+        else l.cells[inp.dataset.m] = +inp.value;
+        if (!KIND[l.kind].cells && !isHourlyL(l)) l.manual = Object.keys(l.cells).length > 0;
+        const tb = box.querySelector(`input.totalbudget[data-li="${inp.dataset.li}"]`);
+        if (tb) { const t = openM.reduce((s,m)=>s+(+l.cells[m]||0),0); tb.value = t || ''; }
+        preview();
+      });
+      box.querySelectorAll('.delline').forEach(btn => btn.onclick = async e => {
+        e.stopPropagation();
+        const li = +btn.dataset.li;
+        if (model[li].id) {
+          if (!confirm('Delete this line and its months?')) return;
+          await supa.from('deal_lines').delete().eq('id', model[li].id);
+        }
+        model.splice(li,1); draw();
+      });
+      box.querySelector('.newkind').onchange = e => {
+        if (!e.target.value) return;
+        const kind = e.target.value;
+        model.push({ kind,
+          label: kind==='creative' ? 'creative:retainer' : null,
+          params:{ amount:0, fee_pct:0, margin_pct:null, rate:0, hours_per_month:0 },
+          cells:{}, manual:false, orig:{ amount:0, hours:0 }, hadDlm:new Set() });
+        draw();
+      };
+      box.querySelectorAll('.use-achieved-one').forEach(b => b.onclick = () => {
+        const l = model[+b.dataset.li];
+        l.params.margin_pct = achieved;
+        draw();
+      });
+      box.querySelector('.hidedeal').onclick = async () => {
+        if (!confirm(`Hide "${d.name}" from the forecast?\n\nIts plan leaves the chart and table. Any matched project's actuals fall back to the client. Survives syncs; unhide from SQL.`)) return;
+        const { error } = await supa.from('deals')
+          .update({ hidden:true, hidden_by:window.__email, hidden_at:new Date().toISOString() })
+          .eq('id', d.id);
+        if (error) { alert(error.message); return; }
+        closeModal(); loadAll();
+      };
+      box.querySelector('.saveall').onclick = save;
+      box.querySelector('.reviewed').onclick = async () => {
+        const { error } = await supa.from('deals').update({
+          reviewed_at:new Date().toISOString(), set_by:window.__email, set_at:new Date().toISOString()
+        }).eq('id', d.id);
+        if (!error) loadAll();
+      };
+
+      // the project picker: page-relevant projects immediately, full list lazily
       const qpSel = box.querySelector('.qp'), qpSearch = box.querySelector('.qpsearch');
       if (!fullProjects) {
         fetchAll(() => supa.from('qbo_projects').select('id,name,parent_id,jobcode')
@@ -832,53 +847,6 @@ boot('forecast', async (supa, el) => {
       };
       drawPicker();
       qpSearch.oninput = () => drawPicker(qpSearch.value);
-      box.querySelectorAll('input.cell').forEach(inp => inp.oninput = () => {
-        const l = model[+inp.dataset.li];
-        if (inp.value==='') delete l.cells[inp.dataset.m];
-        else l.cells[inp.dataset.m] = +inp.value;
-        // keep the line's Total Budget box in sync with the sum of its cells
-        const tb = box.querySelector(`input.totalbudget[data-li="${inp.dataset.li}"]`);
-        if (tb) { const t = openM.reduce((s,m)=>s+(+l.cells[m]||0),0); tb.value = t || ''; }
-        preview();
-      });
-      box.querySelectorAll('.delline').forEach(btn => btn.onclick = async e => {
-        e.stopPropagation();
-        const li = +btn.dataset.li;
-        if (model[li].id) {
-          if (!confirm('Delete this line and its months?')) return;
-          await supa.from('deal_lines').delete().eq('id', model[li].id);
-        }
-        model.splice(li,1); draw();
-      });
-      box.querySelector('.newkind').onchange = e => {
-        if (!e.target.value) return;
-        const kind = e.target.value;
-        model.push({ kind,
-          label: kind==='creative' ? 'creative:retainer' : null,
-          params:{ amount:0, fee_pct:0, margin_pct:null, rate:0, hours_per_month:0 },
-          cells:{}, manual:false, orig:{ amount:0, hours:0 }, hadDlm:new Set() });
-        draw();
-      };
-      const ua = box.querySelector('.use-achieved');
-      if (ua) ua.onclick = () => {
-        model.forEach(l => { if (l.kind === 'programmatic') l.params.margin_pct = achieved; });
-        draw();
-      };
-      box.querySelector('.hidedeal').onclick = async () => {
-        if (!confirm(`Hide "${d.name}" from the forecast?\n\nIts plan leaves the chart and table. Any matched project's actuals fall back to the client. Survives syncs; unhide from SQL.`)) return;
-        const { error } = await supa.from('deals')
-          .update({ hidden:true, hidden_by:window.__email, hidden_at:new Date().toISOString() })
-          .eq('id', d.id);
-        if (error) { alert(error.message); return; }
-        closeModal(); loadAll();
-      };
-      box.querySelector('.saveall').onclick = save;
-      box.querySelector('.reviewed').onclick = async () => {
-        const { error } = await supa.from('deals').update({
-          reviewed_at:new Date().toISOString(), set_by:window.__email, set_at:new Date().toISOString()
-        }).eq('id', d.id);
-        if (!error) loadAll();
-      };
       preview();
 
       function preview() {
@@ -887,18 +855,30 @@ boot('forecast', async (supa, el) => {
           let lt = 0;
           fm.forEach(m => { const g = gpMonth(l, m);
             if (g) { mgp[m]=(mgp[m]||0)+g; lt += g; } });
+          // card title GP + the greyed callout under the entry box
           const lg = box.querySelector(`.lgp[data-li="${li}"]`);
           if (lg) lg.textContent = lt ? `line GP $${fmtN(lt)}` : '';
+          const co = box.querySelector(`.gpcallout[data-li="${li}"]`);
+          if (co) {
+            if (l.kind==='programmatic') {
+              const mgn = l.params.margin_pct ?? marginDefault;
+              co.textContent = lt ? `GP ${fmtMoney(lt)} — margin ${mgn}% + fee ${l.params.fee_pct||0}%` : '';
+            } else if (isBudgetL(l)) {
+              co.textContent = lt ? `GP ${fmtMoney(lt)} — fee ${l.params.fee_pct||0}% of budget` : '';
+            } else {
+              co.textContent = lt ? `GP ${fmtMoney(lt)} across ${openM.length} open month(s)` : '';
+            }
+          }
+          // the overview table's line row
+          cols.forEach((c, ci) => {
+            const td = box.querySelector(`td[data-lrc="${li}:${ci}"]`);
+            if (td) { const g = c.months.reduce((s,m)=>s+gpMonth(l,m),0);
+              td.textContent = g ? fmtMoney(g) : ''; }
+          });
+          const lrt = box.querySelector(`td[data-lrt="${li}"]`);
+          if (lrt) lrt.textContent = lt ? fmtMoney(lt) : '';
           total += lt;
         });
-        // per-cell GP-on-top for editable lines, refreshed live
-        box.querySelectorAll('td.cellwrap').forEach(td => {
-          const inp = td.querySelector('input.cell'); if (!inp) return;
-          const l = model[+inp.dataset.li], m = inp.dataset.m;
-          const g = gpMonth(l, m);
-          const gpd = td.querySelector('.cgp'); if (gpd) gpd.textContent = g ? fmtMoney(g) : '';
-        });
-        // column-aligned GP forecast + Δ (a closed column sums its months)
         cols.forEach((c, ci) => {
           const gp = c.months.reduce((s,m)=>s+(mgp[m]||0),0);
           const td = box.querySelector(`td[data-gpcol="${ci}"]`);
