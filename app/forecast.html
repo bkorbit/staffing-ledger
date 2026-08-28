@@ -390,7 +390,7 @@ boot('forecast', async (supa, el) => {
     const num = v => v ? fmtM(v) : '';
     const varCell = v => v===null||v===undefined ? '' :
       `<span class="${Math.abs(v)>15?'err':'ok'}">${v>=0?'+':''}${v}%</span>`;
-    const noFc = `<span class="pill warn" title="no lines shaped — open the deal and give it a plan">no forecast</span>`;
+    const noFc = `<span class="pill warn" title="no lines shaped — open the deal and give it a plan">missing forecast</span>`;
 
     const q = tableQuery.trim().toLowerCase();
     // active in the period = the flight overlaps the range window. A deal spanning
@@ -407,7 +407,8 @@ boot('forecast', async (supa, el) => {
       return c.name.toLowerCase().includes(q) ||
              ds.some(d => d.name.toLowerCase().includes(q));
     }).map(c => ({ c, agg: clientRow(c),
-                   missing: visibleDeals(c).filter(d => !(d._agg||{}).gpAll && d.flight_end >= thisMonth).length }));
+                   missing: visibleDeals(c).filter(d => !(d._agg||{}).gpAll && d.flight_end >= thisMonth).length,
+                   noProj: visibleDeals(c).filter(d => !d.qbo_project_id).length }));
 
     const dir = tableSort.dir, key = tableSort.key;
     const sv = a => key==='name' ? a.c.name.toLowerCase()
@@ -420,7 +421,7 @@ boot('forecast', async (supa, el) => {
       .filter(d=>!(d._agg||{}).gpAll && d.flight_end >= thisMonth).length;
 
     let totals = { revenue:0, cogs:0, forecastGP:0, actualGP:0 };
-    const bodyRows = clients.map(({c, agg, missing}) => {
+    const bodyRows = clients.map(({c, agg, missing, noProj}) => {
       totals.revenue+=agg.revenue; totals.cogs+=agg.cogs;
       totals.forecastGP+=agg.forecastGP; totals.actualGP+=agg.actualGP||0;
       const ds = visibleDeals(c)
@@ -430,7 +431,8 @@ boot('forecast', async (supa, el) => {
       const head = `<tr class="clientrow" data-cid="${c.id}">
         <td><span class="muted">${ds.length?(isOpen?'▾':'▸'):'·'}</span>
           <span class="ellip" style="max-width:240px" title="${esc(c.name)}">${esc(c.name)}</span>
-          ${missing?`<span class="pill warn" style="margin-left:6px" title="${missing} deal(s) with no forecast">${missing} unshaped</span>`:''}</td>
+          ${missing?`<span class="pill warn" style="margin-left:6px" title="${missing} deal(s) with no forecast">${missing} missing forecast</span>`:''}
+          ${noProj?`<span class="pill bad" style="margin-left:6px" title="${noProj} deal(s) with no QuickBooks project — no actuals until linked">${noProj} no QB project</span>`:''}</td>
         <td>${num(agg.revenue)}</td><td>${num(agg.cogs)}</td>
         <td class="muted">${num(agg.fcCogs)}</td>
         <td style="color:var(--brand)">${agg.forecastGP?fmtM(agg.forecastGP):(ds.length?noFc:'')}</td>
@@ -457,7 +459,7 @@ boot('forecast', async (supa, el) => {
         return `<tr class="dealsub deallist" data-id="${d.id}" title="click to shape">
           <td style="padding-left:28px">▸
             <span class="ellip" style="max-width:210px" title="${esc(d.name)}">${esc(d.name)}</span>
-            ${d.reviewed_at?'':'<span class="warn" title="awaiting review">•</span>'}${r.matched?'':' <span class="pill warn" title="no QuickBooks project linked — open the deal and pick one">no QB project</span>'}</td>
+            ${d.reviewed_at?'':'<span class="warn" title="awaiting review">•</span>'}${r.matched?'':' <span class="pill bad" title="no QuickBooks project linked — open the deal and pick one">no QB project</span>'}</td>
           <td>${num(r.revenue)}</td><td>${num(r.cogs)}</td>
           <td class="muted">${num(r.fcCogs)}</td>
           <td style="color:var(--brand)">${r.forecastGP?fmtM(r.forecastGP):(r.ended?'':noFc)}</td>
