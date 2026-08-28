@@ -229,6 +229,14 @@ export function splitBillPaymentLines(bp) {
   return out;
 }
 
+// The jobcode embedded in a QuickBooks project name, e.g. '26hawt260810'. It is the
+// shared key with HubSpot deals, and the most reliable non-manual way to match a
+// QuickBooks project to a deal.
+export function jobcodeFromName(name) {
+  const m = String(name || '').match(/\b\d{2}[a-z]{3,6}\d{5,8}\b/i);
+  return m ? m[0] : null;
+}
+
 // Project id on an expense line, wherever QuickBooks decided to put it.
 export function lineProject(l) {
   const d = l.AccountBasedExpenseLineDetail || l.ItemBasedExpenseLineDetail || {};
@@ -270,6 +278,30 @@ async function main() {
       `good but the company id is wrong. Check the realmId shown in the OAuth playground. (${e.message || e})`));
   }
 
+  // ---- customers and projects: the names that make matching possible ----
+  // QuickBooks calls a sub-customer a "Project". Both are Customer records; Job=true
+  // marks the sub. Without this table an invoice is an id nobody can match to a client.
+  const customers = await qboAll(realm, token, 'Customer');
+  const custName = {};
+  await sbUpsert('qbo_projects', customers.map(c => {
+    const fq = c.FullyQualifiedName || c.DisplayName || '';
+    custName[String(c.Id)] = fq;
+    return {
+      id: String(c.Id),
+      name: c.DisplayName || fq,
+      fully_qualified_name: fq,
+      parent_id: (c.ParentRef || {}).value ? String(c.ParentRef.value) : null,
+      parent_name: fq.includes(':') ? fq.split(':').slice(0, -1).join(':') : null,
+      is_project: !!c.Job,
+      jobcode: jobcodeFromName(fq),
+      active: c.Active !== false,
+      synced_at: new Date().toISOString()
+    };
+  }), 'id');
+  const nProjects = customers.filter(c => c.Job).length;
+  const nJob = customers.filter(c => jobcodeFromName(c.FullyQualifiedName || '')).length;
+  console.log(`  ${customers.length} customers (${nProjects} projects, ${nJob} carrying a jobcode)`);
+
   // ---- bank accounts: the cashflow opening position ----
   const accounts = await qboAll(realm, token, 'Account', "AccountType = 'Bank'");
   await sbUpsert('cash_accounts', accounts.map(a => ({
@@ -300,6 +332,7 @@ async function main() {
     invRows.push({
       id: String(inv.Id),
       qbo_project_id: (inv.CustomerRef || {}).value ? String(inv.CustomerRef.value) : null,
+      qbo_customer_name: custName[String((inv.CustomerRef || {}).value)] || (inv.CustomerRef || {}).name || '',
       doc_number: inv.DocNumber || '',
       issued_on: issued,
       due_on: due,
@@ -351,6 +384,7 @@ async function main() {
         extraRows.push({
           id: String(inv.Id),
           qbo_project_id: (inv.CustomerRef || {}).value ? String(inv.CustomerRef.value) : null,
+          qbo_customer_name: custName[String((inv.CustomerRef || {}).value)] || (inv.CustomerRef || {}).name || '',
           doc_number: inv.DocNumber || '', issued_on: issued,
           due_on: day(inv.DueDate) || deriveDueDate(issued, terms), terms,
           total: cents(inv.TotalAmt), balance: cents(inv.Balance),
@@ -399,7 +433,7 @@ async function main() {
   const addCost = (kind, t, vendor, opts = {}) => {
     const id = `${kind}:${t.Id}`;
     billRows.push({
-      id, kind, vendor_name: vendor || '',
+      id, kind, vendor_name: vendor || '', qbo_customer_name: opts.customer || null,
       issued_on: day(t.TxnDate),
       due_on: opts.due || null,
       balance: opts.balance !== undefined ? opts.balance : 0,
@@ -422,6 +456,7 @@ async function main() {
   // A Bill is owed and has terms. A Purchase is a card charge — already paid, so its
   // balance is zero and it is cash out on the transaction date.
   bills.forEach(b => addCost('bill', b, (b.VendorRef || {}).name, {
+    customer: custName[String(((b.Line || []).map(lineProject).find(Boolean)) || '')] || null,
     due: day(b.DueDate) || deriveDueDate(day(b.TxnDate), (b.SalesTermRef || {}).name),
     balance: cents(b.Balance),
     terms: (b.SalesTermRef || {}).name || ''
@@ -516,6 +551,7 @@ async function main() {
     last_run_at: new Date().toISOString(),
     last_run_log: {
       from, accounts: accounts.length,
+      customers: customers.length, projects: nProjects,
       invoices: invRows.length, invoice_lines: invLines.length, invoices_open: openInv.length,
       invoices_no_due: noDue,
       payments: payments.length, payment_links: payRows.length, payments_unlinked: unlinked,
