@@ -201,13 +201,17 @@ async function main() {
   // ---- stage metadata: which stages mean WON, and each stage's probability ----
   const pipelines = await hs('/crm/v3/pipelines/deals');
   const stageMeta = {};
-  (pipelines.results || []).forEach(p => (p.stages || []).forEach(s => {
+  const pipelineLabel = {};
+  (pipelines.results || []).forEach(p => {
+    pipelineLabel[p.id] = p.label || p.id;
+    (p.stages || []).forEach(s => {
     stageMeta[s.id] = {
       label: s.label,
-      won: String((s.metadata || {}).isClosedWon) === 'true',
+      won: String((s.metadata || {}).isClosedWon) === 'true' ||
+           +((s.metadata || {}).probability ?? NaN) >= 1,
       probability: +((s.metadata || {}).probability ?? NaN)
     };
-  }));
+  });});
   console.log(`  ${Object.keys(stageMeta).length} stages across ${(pipelines.results || []).length} pipeline(s)`);
 
   // ---- all deals, paginated, with company associations ----
@@ -270,6 +274,7 @@ async function main() {
       campaign_start: hsDate(p.campaign_start_date),
       campaign_end: hsDate(p.campaign_end_date),
       is_won: !!meta.won,
+      pipeline: pipelineLabel[p.pipeline] || p.pipeline || null,
       jobcode: jobcodeFromName(p.dealname),
       line_items: lis,
       url: `https://app.hubspot.com/contacts/deals/${d.id}`,
@@ -283,6 +288,17 @@ async function main() {
   console.log(`  mirrored ${mirrored.length} (${won.length} won)`);
 
   // ---- the one-way door ----
+  const gateRows = await sbGet('settings?key=eq.hubspot_promote_pipelines&select=value');
+  const allowed = new Set(((gateRows[0] || {}).value || []).map(nameKey));
+  const gated = won.filter(m => allowed.has(nameKey(m.pipeline)));
+  const heldBack = won.length - gated.length;
+  if (!allowed.size) {
+    console.log('  \u26a0 no pipelines enabled for promotion (hubspot_promote_pipelines is empty) — ' +
+      'all won deals held at the door');
+  } else if (heldBack) {
+    console.log(`  ${heldBack} won deal(s) in pipelines not enabled for promotion — held at the door`);
+  }
+
   const already = new Set((await sbGet('promotions?select=hubspot_deal_id'))
     .map(r => r.hubspot_deal_id));
   const clients = await sbGet('clients?select=id,name');
@@ -294,7 +310,7 @@ async function main() {
   const skipped = {};
   let promoted = 0, newClients = 0;
 
-  for (const m of won) {
+  for (const m of gated) {
     if (already.has(m.hubspot_deal_id)) continue;
     const blocker = promotionBlocker(m);
     if (blocker) { (skipped[blocker] = skipped[blocker] || []).push(m.name || m.hubspot_deal_id); continue; }
@@ -341,6 +357,7 @@ async function main() {
     last_run_log: {
       ok: true,
       deals: mirrored.length, won: won.length,
+      pipelines_enabled: [...allowed], held_at_door: heldBack,
       promoted, new_clients: newClients,
       skipped: Object.fromEntries(Object.entries(skipped).map(([k, v]) => [k, v.length])),
       skipped_names: skipped,

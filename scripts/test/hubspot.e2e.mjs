@@ -13,22 +13,28 @@ const hub=http.createServer((req,res)=>{
   let b='';req.on('data',c=>b+=c);
   req.on('end',()=>{
     res.setHeader('content-type','application/json');
-    if(req.url.startsWith('/crm/v3/pipelines/deals')) return res.end(JSON.stringify({results:[{stages:[
-      {id:'won-stage',label:'Closed Won',metadata:{isClosedWon:'true',probability:'1.0'}},
-      {id:'open-stage',label:'Proposal',metadata:{isClosedWon:'false',probability:'0.4'}}]}]}));
+    if(req.url.startsWith('/crm/v3/pipelines/deals')) return res.end(JSON.stringify({results:[
+      {id:'sales',label:'Sales Pipeline',stages:[
+        {id:'won-stage',label:'Closed Won',metadata:{probability:'1.0'}},
+        {id:'open-stage',label:'Proposal',metadata:{probability:'0.4'}}]},
+      {id:'recruiting',label:'Recruiting',stages:[
+        {id:'placed',label:'Candidate Placed',metadata:{probability:'1.0'}}]}]}));
     if(req.url.startsWith('/crm/v3/objects/deals')) return res.end(JSON.stringify({results:[
-      {id:'D1',properties:{dealname:'26akrn260101 Akron World Cup',amount:'120000',dealstage:'won-stage',
+      {id:'D1',properties:{dealname:'26akrn260101 Akron World Cup',amount:'120000',dealstage:'won-stage',pipeline:'sales',
         closedate:'2026-08-01',campaign_start_date:'2026-09-14',campaign_end_date:'2026-12-20'},
        associations:{companies:{results:[{id:'C1'}]}}},
-      {id:'D2',properties:{dealname:'Akron AOR Extension',amount:'50000',dealstage:'won-stage',
+      {id:'D2',properties:{dealname:'Akron AOR Extension',amount:'50000',dealstage:'won-stage',pipeline:'sales',
         closedate:'2026-08-10',campaign_start_date:'2027-01-05',campaign_end_date:'2027-06-15'},
        associations:{companies:{results:[{id:'C1'}]}}},
-      {id:'D3',properties:{dealname:'Dateless Deal',amount:'90000',dealstage:'won-stage',closedate:'2026-08-15'},
+      {id:'D3',properties:{dealname:'Dateless Deal',amount:'90000',dealstage:'won-stage',pipeline:'sales',closedate:'2026-08-15'},
        associations:{companies:{results:[{id:'C2'}]}}},
-      {id:'D4',properties:{dealname:'Already Promoted Deal',amount:'70000',dealstage:'won-stage',
+      {id:'D4',properties:{dealname:'Already Promoted Deal',amount:'70000',dealstage:'won-stage',pipeline:'sales',
         campaign_start_date:'2026-07-01',campaign_end_date:'2026-10-01'},
        associations:{companies:{results:[{id:'C2'}]}}},
-      {id:'D5',properties:{dealname:'Open Proposal',amount:'40000',dealstage:'open-stage'},
+      {id:'D5',properties:{dealname:'Open Proposal',amount:'40000',dealstage:'open-stage',pipeline:'sales'},
+       associations:{companies:{results:[{id:'C2'}]}}},
+      {id:'D6',properties:{dealname:'Placed: Jane Doe',amount:'25000',dealstage:'placed',pipeline:'recruiting',
+        campaign_start_date:'2026-09-01',campaign_end_date:'2026-12-01'},
        associations:{companies:{results:[{id:'C2'}]}}}
     ]}));
     if(req.url.includes('/companies/batch/read')) return res.end(JSON.stringify({results:[
@@ -45,6 +51,7 @@ const supa=http.createServer((req,res)=>{
     res.setHeader('content-type','application/json');
     if(req.method==='GET'&&table==='sync_state') return res.end(JSON.stringify([{id:'hubspot'}]));
     if(req.method==='GET'&&table==='promotions') return res.end(JSON.stringify([{hubspot_deal_id:'D4'}])); // D4 already through the door
+    if(req.method==='GET'&&table==='settings') return res.end(JSON.stringify([{value:['Sales Pipeline']}]));
     if(req.method==='GET') return res.end('[]');
     if(req.method==='DELETE'){deletes.push(req.url);res.statusCode=204;return res.end();}
     if(req.method==='POST'&&req.url.includes('/rpc/')){rpc.push(req.url);return res.end('[]');}
@@ -72,7 +79,10 @@ await new Promise(r=>setTimeout(r,2500));
 let bad=0;
 const check=(cond,msg)=>{ console.log((cond?'  ok  ':'  FAIL ')+msg); if(!cond)bad=1; };
 
-check((writes.pipeline_deals||[]).length===5,'all 5 deals mirrored');
+check((writes.pipeline_deals||[]).length===6,'all 6 deals mirrored');
+const d6m=(writes.pipeline_deals||[]).find(d=>d.hubspot_deal_id==='D6')||{};
+check(d6m.is_won===true&&d6m.pipeline==='Recruiting','placed candidate is recognised as won, in the Recruiting pipeline');
+check(!(writes.deals||[]).find(d=>d.hubspot_deal_id==='D6'),'recruiting win held at the door — not promoted');
 const clients=(writes.clients||[]);
 check(clients.length===1,'exactly 1 client created — Akron once, reused; skipped deals create no clients: got '+clients.length);
 const dealRows=(writes.deals||[]);
