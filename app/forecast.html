@@ -80,7 +80,7 @@ boot('forecast', async (supa, el) => {
   // line. Settled months full-strength; projected months lighter — the v1 rule.
   function comboChart(elc, rows) {
     const W=960,H=270,P={l:64,r:12,t:16,b:26};
-    const maxBar=Math.max(1,...rows.map(r=>Math.max(r.revenue,r.cogs+r.labour+r.other+r.fixed)));
+    const maxBar=Math.max(1,...rows.map(r=>Math.max(r.revenue,r.cogs+r.labour+r.other+r.misc+r.fixed)));
     const nets=rows.map(r=>r.net);
     const min=Math.min(0,...nets), max=Math.max(maxBar,...nets,1);
     const y=v=>P.t+(H-P.t-P.b)*(1-(v-min)/((max-min)||1));
@@ -96,19 +96,23 @@ boot('forecast', async (supa, el) => {
       if(r.revenue>0) g+=`<rect x="${cx-bw-1.5}" y="${y(r.revenue)}" width="${bw}" height="${y(Math.max(min,0))-y(r.revenue)}" fill="#0a493c" opacity="${op}"><title>${mLabel(r.m)} revenue ${fmtN(r.revenue)}</title></rect>`;
       // cost stack
       let acc=0;
-      [['cogs','#67706d'],['labour','#fabf4d'],['other','#d1453b'],['fixed','#b0b0b0']].forEach(([k,c])=>{
+      [['cogs','#67706d'],['labour','#fabf4d'],['other','#d1453b'],['misc','#9a9a94'],['fixed','#b0b0b0']].forEach(([k,c])=>{
         const v=r[k]; if(!v) return;
         const y1=y(acc+v), h=y(acc)-y(acc+v); acc+=v;
         g+=`<rect x="${cx+1.5}" y="${y1}" width="${bw}" height="${h}" fill="${c}" opacity="${op}"><title>${mLabel(r.m)} ${k} ${fmtN(v)}</title></rect>`;
       });
-      if(i%2===0) g+=`<text x="${cx}" y="${H-8}" fill="#67706d" font-size="9.5" font-family="DM Mono" text-anchor="middle">${mLabel(r.m)}</text>`;
+      g+=`<text x="${cx}" y="${H-8}" fill="#67706d" font-size="${rows.length>14?8:9.5}" font-family="DM Mono" text-anchor="middle">${mLabel(r.m)}</text>`;
+      // each bar carries its total
+      const costTotal = r.cogs+r.labour+r.other+r.misc+r.fixed;
+      if(r.revenue>0) g+=`<text x="${cx-bw/2-1.5}" y="${y(r.revenue)-3}" fill="#0a493c" font-size="8" font-family="DM Mono" text-anchor="middle">${fmtN(r.revenue)}</text>`;
+      if(costTotal>0) g+=`<text x="${cx+bw/2+1.5}" y="${y(costTotal)-3}" fill="#67706d" font-size="8" font-family="DM Mono" text-anchor="middle">${fmtN(costTotal)}</text>`;
     });
     g+=`<polyline fill="none" stroke="#19a789" stroke-width="2"
       points="${rows.map((r,i)=>(P.l+gap*i+gap/2)+','+y(r.net)).join(' ')}"/>`;
     rows.forEach((r,i)=>{const cx=P.l+gap*i+gap/2;
       g+=`<circle cx="${cx}" cy="${y(r.net)}" r="2.6" fill="#19a789"><title>${mLabel(r.m)} net ${fmtN(r.net)}</title></circle>`;});
-    const leg=[['#0a493c','revenue'],['#67706d','COGS'],['#fabf4d','labour'],['#d1453b','other'],['#b0b0b0','fixed'],['#19a789','net profit (line)']]
-      .map(([c,n],i)=>`<rect x="${P.l+i*130}" y="0" width="9" height="9" fill="${c}"/><text x="${P.l+i*130+13}" y="8" fill="#67706d" font-size="10" font-family="DM Mono">${n}</text>`).join('');
+    const leg=[['#0a493c','revenue'],['#67706d','COGS'],['#fabf4d','labour'],['#d1453b','overhead'],['#9a9a94','other'],['#b0b0b0','fixed'],['#19a789','net (line)']]
+      .map(([c,n],i)=>`<rect x="${P.l+i*118}" y="0" width="9" height="9" fill="${c}"/><text x="${P.l+i*118+13}" y="8" fill="#67706d" font-size="10" font-family="DM Mono">${n}</text>`).join('');
     elc.innerHTML=`<svg class="chart" viewBox="0 0 ${W} ${H+14}"><g transform="translate(0,12)">${g}</g>${leg}</svg>`;
   }
 
@@ -126,7 +130,8 @@ boot('forecast', async (supa, el) => {
   }
 
   let months, clientsById, dealsByClient, planByM, planBillByM, revByM, costByCM, openEditor = null;
-  let projects = [], projTakenBy = {}, fixedCosts = [], runrate = { payroll:0, overhead:0 };
+  let projects = [], projTakenBy = {}, fixedCosts = [], runrate = { payroll:0, overhead:0, misc:0 };
+  let costLines = [];
   let revByProj = {}, cogsByProj = {}, openClients = new Set();
   let warnings = [];
   let tableSort = { key:'revenue', dir:-1 }, tableQuery = '';
@@ -134,7 +139,7 @@ boot('forecast', async (supa, el) => {
   async function loadAll() {
     if (rangeTo < rangeFrom) rangeTo = rangeFrom;
     months = monthsBetween(rangeFrom, rangeTo);
-    const [fc, dl, cl, inv, cog, st, qp, rrPay, rrOver] = await Promise.all([
+    const [fc, dl, cl, inv, cog, st, qp, rrPay, rrOver, rrMisc] = await Promise.all([
       fetchAll(() => supa.from('v_deal_month_forecast').select('deal_id,month,gp,billable')
         .gte('month', rangeFrom).lte('month', rangeTo)),
       supa.from('deals')
@@ -144,14 +149,15 @@ boot('forecast', async (supa, el) => {
       supa.from('clients').select('id,name,active,qbo_customer_id').eq('active', true),
       fetchAll(() => supa.from('invoices').select('issued_on,total,qbo_project_id')
         .gte('issued_on', rangeFrom).lte('issued_on', shiftM(rangeTo,1))),
-      fetchAll(() => supa.from('v_cost_lines_classified').select('month,amount,class,qbo_project_id')
-        .in('class',['cogs','payroll','overhead'])
+      fetchAll(() => supa.from('v_cost_lines_classified')
+        .select('month,amount,class,qbo_project_id,account_name')
         .gte('month', rangeFrom).lte('month', rangeTo)),
       supa.from('settings').select('key,value')
         .in('key',['programmatic_margin_default','forecast_fixed_costs']),
       supa.from('qbo_projects').select('id,name,parent_id,jobcode'),
       supa.rpc('cost_runrate_monthly', { p_class:'payroll', months:6 }),
-      supa.rpc('cost_runrate_monthly', { p_class:'overhead', months:6 })
+      supa.rpc('cost_runrate_monthly', { p_class:'overhead', months:6 }),
+      supa.rpc('cost_runrate_monthly', { p_class:'other', months:6 })
     ]);
     for (const r of [fc,dl,cl,inv,cog,st]) if (r.error) throw r.error;
     warnings = [];
@@ -160,7 +166,7 @@ boot('forecast', async (supa, el) => {
     const sv = k => (st.data||[]).find(x=>x.key===k)?.value;
     marginDefault = +(sv('programmatic_margin_default') ?? 35);
     fixedCosts = sv('forecast_fixed_costs') || [];
-    runrate = { payroll: rrPay.data||0, overhead: rrOver.data||0 };
+    runrate = { payroll: rrPay.data||0, overhead: rrOver.data||0, misc: rrMisc.data||0 };
 
     revByM = {}; revByProj = {};
     (inv.data||[]).forEach(i => {
@@ -170,6 +176,7 @@ boot('forecast', async (supa, el) => {
       (revByProj[i.qbo_project_id] = revByProj[i.qbo_project_id]||{total:0,_:0})[
         m <= thisMonth ? 'total' : '_'] += i.total;
     });
+    costLines = cog.data||[];
     costByCM = {}; cogsByProj = {};
     (cog.data||[]).forEach(c => {
       (costByCM[c.class] = costByCM[c.class]||{})[c.month] = ((costByCM[c.class]||{})[c.month]||0) + c.amount;
@@ -209,7 +216,24 @@ boot('forecast', async (supa, el) => {
         <span style="flex:1"></span>
         <span class="muted" style="font-size:11px">dark = confirmed actual · light = forecasted —
         measured from QuickBooks once a month is over, projected before that</span>
+        <button id="costs-how">How costs are counted ▸</button>
         <button id="fixed-toggle">Fixed costs ▸</button>
+      </div>
+      <div id="how-panel" class="sc-panel" style="display:none">
+        <div class="sc-eyebrow">How every number is counted</div>
+        <div style="font-size:11.5px;line-height:1.7;max-width:900px">
+          <b>Revenue billed</b> = QuickBooks invoice totals by issue date (already net of
+          contra-revenue lines on the invoice). <b>COGS</b> = expense lines on accounts
+          QuickBooks types as Cost of Goods Sold. <b>Labour</b> = Expense accounts whose
+          name or subtype says payroll/salaries/wages. <b>Overhead</b> = every other
+          Expense account. <b>Other</b> = lines on accounts with no recognisable type.
+          <b>Excluded</b> = balance-sheet lines (credit-card payments, transfers, AP/AR,
+          equity) — they move money without being a cost, so they never enter the chart.
+          Settled months are measured; forward months use six-month trailing averages.
+          If July looks wrong, the table below is where to find why — and
+          <code>update qbo_accounts set override_class='cogs', override_reason='…' where id='…'</code>
+          reclassifies an account everywhere at once.</div>
+        <div id="how-table" style="margin-top:10px;max-height:340px;overflow-y:auto"></div>
       </div>
       <div id="fixed-panel" class="sc-panel" style="display:none">
         <div class="muted" style="font-size:10.5px;margin-bottom:8px">Monthly fixed costs —
@@ -256,6 +280,32 @@ boot('forecast', async (supa, el) => {
         el.querySelector('#fixed-total').textContent=`total $${fmtN(fixedTotal())}/month, projected months only`;});
       el.querySelectorAll('[data-fx]').forEach(b=>b.onclick=()=>{fixedCosts.splice(+b.dataset.fx,1);drawFixed();});
     }
+    el.querySelector('#costs-how').onclick = () => {
+      const p = el.querySelector('#how-panel');
+      const opening = p.style.display==='none';
+      p.style.display = opening ? '' : 'none';
+      if (opening) {
+        const agg = {};
+        costLines.forEach(c => {
+          const k = c.class + '\u0001' + (c.account_name||'(no account)');
+          agg[k] = (agg[k]||0) + c.amount;
+        });
+        const rows = Object.entries(agg).map(([k,v]) => {
+          const [cls,acct] = k.split('\u0001'); return { cls, acct, v };
+        }).sort((a,b)=> a.cls===b.cls ? b.v-a.v : a.cls.localeCompare(b.cls));
+        const inChart = { cogs:'in chart', payroll:'in chart (labour)', overhead:'in chart',
+                          other:'in chart', income:'not a cost', excluded:'EXCLUDED from chart' };
+        el.querySelector('#how-table').innerHTML =
+          `<table class="acct"><tr><th style="text-align:left">class</th>
+             <th style="text-align:left">account</th><th>total in range</th>
+             <th style="text-align:left">counted?</th></tr>` +
+          rows.map(r=>`<tr><td>${esc(r.cls)}</td>
+            <td style="text-align:left"><span class="ellip" style="max-width:320px">${esc(r.acct)}</span></td>
+            <td>${fmtM(r.v)}</td>
+            <td style="text-align:left" class="${r.cls==='excluded'?'warn':'muted'}">${inChart[r.cls]||''}</td></tr>`).join('') +
+          `</table>`;
+      }
+    };
     el.querySelector('#fixed-toggle').onclick = () => {
       const p = el.querySelector('#fixed-panel');
       p.style.display = p.style.display==='none' ? '' : 'none';
@@ -282,10 +332,11 @@ boot('forecast', async (supa, el) => {
       const actualGP = measured ? revenue - cogs : null;
       const labour = measured ? ((costByCM.payroll||{})[m]||0) : runrate.payroll;
       const other  = measured ? ((costByCM.overhead||{})[m]||0) : runrate.overhead;
+      const misc   = measured ? ((costByCM.other||{})[m]||0) : runrate.misc;
       const fixed  = measured ? 0 : fixedTotal();
-      const net = (measured ? actualGP : forecastGP) - labour - other - fixed;
+      const net = (measured ? actualGP : forecastGP) - labour - other - misc - fixed;
       return { m, settled, current, measured, revenue, cogs, forecastGP, actualGP,
-               labour, other, fixed, net };
+               labour, other, misc, fixed, net };
     };
     const plRows = months.map(rowFor);
     comboChart(el.querySelector('#chart'), plRows);
