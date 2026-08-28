@@ -14,7 +14,7 @@ boot('home', async (supa, el) => {
     supa.from('invoices').select('balance').gt('balance', 0),
     supa.from('deals').select('id', { count:'exact', head:true }).is('reviewed_at', null).in('status',['won','active']),
     supa.from('clients').select('id', { count:'exact', head:true }).is('qbo_customer_id', null).eq('active', true),
-    supa.rpc('cashflow_forecast', { weeks: 13 }),
+    supa.rpc('cashflow_forecast', { periods: 6 }),
     supa.from('sync_state').select('id,last_run_at,last_run_log')
   ]);
 
@@ -37,7 +37,7 @@ boot('home', async (supa, el) => {
       <div class="summary-note"><a href="./clients.html">match them</a></div></div>`;
 
   if (rows.length) bandChart(document.getElementById('chart'),
-    rows.map(r=>r.week_start.slice(5)),
+    rows.map(r=>(r.period_label||r.week_start.slice(5)).replace(/ \d\d$/,'')),
     [{name:'expected', color:'#19a789', values: rows.map(r=>r.position_expected)},
      {name:'conservative (p90)', color:'#d1453b', values: rows.map(r=>r.position_conservative)}]);
   else document.getElementById('chart').textContent = 'no forecast data';
