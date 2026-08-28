@@ -14,7 +14,7 @@ boot('cashflow', async (supa, el) => {
   if (error) throw error;
   bandChart(document.getElementById('chart'),
     rows.map(r=>r.week_start.slice(5)),
-    [{name:'optimistic (p25)', color:'#8b93a3', values: rows.map(r=>r.position_optimistic)},
+    [{name:'optimistic (p25)', color:'#67706d', values: rows.map(r=>r.position_optimistic)},
      {name:'expected', color:'#19a789', values: rows.map(r=>r.position_expected)},
      {name:'conservative (p90)', color:'#d1453b', values: rows.map(r=>r.position_conservative)}]);
 
