@@ -158,7 +158,7 @@ boot('forecast', async (supa, el) => {
     if ((max-min)/step > 13) step = 100000000;
     for (let v = Math.ceil(min/step)*step; v <= max; v += step) {
       g+=`<line x1="${P.l}" y1="${y(v)}" x2="${W-P.r}" y2="${y(v)}" stroke="#d6d6d6"/>
-        <text x="${P.l-6}" y="${y(v)+3.5}" fill="${TXT}" font-size="9" font-family="DM Mono" text-anchor="end">${fmtC(v)}</text>`;
+        <text x="${P.l-6}" y="${y(v)+3.5}" fill="${TXT}" font-size="9" font-family="IBM Plex Mono" text-anchor="end">${fmtC(v)}</text>`;
     }
     if(min<0) g+=`<line x1="${P.l}" y1="${y(0)}" x2="${W-P.r}" y2="${y(0)}" stroke="var(--rust)" stroke-dasharray="4 3"/>`;
     const y0=y(Math.max(min,0));
@@ -170,9 +170,9 @@ boot('forecast', async (supa, el) => {
         while (labY.some(o=>Math.abs(o-yy)<10)) yy-=10;
         labY.push(yy); return yy; };
       if(on('revenue') && r.revenue>0) g+=`<rect x="${x0}" y="${y(r.revenue)}" width="${bw}" height="${y0-y(r.revenue)}" fill="${colorOf.revenue}" opacity="${op}"><title>${mLabel(r.m)} revenue ${fmtM(r.revenue)}</title></rect>
-        <text x="${x0+bw/2}" y="${dodge(y(r.revenue))}" fill="${TXT}" font-size="8.5" font-family="DM Mono" text-anchor="middle">${fmtC(r.revenue)}</text>`;
+        <text x="${x0+bw/2}" y="${dodge(y(r.revenue))}" fill="${TXT}" font-size="8.5" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(r.revenue)}</text>`;
       if(on('cogs') && r.cogs>0) g+=`<rect x="${x0+bw+2}" y="${y(r.cogs)}" width="${bw}" height="${y0-y(r.cogs)}" fill="${colorOf.cogs}" opacity="${op}"><title>${mLabel(r.m)} COGS ${fmtM(r.cogs)}</title></rect>
-        <text x="${x0+1.5*bw+2}" y="${dodge(y(r.cogs))}" fill="${TXT}" font-size="8.5" font-family="DM Mono" text-anchor="middle">${fmtC(r.cogs)}</text>`;
+        <text x="${x0+1.5*bw+2}" y="${dodge(y(r.cogs))}" fill="${TXT}" font-size="8.5" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(r.cogs)}</text>`;
       let acc=0; const xs=x0+2*(bw+2);
       [['labour'],['other'],['misc'],['fixed']].forEach(([k])=>{
         if(!on(k)) return;
@@ -181,8 +181,8 @@ boot('forecast', async (supa, el) => {
         const nm = k==='other'?'overhead':k==='misc'?'other accts':k;
         g+=`<rect x="${xs}" y="${y1}" width="${bw}" height="${h}" fill="${colorOf[k]}" opacity="${op}"><title>${mLabel(r.m)} ${nm} ${fmtM(v)}</title></rect>`;
       });
-      if(acc>0) g+=`<text x="${xs+bw/2}" y="${dodge(y(acc))}" fill="${TXT}" font-size="8.5" font-family="DM Mono" text-anchor="middle">${fmtC(acc)}</text>`;
-      g+=`<text x="${cx}" y="${H-8}" fill="${TXT}" font-size="${rows.length>14?8:9.5}" font-family="DM Mono" text-anchor="middle">${mLabel(r.m)}</text>`;
+      if(acc>0) g+=`<text x="${xs+bw/2}" y="${dodge(y(acc))}" fill="${TXT}" font-size="8.5" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(acc)}</text>`;
+      g+=`<text x="${cx}" y="${H-8}" fill="${TXT}" font-size="${rows.length>14?8:9.5}" font-family="IBM Plex Mono" text-anchor="middle">${mLabel(r.m)}</text>`;
     });
     if (on('net')) {
       g+=`<polyline fill="none" stroke="${colorOf.net}" stroke-width="2.5"
@@ -197,7 +197,7 @@ boot('forecast', async (supa, el) => {
       const off = hidden.has(k);
       return `<g class="lgd" data-k="${k}" style="cursor:pointer" opacity="${off?0.35:1}">
         <rect x="${x}" y="${LEG_Y}" width="9" height="9" fill="${c}" ${off?'stroke="#67706d" stroke-dasharray="2 1.5"':''}/>
-        <text x="${x+13}" y="${LEG_Y+8}" fill="#111111" font-size="10" font-family="DM Mono" ${off?'text-decoration="line-through"':''}>${label}</text>
+        <text x="${x+13}" y="${LEG_Y+8}" fill="#111111" font-size="10" font-family="IBM Plex Mono" ${off?'text-decoration="line-through"':''}>${label}</text>
         <title>${off?'show':'hide'} ${label}</title></g>`;
     }).join('');
     elc.innerHTML=`<svg class="chart" viewBox="0 0 ${W} ${H+26}"><g>${g}</g>${leg}</svg>`;
@@ -237,7 +237,6 @@ boot('forecast', async (supa, el) => {
   let projects = [], projTakenBy = {}, fixedCosts = [], runrate = { payroll:0, overhead:0, misc:0 };
   let acctTotals = [], fullProjects = null;
   let revByProj = {}, cogsByProj = {}, openClients = new Set();
-  let warnings = [];
   let tableSort = { key:'value', dir:-1 }, tableQuery = '';
   let plRowsCache = [];
 
@@ -256,7 +255,6 @@ boot('forecast', async (supa, el) => {
         .in('key',['programmatic_margin_default','forecast_fixed_costs'])
     ]);
     for (const r of [pg,dl,cl,st]) if (r.error) throw r.error;
-    warnings = [];
     const P = pg.data || {};
     const sv = k => (st.data||[]).find(x=>x.key===k)?.value;
     marginDefault = +(sv('programmatic_margin_default') ?? 35);
@@ -326,9 +324,6 @@ boot('forecast', async (supa, el) => {
           <span class="sc-eyebrow" style="margin:0">Clients over the range</span>
           <input type="search" id="tq" placeholder="search clients & deals…" value="${esc(tableQuery)}">
           <span id="missing-note" class="muted" style="font-size:11px"></span>
-          ${warnings.length?`<span class="err" style="font-size:10.5px">⚠ ${warnings.map(esc).join(' · ')}</span>`:''}
-          <span style="flex:1"></span>
-          <span class="muted" style="font-size:10.5px">arrow opens deals · click a deal to shape it · click a header to sort</span>
         </div>
         <div style="overflow-x:auto"><table class="acct" id="sum"></table></div></div>`;
 

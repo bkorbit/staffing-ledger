@@ -113,7 +113,7 @@ export function barChart(el, labels, series) {
   const grid = Array.from({ length: ticks + 1 }, (_, i) => {
     const v = max * i / ticks;
     return `<line x1="${P.l}" y1="${y(v)}" x2="${W - P.r}" y2="${y(v)}" stroke="#e2e2e2"/>
-      <text x="${P.l - 6}" y="${y(v) + 4}" fill="#67706d" font-size="10" font-family="DM Mono" text-anchor="end">${fmt$(v)}</text>`;
+      <text x="${P.l - 6}" y="${y(v) + 4}" fill="#67706d" font-size="10" font-family="IBM Plex Mono" text-anchor="end">${fmt$(v)}</text>`;
   }).join('');
   const bars = labels.map((_, i) => {
     let acc = 0;
@@ -124,10 +124,10 @@ export function barChart(el, labels, series) {
     }).join('');
   }).join('');
   const xl = labels.map((l, i) => i % 2 ? '' :
-    `<text x="${P.l + i * bw + bw / 2}" y="${H - 8}" fill="#67706d" font-size="10" font-family="DM Mono" text-anchor="middle">${l}</text>`).join('');
+    `<text x="${P.l + i * bw + bw / 2}" y="${H - 8}" fill="#67706d" font-size="10" font-family="IBM Plex Mono" text-anchor="middle">${l}</text>`).join('');
   const legend = series.map((sr, i) =>
     `<rect x="${P.l + i * 190}" y="0" width="10" height="10" fill="${sr.color}"/>
-     <text x="${P.l + i * 190 + 14}" y="9" fill="#67706d" font-size="11" font-family="DM Mono">${sr.name}</text>`).join('');
+     <text x="${P.l + i * 190 + 14}" y="9" fill="#67706d" font-size="11" font-family="IBM Plex Mono">${sr.name}</text>`).join('');
   el.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H + 16}">
     <g transform="translate(0,14)">${grid}${bars}${xl}</g>${legend}</svg>`;
 }
@@ -143,7 +143,7 @@ export function bandChart(el, labels, bands) {
   const grid = Array.from({ length: ticks + 1 }, (_, i) => {
     const v = min + (max - min) * i / ticks;
     return `<line x1="${P.l}" y1="${y(v)}" x2="${W - P.r}" y2="${y(v)}" stroke="#e2e2e2"/>
-      <text x="${P.l - 6}" y="${y(v) + 4}" fill="#67706d" font-size="10" font-family="DM Mono" text-anchor="end">${fmt$(v)}</text>`;
+      <text x="${P.l - 6}" y="${y(v) + 4}" fill="#67706d" font-size="10" font-family="IBM Plex Mono" text-anchor="end">${fmt$(v)}</text>`;
   }).join('');
   const zero = (min < 0 && max > 0)
     ? `<line x1="${P.l}" y1="${y(0)}" x2="${W - P.r}" y2="${y(0)}" stroke="#d1453b" stroke-dasharray="4 3"/>` : '';
@@ -151,10 +151,10 @@ export function bandChart(el, labels, bands) {
     `<polyline fill="none" stroke="${b.color}" stroke-width="2"
        points="${b.values.map((v, i) => x(i) + ',' + y(v)).join(' ')}"/>`).join('');
   const xlabels = labels.map((l, i) => i % 2 ? '' :
-    `<text x="${x(i)}" y="${H - 6}" fill="#67706d" font-size="10" font-family="DM Mono" text-anchor="middle">${l}</text>`).join('');
+    `<text x="${x(i)}" y="${H - 6}" fill="#67706d" font-size="10" font-family="IBM Plex Mono" text-anchor="middle">${l}</text>`).join('');
   const legend = bands.map((b, i) =>
     `<rect x="${P.l + i * 200}" y="0" width="10" height="10" fill="${b.color}"/>
-     <text x="${P.l + i * 200 + 14}" y="9" fill="#67706d" font-size="11" font-family="DM Mono">${b.name}</text>`).join('');
+     <text x="${P.l + i * 200 + 14}" y="9" fill="#67706d" font-size="11" font-family="IBM Plex Mono">${b.name}</text>`).join('');
   el.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H + 16}">
     <g transform="translate(0,14)">${grid}${zero}${lines}${xlabels}</g>${legend}</svg>`;
 }

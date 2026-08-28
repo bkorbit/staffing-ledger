@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-28T01:00:00.000Z",
+  "generatedAt": "2026-08-28T02:00:00.000Z",
   "title": "Design System: EMG Staffing Ledger",
   "extensions": {
     "colorMeta": {
@@ -23,7 +23,6 @@
       "chart-fixed-gray": { "role": "neutral", "displayName": "Chart Fixed-Cost Gray", "canonical": "#b8b8b8" }
     },
     "typographyMeta": {
-      "headline": { "displayName": "Headline", "purpose": "Page titles (h1.page) only." },
       "title": { "displayName": "Title", "purpose": "Client names, modal titles, the sidebar brand mark." },
       "body": { "displayName": "Body", "purpose": "Prose: subtitles, hints, descriptive text." },
       "label": { "displayName": "Label", "purpose": "Uppercase mono labels: eyebrows, table headers, form labels." },
@@ -44,7 +43,7 @@
       "refersTo": "button-primary",
       "description": "The system's one filled, high-emphasis action.",
       "html": "<button class=\"ds-btn-primary\">Save changes</button>",
-      "css": ".ds-btn-primary { font-family: 'DM Mono', monospace; font-size: 12px; border-radius: 4px; cursor: pointer; background: #0a493c; color: #ffffff; border: none; padding: 7px 13px; transition: background 0.15s; } .ds-btn-primary:hover { background: #48a278; } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px #e2f5ef; } .ds-btn-primary:disabled { background: #d2d2d2; color: #67706d; cursor: default; }"
+      "css": ".ds-btn-primary { font-family: 'IBM Plex Mono', monospace; font-size: 12px; border-radius: 4px; cursor: pointer; background: #0a493c; color: #ffffff; border: none; padding: 7px 13px; transition: background 0.15s; } .ds-btn-primary:hover { background: #48a278; } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px #e2f5ef; } .ds-btn-primary:disabled { background: #d2d2d2; color: #67706d; cursor: default; }"
     },
     {
       "name": "Ghost Button",
@@ -52,7 +51,7 @@
       "refersTo": "button-ghost",
       "description": "Low-emphasis secondary action.",
       "html": "<button class=\"ds-btn-ghost\">Cancel</button>",
-      "css": ".ds-btn-ghost { font-family: 'DM Mono', monospace; font-size: 11.5px; border-radius: 4px; cursor: pointer; background: transparent; border: 1px solid #d2d2d2; color: #67706d; padding: 7px 12px; } .ds-btn-ghost:hover { border-color: #23272b; color: #23272b; } .ds-btn-ghost:focus-visible { outline: none; box-shadow: 0 0 0 2px #e2f5ef; }"
+      "css": ".ds-btn-ghost { font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; border-radius: 4px; cursor: pointer; background: transparent; border: 1px solid #d2d2d2; color: #67706d; padding: 7px 12px; } .ds-btn-ghost:hover { border-color: #23272b; color: #23272b; } .ds-btn-ghost:focus-visible { outline: none; box-shadow: 0 0 0 2px #e2f5ef; }"
     },
     {
       "name": "Text Input",
@@ -60,7 +59,7 @@
       "refersTo": "input-field",
       "description": "Standard field: search boxes, numeric entry, settings.",
       "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Search clients\">",
-      "css": ".ds-input { height: 34px; border: 1px solid #d2d2d2; border-radius: 4px; padding: 0 9px; font-family: 'DM Mono', monospace; font-size: 12.5px; background: #ffffff; color: #23272b; } .ds-input::placeholder { color: #b5b5b5; } .ds-input:focus { outline: none; border-color: #48a278; box-shadow: 0 0 0 2px #e2f5ef; }"
+      "css": ".ds-input { height: 34px; border: 1px solid #d2d2d2; border-radius: 4px; padding: 0 9px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; background: #ffffff; color: #23272b; } .ds-input::placeholder { color: #b5b5b5; } .ds-input:focus { outline: none; border-color: #48a278; box-shadow: 0 0 0 2px #e2f5ef; }"
     },
     {
       "name": "Status Pill — Good",
@@ -68,7 +67,7 @@
       "refersTo": "pill-good",
       "description": "Positive/on-track state marker.",
       "html": "<span class=\"ds-pill ds-pill-good\">On track</span>",
-      "css": ".ds-pill { font-family: 'DM Mono', monospace; font-size: 10px; padding: 2px 8px; border-radius: 99px; border: 1px solid #d2d2d2; color: #67706d; white-space: nowrap; display: inline-block; } .ds-pill-good { color: #0a493c; border-color: #48a278; background: #e2f5ef; }"
+      "css": ".ds-pill { font-family: 'IBM Plex Mono', monospace; font-size: 10px; padding: 2px 8px; border-radius: 99px; border: 1px solid #d2d2d2; color: #67706d; white-space: nowrap; display: inline-block; } .ds-pill-good { color: #0a493c; border-color: #48a278; background: #e2f5ef; }"
     },
     {
       "name": "Status Pill — Bad",
@@ -76,7 +75,7 @@
       "refersTo": "pill-bad",
       "description": "Error/off-track state marker.",
       "html": "<span class=\"ds-pill ds-pill-bad\">Off track</span>",
-      "css": ".ds-pill-bad { font-family: 'DM Mono', monospace; font-size: 10px; padding: 2px 8px; border-radius: 99px; color: #d1453b; border: 1px solid #d1453b; background: #fbe7e4; display: inline-block; white-space: nowrap; }"
+      "css": ".ds-pill-bad { font-family: 'IBM Plex Mono', monospace; font-size: 10px; padding: 2px 8px; border-radius: 99px; color: #d1453b; border: 1px solid #d1453b; background: #fbe7e4; display: inline-block; white-space: nowrap; }"
     },
     {
       "name": "Nav Item (current)",
@@ -92,29 +91,29 @@
       "refersTo": "summary-cell",
       "description": "A single KPI tile inside the dashboard's summary strip.",
       "html": "<div class=\"ds-summary-cell\"><div class=\"ds-summary-label\">Net this month</div><div class=\"ds-summary-value\">$142k</div></div>",
-      "css": ".ds-summary-cell { background: #ffffff; padding: 12px 14px; border: 1px solid #d2d2d2; } .ds-summary-label { font-family: 'DM Mono', monospace; font-size: 9px; color: #67706d; letter-spacing: 0.08em; text-transform: uppercase; } .ds-summary-value { font-family: 'DM Mono', monospace; font-size: 18px; font-weight: 700; margin-top: 4px; color: #0a493c; }"
+      "css": ".ds-summary-cell { background: #ffffff; padding: 12px 14px; border: 1px solid #d2d2d2; } .ds-summary-label { font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: #67706d; letter-spacing: 0.08em; text-transform: uppercase; } .ds-summary-value { font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 700; margin-top: 4px; color: #0a493c; }"
     }
   ],
   "narrative": {
     "northStar": "The Ledger Console",
-    "overview": "This is an operator's console for running the numbers, not a marketing surface — every screen exists so Boris (and, as their pages come online, EMG's finance/ops staff and account managers) can see exactly where the agency's money and staffing hours stand. The voice is precise and institutional: controlled, exact, unshowy. Density and hairline borders read as rigor, not clutter — a page with forty rows of tabular figures is the system working as intended, not a page that needs simplifying.\n\nTwo fonts carry the whole identity. Montserrat speaks — every heading, every sentence of prose. DM Mono counts — every label, every table cell, every number, every badge. The moment you're reading a figure, the typeface itself tells you you're in the ledger, not the prose. Two colors carry the emphasis: Deep Ledger Green is the system's authority (headers, totals, positive figures), and Signal Gold is reserved entirely for the one line that matters most on the forecast chart — net profit. Everything else is neutral: paper, hairlines, slate.\n\nThe system is flat by rule. There is no drop shadow anywhere in this design language — elevation is expressed only through hairline borders and background contrast. (Two implementation spots — the deal-editor modal and the line-item cards — currently still carry a soft shadow; that's drift from this rule, not sanctioned exceptions, and should be brought to flat the next time either is touched.)",
+    "overview": "This is an operator's console for running the numbers, not a marketing surface — every screen exists so Boris (and, as their pages come online, EMG's finance/ops staff and account managers) can see exactly where the agency's money and staffing hours stand. The voice is precise and institutional: controlled, exact, unshowy. Density and hairline borders read as rigor, not clutter — a page with forty rows of tabular figures is the system working as intended, not a page that needs simplifying.\n\nTwo fonts carry the whole identity. Montserrat speaks — every heading, every sentence of prose. IBM Plex Mono counts — every label, every table cell, every number, every badge. The moment you're reading a figure, the typeface itself tells you you're in the ledger, not the prose. Two colors carry the emphasis: Deep Ledger Green is the system's authority (headers, totals, positive figures), and Signal Gold is reserved entirely for the one line that matters most on the forecast chart — net profit. Everything else is neutral: paper, hairlines, slate.\n\nThe system is flat by rule. There is no drop shadow anywhere in this design language — elevation is expressed only through hairline borders and background contrast. (Two implementation spots — the deal-editor modal and the line-item cards — currently still carry a soft shadow; that's drift from this rule, not sanctioned exceptions, and should be brought to flat the next time either is touched.)",
     "keyCharacteristics": [
       "A locked, closed brand palette — two greens, one gold, one teal, functional red/amber. No new accent colors.",
-      "Montserrat for words, DM Mono for numbers — never swapped, never mixed within one element.",
+      "Montserrat for words, IBM Plex Mono for numbers — never swapped, never mixed within one element.",
       "Flat surfaces, hairline dividers, zero shadows by rule.",
       "Dense, tabular, laptop-disciplined: charts scale to their container, table names truncate before they wrap, horizontal scroll is a last resort.",
       "Settled data reads at full strength; forecast/projected data reads visually lighter — the system always shows you which numbers are real."
     ],
     "rules": [
       { "name": "The One Gold Rule", "body": "Signal Gold appears in exactly one place: the forecast chart's net line. It is not a general accent, a warning color, or a highlight — its rarity is what makes it legible as \"the number that matters.\"", "section": "colors" },
-      { "name": "The Two-Voice Rule", "body": "Montserrat speaks; DM Mono counts. A heading, a sentence, a button label — Montserrat. A number, a table cell, a badge, a column header — DM Mono. Never swap them, never mix them within one element.", "section": "typography" },
+      { "name": "The Two-Voice Rule", "body": "Montserrat speaks; IBM Plex Mono counts. A heading, a sentence, a button label — Montserrat. A number, a table cell, a badge, a column header — IBM Plex Mono. Never swap them, never mix them within one element.", "section": "typography" },
       { "name": "The Micro-Scale Rule", "body": "New chrome text uses a step from the Chrome scale (9px-22px, fixed); new deal-editor controls use a step from the Editor micro-scale (0.56rem-0.82rem, fluid). Don't invent a new literal size — pick the closest existing step, or extend the scale deliberately if none fits.", "section": "typography" },
       { "name": "The Flat-By-Rule Rule", "body": "No box-shadow anywhere. Depth is hairline borders and background contrast only.", "section": "elevation" },
       { "name": "The Brand Rule Line", "body": "A boundary that matters gets a 2px Deep-Ledger-Green underline; every lesser division gets a 1px hairline in --line. The weight of the border tells you how important the seam is.", "section": "elevation" }
     ],
     "dos": [
       "Do keep Signal Gold to exactly one job: the forecast chart's net line.",
-      "Do write every heading and sentence in Montserrat, and every number, label, badge, and column header in DM Mono — never swap them.",
+      "Do write every heading and sentence in Montserrat, and every number, label, badge, and column header in IBM Plex Mono — never swap them.",
       "Do mark a real section boundary with a 2px Deep-Ledger-Green rule line, and everything smaller with a 1px hairline.",
       "Do keep Alert Rust and Alert Amber reserved for their alert meanings only — never decorative.",
       "Do let charts scale to their container and let table names truncate rather than wrap or force horizontal scroll (The Laptop Discipline Rule).",
@@ -124,7 +123,7 @@
       "Don't add box-shadow anywhere; this system is flat by rule. Bring the modal and line-card's current shadows to border-based separation next time either is touched.",
       "Don't introduce a new accent color outside this closed palette (two greens, one gold, one teal, functional red/amber).",
       "Don't use Logo Teal for anything beyond the current-nav-item indicator and the sidebar toggle icon — it is a wayfinding mark, not a decorative accent.",
-      "Don't spend Signal Gold on the warn-pill border just because it's already wired that way today; that's palette drift worth fixing, not a second sanctioned use."
+      "Don't use Signal Gold anywhere but the forecast chart's net line — not a pill border, not a warning state, not a highlight."
     ]
   }
 }
