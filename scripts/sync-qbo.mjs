@@ -240,6 +240,29 @@ export function splitBillPaymentLines(bp) {
   return out;
 }
 
+// QuickBooks types its own accounts, and those types are the COGS/overhead split the
+// old rule tables encoded by hand. Payroll is separated out of Expense because it has
+// its own cadence in the cashflow model (semi-monthly) and must not be smoothed into a
+// six-month category average.
+export function classifyAccount(type, subType, name) {
+  const t = String(type || '');
+  const st = String(subType || '');
+  const n = String(name || '').toLowerCase();
+  if (t === 'Cost of Goods Sold') return 'cogs';
+  if (t === 'Income' || t === 'Other Income') return 'income';
+  if (t === 'Expense' || t === 'Other Expense') {
+    if (/payroll|salaries|salary|wages|compensation/.test(n) ||
+        /PayrollExpenses/i.test(st)) return 'payroll';
+    return 'overhead';
+  }
+  // Balance-sheet accounts move money without being a cost — excluded so they cannot
+  // inflate an expense run-rate.
+  if (['Bank','Accounts Receivable','Accounts Payable','Credit Card','Equity',
+       'Fixed Asset','Other Current Asset','Other Asset','Other Current Liability',
+       'Long Term Liability'].includes(t)) return 'excluded';
+  return 'other';
+}
+
 // The jobcode embedded in a QuickBooks project name, e.g. '26hawt260810'. It is the
 // shared key with HubSpot deals, and the most reliable non-manual way to match a
 // QuickBooks project to a deal.
@@ -312,21 +335,6 @@ async function main() {
   const nProjects = customers.filter(c => c.Job).length;
   const nJob = customers.filter(c => jobcodeFromName(c.FullyQualifiedName || '')).length;
   console.log(`  ${customers.length} customers (${nProjects} projects, ${nJob} carrying a jobcode)`);
-
-  // ---- bank accounts: the cashflow opening position ----
-  const accounts = await qboAll(realm, token, 'Account', "AccountType = 'Bank'");
-  await sbUpsert('cash_accounts', accounts.map(a => ({
-    id: String(a.Id),
-    name: a.Name || '',
-    account_type: a.AccountSubType || a.AccountType || '',
-    balance: cents(a.CurrentBalance),
-    as_of: new Date().toISOString().slice(0, 10),
-    synced_at: new Date().toISOString()
-    // is_operating deliberately NOT written — a human ticks that in Settings and the
-    // sync must not clobber the choice on every run.
-  })), 'id');
-  console.log(`  ${accounts.length} bank accounts, total ` +
-    (accounts.reduce((s, a) => s + (+a.CurrentBalance || 0), 0)).toLocaleString());
 
   // ---- invoices ----
   // The window is REPLACED, not merged: invoices are deleted rather than voided in this
@@ -562,6 +570,7 @@ async function main() {
     last_run_at: new Date().toISOString(),
     last_run_log: {
       from, accounts: accounts.length,
+      accounts_total: accounts.length, banks: banks.length,
       customers: customers.length, projects: nProjects,
       invoices: invRows.length, invoice_lines: invLines.length, invoices_open: openInv.length,
       invoices_no_due: noDue,
