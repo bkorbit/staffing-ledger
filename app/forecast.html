@@ -447,12 +447,12 @@ boot('forecast', async (supa, el) => {
           const rv = ((revByProj[pid]||{}).total||0);
           const cg = cogsByProj[pid]||0;
           const pj = projects.find(p=>p.id===pid)||{};
-          return `<tr class="dealsub">
+          return `<tr class="dealsub projrow" data-pid="${pid}" data-cid="${c.id}" title="click to link this project to one of ${esc(c.name)}'s deals">
             <td style="padding-left:28px;color:var(--slate)">◦
               <span class="ellip" style="max-width:210px" title="${esc(pj.name||pid)}">${esc(pj.name||pid)}</span></td>
             <td>${rv?fmtM(rv):''}</td><td>${cg?fmtM(cg):''}</td><td></td>
             <td>${(rv||cg)?fmtM(rv-cg):''}</td><td></td>
-            <td style="text-align:left" class="muted">QB project — no deal linked</td></tr>`;
+            <td style="text-align:left" class="muted linkcell">QB project — <u>link to a deal…</u></td></tr>`;
         }).join('');
       const kids = (!isOpen ? '' : ds.map(d => {
         const r = dealRow(d);
@@ -505,6 +505,33 @@ boot('forecast', async (supa, el) => {
       render();
     });
 
+    el.querySelectorAll('tr.projrow').forEach(tr => {
+      tr.onclick = e => {
+        e.stopPropagation();
+        const pid = tr.dataset.pid, cid = tr.dataset.cid;
+        const ds = dealsByClient[cid]||[];
+        if (!ds.length) { alert('This client has no deals to link to — the project stays a grey row until one exists.'); return; }
+        const cell = tr.querySelector('.linkcell');
+        if (cell.querySelector('select')) return;   // already open
+        cell.innerHTML = `<select style="height:26px;max-width:230px">
+            <option value="">— choose the deal that owns this project —</option>
+            ${ds.map(d=>`<option value="${d.id}">${esc(d.name)}${d.qbo_project_id?' — already linked':''}</option>`).join('')}
+          </select> <button class="dolink primary" style="padding:2px 10px">Link</button>`;
+        cell.onclick = ev => ev.stopPropagation();
+        cell.querySelector('.dolink').onclick = async () => {
+          const dealId = cell.querySelector('select').value;
+          if (!dealId) return;
+          const deal = ds.find(x=>x.id===dealId);
+          if (deal.qbo_project_id &&
+              !confirm(`"${deal.name}" is already linked to another project. Replace that link with this project?`)) return;
+          const { error } = await supa.from('deals')
+            .update({ qbo_project_id: pid, set_by: window.__email, set_at: new Date().toISOString() })
+            .eq('id', dealId);
+          if (error) { alert(error.message); return; }
+          loadAll();
+        };
+      };
+    });
     el.querySelectorAll('tr.clientrow').forEach(tr => {
       tr.onclick = () => {
         const id = tr.dataset.cid;
