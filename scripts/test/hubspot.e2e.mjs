@@ -20,7 +20,7 @@ const hub=http.createServer((req,res)=>{
       {id:'recruiting',label:'Recruiting',stages:[
         {id:'placed',label:'Candidate Placed',metadata:{probability:'1.0'}}]}]}));
     if(req.url.startsWith('/crm/v3/objects/deals')) return res.end(JSON.stringify({results:[
-      {id:'D1',properties:{dealname:'26akrn260101 Akron World Cup',amount:'120000',dealstage:'won-stage',pipeline:'sales',
+      {id:'D1',properties:{dealname:'Akron World Cup',job_code:'26akrn260101',qb_project_link:'https://app.qbo.intuit.com/app/customerdetail?nameId=4102',amount:'120000',dealstage:'won-stage',pipeline:'sales',
         closedate:'2026-08-01',campaign_start_date:'2026-09-14',campaign_end_date:'2026-12-20'},
        associations:{companies:{results:[{id:'C1'}]}}},
       {id:'D2',properties:{dealname:'Akron AOR Extension',amount:'50000',dealstage:'won-stage',pipeline:'sales',
@@ -54,7 +54,10 @@ const supa=http.createServer((req,res)=>{
     if(req.method==='GET'&&table==='settings') return res.end(JSON.stringify([{value:['Sales Pipeline']}]));
     if(req.method==='GET') return res.end('[]');
     if(req.method==='DELETE'){deletes.push(req.url);res.statusCode=204;return res.end();}
-    if(req.method==='POST'&&req.url.includes('/rpc/')){rpc.push(req.url);return res.end('[]');}
+    if(req.method==='POST'&&req.url.includes('/rpc/')){rpc.push(req.url);
+      return res.end(req.url.includes('match_deals')
+        ? JSON.stringify([{method:'qb-link',matched:1},{method:'jobcode',matched:0},{method:'unmatched',matched:0}])
+        : '[]');}
     if(req.method==='POST'){
       const rows=JSON.parse(b);
       (writes[table]=writes[table]||[]).push(...rows);
@@ -100,6 +103,10 @@ const akron2=dealRows.filter(d=>['D1','D2'].includes(d.hubspot_deal_id)).map(d=>
 check(akron2.length===2&&akron2[0]===akron2[1],'both Akron deals share one client id');
 const p1=proms.find(p=>p.hubspot_deal_id==='D1')||{};
 check(p1.source_payload&&p1.source_payload.amount===12000000,'as-sold amount preserved in the promotion snapshot');
+const d1m=(writes.pipeline_deals||[]).find(x=>x.hubspot_deal_id==='D1')||{};
+check(d1m.jobcode==='26akrn260101','explicit job_code field wins over the name regex');
+check((d1m.qbo_link||'').includes('nameId=4102'),'qb_project_link mirrored');
+check(rpc.some(u=>u.includes('match_deals_to_projects')),'matcher called after promotion');
 
 console.log(bad?'\nE2E FAILED':'\nall e2e checks passed');
 hub.close();supa.close();process.exit(bad);

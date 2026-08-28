@@ -22,7 +22,7 @@ boot('forecast', async (supa, el) => {
   const [fc, dl, cl, inv, qp] = await Promise.all([
     supa.from('v_deal_month_forecast').select('deal_id,client_id,month,gp,reviewed')
       .gte('month', months[0]).lte('month', months.at(-1)),
-    supa.from('deals').select('id,name,client_id,reviewed_at,flight_start,flight_end')
+    supa.from('deals').select('id,name,client_id,reviewed_at,flight_start,flight_end,qbo_project_id')
       .in('status',['won','active']),
     supa.from('clients').select('id,name,qbo_customer_id,active').eq('active', true),
     supa.from('invoices').select('qbo_project_id,issued_on,total')
@@ -34,10 +34,13 @@ boot('forecast', async (supa, el) => {
   // client-level actuals: invoice -> project -> parent -> client
   const parentOf = {}; (qp.data||[]).forEach(p => parentOf[p.id] = p.parent_id || p.id);
   const clientByQbo = {}; (cl.data||[]).forEach(c => { if (c.qbo_customer_id) clientByQbo[c.qbo_customer_id] = c.id; });
-  const actual = {};   // clientId -> month -> cents invoiced
+  const actual = {};        // clientId -> month -> cents invoiced (client total)
+  const actualByProj = {};  // qbo project -> month -> cents (feeds matched deal rows)
   let unattributed = {};
   (inv.data||[]).forEach(i => {
     const m = i.issued_on.slice(0,8)+'01';
+    (actualByProj[i.qbo_project_id] = actualByProj[i.qbo_project_id]||{})[m] =
+      ((actualByProj[i.qbo_project_id]||{})[m]||0) + i.total;
     const cid = clientByQbo[parentOf[i.qbo_project_id]];
     if (cid) (actual[cid] = actual[cid]||{})[m] = ((actual[cid]||{})[m]||0) + i.total;
     else unattributed[m] = (unattributed[m]||0) + i.total;
@@ -51,9 +54,9 @@ boot('forecast', async (supa, el) => {
   const dealsByClient = {};
   (dl.data||[]).forEach(d => { if (clientsById[d.client_id]) (dealsByClient[d.client_id] = dealsByClient[d.client_id]||[]).push(d); });
 
-  // clients worth a row: any actuals in window or any planned GP
+  // clients worth a row: any actuals in window, planned GP, or a matched deal
   const rows = Object.values(clientsById).filter(c =>
-    actual[c.id] || (dealsByClient[c.id]||[]).some(d => plan[d.id]))
+    actual[c.id] || (dealsByClient[c.id]||[]).some(d => plan[d.id] || d.qbo_project_id))
     .sort((a,b)=>a.name.localeCompare(b.name));
 
   const past = m => m < thisMonth;
@@ -74,7 +77,7 @@ boot('forecast', async (supa, el) => {
           ${months.map(m=>`<th ${m===thisMonth?'style="border-left:2px solid var(--brand)"':''}>${mLabel(m)}${past(m)?' ✓':''}</th>`).join('')}
           <th>total</th></tr>
         ${rows.map(c => {
-          const ds = (dealsByClient[c.id]||[]).filter(d => plan[d.id]);
+          const ds = (dealsByClient[c.id]||[]).filter(d => plan[d.id] || d.qbo_project_id);
           let cTotal = 0;
           const clientCells = months.map(m => {
             let v, locked = past(m);
@@ -83,13 +86,15 @@ boot('forecast', async (supa, el) => {
             cTotal += v; colTotal[m] = (colTotal[m]||0) + v;
             return `<td ${cellCls(m)} ${m===thisMonth?'style="border-left:2px solid var(--brand)"':''}>${v?fmt$(v):''}</td>`;
           }).join('');
-          const dealRows = ds.map(d => `<tr>
-            <td class="textleft muted" style="padding-left:22px">${esc(d.name)}${d.reviewed_at?'':' <span class="warn">•</span>'}</td>
+          const dealRows = ds.map(d => {
+            const proj = d.qbo_project_id ? (actualByProj[d.qbo_project_id]||{}) : null;
+            return `<tr>
+            <td class="textleft muted" style="padding-left:22px">${esc(d.name)}${d.reviewed_at?'':' <span class="warn">•</span>'}${d.qbo_project_id?'':' <span class="muted" title="no QuickBooks project matched — past months shown at client level only">?</span>'}</td>
             ${months.map(m => past(m)
-              ? `<td ${cellCls(m)}></td>`
+              ? `<td ${cellCls(m)}>${proj && proj[m] ? fmt$(proj[m]) : ''}</td>`
               : `<td>${(plan[d.id]||{})[m] ? `<span class="${d.reviewed_at?'':'warn'}">${fmt$((plan[d.id]||{})[m])}</span>` : ''}</td>`).join('')}
-            <td class="muted">${fmt$(months.reduce((s,m)=>s+(!past(m)?((plan[d.id]||{})[m]||0):0),0))}</td>
-          </tr>`).join('');
+            <td class="muted">${fmt$(months.reduce((s,m)=>s+(past(m)?(proj?(proj[m]||0):0):((plan[d.id]||{})[m]||0)),0))}</td>
+          </tr>`;}).join('');
           return `<tr><td class="textleft" style="font-weight:600">${esc(c.name)}</td>
             ${clientCells}<td style="font-weight:600">${fmt$(cTotal)}</td></tr>` + dealRows;
         }).join('')}

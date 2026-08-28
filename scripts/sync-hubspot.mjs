@@ -216,7 +216,8 @@ async function main() {
 
   // ---- all deals, paginated, with company associations ----
   const props = ['dealname', 'amount', 'dealstage', 'closedate',
-                 'campaign_start_date', 'campaign_end_date', 'pipeline'];
+                 'campaign_start_date', 'campaign_end_date', 'pipeline',
+                 'job_code', 'qb_project_link'];
   const deals = [];
   let after = '';
   for (;;) {
@@ -275,7 +276,9 @@ async function main() {
       campaign_end: hsDate(p.campaign_end_date),
       is_won: !!meta.won,
       pipeline: pipelineLabel[p.pipeline] || p.pipeline || null,
-      jobcode: jobcodeFromName(p.dealname),
+      // the explicit field wins; the name regex survives as a fallback
+      jobcode: (p.job_code || '').trim() || jobcodeFromName(p.dealname),
+      qbo_link: (p.qb_project_link || '').trim() || null,
       line_items: lis,
       url: `https://app.hubspot.com/contacts/deals/${d.id}`,
       synced_at: new Date().toISOString()
@@ -352,10 +355,26 @@ async function main() {
   Object.entries(skipped).forEach(([why, names]) =>
     console.log(`    ${why}: ${names.slice(0, 5).join(' · ')}${names.length > 5 ? ` +${names.length - 5} more` : ''}`));
 
+  // With the mirror fresh and promotions done, link deals to their QuickBooks
+  // projects: QB link first, then unambiguous jobcode. Idempotent; never guesses.
+  let matchLog = null;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/match_deals_to_projects`, {
+      method: 'POST', headers: sb, body: '{}'
+    });
+    if (!r.ok) throw new Error(`${r.status}: ${(await r.text()).slice(0, 200)}`);
+    matchLog = await r.json();
+    console.log('  deal↔project matching: ' +
+      matchLog.map(m => `${m.method} ${m.matched}`).join(' · '));
+  } catch (e) {
+    console.log('  ⚠ matcher failed (sync data is fine): ' + (e.message || e));
+  }
+
   await sbPatchState({
     last_run_at: new Date().toISOString(),
     last_run_log: {
       ok: true,
+      matching: matchLog,
       deals: mirrored.length, won: won.length,
       pipelines_enabled: [...allowed], held_at_door: heldBack,
       promoted, new_clients: newClients,
