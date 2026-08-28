@@ -44,6 +44,15 @@
         ],
         "createdAt": "2026-08-28T19:41:55.544Z",
         "reason": "DESIGN.md documents an intentional dense Chrome scale (9px/10px/10.5px/11px steps for micro-label, index-text, dense-table-cell, table-cell roles) for this financial console; .tog>span (9px) vs .cfg/.seg (10px) are different semantic roles on that documented scale, not organic drift"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "#19a789",
+        "files": [
+          "app/cashflow.html"
+        ],
+        "createdAt": "2026-08-28T19:52:18.465Z",
+        "reason": "#19a789 is DESIGN.md's documented Labour Green token (also --brand-4 in style.css); detector runs in degraded regex-only mode and doesn't resolve hex literals inside JS template strings (bandChart's inline series color) against the palette"
       }
     ]
   }
