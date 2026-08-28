@@ -12,11 +12,13 @@ tr.deallist td{cursor:pointer}
 <script type="module">
 import { boot, esc, fmt$, barChart } from './assets/shell.js';
 /*
-  The Forecast in three rows: Revenue (actual, invoiced), Gross Profit (actual,
-  revenue minus classified COGS), and Forecasted GP with the difference against
-  actual GP shown under each settled month. The range is yours — six months back
-  and six forward by default — and it drives the chart and the table alike.
-  Deals stay editable here, in a compact list beneath the summary.
+  The Forecast, remodelled on the v1 ledger's Forecast view, recovered from git:
+  months as ROWS in a P&L ledger — Revenue billed, COGS, Forecast GP, Actual GP,
+  Variance, Expenses, Net profit, Basis — dark means confirmed actual, light means
+  forecasted, measured from QuickBooks once a month is over and projected before
+  that. The combo chart carries revenue and the cost stack as bars with net profit
+  as the line. Fixed costs are a manual panel subtracted from projected months only.
+  Deals stay editable beneath, rolled up into their clients.
 */
 boot('forecast', async (supa, el) => {
   const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -72,15 +74,52 @@ boot('forecast', async (supa, el) => {
     return 0;
   }
 
+  /* ------------------------------------------------- the v1 combo chart --- */
+  // Revenue and the cost stack as side-by-side bars per month, net profit as the
+  // line. Settled months full-strength; projected months lighter — the v1 rule.
+  function comboChart(elc, rows) {
+    const W=960,H=270,P={l:64,r:12,t:16,b:26};
+    const maxBar=Math.max(1,...rows.map(r=>Math.max(r.revenue,r.cogs+r.labour+r.other+r.fixed)));
+    const nets=rows.map(r=>r.net);
+    const min=Math.min(0,...nets), max=Math.max(maxBar,...nets,1);
+    const y=v=>P.t+(H-P.t-P.b)*(1-(v-min)/((max-min)||1));
+    const gap=(W-P.l-P.r)/rows.length, bw=Math.min(18,gap*0.28);
+    let g='';
+    for(let i=0;i<=4;i++){const v=min+(max-min)*i/4;
+      g+=`<line x1="${P.l}" y1="${y(v)}" x2="${W-P.r}" y2="${y(v)}" stroke="#e2e2e2"/>
+        <text x="${P.l-6}" y="${y(v)+3.5}" fill="#67706d" font-size="9.5" font-family="DM Mono" text-anchor="end">$${fmtN(v)}</text>`;}
+    if(min<0) g+=`<line x1="${P.l}" y1="${y(0)}" x2="${W-P.r}" y2="${y(0)}" stroke="#d1453b" stroke-dasharray="4 3"/>`;
+    rows.forEach((r,i)=>{
+      const cx=P.l+gap*i+gap/2, op=r.measured?1:0.55;
+      // revenue bar
+      if(r.revenue>0) g+=`<rect x="${cx-bw-1.5}" y="${y(r.revenue)}" width="${bw}" height="${y(Math.max(min,0))-y(r.revenue)}" fill="#0a493c" opacity="${op}"><title>${mLabel(r.m)} revenue ${fmtN(r.revenue)}</title></rect>`;
+      // cost stack
+      let acc=0;
+      [['cogs','#67706d'],['labour','#fabf4d'],['other','#d1453b'],['fixed','#b0b0b0']].forEach(([k,c])=>{
+        const v=r[k]; if(!v) return;
+        const y1=y(acc+v), h=y(acc)-y(acc+v); acc+=v;
+        g+=`<rect x="${cx+1.5}" y="${y1}" width="${bw}" height="${h}" fill="${c}" opacity="${op}"><title>${mLabel(r.m)} ${k} ${fmtN(v)}</title></rect>`;
+      });
+      if(i%2===0) g+=`<text x="${cx}" y="${H-8}" fill="#67706d" font-size="9.5" font-family="DM Mono" text-anchor="middle">${mLabel(r.m)}</text>`;
+    });
+    g+=`<polyline fill="none" stroke="#19a789" stroke-width="2"
+      points="${rows.map((r,i)=>(P.l+gap*i+gap/2)+','+y(r.net)).join(' ')}"/>`;
+    rows.forEach((r,i)=>{const cx=P.l+gap*i+gap/2;
+      g+=`<circle cx="${cx}" cy="${y(r.net)}" r="2.6" fill="#19a789"><title>${mLabel(r.m)} net ${fmtN(r.net)}</title></circle>`;});
+    const leg=[['#0a493c','revenue'],['#67706d','COGS'],['#fabf4d','labour'],['#d1453b','other'],['#b0b0b0','fixed'],['#19a789','net profit (line)']]
+      .map(([c,n],i)=>`<rect x="${P.l+i*130}" y="0" width="9" height="9" fill="${c}"/><text x="${P.l+i*130+13}" y="8" fill="#67706d" font-size="10" font-family="DM Mono">${n}</text>`).join('');
+    elc.innerHTML=`<svg class="chart" viewBox="0 0 ${W} ${H+14}"><g transform="translate(0,12)">${g}</g>${leg}</svg>`;
+  }
+
   /* -------------------------------------------------------------- the data */
-  let months, clientsById, dealsByClient, planByM, revByM, cogsByM, openEditor = null;
-  let projects = [], projTakenBy = {};
+  let months, clientsById, dealsByClient, planByM, planBillByM, revByM, costByCM, openEditor = null;
+  let projects = [], projTakenBy = {}, fixedCosts = [], runrate = { payroll:0, overhead:0 };
 
   async function loadAll() {
     if (rangeTo < rangeFrom) rangeTo = rangeFrom;
     months = monthsBetween(rangeFrom, rangeTo);
-    const [fc, dl, cl, inv, cog, st, qp] = await Promise.all([
-      supa.from('v_deal_month_forecast').select('deal_id,month,gp')
+    const [fc, dl, cl, inv, cog, st, qp, rrPay, rrOver] = await Promise.all([
+      supa.from('v_deal_month_forecast').select('deal_id,month,gp,billable')
         .gte('month', rangeFrom).lte('month', rangeTo),
       supa.from('deals')
         .select('id,name,client_id,reviewed_at,flight_start,flight_end,media_funding,qbo_project_id,promotions(source_payload)')
@@ -89,22 +128,31 @@ boot('forecast', async (supa, el) => {
       supa.from('clients').select('id,name,active,qbo_customer_id').eq('active', true),
       supa.from('invoices').select('issued_on,total')
         .gte('issued_on', rangeFrom).lte('issued_on', shiftM(rangeTo,1)),
-      supa.from('v_cost_lines_classified').select('month,amount').eq('class','cogs')
+      supa.from('v_cost_lines_classified').select('month,amount,class')
+        .in('class',['cogs','payroll','overhead'])
         .gte('month', rangeFrom).lte('month', rangeTo),
-      supa.from('settings').select('value').eq('key','programmatic_margin_default').single(),
-      supa.from('qbo_projects').select('id,name,parent_id,jobcode')
+      supa.from('settings').select('key,value')
+        .in('key',['programmatic_margin_default','forecast_fixed_costs']),
+      supa.from('qbo_projects').select('id,name,parent_id,jobcode'),
+      supa.rpc('cost_runrate_monthly', { p_class:'payroll', months:6 }),
+      supa.rpc('cost_runrate_monthly', { p_class:'overhead', months:6 })
     ]);
-    for (const r of [fc,dl,cl,inv,cog]) if (r.error) throw r.error;
-    marginDefault = st.data ? +st.data.value : 35;
+    for (const r of [fc,dl,cl,inv,cog,st]) if (r.error) throw r.error;
+    const sv = k => (st.data||[]).find(x=>x.key===k)?.value;
+    marginDefault = +(sv('programmatic_margin_default') ?? 35);
+    fixedCosts = sv('forecast_fixed_costs') || [];
+    runrate = { payroll: rrPay.data||0, overhead: rrOver.data||0 };
 
     revByM = {}; (inv.data||[]).forEach(i => {
       const m = i.issued_on.slice(0,8)+'01';
       if (m >= rangeFrom && m <= rangeTo) revByM[m] = (revByM[m]||0) + i.total;
     });
-    cogsByM = {}; (cog.data||[]).forEach(c => cogsByM[c.month] = (cogsByM[c.month]||0) + c.amount);
-    planByM = {}; const planByDeal = {};
+    costByCM = {}; (cog.data||[]).forEach(c => {
+      (costByCM[c.class] = costByCM[c.class]||{})[c.month] = ((costByCM[c.class]||{})[c.month]||0) + c.amount; });
+    planByM = {}; planBillByM = {}; const planByDeal = {};
     (fc.data||[]).forEach(r => {
       planByM[r.month] = (planByM[r.month]||0) + r.gp;
+      planBillByM[r.month] = (planBillByM[r.month]||0) + (r.billable||0);
       (planByDeal[r.deal_id] = planByDeal[r.deal_id]||{})[r.month] = ((planByDeal[r.deal_id]||{})[r.month]||0) + r.gp;
     });
     projects = (qp.data||[]);
@@ -126,33 +174,118 @@ boot('forecast', async (supa, el) => {
         <input type="month" id="r-from" value="${rangeFrom.slice(0,7)}">
         <span class="rd">to</span>
         <input type="month" id="r-to" value="${rangeTo.slice(0,7)}">
-        <span class="muted" style="font-size:11px;margin-left:8px">defaults to six months back, six forward</span>
+        <span class="muted" style="font-size:11px;margin-left:6px">six back, six forward by default</span>
         <span style="flex:1"></span>
-        <span class="muted" style="font-size:12px">Forecast under actuals shows the difference for settled months</span>
+        <span class="muted" style="font-size:11px">dark = confirmed actual · light = forecasted —
+        measured from QuickBooks once a month is over, projected before that</span>
+        <button id="fixed-toggle">Fixed costs ▸</button>
+      </div>
+      <div id="fixed-panel" class="sc-panel" style="display:none">
+        <div class="muted" style="font-size:10.5px;margin-bottom:8px">Monthly fixed costs —
+        non-tracked labour, rent-like items. Subtracted from the projected net-profit line
+        only; settled months stay as QuickBooks measured them.</div>
+        <div id="fixed-list"></div>
+        <div class="dhead" style="margin-top:8px">
+          <button id="fixed-add">+ add fixed cost</button>
+          <span style="flex:1"></span>
+          <span id="fixed-total" class="muted" style="font-size:11px"></span>
+          <button id="fixed-save" class="primary">Save</button>
+          <span id="fixed-msg" class="ok" style="font-size:11px"></span>
+        </div>
       </div>
       <div class="sc-panel"><div id="chart"></div></div>
-      <div class="sc-panel" style="padding:0;overflow-x:auto"><table class="sum" id="sum"></table></div>`;
+      <div class="sc-panel" style="padding:0;overflow-x:auto"><table id="pl"></table></div>
+      <div class="sc-panel" style="padding:0;overflow-x:auto">
+        <div class="sc-eyebrow" style="padding:10px 14px 0">Revenue by deal, rolled into clients — click a deal to shape it</div>
+        <table class="sum" id="sum"></table></div>`;
 
     el.querySelector('#r-from').onchange = e => { rangeFrom = e.target.value+'-01'; loadAll(); };
     el.querySelector('#r-to').onchange   = e => { rangeTo   = e.target.value+'-01'; loadAll(); };
 
-    barChart(el.querySelector('#chart'), months.map(mLabel), [
-      { name:'revenue (actual, invoiced)', color:'#67706d',
-        values: months.map(m => past(m)||m===thisMonth ? (revByM[m]||0) : 0) },
-      { name:'forecast GP (shaped deals)', color:'#19a789',
-        values: months.map(m => past(m) ? 0 : (planByM[m]||0)) }
-    ]);
-
-    // ---- the three-row summary ----
-    const gpActual = {};
-    months.forEach(m => { if ((past(m)||m===thisMonth) && (revByM[m]||cogsByM[m]))
-      gpActual[m] = (revByM[m]||0) - (cogsByM[m]||0); });
-    const pctCell = m => {
-      if (!past(m) || !gpActual[m] || !planByM[m]) return '';
-      const pct = Math.round((planByM[m]/gpActual[m] - 1)*100);
-      return `<span class="pct ${Math.abs(pct)>15?'bad':'good'}">${pct>=0?'+':''}${pct}% vs actual</span>`;
+    // ---- fixed costs panel ----
+    const fixedTotal = () => fixedCosts.reduce((s,f)=>s+(f.amount||0),0);
+    function drawFixed() {
+      el.querySelector('#fixed-list').innerHTML = fixedCosts.map((f,i)=>`
+        <div class="dhead" style="margin:4px 0">
+          <input data-fl="${i}" value="${esc(f.label||'')}" placeholder="label" style="width:220px">
+          <input data-fa="${i}" value="${f.amount?f.amount/100:''}" placeholder="$/month" style="width:110px;text-align:right">
+          <button class="danger" data-fx="${i}" style="padding:2px 8px">✕</button>
+        </div>`).join('') || '<div class="muted" style="font-size:11px">none yet</div>';
+      el.querySelector('#fixed-total').textContent = fixedCosts.length
+        ? `total $${fmtN(fixedTotal())}/month, projected months only` : '';
+      el.querySelectorAll('[data-fl]').forEach(inp=>inp.oninput=()=>{fixedCosts[+inp.dataset.fl].label=inp.value;});
+      el.querySelectorAll('[data-fa]').forEach(inp=>inp.oninput=()=>{
+        fixedCosts[+inp.dataset.fa].amount=Math.round((+inp.value||0)*100);
+        el.querySelector('#fixed-total').textContent=`total $${fmtN(fixedTotal())}/month, projected months only`;});
+      el.querySelectorAll('[data-fx]').forEach(b=>b.onclick=()=>{fixedCosts.splice(+b.dataset.fx,1);drawFixed();});
+    }
+    el.querySelector('#fixed-toggle').onclick = () => {
+      const p = el.querySelector('#fixed-panel');
+      p.style.display = p.style.display==='none' ? '' : 'none';
     };
-    // one table: the three summary rows, then revenue by deal rolled into clients
+    el.querySelector('#fixed-add').onclick = () => { fixedCosts.push({label:'',amount:0}); drawFixed(); };
+    el.querySelector('#fixed-save').onclick = async () => {
+      const { error } = await supa.from('settings').upsert(
+        [{ key:'forecast_fixed_costs', value:fixedCosts,
+           set_by:window.__email, set_at:new Date().toISOString() }], { onConflict:'key' });
+      el.querySelector('#fixed-msg').textContent = error ? error.message : 'saved';
+      if (!error) render();
+    };
+    drawFixed();
+
+    // ---- per-month P&L: measured behind the line, projected ahead of it ----
+    const cur = thisMonth;
+    const rowFor = m => {
+      const settled = past(m), current = m === cur;
+      const measured = settled || current;
+      const revenue = measured ? (revByM[m]||0) : (planBillByM[m]||0);
+      const cogs = measured ? ((costByCM.cogs||{})[m]||0)
+                            : Math.max(0,(planBillByM[m]||0)-(planByM[m]||0));
+      const forecastGP = planByM[m]||0;
+      const actualGP = measured ? revenue - cogs : null;
+      const labour = measured ? ((costByCM.payroll||{})[m]||0) : runrate.payroll;
+      const other  = measured ? ((costByCM.overhead||{})[m]||0) : runrate.overhead;
+      const fixed  = measured ? 0 : fixedTotal();
+      const net = (measured ? actualGP : forecastGP) - labour - other - fixed;
+      const variance = settled && forecastGP && actualGP !== null
+        ? Math.round((actualGP/forecastGP - 1)*100) : null;
+      const basis = settled ? 'actual (QuickBooks)' : current ? 'month in progress' : 'forecast';
+      return { m, settled, current, measured, revenue, cogs, forecastGP, actualGP,
+               labour, other, fixed, net, variance, basis };
+    };
+    const plRows = months.map(rowFor);
+
+    // ---- combo chart: revenue + cost stack as bars, net profit as the line ----
+    comboChart(el.querySelector('#chart'), plRows);
+
+    el.querySelector('#pl').innerHTML =
+      `<tr><th style="width:20px"></th><th style="text-align:left">Month</th>
+        <th>Revenue billed</th><th>COGS</th><th>Forecast GP</th><th>Actual GP</th>
+        <th>Variance</th><th>Labour</th><th>Other exp.</th><th>Net profit</th>
+        <th style="text-align:left">Basis</th></tr>` +
+      plRows.map(r => `<tr ${r.current?'style="border-top:2px solid var(--brand)"':''}>
+        <td><span style="display:inline-block;width:9px;height:9px;border-radius:2px;
+          background:${r.settled?'var(--brand)':r.current?'var(--gold)':'var(--mint)'}"></span></td>
+        <td class="textleft" style="${r.settled?'':'color:var(--slate)'}">${mLabel(r.m)}</td>
+        <td>${r.revenue?fmtN(r.revenue):''}</td>
+        <td>${r.cogs?fmtN(r.cogs):''}</td>
+        <td style="color:var(--brand)">${r.forecastGP?fmtN(r.forecastGP):''}</td>
+        <td>${r.actualGP!==null?fmtN(r.actualGP):'<span class="muted">—</span>'}</td>
+        <td>${r.variance!==null?`<span class="${Math.abs(r.variance)>15?'err':'ok'}">${r.variance>=0?'+':''}${r.variance}%</span>`:''}</td>
+        <td>${r.labour?fmtN(r.labour):''}</td>
+        <td>${r.other?fmtN(r.other):''}</td>
+        <td class="${r.net<0?'err':''}" style="font-weight:600">${fmtN(r.net)}</td>
+        <td class="textleft muted" style="font-size:10px">${r.basis}${r.fixed?` · fixed −${fmtN(r.fixed)}`:''}</td>
+      </tr>`).join('') +
+      (() => { const t = plRows.reduce((a,r)=>({rev:a.rev+r.revenue,cogs:a.cogs+r.cogs,
+          fgp:a.fgp+r.forecastGP,agp:a.agp+(r.actualGP||0),lab:a.lab+r.labour,
+          oth:a.oth+r.other,net:a.net+r.net}),{rev:0,cogs:0,fgp:0,agp:0,lab:0,oth:0,net:0});
+        return `<tr class="gp"><td></td><td class="textleft">total</td>
+          <td>${fmtN(t.rev)}</td><td>${fmtN(t.cogs)}</td><td>${fmtN(t.fgp)}</td>
+          <td>${fmtN(t.agp)}</td><td></td><td>${fmtN(t.lab)}</td><td>${fmtN(t.oth)}</td>
+          <td style="font-weight:700" class="${t.net<0?'err':''}">${fmtN(t.net)}</td><td></td></tr>`; })();
+
+    // ---- revenue by deal rolled into clients (unchanged) ----
     const rows = Object.values(clientsById).filter(c =>
       (dealsByClient[c.id]||[]).length).sort((a,b)=>a.name.localeCompare(b.name));
     const nCols = months.length + 2;
@@ -175,18 +308,10 @@ boot('forecast', async (supa, el) => {
         }).join('');
     }).join('');
 
+
     el.querySelector('#sum').innerHTML =
       `<tr><th style="text-align:left;min-width:170px"></th>
         ${months.map(m=>`<th ${m===thisMonth?'style="border-left:2px solid var(--brand)"':''}>${mLabel(m)}${past(m)?' ✓':''}</th>`).join('')}<th>total</th></tr>
-      <tr><td class="textleft" style="font-weight:600">Revenue (actual)</td>
-        ${months.map(m=>`<td>${(past(m)||m===thisMonth)&&revByM[m]?fmtN(revByM[m]):''}</td>`).join('')}
-        <td style="font-weight:600">${fmtN(months.reduce((s,m)=>s+((past(m)||m===thisMonth)?(revByM[m]||0):0),0))}</td></tr>
-      <tr><td class="textleft" style="font-weight:600">Gross profit (actual)</td>
-        ${months.map(m=>`<td>${gpActual[m]!==undefined?fmtN(gpActual[m]):''}</td>`).join('')}
-        <td style="font-weight:600">${fmtN(Object.values(gpActual).reduce((a,b)=>a+b,0))}</td></tr>
-      <tr class="gp"><td class="textleft" style="font-weight:600;color:var(--brand)">Forecasted GP</td>
-        ${months.map(m=>`<td style="color:var(--brand)">${planByM[m]?fmtN(planByM[m]):''}${pctCell(m)}</td>`).join('')}
-        <td style="font-weight:600;color:var(--brand)">${fmtN(months.reduce((s,m)=>s+(planByM[m]||0),0))}</td></tr>
       ${clientBlocks}`;
 
     el.querySelectorAll('tr.deallist').forEach(tr => {
