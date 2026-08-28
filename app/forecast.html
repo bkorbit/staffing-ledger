@@ -91,9 +91,11 @@ boot('forecast', async (supa, el) => {
     const cfg = KIND[l.kind];
     const fee = l.params.fee_pct || 0;
     const margin = l.params.margin_pct ?? marginDefault;
+    // flat kinds bill full months regardless of covered days — day-weighting is
+    // a media concept, carried in the budget cells the spread writes
     const flat = amt => l.cells[m] !== undefined
-      ? Math.round(l.cells[m]*100)                       // explicit override: never scaled
-      : Math.round(amt*100*dayFrac(m, flight));          // default: day-weighted
+      ? Math.round(l.cells[m]*100)
+      : Math.round(amt*100);
     switch (l.kind) {
       case 'retainer': case 'custom':
         return flat(l.params.amount||0);
@@ -825,9 +827,12 @@ boot('forecast', async (supa, el) => {
         const total = +inp.value;
         l.cells = {};
         if (total > 0 && openM.length) {
-          // day-weighted: each open month takes its covered-days share of the flight
-          const w = openM.map(m => dayFrac(m, flight) *
-            new Date(Date.UTC(+m.slice(0,4), +m.slice(5,7), 0)).getUTCDate());
+          // media budgets spread by covered days — dollars follow days in market.
+          // hours (and anything non-media) spread evenly: a month is a month.
+          const weighted = KIND[l.kind].cells === 'budget';
+          const w = openM.map(m => weighted
+            ? dayFrac(m, flight) * new Date(Date.UTC(+m.slice(0,4), +m.slice(5,7), 0)).getUTCDate()
+            : 1);
           const wSum = w.reduce((a,b)=>a+b,0);
           let acc = 0;
           openM.forEach((m,i) => {
