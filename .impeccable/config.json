@@ -17,6 +17,24 @@
         "value": "montserrat",
         "createdAt": "2026-08-28T18:52:50.970Z",
         "reason": "user confirmed: Montserrat is the locked EMG brand-kit font per CLAUDE.md and DESIGN.md, not a default/lazy choice"
+      },
+      {
+        "rule": "flat-type-hierarchy",
+        "value": "*",
+        "files": [
+          "app/forecast.html"
+        ],
+        "createdAt": "2026-08-28T19:24:18.275Z",
+        "reason": "confirmed with user: forecast.html's dense financial-ledger typography spans many small literal sizes by design (documented in DESIGN.md's Chrome/Editor-micro scale), not a flat hierarchy needing fewer steps; this finding has resurfaced unchanged across multiple sessions with no action taken"
+      },
+      {
+        "rule": "layout-transition",
+        "value": "*",
+        "files": [
+          "app/assets/style.css"
+        ],
+        "createdAt": "2026-08-28T19:24:34.909Z",
+        "reason": "confirmed with user across multiple sessions: nav.side's width transition is a single manual-toggle click (184px<->52px), not a continuous/scroll-driven animation; a transform-based rework is a real behavior change deferred as out of scope, not a defect to keep re-flagging"
       }
     ]
   }
