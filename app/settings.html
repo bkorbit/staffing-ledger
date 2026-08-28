@@ -37,12 +37,33 @@ boot('settings', async (supa, el) => {
       await supa.from('qbo_accounts').update({ is_operating: cb.checked }).eq('id', cb.dataset.bank);
     });
 
-    document.getElementById('knobs').innerHTML = `<div class="muted" style="margin-bottom:8px">Settings</div>
+    document.getElementById('knobs').innerHTML = `<div class="sc-eyebrow">Settings</div>
+      <div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:12px">
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">
+          sales probability threshold %
+          <input id="k-threshold" style="width:120px;text-align:right"
+            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='sales_probability_threshold');return k?k.value:40})()}"></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">
+          programmatic margin default %
+          <input id="k-margin" style="width:120px;text-align:right"
+            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='programmatic_margin_default');return k?k.value:35})()}"></label>
+        <button class="primary" id="k-save" style="align-self:flex-end">Save</button>
+        <span id="k-msg" class="ok" style="align-self:flex-end;font-size:12px"></span>
+      </div>
       <table><tr><th>key</th><th>value</th><th>set by</th></tr>
       ${(knobs.data||[]).map(k=>`<tr><td>${esc(k.key)}</td>
         <td style="text-align:left">${esc(JSON.stringify(k.value))}</td>
-        <td class="muted">${esc(k.set_by||'')}</td></tr>`).join('')}</table>
-      <div class="muted" style="margin-top:8px">Editing arrives with the module that owns each knob.</div>`;
+        <td class="muted">${esc(k.set_by||'')}</td></tr>`).join('')}</table>`;
+    document.getElementById('k-save').onclick = async () => {
+      const rows = [
+        { key:'sales_probability_threshold', value:+document.getElementById('k-threshold').value||40,
+          set_by:window.__email, set_at:new Date().toISOString() },
+        { key:'programmatic_margin_default', value:+document.getElementById('k-margin').value||35,
+          set_by:window.__email, set_at:new Date().toISOString() }];
+      const { error } = await supa.from('settings').upsert(rows, { onConflict:'key' });
+      document.getElementById('k-msg').textContent = error ? error.message : 'saved';
+      if (!error) load();
+    };
   }
   await load();
 });

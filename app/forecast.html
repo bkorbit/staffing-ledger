@@ -2,36 +2,109 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EMG — Forecast</title><link rel="stylesheet" href="./assets/style.css"></head><body>
 <script type="module">
-import { boot, fmt$, esc } from './assets/shell.js';
-
+import { boot, esc, fmt$ } from './assets/shell.js';
+/*
+  The Forecast: clients and their deals across months, GP on accrual.
+  Past months are locked and filled from QuickBooks — attributed at the CLIENT level
+  through the client↔QBO link, because deal↔project matching does not exist yet and
+  faking deal-level actuals would be worse than showing none. Forward months come
+  from shaped deal lines and nothing else.
+*/
 boot('forecast', async (supa, el) => {
-  el.innerHTML = `<div class="sc-panel" style="overflow-x:auto"><table id="tbl">loading…</table></div>
-    <div class="muted">Forward months show only shaped deals. ${''}Unshaped deals are
-    absent by design — the model does not invent lines from as-sold totals.</div>`;
-
-  const today = new Date(); today.setUTCDate(1);
-  const start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth()-3, 1));
-  const end   = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth()+9, 1));
+  const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const mLabel = iso => MO[+iso.slice(5,7)-1] + ' ' + iso.slice(2,4);
   const iso = d => d.toISOString().slice(0,10);
-  const months = []; for (let d=new Date(start); d<=end; d=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,1))) months.push(iso(d));
-  const thisMonth = iso(today);
+  const t = new Date(); t.setUTCDate(1);
+  const thisMonth = iso(t).slice(0,8)+'01';
+  const months = [];
+  for (let i=-3;i<=9;i++) months.push(iso(new Date(Date.UTC(t.getUTCFullYear(),t.getUTCMonth()+i,1))));
 
-  const [inv, fwd] = await Promise.all([
-    supa.from('invoices').select('issued_on,total').gte('issued_on', iso(start)),
-    supa.from('v_deal_month_forecast').select('month,gp,reviewed').gte('month', thisMonth)
+  const [fc, dl, cl, inv, qp] = await Promise.all([
+    supa.from('v_deal_month_forecast').select('deal_id,client_id,month,gp,reviewed')
+      .gte('month', months[0]).lte('month', months.at(-1)),
+    supa.from('deals').select('id,name,client_id,reviewed_at,flight_start,flight_end')
+      .in('status',['won','active']),
+    supa.from('clients').select('id,name,qbo_customer_id,active').eq('active', true),
+    supa.from('invoices').select('qbo_project_id,issued_on,total')
+      .gte('issued_on', months[0]).lt('issued_on', thisMonth),
+    supa.from('qbo_projects').select('id,parent_id')
   ]);
-  if (inv.error) throw inv.error; if (fwd.error) throw fwd.error;
+  for (const r of [fc,dl,cl,inv,qp]) if (r.error) throw r.error;
 
-  const invoiced = {}, gp = {}, unrev = {};
-  (inv.data||[]).forEach(i => { const m = i.issued_on.slice(0,8)+'01'; invoiced[m]=(invoiced[m]||0)+i.total; });
-  (fwd.data||[]).forEach(f => { gp[f.month]=(gp[f.month]||0)+f.gp; if(!f.reviewed) unrev[f.month]=(unrev[f.month]||0)+f.gp; });
+  // client-level actuals: invoice -> project -> parent -> client
+  const parentOf = {}; (qp.data||[]).forEach(p => parentOf[p.id] = p.parent_id || p.id);
+  const clientByQbo = {}; (cl.data||[]).forEach(c => { if (c.qbo_customer_id) clientByQbo[c.qbo_customer_id] = c.id; });
+  const actual = {};   // clientId -> month -> cents invoiced
+  let unattributed = {};
+  (inv.data||[]).forEach(i => {
+    const m = i.issued_on.slice(0,8)+'01';
+    const cid = clientByQbo[parentOf[i.qbo_project_id]];
+    if (cid) (actual[cid] = actual[cid]||{})[m] = ((actual[cid]||{})[m]||0) + i.total;
+    else unattributed[m] = (unattributed[m]||0) + i.total;
+  });
 
-  document.getElementById('tbl').innerHTML =
-    `<tr><th>month</th><th>invoiced (actual)</th><th>forward GP (shaped deals)</th><th>of which unreviewed</th></tr>` +
-    months.map(m => `<tr ${m===thisMonth?'style="border-top:2px solid var(--accent)"':''}>
-      <td>${m.slice(0,7)}${m===thisMonth?' ←':''}</td>
-      <td>${m<=thisMonth ? fmt$(invoiced[m]||0) : '<span class="muted">—</span>'}</td>
-      <td>${m>=thisMonth ? fmt$(gp[m]||0) : '<span class="muted">—</span>'}</td>
-      <td>${unrev[m] ? `<span class="warn">${fmt$(unrev[m])}</span>` : ''}</td></tr>`).join('');
+  // forward plan: deal -> month -> gp
+  const plan = {};
+  (fc.data||[]).forEach(r => { if (r.month >= thisMonth) (plan[r.deal_id] = plan[r.deal_id]||{})[r.month] = ((plan[r.deal_id]||{})[r.month]||0) + r.gp; });
+
+  const clientsById = {}; (cl.data||[]).forEach(c => clientsById[c.id] = c);
+  const dealsByClient = {};
+  (dl.data||[]).forEach(d => { if (clientsById[d.client_id]) (dealsByClient[d.client_id] = dealsByClient[d.client_id]||[]).push(d); });
+
+  // clients worth a row: any actuals in window or any planned GP
+  const rows = Object.values(clientsById).filter(c =>
+    actual[c.id] || (dealsByClient[c.id]||[]).some(d => plan[d.id]))
+    .sort((a,b)=>a.name.localeCompare(b.name));
+
+  const past = m => m < thisMonth;
+  const cellCls = m => past(m) ? 'style="background:#f6f6f6;color:var(--slate)"' : '';
+  const colTotal = {};
+
+  el.innerHTML = `
+    <div class="toolbar">
+      <span class="muted" style="font-size:12px">Past months are locked — QuickBooks
+      invoiced totals at client level. Forward months are GP from shaped deals only;
+      <span class="warn">amber</span> marks unreviewed deals.</span>
+      <span style="flex:1"></span>
+      <span class="muted" style="font-size:12px">${rows.length} clients</span>
+    </div>
+    <div class="sc-panel" style="padding:0;overflow-x:auto">
+      <table class="grid" style="width:100%">
+        <tr><th style="text-align:left;min-width:220px">client / deal</th>
+          ${months.map(m=>`<th ${m===thisMonth?'style="border-left:2px solid var(--brand)"':''}>${mLabel(m)}${past(m)?' ✓':''}</th>`).join('')}
+          <th>total</th></tr>
+        ${rows.map(c => {
+          const ds = (dealsByClient[c.id]||[]).filter(d => plan[d.id]);
+          let cTotal = 0;
+          const clientCells = months.map(m => {
+            let v, locked = past(m);
+            if (locked) v = (actual[c.id]||{})[m] || 0;
+            else v = ds.reduce((s,d)=>s+((plan[d.id]||{})[m]||0),0);
+            cTotal += v; colTotal[m] = (colTotal[m]||0) + v;
+            return `<td ${cellCls(m)} ${m===thisMonth?'style="border-left:2px solid var(--brand)"':''}>${v?fmt$(v):''}</td>`;
+          }).join('');
+          const dealRows = ds.map(d => `<tr>
+            <td class="textleft muted" style="padding-left:22px">${esc(d.name)}${d.reviewed_at?'':' <span class="warn">•</span>'}</td>
+            ${months.map(m => past(m)
+              ? `<td ${cellCls(m)}></td>`
+              : `<td>${(plan[d.id]||{})[m] ? `<span class="${d.reviewed_at?'':'warn'}">${fmt$((plan[d.id]||{})[m])}</span>` : ''}</td>`).join('')}
+            <td class="muted">${fmt$(months.reduce((s,m)=>s+(!past(m)?((plan[d.id]||{})[m]||0):0),0))}</td>
+          </tr>`).join('');
+          return `<tr><td class="textleft" style="font-weight:600">${esc(c.name)}</td>
+            ${clientCells}<td style="font-weight:600">${fmt$(cTotal)}</td></tr>` + dealRows;
+        }).join('')}
+        ${Object.keys(unattributed).length ? `<tr>
+          <td class="textleft muted">unattributed QBO invoices</td>
+          ${months.map(m=>`<td ${cellCls(m)}>${unattributed[m]?fmt$(unattributed[m]):''}</td>`).join('')}
+          <td class="muted">${fmt$(Object.values(unattributed).reduce((a,b)=>a+b,0))}</td></tr>` : ''}
+        <tr class="gp"><td class="textleft">total</td>
+          ${months.map(m=>`<td>${fmt$((colTotal[m]||0)+(past(m)?(unattributed[m]||0):0))}</td>`).join('')}
+          <td></td></tr>
+      </table>
+    </div>
+    <div class="muted" style="font-size:11.5px">Past = invoiced (QuickBooks, client level);
+    forward = planned GP. The two are different quantities shown on one timeline — actual
+    GP costing for past months arrives with deal↔project matching. Unattributed rows
+    shrink as clients get linked on the Clients tab.</div>`;
 });
 </script></body></html>

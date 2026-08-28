@@ -2,34 +2,118 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EMG — Sales Forecast</title><link rel="stylesheet" href="./assets/style.css"></head><body>
 <script type="module">
-import { boot, fmt$, esc } from './assets/shell.js';
-
+import { boot, esc, fmt$ } from './assets/shell.js';
+/*
+  The pre-won room. Open pipeline deals at or above the probability threshold
+  (a setting), grouped by probability, products read from the HubSpot line items,
+  and the amounts flighted across their campaign months so the long-term shape of
+  the pipeline is visible. Won deals are not here — they pass over through the
+  promotion door and become real in Deals.
+*/
 boot('sales', async (supa, el) => {
-  el.innerHTML = `<div class="summary-strip" id="tiles"></div>
-    <div class="sc-panel" style="overflow-x:auto"><table id="tbl">loading…</table></div>`;
+  const [pd, st] = await Promise.all([
+    supa.from('pipeline_deals').select('*'),
+    supa.from('settings').select('key,value').in('key', ['sales_probability_threshold'])
+  ]);
+  if (pd.error) throw pd.error;
+  const threshold = +(st.data?.find(s => s.key === 'sales_probability_threshold')?.value ?? 40);
 
-  const { data, error } = await supa.from('pipeline_deals')
-    .select('*').eq('is_won', false).not('stage','in','("Closed Lost","Not Placed")')
-    .order('amount', { ascending:false, nullsFirst:false });
-  if (error) throw error;
-  const open = (data||[]).filter(d => (d.probability??0) > 0);
-  const total = open.reduce((s,d)=>s+(d.amount||0),0);
-  const weighted = open.reduce((s,d)=>s+Math.round((d.amount||0)*(d.probability||0)),0);
+  const all = (pd.data || []).filter(d => !d.is_won && (d.probability ?? 0) > 0);
+  const pipelines = [...new Set(all.map(d => d.pipeline).filter(Boolean))].sort();
 
-  document.getElementById('tiles').innerHTML = `
-    <div class="summary-cell"><div class="summary-label">Open pipeline</div><div class="summary-value">${fmt$(total)}</div>
-      <div class="summary-note">${open.length} deals</div></div>
-    <div class="summary-cell"><div class="summary-label">Probability-weighted</div><div class="summary-value">${fmt$(weighted)}</div>
-      <div class="summary-note">by HubSpot stage probability</div></div>`;
+  el.innerHTML = `
+    <div class="toolbar">
+      <label class="mono" style="display:flex;align-items:center;gap:6px">pipeline
+        <select id="pl" style="height:32px">
+          ${pipelines.map(p => `<option>${esc(p)}</option>`).join('')}
+          <option value="__all__">all pipelines</option>
+        </select></label>
+      <span class="muted" style="font-size:12px">showing ≥ ${threshold}% probability —
+        <a href="./settings.html">change threshold</a></span>
+      <span style="flex:1"></span>
+      <span class="muted" id="count" style="font-size:12px"></span>
+    </div>
+    <div class="summary-strip" id="tiles"></div>
+    <div class="sc-panel"><div class="sc-eyebrow">Pipeline revenue by month — weighted, flighted over each campaign</div>
+      <div style="overflow-x:auto"><table id="spread"></table></div>
+      <div class="muted" id="undated" style="font-size:11.5px;margin-top:6px"></div></div>
+    <div class="sc-panel"><div class="sc-eyebrow">Deals by probability</div>
+      <div style="overflow-x:auto"><table id="tbl"></table></div></div>`;
 
-  document.getElementById('tbl').innerHTML =
-    `<tr><th>deal</th><th>company</th><th>stage</th><th>prob</th><th>amount</th><th>weighted</th><th>campaign</th></tr>` +
-    open.map(d=>`<tr>
-      <td><a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.name)}</a></td>
-      <td>${esc(d.company||'')}</td><td>${esc(d.stage)}</td>
-      <td>${Math.round((d.probability||0)*100)}%</td>
-      <td>${d.amount!=null?fmt$(d.amount):'<span class="muted">—</span>'}</td>
-      <td>${d.amount!=null?fmt$(Math.round(d.amount*(d.probability||0))):''}</td>
-      <td class="muted">${d.campaign_start? d.campaign_start.slice(0,7)+' → '+(d.campaign_end||'?').slice(0,7):''}</td></tr>`).join('');
+  const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const mLabel = iso => MO[+iso.slice(5,7)-1] + ' ' + iso.slice(2,4);
+  const monthsBetween = (a, b) => {
+    const out = []; let d = new Date(a.slice(0,8) + '01T00:00:00Z');
+    const end = new Date(b.slice(0,8) + '01T00:00:00Z');
+    while (d <= end && out.length < 36) { out.push(d.toISOString().slice(0,10));
+      d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth()+1, 1)); }
+    return out;
+  };
+  const products = d => (d.line_items || []).map(li => li.name).filter(Boolean);
+
+  function render() {
+    const pl = el.querySelector('#pl').value;
+    const shown = all.filter(d =>
+      (pl === '__all__' || d.pipeline === pl) &&
+      Math.round((d.probability || 0) * 100) >= threshold);
+    el.querySelector('#count').textContent =
+      `${shown.length} of ${all.length} open deals shown`;
+
+    const total = shown.reduce((s,d)=>s+(d.amount||0),0);
+    const weighted = shown.reduce((s,d)=>s+Math.round((d.amount||0)*(d.probability||0)),0);
+    el.querySelector('#tiles').innerHTML = `
+      <div class="summary-cell"><div class="summary-label">open pipeline ≥ ${threshold}%</div>
+        <div class="summary-value pos">${fmt$(total)}</div></div>
+      <div class="summary-cell"><div class="summary-label">probability-weighted</div>
+        <div class="summary-value">${fmt$(weighted)}</div></div>
+      <div class="summary-cell"><div class="summary-label">deals</div>
+        <div class="summary-value">${shown.length}</div></div>`;
+
+    // ---- flighted monthly spread: amount ÷ campaign months × probability ----
+    const monthly = {}; let undated = 0, undatedAmt = 0;
+    shown.forEach(d => {
+      if (!d.campaign_start || !d.campaign_end || !d.amount) { undated++; undatedAmt += d.amount||0; return; }
+      const ms = monthsBetween(d.campaign_start, d.campaign_end);
+      const per = Math.round(d.amount * (d.probability||0) / ms.length);
+      ms.forEach(m => monthly[m] = (monthly[m]||0) + per);
+    });
+    const spreadMonths = Object.keys(monthly).sort();
+    el.querySelector('#spread').innerHTML = spreadMonths.length
+      ? `<tr>${spreadMonths.map(m=>`<th>${mLabel(m)}</th>`).join('')}</tr>
+         <tr>${spreadMonths.map(m=>`<td>${fmt$(monthly[m])}</td>`).join('')}</tr>`
+      : '<tr><td class="muted">no dated deals above the threshold</td></tr>';
+    el.querySelector('#undated').textContent = undated
+      ? `${undated} deal(s) totalling ${fmt$(undatedAmt)} have no campaign dates and are excluded from the spread — dates set in HubSpot bring them in.`
+      : '';
+
+    // ---- the table, grouped by probability, products from line items ----
+    const byProb = {};
+    shown.forEach(d => {
+      const p = Math.round((d.probability||0)*100);
+      (byProb[p] = byProb[p]||[]).push(d);
+    });
+    const probs = Object.keys(byProb).map(Number).sort((a,b)=>b-a);
+    el.querySelector('#tbl').innerHTML =
+      `<tr><th>deal</th><th>company</th><th>products</th><th>amount</th><th>weighted</th><th>campaign</th></tr>` +
+      probs.map(p => {
+        const ds = byProb[p].sort((a,b)=>(b.amount||0)-(a.amount||0));
+        const sub = ds.reduce((s,d)=>s+(d.amount||0),0);
+        return `<tr><td colspan="3" class="textleft" style="background:#f6f6f6;font-weight:600">
+            ${p}% · ${esc(ds[0].stage)} · ${ds.length} deal${ds.length>1?'s':''}</td>
+          <td style="background:#f6f6f6;font-weight:600">${fmt$(sub)}</td>
+          <td style="background:#f6f6f6">${fmt$(Math.round(sub*p/100))}</td>
+          <td style="background:#f6f6f6"></td></tr>` +
+          ds.map(d => `<tr>
+            <td class="textleft">${esc(d.name)}</td>
+            <td class="textleft">${esc(d.company||'')}</td>
+            <td class="textleft muted">${esc(products(d).join(', ')) || '<span class="muted">—</span>'}</td>
+            <td>${d.amount!=null?fmt$(d.amount):'—'}</td>
+            <td>${d.amount!=null?fmt$(Math.round(d.amount*(d.probability||0))):''}</td>
+            <td class="muted">${d.campaign_start? mLabel(d.campaign_start)+' → '+(d.campaign_end?mLabel(d.campaign_end):'?'):''}</td>
+          </tr>`).join('');
+      }).join('');
+  }
+  el.querySelector('#pl').onchange = render;
+  render();
 });
 </script></body></html>
