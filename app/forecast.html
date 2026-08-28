@@ -393,8 +393,13 @@ boot('forecast', async (supa, el) => {
     const noFc = `<span class="pill warn" title="no lines shaped — open the deal and give it a plan">no forecast</span>`;
 
     const q = tableQuery.trim().toLowerCase();
+    // active in the period = the flight overlaps the range window. A deal spanning
+    // the whole window counts; one that ended before it or starts after it does not.
+    const rangeEndExcl = shiftM(rangeTo, 1);
+    const activeInRange = d => d.flight_start < rangeEndExcl && d.flight_end >= rangeFrom;
+    const visibleDeals = c => (dealsByClient[c.id]||[]).filter(activeInRange);
     const clients = Object.values(clientsById).filter(c => {
-      const ds = dealsByClient[c.id]||[];
+      const ds = visibleDeals(c);
       const cr = clientRow(c);
       const hasData = ds.length || cr.revenue || cr.cogs;
       if (!hasData) return false;
@@ -402,7 +407,7 @@ boot('forecast', async (supa, el) => {
       return c.name.toLowerCase().includes(q) ||
              ds.some(d => d.name.toLowerCase().includes(q));
     }).map(c => ({ c, agg: clientRow(c),
-                   missing: (dealsByClient[c.id]||[]).filter(d => !(d._agg||{}).gpAll && d.flight_end >= thisMonth).length }));
+                   missing: visibleDeals(c).filter(d => !(d._agg||{}).gpAll && d.flight_end >= thisMonth).length }));
 
     const dir = tableSort.dir, key = tableSort.key;
     const sv = a => key==='name' ? a.c.name.toLowerCase()
@@ -411,14 +416,14 @@ boot('forecast', async (supa, el) => {
     clients.sort((a,b)=>{ const x=sv(a), y=sv(b);
       return (x<y?-1:x>y?1:0) * (key==='name'?-dir:dir) * -1; });
 
-    const totalMissing = Object.values(dealsByClient).flat()
+    const totalMissing = Object.values(clientsById).map(visibleDeals).flat()
       .filter(d=>!(d._agg||{}).gpAll && d.flight_end >= thisMonth).length;
 
     let totals = { revenue:0, cogs:0, forecastGP:0, actualGP:0 };
     const bodyRows = clients.map(({c, agg, missing}) => {
       totals.revenue+=agg.revenue; totals.cogs+=agg.cogs;
       totals.forecastGP+=agg.forecastGP; totals.actualGP+=agg.actualGP||0;
-      const ds = (dealsByClient[c.id]||[])
+      const ds = visibleDeals(c)
         .filter(d => !q || d.name.toLowerCase().includes(q) || c.name.toLowerCase().includes(q))
         .sort((a,b)=>(b.flight_end||'').localeCompare(a.flight_end||''));
       const isOpen = openClients.has(c.id) || (q && ds.length);
