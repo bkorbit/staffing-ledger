@@ -53,6 +53,15 @@
         ],
         "createdAt": "2026-08-28T19:52:18.465Z",
         "reason": "#19a789 is DESIGN.md's documented Labour Green token (also --brand-4 in style.css); detector runs in degraded regex-only mode and doesn't resolve hex literals inside JS template strings (bandChart's inline series color) against the palette"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "2px",
+        "files": [
+          "app/assets/style.css"
+        ],
+        "createdAt": "2026-08-28T20:54:35.151Z",
+        "reason": "matches existing precedent at sales.html's .legend i (11px color-key swatch, border-radius:2px) — the documented 4px 'sm' token looks disproportionately round on an 8-11px tiny color swatch; same shape class as .tip-dot"
       }
     ]
   }
