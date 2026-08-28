@@ -62,6 +62,24 @@
         ],
         "createdAt": "2026-08-28T20:54:35.151Z",
         "reason": "matches existing precedent at sales.html's .legend i (11px color-key swatch, border-radius:2px) — the documented 4px 'sm' token looks disproportionately round on an 8-11px tiny color swatch; same shape class as .tip-dot"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "2px",
+        "files": [
+          "app/sales.html"
+        ],
+        "createdAt": "2026-08-28T23:01:48.520Z",
+        "reason": "matches the .tip-dot precedent in style.css: an 11px color-key swatch, same tiny-swatch shape class where the documented 4px 'sm' token looks disproportionately round"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "#c8c8c8",
+        "files": [
+          "app/sales.html"
+        ],
+        "createdAt": "2026-08-28T23:01:48.575Z",
+        "reason": "intentional near-invisible placeholder for an empty table cell (a middle-dot marking 'no value') — low contrast is deliberate here, not a real content color that needs to be legible; audited and confirmed in /impeccable audit"
       }
     ]
   }
