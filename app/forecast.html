@@ -40,35 +40,47 @@ boot('forecast', async (supa, el) => {
   let rangeFrom = shiftM(thisMonth,-6), rangeTo = shiftM(thisMonth,6);
 
   /* ------------------------------------------------- shaping configuration */
+  // cells: what per-month grid a line shows — null (flat), 'budget', or 'hours'.
+  // flightable: whether a single total can be spread across the open flight months.
+  // structured: creative carries a sub-structure (retainer-like or hourly-like).
   const KIND = {
-    retainer:     { cells:null,     defaults:[['amount','$ / flight month']] },
-    custom:       { cells:null,     defaults:[['amount','$ / flight month']] },
+    retainer:     { cells:null,     flat:true,  defaults:[['amount','$ / flight month']] },
+    creative:     { cells:'creative', flat:true, defaults:[] },   // structure chosen per line
     search:       { cells:'budget', defaults:[['fee_pct','fee %']] },
     social:       { cells:'budget', defaults:[['fee_pct','fee %']] },
     programmatic: { cells:'budget', defaults:[['fee_pct','fee %'],['margin_pct','margin %']] },
-    hourly:       { cells:'hours',  defaults:[['rate','rate $/hr'],['hours_per_month','hrs/mo default']] },
+    hourly:       { cells:'hours',  label:true, defaults:[['rate','rate $/hr'],['hours_per_month','hrs/mo default']] },
+    custom:       { cells:null,     flat:true,  defaults:[['amount','$ / flight month']], legacy:true },
   };
+  const OFFERED = ['retainer','creative','search','social','programmatic','hourly'];
   const CELL_HINT = { budget:'budget $', hours:'hrs' };
-  const BILLING_BY_KIND = { retainer:'first', custom:'first', search:'last',
-                            social:'last', programmatic:'last', hourly:'last' };
+  const BILLING_BY_KIND = { retainer:'first', custom:'first', creative:'first',
+                            search:'last', social:'last', programmatic:'last', hourly:'last' };
+  // how a line's revenue is structured, for creative's two modes
+  const creativeMode = l => (l.label||'').startsWith('creative:hourly') ? 'hourly' : 'retainer';
   let marginDefault = 35;
   function gpMonth(l, m) {
     const cfg = KIND[l.kind];
-    const cellRaw = cfg.cells ? l.cells[m] : undefined;
     const fee = l.params.fee_pct || 0;
     const margin = l.params.margin_pct ?? marginDefault;
+    const cell = k => l.cells[m];   // per-month override when present
     switch (l.kind) {
-      case 'retainer': case 'custom': return Math.round((l.params.amount||0)*100);
+      case 'retainer': case 'custom':
+        return Math.round((l.params.amount||0)*100);
+      case 'creative':
+        return creativeMode(l) === 'hourly'
+          ? Math.round((l.params.rate||0)*100*(l.cells[m] ?? l.params.hours_per_month ?? 0))
+          : Math.round((l.params.amount||0)*100);
       case 'hourly': {
-        const hrs = cellRaw !== undefined ? cellRaw : (l.params.hours_per_month||0);
+        const hrs = l.cells[m] !== undefined ? l.cells[m] : (l.params.hours_per_month||0);
         return Math.round((l.params.rate||0)*100*hrs);
       }
       case 'search': case 'social': {
-        const b = cellRaw !== undefined ? cellRaw*100 : 0;
+        const b = l.cells[m] !== undefined ? l.cells[m]*100 : 0;
         return Math.round(b*fee/100);
       }
       case 'programmatic': {
-        const b = cellRaw !== undefined ? cellRaw*100 : 0;
+        const b = l.cells[m] !== undefined ? l.cells[m]*100 : 0;
         return Math.round(b*margin/100 + b*fee/100);
       }
     }
@@ -562,97 +574,160 @@ boot('forecast', async (supa, el) => {
       : { data: [] };
     const model = (lr.data||[]).map(l => {
       const cfg = KIND[l.kind] || KIND.custom;
+      // which per-month column this kind stores: creative-hourly & hourly use hours,
+      // budget kinds use budget, flat kinds use amount (for manual overrides)
+      const isHourly = l.kind==='hourly'
+        || (l.kind==='creative' && (l.label||'').startsWith('creative:hourly'));
+      const cellCol = cfg.cells==='budget' ? 'budget'
+        : (cfg.cells==='hours' || isHourly) ? 'hours' : 'amount';
       const cells = {};
-      (mr.data||[]).filter(o=>o.deal_line_id===l.id).forEach(o => {
-        const v = cfg.cells==='hours' ? o.hours : o[cfg.cells];
-        if (v!=null) cells[o.month] = cfg.cells==='hours' ? +v : v/100;
+      const mine = (mr.data||[]).filter(o=>o.deal_line_id===l.id);
+      mine.forEach(o => {
+        const v = cellCol==='hours' ? o.hours : o[cellCol];
+        if (v!=null) cells[o.month] = cellCol==='hours' ? +v : v/100;
       });
-      return { id:l.id, kind:l.kind,
+      // a flat line with explicit month rows was put in manual mode by a human
+      const flat = !cfg.cells || (l.kind==='creative' && !isHourly);
+      const manual = flat && mine.length > 0;
+      return { id:l.id, kind:l.kind, label:l.label,
         params:{ amount:l.amount?l.amount/100:0, fee_pct:l.fee_pct||0,
                  margin_pct:l.margin_pct, rate:l.rate?l.rate/100:0,
                  hours_per_month:+l.hours_per_month||0 },
-        cells,
-        // the frozen record: what the line said when this editor opened, and which
-        // months already have explicit rows — closed months freeze at these values
+        cells, manual,
         orig: { amount:l.amount||0, hours:+l.hours_per_month||0 },
-        hadDlm: new Set((mr.data||[]).filter(o=>o.deal_line_id===l.id).map(o=>o.month)) };
+        hadDlm: new Set(mine.map(o=>o.month)) };
     });
     let flight = { start: d.flight_start, end: d.flight_end };
     const closed = m => m < thisMonth;
 
     function draw() {
       const fm = monthsBetween(flight.start, flight.end);
+      const openM = fm.filter(m=>!closed(m));
       const asSold = d.promotions?.[0]?.as_sold;
+      // a labelled param input, stacked label-over-box for clean wrapping
+      const field = (li, p, label, val, ph='0') =>
+        `<label class="pf"><span class="pfl">${label}</span>
+           <input class="p" data-li="${li}" data-p="${p}" value="${val}" placeholder="${ph}"></label>`;
       const head = fm.map(m=>`<th title="${closed(m)?'closed month':''}">${mLabel(m)}${closed(m)?' ✓':''}</th>`).join('');
+
       const lineRows = model.map((l, li) => {
         const cfg = KIND[l.kind];
-        const params = cfg.defaults.map(([p,label]) => `
-          <label class="mono" style="display:inline-flex;flex-direction:column;gap:2px;margin-right:10px">${label}
-            <input class="p" data-li="${li}" data-p="${p}"
-              value="${p==='margin_pct' ? (l.params[p] ?? '') : (l.params[p]||'')}"
-              placeholder="${p==='margin_pct' ? marginDefault : '0'}"></label>`).join('');
-        const cells = cfg.cells
-          ? fm.map(m=>`<td><input class="cell" data-li="${li}" data-m="${m}"
-              value="${l.cells[m] ?? ''}" placeholder="${closed(m)?'':CELL_HINT[cfg.cells]}"
-              ${closed(m)?'disabled':''}></td>`).join('')
-          : `<td colspan="${fm.length}" class="muted" style="text-align:left;font-family:var(--font-body)">
-               spread over the flight — ${fm.filter(m=>!closed(m)).length} open month(s)</td>`;
-        return `<tr><td class="linehead">
-            <span class="kbadge">${l.kind}</span>
-            <span class="params" style="margin-left:10px">${params}</span>
-            <button class="danger delline" data-li="${li}" style="margin-left:6px;padding:2px 8px">✕</button>
-          </td>${cells}<td class="muted gp-line" data-li="${li}"></td></tr>`;
+        const mode = l.kind === 'creative' ? creativeMode(l) : null;
+        // ---- the line's controls (kind badge, structure, params, flighting) ----
+        const kindLabel = l.kind === 'creative' ? `creative · ${mode}` : l.kind;
+        // creative structure selector
+        const structSel = l.kind === 'creative'
+          ? `<select class="cmode" data-li="${li}" title="how creative bills">
+               <option value="retainer" ${mode==='retainer'?'selected':''}>retainer $/mo</option>
+               <option value="hourly" ${mode==='hourly'?'selected':''}>hourly</option>
+             </select>` : '';
+        // the flat/params inputs this line needs
+        const flatParams = (() => {
+          const wantsAmount = (l.kind==='retainer'||l.kind==='custom'||(l.kind==='creative'&&mode==='retainer'));
+          const wantsHourly = (l.kind==='hourly'||(l.kind==='creative'&&mode==='hourly'));
+          const bits = [];
+          if (wantsAmount)
+            bits.push(field(li,'amount','$ / flight month', l.params.amount||''));
+          if (wantsHourly) {
+            bits.push(field(li,'rate','rate $/hr', l.params.rate||''));
+            bits.push(field(li,'hours_per_month','hrs / mo', l.params.hours_per_month||''));
+          }
+          (cfg.defaults||[]).forEach(([p,label]) => {
+            if (p==='amount'||p==='rate'||p==='hours_per_month') return; // handled above
+            bits.push(field(li,p,label, p==='margin_pct'?(l.params[p]??''):(l.params[p]||''),
+              p==='margin_pct'?marginDefault:'0'));
+          });
+          return bits.join('');
+        })();
+
+        // ---- how this line flights: which cells, and the spread control ----
+        let cellsHtml, flightCtl = '';
+        const usesCells = cfg.cells === 'budget' || cfg.cells === 'hours'
+          || (l.kind==='creative' && mode==='hourly');
+        if (usesCells) {
+          const hint = cfg.cells==='hours' || mode==='hourly' ? 'hrs' : 'budget $';
+          cellsHtml = fm.map(m=>`<td><input class="cell" data-li="${li}" data-m="${m}"
+              value="${l.cells[m] ?? ''}" placeholder="${closed(m)?'':hint}"
+              ${closed(m)?'disabled':''}></td>`).join('');
+          flightCtl = `<button class="spreadbtn" data-li="${li}"
+              title="spread a total evenly across the ${openM.length} open month(s)">spread total…</button>`;
+        } else {
+          // flat lines (retainer / creative-retainer / custom): one number fills
+          // every open month; a manual override switches to per-month cells
+          if (l.manual) {
+            cellsHtml = fm.map(m=>`<td><input class="cell" data-li="${li}" data-m="${m}"
+                value="${l.cells[m] ?? (closed(m)?'':(l.params.amount||''))}" placeholder="${closed(m)?'':'$'}"
+                ${closed(m)?'disabled':''}></td>`).join('');
+            flightCtl = `<button class="spreadbtn" data-li="${li}" data-auto="1"
+                title="back to one amount across the whole flight">auto-spread</button>`;
+          } else {
+            const per = gpMonth(l, openM[0]||fm[0]);
+            cellsHtml = `<td colspan="${fm.length}" class="muted flatnote">
+                ${per?('$'+fmtN(per)+' every open month'):'enter an amount'} — ${openM.length} open month(s)</td>`;
+            flightCtl = `<button class="spreadbtn" data-li="${li}" data-manual="1"
+                title="override individual months">per-month…</button>`;
+          }
+        }
+
+        return `<tr class="lrow">
+          <td class="linehead">
+            <div class="lctl">
+              <span class="kbadge">${kindLabel}</span>
+              ${structSel}
+              <button class="danger delline" data-li="${li}" title="remove line">✕</button>
+            </div>
+            <div class="lparams">${flatParams}</div>
+            <div class="lflight">${flightCtl}</div>
+          </td>${cellsHtml}<td class="muted gp-line" data-li="${li}"></td></tr>`;
       }).join('');
 
       box.innerHTML = `
-        <div class="dhead">
-          <label class="mono" style="display:flex;align-items:center;gap:6px">flight
-            <input type="month" class="month fstart" value="${flight.start.slice(0,7)}">
-            <span class="muted">→</span>
-            <input type="month" class="month fend" value="${flight.end.slice(0,7)}"></label>
-          <label class="mono" style="display:flex;align-items:center;gap:6px">client
-            <select class="cl" style="height:30px;max-width:220px">
+        <div class="settings">
+          <div class="setrow"><span class="setlabel">Client</span>
+            <select class="cl">
               ${Object.values(clientsById).sort((a,b)=>a.name.localeCompare(b.name))
                 .map(c=>`<option value="${c.id}" ${c.id===d.client_id?'selected':''}>${esc(c.name)}</option>`).join('')}
               <option value="__new__">+ new client…</option>
-            </select></label>
-          <label class="mono" style="display:flex;align-items:center;gap:6px">QB project
-            <input class="qpsearch" placeholder="search projects…" style="height:30px;width:140px">
-            <select class="qp" style="height:30px;max-width:280px"></select></label>
-          <label class="mono" style="display:flex;align-items:center;gap:6px">media funding
-            <select class="mf" style="height:30px">
+            </select></div>
+          <div class="setrow"><span class="setlabel">Flight</span>
+            <input type="month" class="month fstart" value="${flight.start.slice(0,7)}">
+            <span class="muted">→</span>
+            <input type="month" class="month fend" value="${flight.end.slice(0,7)}"></div>
+          <div class="setrow"><span class="setlabel">QB Project</span>
+            <input class="qpsearch" placeholder="search projects…">
+            <select class="qp"></select></div>
+          <div class="setrow"><span class="setlabel">Media funding</span>
+            <select class="mf">
               <option value="client" ${d.media_funding!=='agency'?'selected':''}>client pays</option>
               <option value="agency" ${d.media_funding==='agency'?'selected':''}>EMG pays &amp; rebills</option>
-            </select></label>
-          ${achieved !== null ? `<span class="muted" style="font-size:10.5px">client's achieved programmatic margin
-            <b>${achieved}%</b> (programmatic media lines vs media COGS)
-            <button class="use-achieved" style="padding:2px 8px;font-size:10px">apply to programmatic</button></span>` : ''}
-          <span style="flex:1"></span><span class="totals"></span>
+            </select></div>
+          ${achieved !== null ? `<div class="setrow"><span class="setlabel">Achieved margin</span>
+            <span class="muted"><b>${achieved}%</b> programmatic media vs media COGS
+            <button class="use-achieved">apply to programmatic</button></span></div>` : ''}
         </div>
+        <div class="editorbar"><span class="totals"></span></div>
         <div class="gridwrap"><table class="grid">
-          <tr><th style="text-align:left">line</th>${head}<th>line GP</th></tr>
+          <tr><th style="text-align:left">Line</th>${head}<th>line GP</th></tr>
           ${lineRows || `<tr><td class="linehead muted" colspan="${fm.length+2}">no lines yet — add one below</td></tr>`}
           <tr class="gp"><td class="linehead">GP forecast</td>
             ${fm.map(m=>`<td data-gpm="${m}"></td>`).join('')}<td data-gptotal></td></tr>
-          <tr><td class="linehead muted">GP actual (QuickBooks)${d.qbo_project_id?'':' — no project linked'}</td>
+          <tr><td class="linehead muted">GP actual (QuickBooks)${d.qbo_project_id?'':' — no project'}</td>
             ${fm.map(m=>`<td class="muted">${closed(m)&&actualByM[m]!==undefined?fmtN(actualByM[m]):''}</td>`).join('')}
             <td class="muted">${fmtN(fm.reduce((s,m)=>s+(closed(m)?(actualByM[m]||0):0),0))||''}</td></tr>
           <tr><td class="linehead muted">Δ actual vs forecast</td>
             ${fm.map(m=>`<td data-diff="${m}"></td>`).join('')}<td></td></tr>
         </table></div>
-        <div class="muted" style="font-size:10px;margin-top:4px">✓ months are locked:
-        their actuals come from QuickBooks and their forecast froze when the month
-        closed — accuracy is measured, never rewritten.</div>
-        <div class="dhead" style="margin-top:8px">
-          <select class="newkind" style="height:32px"><option value="">+ add a line…</option>
-            ${Object.keys(KIND).map(k=>`<option value="${k}">${k}</option>`).join('')}</select>
+        <div class="muted lockednote">✓ months are locked: their actuals come from QuickBooks
+        and their forecast froze when the month closed — accuracy is measured, never rewritten.</div>
+        <div class="editorbar">
+          <select class="newkind"><option value="">+ add a line…</option>
+            ${OFFERED.map(k=>`<option value="${k}">${k}</option>`).join('')}</select>
           <span style="flex:1"></span>
           <button class="saveall primary">Save</button>
           <button class="reviewed" ${d.reviewed_at?'disabled':''}>Mark reviewed</button>
-          <span style="flex:1"></span>
           <button class="hidedeal danger" title="remove this deal from the forecast — reversible from SQL">Hide deal</button>
         </div>
-        <div class="msg" style="margin-top:6px;font-size:12px"></div>`;
+        <div class="msg"></div>`;
 
       box.querySelector('.fstart').onchange = e => { flight.start = e.target.value+'-01'; clamp(); };
       box.querySelector('.fend').onchange   = e => { flight.end   = e.target.value+'-01'; clamp(); };
@@ -665,7 +740,32 @@ boot('forecast', async (supa, el) => {
       box.querySelectorAll('input.p').forEach(inp => inp.oninput = () => {
         const l = model[+inp.dataset.li];
         l.params[inp.dataset.p] = inp.value==='' ? (inp.dataset.p==='margin_pct'?null:0) : +inp.value;
+        // a flat line that isn't in manual mode previews its per-month note live
+        if (!KIND[l.kind].cells || (l.kind==='creative' && creativeMode(l)==='retainer')) {
+          if (!l.manual) draw();
+        }
         preview();
+      });
+      // creative structure: retainer-like or hourly-like
+      box.querySelectorAll('select.cmode').forEach(sel => sel.onchange = () => {
+        const l = model[+sel.dataset.li];
+        l.label = 'creative:' + sel.value;
+        l.cells = {};            // structure changed — clear stale cells
+        draw();
+      });
+      // the flighting button: spread a total, drop to per-month, or back to flat
+      box.querySelectorAll('.spreadbtn').forEach(btn => btn.onclick = () => {
+        const l = model[+btn.dataset.li];
+        if (btn.dataset.manual) { l.manual = true; draw(); return; }
+        if (btn.dataset.auto)   { l.manual = false; l.cells = {}; draw(); return; }
+        // spread total across open months
+        const raw = prompt(`Total to spread evenly across the ${openM.length} open flight month(s):`);
+        if (raw === null) return;
+        const total = +raw; if (!(total > 0)) return;
+        const per = Math.floor(total / openM.length);
+        let rem = Math.round((total - per*openM.length) * 100) / 100;
+        openM.forEach((m,i) => l.cells[m] = i===openM.length-1 ? Math.round((per+rem)*100)/100 : per);
+        draw();
       });
         // the project picker: searchable over the FULL list; projects linked to
       // another deal stay visible and selectable — moving one is confirmed on save
@@ -712,9 +812,11 @@ boot('forecast', async (supa, el) => {
       });
       box.querySelector('.newkind').onchange = e => {
         if (!e.target.value) return;
-        model.push({ kind:e.target.value,
+        const kind = e.target.value;
+        model.push({ kind,
+          label: kind==='creative' ? 'creative:retainer' : null,
           params:{ amount:0, fee_pct:0, margin_pct:null, rate:0, hours_per_month:0 },
-          cells:{}, orig:{ amount:0, hours:0 }, hadDlm:new Set() });
+          cells:{}, manual:false, orig:{ amount:0, hours:0 }, hadDlm:new Set() });
         draw();
       };
       const ua = box.querySelector('.use-achieved');
@@ -798,8 +900,18 @@ boot('forecast', async (supa, el) => {
           if (error) { msg.textContent = error.message; msg.className='msg err'; return; }
         }
         for (const l of model) {
+          // which per-month column this line stores
+          const isHourly = l.kind==='hourly'
+            || (l.kind==='creative' && creativeMode(l)==='hourly');
+          const flat = !KIND[l.kind].cells || (l.kind==='creative' && !isHourly);
+          const cellCol = KIND[l.kind].cells==='budget' ? 'budget'
+            : (KIND[l.kind].cells==='hours' || isHourly) ? 'hours' : 'amount';
+          // budget kinds and manual/hourly cells all write month rows; a flat line
+          // in auto mode writes none (its amount lives on the line)
+          const writesCells = KIND[l.kind].cells==='budget' || isHourly || (flat && l.manual);
+
           const rowData = {
-            deal_id:d.id, kind:l.kind, label:null,
+            deal_id:d.id, kind:l.kind, label:l.label ?? null,
             amount:Math.round((l.params.amount||0)*100), budget:0,
             hours_per_month:l.params.hours_per_month||0,
             fee_pct:l.params.fee_pct||0, margin_pct:l.params.margin_pct ?? null,
@@ -815,15 +927,15 @@ boot('forecast', async (supa, el) => {
             if (error) { msg.textContent = error.message; msg.className='msg err'; return; }
             l.id = data.id;
           }
-          // freeze: closed flight months without an explicit row get one at the
-          // value the line held when this editor opened
+          // freeze: closed flight months without an explicit row freeze at the
+          // line's as-opened value, so editing today never rewrites settled history
           const closedMonths = monthsBetween(flight.start, flight.end).filter(m=>closed(m));
-          const freezeField = KIND[l.kind].cells === 'hours' ? 'hours'
-                            : KIND[l.kind].cells ? null : 'amount';
+          const freezeField = writesCells ? (cellCol==='hours' ? 'hours' : cellCol) : null;
           if (freezeField && l.hadDlm && closedMonths.length) {
             const freeze = closedMonths.filter(m => !l.hadDlm.has(m)).map(m => {
               const r = { deal_line_id:l.id, month:m, set_by:'freeze-on-close', set_at:new Date().toISOString() };
-              r[freezeField] = freezeField==='hours' ? l.orig.hours : l.orig.amount;
+              r[freezeField] = freezeField==='hours' ? l.orig.hours
+                : freezeField==='amount' ? l.orig.amount : 0;
               return r;
             });
             if (freeze.length) {
@@ -832,8 +944,7 @@ boot('forecast', async (supa, el) => {
               freeze.forEach(r => l.hadDlm.add(r.month));
             }
           }
-          const cfg = KIND[l.kind];
-          if (cfg.cells) {
+          if (writesCells) {
             const openMonths = monthsBetween(flight.start, flight.end).filter(m=>!closed(m));
             if (openMonths.length) {
               const del = await supa.from('deal_line_months').delete()
@@ -842,12 +953,19 @@ boot('forecast', async (supa, el) => {
             }
             const rows = Object.entries(l.cells).filter(([m])=>!closed(m)).map(([m,v]) => {
               const r = { deal_line_id:l.id, month:m, set_by:window.__email, set_at:new Date().toISOString() };
-              r[cfg.cells==='hours'?'hours':cfg.cells] = cfg.cells==='hours' ? v : Math.round(v*100);
+              r[cellCol==='hours'?'hours':cellCol] = cellCol==='hours' ? v : Math.round(v*100);
               return r;
             });
             if (rows.length) {
               const ins = await supa.from('deal_line_months').insert(rows);
               if (ins.error) { msg.textContent = ins.error.message; msg.className='msg err'; return; }
+            }
+          } else {
+            // flat auto line: clear any leftover month rows from a prior manual state
+            const openMonths = monthsBetween(flight.start, flight.end).filter(m=>!closed(m));
+            if (openMonths.length) {
+              await supa.from('deal_line_months').delete()
+                .eq('deal_line_id', l.id).in('month', openMonths);
             }
           }
         }

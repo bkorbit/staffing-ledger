@@ -183,3 +183,41 @@ table.acct tr.totalrow .neg { color:#ffb4ac; }
 nav.side { transition: width .12s ease; }
 /* type scale honours the OS/browser preference already via rem; keep table numerics tabular */
 table.acct td, table.grid td, table.grid th { font-variant-numeric: tabular-nums; }
+
+/* ---- deal editor: stacked settings + clean line controls ---- */
+.settings { display:flex; flex-direction:column; gap:8px; margin-bottom:14px; }
+.setrow { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.setrow .setlabel { font-family:var(--font-mono); font-size:0.72rem; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--slate); width:112px; flex:none; }
+.setrow select, .setrow input { height:32px; border:1px solid var(--line); border-radius:6px;
+  padding:0 10px; font-family:var(--font-mono); font-size:0.82rem; background:var(--paper-raised);
+  color:var(--ink); }
+.setrow select { min-width:200px; max-width:420px; }
+.setrow input.qpsearch { width:150px; }
+.setrow select.qp { min-width:260px; }
+.setrow .month { width:132px; }
+.setrow .use-achieved { height:auto; padding:3px 9px; margin-left:6px; }
+.editorbar { display:flex; align-items:center; gap:8px; margin:10px 0; flex-wrap:wrap; }
+.lockednote { font-size:0.66rem; margin-top:4px; }
+/* line rows */
+table.grid td.linehead { text-align:left; vertical-align:top; padding:8px 10px; min-width:280px; }
+.lctl { display:flex; align-items:center; gap:8px; }
+.kbadge { font-family:var(--font-mono); font-size:0.66rem; letter-spacing:.06em; text-transform:uppercase;
+  background:var(--mint); color:var(--brand); padding:3px 8px; border-radius:5px; white-space:nowrap; }
+.lctl select.cmode { height:26px; border:1px solid var(--line); border-radius:5px;
+  font-family:var(--font-mono); font-size:0.72rem; background:var(--paper-raised); }
+.lparams { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+.pf { display:inline-flex; flex-direction:column; gap:3px; }
+.pf .pfl { font-family:var(--font-mono); font-size:0.6rem; letter-spacing:.06em; text-transform:uppercase;
+  color:var(--slate); }
+.pf input { width:120px; height:30px; border:1px solid var(--line); border-radius:6px; padding:0 9px;
+  font-family:var(--font-mono); font-size:0.82rem; background:var(--paper-raised); color:var(--ink); }
+.lflight { margin-top:8px; }
+.lflight .spreadbtn { height:auto; padding:4px 10px; font-size:0.68rem; }
+.flatnote { text-align:left !important; font-family:var(--font-body) !important; padding-left:10px; }
+table.grid td .cell { width:100%; min-width:62px; height:28px; border:1px solid var(--line);
+  border-radius:5px; text-align:right; padding:0 6px; font-family:var(--font-mono); font-size:0.8rem;
+  background:var(--paper-raised); }
+table.grid td .cell:disabled { background:#f3f3f3; color:var(--slate); border-color:#ececec; }
+table.grid td .cell:focus { outline:none; border-color:var(--brand);
+  box-shadow:0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); }
