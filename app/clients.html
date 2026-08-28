@@ -30,7 +30,7 @@ async function load() {
       const out = [];
       for (let i = 0; ; i++) {
         const r = await supa.from('qbo_projects').select('id,name,active')
-          .is('parent_id', null).order('name').range(i*1000, (i+1)*1000-1);
+          .is('parent_id', null).eq('hidden', false).order('name').range(i*1000, (i+1)*1000-1);
         if (r.error) return r;
         out.push(...(r.data||[]));
         if ((r.data||[]).length < 1000) return { data: out, error: null };

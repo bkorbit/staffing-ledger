@@ -154,7 +154,8 @@ boot('forecast', async (supa, el) => {
         .gte('month', rangeFrom).lte('month', rangeTo)),
       supa.from('settings').select('key,value')
         .in('key',['programmatic_margin_default','forecast_fixed_costs']),
-      fetchAll(() => supa.from('qbo_projects').select('id,name,parent_id,jobcode').order('name')),
+      fetchAll(() => supa.from('qbo_projects').select('id,name,parent_id,jobcode')
+        .eq('hidden', false).order('name')),
       supa.rpc('cost_runrate_monthly', { p_class:'payroll', months:6 }),
       supa.rpc('cost_runrate_monthly', { p_class:'overhead', months:6 }),
       supa.rpc('cost_runrate_monthly', { p_class:'other', months:6 })
@@ -516,8 +517,18 @@ boot('forecast', async (supa, el) => {
         cell.innerHTML = `<select style="height:26px;max-width:230px">
             <option value="">— choose the deal that owns this project —</option>
             ${ds.map(d=>`<option value="${d.id}">${esc(d.name)}${d.qbo_project_id?' — already linked':''}</option>`).join('')}
-          </select> <button class="dolink primary" style="padding:2px 10px">Link</button>`;
+          </select> <button class="dolink primary" style="padding:2px 10px">Link</button>
+          <button class="dohide danger" style="padding:2px 10px" title="remove this project from every list — its money still rolls up to the client">Hide</button>`;
         cell.onclick = ev => ev.stopPropagation();
+        cell.querySelector('.dohide').onclick = async () => {
+          const pj = projects.find(p=>p.id===pid)||{};
+          if (!confirm(`Hide "${pj.name||pid}" from every list and picker?\n\nIts invoices and costs still count toward the client. Survives syncs; unhide any time from SQL.`)) return;
+          const { error } = await supa.from('qbo_projects')
+            .update({ hidden: true, hidden_by: window.__email, hidden_at: new Date().toISOString() })
+            .eq('id', pid);
+          if (error) { alert(error.message); return; }
+          loadAll();
+        };
         cell.querySelector('.dolink').onclick = async () => {
           const dealId = cell.querySelector('select').value;
           if (!dealId) return;
