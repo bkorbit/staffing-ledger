@@ -293,3 +293,12 @@ details.permonth summary:hover { color:var(--brand); }
 .pmcell input { width:84px; height:26px; border:1px solid var(--line); border-radius:5px; text-align:right;
   padding:0 6px; font-family:var(--font-mono); font-size:0.72rem; background:var(--paper-raised); }
 .pmcell input:focus { outline:none; border-color:var(--brand); }
+
+/* cards flow in a responsive grid — up to four across on wide screens */
+.linecards { display:grid; grid-template-columns:repeat(auto-fill,minmax(310px,1fr)); gap:10px; }
+.linecard { min-width:0; }
+.cardbody .lparams .pf input { width:104px; }
+.cardbody .lparams .pf.tb input { width:128px; }
+.subrev { font-size:0.6rem; color:var(--slate); }
+.totalsgrid td .subrev { line-height:1.3; }
+.setrow input.dname { font-family:var(--font-body); }

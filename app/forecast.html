@@ -59,6 +59,19 @@ boot('forecast', async (supa, el) => {
                             search:'last', social:'last', programmatic:'last', hourly:'last' };
   // how a line's revenue is structured, for creative's two modes
   const creativeMode = l => (l.label||'').startsWith('creative:hourly') ? 'hourly' : 'retainer';
+  // billable revenue per month — media lines bill budget+fee (or fee only when the
+  // client funds search/social directly); service lines bill what they earn
+  function revMonth(l, m, mediaFunding) {
+    const fee = l.params.fee_pct || 0;
+    const b = l.cells[m] !== undefined ? l.cells[m]*100 : 0;
+    switch (l.kind) {
+      case 'programmatic': return Math.round(b * (1 + fee/100));
+      case 'search': case 'social':
+        return mediaFunding === 'agency' ? Math.round(b * (1 + fee/100))
+                                         : Math.round(b * fee/100);
+      default: return gpMonth(l, m);   // retainer / creative / hourly bill what they earn
+    }
+  }
   let marginDefault = 35;
   function gpMonth(l, m) {
     const cfg = KIND[l.kind];
@@ -684,6 +697,8 @@ boot('forecast', async (supa, el) => {
 
       box.innerHTML = `
         <div class="settings">
+          <div class="setrow"><span class="setlabel">Deal name</span>
+            <input class="dname" value="${esc(d.name)}" style="min-width:320px;max-width:560px"></div>
           <div class="setrow"><span class="setlabel">Client</span>
             <select class="cl">
               ${Object.values(clientsById).sort((a,b)=>a.name.localeCompare(b.name))
@@ -708,6 +723,8 @@ boot('forecast', async (supa, el) => {
           <table class="totalsgrid">
             <tr class="colheadrow"><th class="rowlabelcol">Line / month</th>${colHead}<th class="linegpcol">line GP</th></tr>
             ${lineRows}
+            <tr><td class="rowlabelcol">Revenue forecast (billed)</td>
+              ${cols.map((c,ci)=>`<td data-revcol="${ci}"></td>`).join('')}<td data-revtotal class="linegpcol"></td></tr>
             <tr class="gp"><td class="rowlabelcol">GP forecast</td>
               ${cols.map((c,ci)=>`<td data-gpcol="${ci}"></td>`).join('')}<td data-gptotal class="linegpcol"></td></tr>
             <tr><td class="rowlabelcol muted">GP actual (QuickBooks)${d.qbo_project_id?'':' — no project'}</td>
@@ -742,6 +759,7 @@ boot('forecast', async (supa, el) => {
         draw();
       }
 
+      box.querySelector('.mf').onchange = () => preview();   // revenue depends on funding
       box.querySelectorAll('input.p').forEach(inp => inp.oninput = () => {
         const l = model[+inp.dataset.li];
         l.params[inp.dataset.p] = inp.value==='' ? (inp.dataset.p==='margin_pct'?null:0) : +inp.value;
@@ -850,7 +868,8 @@ boot('forecast', async (supa, el) => {
       preview();
 
       function preview() {
-        let total = 0; const mgp = {};
+        const mf = box.querySelector('.mf')?.value || d.media_funding || 'client';
+        let total = 0, revTotal = 0; const mgp = {}, mrev = {};
         model.forEach((l, li) => {
           let lt = 0;
           fm.forEach(m => { const g = gpMonth(l, m);
@@ -860,21 +879,28 @@ boot('forecast', async (supa, el) => {
           if (lg) lg.textContent = lt ? `line GP $${fmtN(lt)}` : '';
           const co = box.querySelector(`.gpcallout[data-li="${li}"]`);
           if (co) {
+            const lrev = fm.reduce((s,m)=>s+revMonth(l,m,mf),0);
             if (l.kind==='programmatic') {
               const mgn = l.params.margin_pct ?? marginDefault;
-              co.textContent = lt ? `GP ${fmtMoney(lt)} — margin ${mgn}% + fee ${l.params.fee_pct||0}%` : '';
+              co.textContent = lt ? `Revenue ${fmtMoney(lrev)} · GP ${fmtMoney(lt)} — margin ${mgn}% + fee ${l.params.fee_pct||0}%` : '';
             } else if (isBudgetL(l)) {
-              co.textContent = lt ? `GP ${fmtMoney(lt)} — fee ${l.params.fee_pct||0}% of budget` : '';
+              co.textContent = lt ? `Revenue ${fmtMoney(lrev)} · GP ${fmtMoney(lt)} — fee ${l.params.fee_pct||0}%${mf==='agency'?' (EMG bills media + fee)':' (client pays media direct)'}` : '';
             } else {
-              co.textContent = lt ? `GP ${fmtMoney(lt)} across ${openM.length} open month(s)` : '';
+              co.textContent = lt ? `Revenue = GP ${fmtMoney(lt)} across ${openM.length} open month(s)` : '';
             }
           }
-          // the overview table's line row
+          // the overview table's line row: GP with revenue beneath when they differ
           cols.forEach((c, ci) => {
             const td = box.querySelector(`td[data-lrc="${li}:${ci}"]`);
-            if (td) { const g = c.months.reduce((s,m)=>s+gpMonth(l,m),0);
-              td.textContent = g ? fmtMoney(g) : ''; }
+            if (td) {
+              const g = c.months.reduce((s,m)=>s+gpMonth(l,m),0);
+              const rv = c.months.reduce((s,m)=>s+revMonth(l,m,mf),0);
+              td.innerHTML = g||rv
+                ? `<div>${fmtMoney(g)}</div>${rv!==g?`<div class="subrev">rev ${fmtMoney(rv)}</div>`:''}`
+                : '';
+            }
           });
+          fm.forEach(m => { const r = revMonth(l, m, mf); if (r) mrev[m]=(mrev[m]||0)+r; revTotal += r; });
           const lrt = box.querySelector(`td[data-lrt="${li}"]`);
           if (lrt) lrt.textContent = lt ? fmtMoney(lt) : '';
           total += lt;
@@ -883,6 +909,9 @@ boot('forecast', async (supa, el) => {
           const gp = c.months.reduce((s,m)=>s+(mgp[m]||0),0);
           const td = box.querySelector(`td[data-gpcol="${ci}"]`);
           if (td) td.textContent = gp ? fmtMoney(gp) : '';
+          const rtd = box.querySelector(`td[data-revcol="${ci}"]`);
+          if (rtd) { const rv = c.months.reduce((s,m)=>s+(mrev[m]||0),0);
+            rtd.textContent = rv ? fmtMoney(rv) : ''; }
           const dtd = box.querySelector(`td[data-diffcol="${ci}"]`);
           if (dtd) {
             const a = c.months.reduce((s,m)=>s+(closed(m)&&actualByM[m]!==undefined?actualByM[m]:0),0);
@@ -893,6 +922,7 @@ boot('forecast', async (supa, el) => {
           }
         });
         const tt = box.querySelector('td[data-gptotal]'); if (tt) tt.textContent = total?fmtMoney(total):'';
+        const rt = box.querySelector('td[data-revtotal]'); if (rt) rt.textContent = revTotal?fmtMoney(revTotal):'';
         const cls = asSold && total && Math.abs(total-asSold)/asSold < 0.02 ? 'total-match' : 'total-off';
         box.querySelector('.totals').innerHTML = (total||asSold)
           ? `<span class="${cls}">GP total $${fmtN(total)}</span>` +
@@ -914,6 +944,13 @@ boot('forecast', async (supa, el) => {
           chosenClient = data.id;
         }
         if (chosenClient !== d.client_id) patch.client_id = chosenClient;
+        const newName = box.querySelector('.dname').value.trim();
+        if (newName && newName !== d.name) {
+          patch.name = newName;
+          const mt = document.querySelector('.modal-title');
+          if (mt) mt.textContent = `${(clientsById[chosenClient]||{}).name||''} — ${newName}`;
+          d.name = newName;
+        }
         const chosenProj = box.querySelector('.qp').value || null;
         if (chosenProj !== d.qbo_project_id) {
           if (chosenProj && projTakenBy[chosenProj] &&
