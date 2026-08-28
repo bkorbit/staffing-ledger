@@ -182,10 +182,19 @@ boot('forecast', async (supa, el) => {
     (P.plan_deal||[]).forEach(r => planByDeal[r.deal_id] =
       { gpAll: r.gp_all, gpSettled: r.gp_settled, billFuture: r.bill_future });
 
+    // the maps the rest of the page reads — rebuilt here because everything they
+    // need (clients, the matched deals) has just loaded
+    clientsById = {}; (cl.data||[]).forEach(c => clientsById[c.id] = c);
+
     dealsByClient = {};
     (dl.data||[]).forEach(d => { if (clientsById[d.client_id]) {
       d._agg = planByDeal[d.id] || { gpAll:0, gpSettled:0, billFuture:0 };
       (dealsByClient[d.client_id] = dealsByClient[d.client_id]||[]).push(d); }});
+
+    // which deal owns which project — for the picker's "linked to:" labels
+    projTakenBy = {};
+    (dl.data||[]).forEach(d => { if (d.qbo_project_id) projTakenBy[d.qbo_project_id] = d.name; });
+
     render();
   }
 
