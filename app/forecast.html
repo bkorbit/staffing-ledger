@@ -142,7 +142,7 @@ boot('forecast', async (supa, el) => {
 
   let months, clientsById, dealsByClient, planByM, planBillByM, revByM, costByCM, openEditor = null;
   let projects = [], projTakenBy = {}, fixedCosts = [], runrate = { payroll:0, overhead:0, misc:0 };
-  let costLines = [];
+  let acctTotals = [], fullProjects = null;
   let revByProj = {}, cogsByProj = {}, openClients = new Set();
   let warnings = [];
   let tableSort = { key:'revenue', dir:-1 }, tableQuery = '';
@@ -150,65 +150,38 @@ boot('forecast', async (supa, el) => {
   async function loadAll() {
     if (rangeTo < rangeFrom) rangeTo = rangeFrom;
     months = monthsBetween(rangeFrom, rangeTo);
-    const [fc, dl, cl, inv, cog, st, qp, rrPay, rrOver, rrMisc] = await Promise.all([
-      fetchAll(() => supa.from('v_deal_month_forecast').select('deal_id,month,gp,billable')
-        .gte('month', rangeFrom).lte('month', rangeTo)),
+    const [pg, dl, cl, st] = await Promise.all([
+      supa.rpc('forecast_page', { p_from: rangeFrom, p_to: rangeTo }),
       supa.from('deals')
         .select('id,name,client_id,reviewed_at,flight_start,flight_end,media_funding,qbo_project_id,promotions(as_sold:source_payload->>amount)')
         .in('status',['won','active'])
         .gte('flight_end','2026-01-01'),   // the platform starts at 2026
       supa.from('clients').select('id,name,active,qbo_customer_id').eq('active', true),
-      fetchAll(() => supa.from('invoices').select('issued_on,total,qbo_project_id')
-        .gte('issued_on', rangeFrom).lte('issued_on', shiftM(rangeTo,1))),
-      fetchAll(() => supa.from('v_cost_lines_classified')
-        .select('month,amount,class,qbo_project_id,account_name')
-        .gte('month', rangeFrom).lte('month', rangeTo)),
       supa.from('settings').select('key,value')
-        .in('key',['programmatic_margin_default','forecast_fixed_costs']),
-      fetchAll(() => supa.from('qbo_projects').select('id,name,parent_id,jobcode')
-        .eq('hidden', false).order('name')),
-      supa.rpc('cost_runrate_monthly', { p_class:'payroll', months:6 }),
-      supa.rpc('cost_runrate_monthly', { p_class:'overhead', months:6 }),
-      supa.rpc('cost_runrate_monthly', { p_class:'other', months:6 })
+        .in('key',['programmatic_margin_default','forecast_fixed_costs'])
     ]);
-    for (const r of [fc,dl,cl,inv,cog,st]) if (r.error) throw r.error;
+    for (const r of [pg,dl,cl,st]) if (r.error) throw r.error;
     warnings = [];
-    if (rrPay.error) warnings.push('labour run-rate failed: ' + rrPay.error.message);
-    if (rrOver.error) warnings.push('overhead run-rate failed: ' + rrOver.error.message);
+    const P = pg.data || {};
     const sv = k => (st.data||[]).find(x=>x.key===k)?.value;
     marginDefault = +(sv('programmatic_margin_default') ?? 35);
     fixedCosts = sv('forecast_fixed_costs') || [];
-    runrate = { payroll: rrPay.data||0, overhead: rrOver.data||0, misc: rrMisc.data||0 };
+    runrate = { payroll: P.runrates?.payroll||0, overhead: P.runrates?.overhead||0,
+                misc: P.runrates?.other||0 };
+    projects = P.projects || [];
 
-    revByM = {}; revByProj = {};
-    (inv.data||[]).forEach(i => {
-      const m = i.issued_on.slice(0,8)+'01';
-      if (m < rangeFrom || m > rangeTo) return;
-      revByM[m] = (revByM[m]||0) + i.total;
-      (revByProj[i.qbo_project_id] = revByProj[i.qbo_project_id]||{total:0,_:0})[
-        m <= thisMonth ? 'total' : '_'] += i.total;
-    });
-    costLines = cog.data||[];
-    costByCM = {}; cogsByProj = {};
-    (cog.data||[]).forEach(c => {
-      (costByCM[c.class] = costByCM[c.class]||{})[c.month] = ((costByCM[c.class]||{})[c.month]||0) + c.amount;
-      if (c.class === 'cogs' && c.month <= thisMonth)
-        cogsByProj[c.qbo_project_id] = (cogsByProj[c.qbo_project_id]||0) + c.amount;
-    });
-    planByM = {}; planBillByM = {}; const planByDeal = {};
-    (fc.data||[]).forEach(r => {
-      planByM[r.month] = (planByM[r.month]||0) + r.gp;
-      planBillByM[r.month] = (planBillByM[r.month]||0) + (r.billable||0);
-      const p = planByDeal[r.deal_id] = planByDeal[r.deal_id] ||
-        { gpAll:0, gpSettled:0, billFuture:0 };
-      p.gpAll += r.gp;
-      if (r.month < thisMonth) p.gpSettled += r.gp;
-      else p.billFuture += (r.billable||0);
-    });
-    projects = (qp.data||[]);
-    projTakenBy = {};
-    (dl.data||[]).forEach(d => { if (d.qbo_project_id) projTakenBy[d.qbo_project_id] = d.name; });
-    clientsById = {}; (cl.data||[]).forEach(c => clientsById[c.id] = c);
+    revByM = {}; (P.rev_month||[]).forEach(r => revByM[r.month] = r.total);
+    revByProj = {}; (P.rev_proj||[]).forEach(r => revByProj[r.qbo_project_id] = { total: r.total });
+    costByCM = {}; (P.cost_month||[]).forEach(r => {
+      (costByCM[r.class] = costByCM[r.class]||{})[r.month] = r.total; });
+    cogsByProj = {}; (P.cogs_proj||[]).forEach(r => cogsByProj[r.qbo_project_id] = r.total);
+    acctTotals = P.accounts || [];
+    planByM = {}; planBillByM = {};
+    (P.plan_month||[]).forEach(r => { planByM[r.month] = r.gp; planBillByM[r.month] = r.billable; });
+    const planByDeal = {};
+    (P.plan_deal||[]).forEach(r => planByDeal[r.deal_id] =
+      { gpAll: r.gp_all, gpSettled: r.gp_settled, billFuture: r.bill_future });
+
     dealsByClient = {};
     (dl.data||[]).forEach(d => { if (clientsById[d.client_id]) {
       d._agg = planByDeal[d.id] || { gpAll:0, gpSettled:0, billFuture:0 };
@@ -297,14 +270,8 @@ boot('forecast', async (supa, el) => {
       const opening = p.style.display==='none';
       p.style.display = opening ? '' : 'none';
       if (opening) {
-        const agg = {};
-        costLines.forEach(c => {
-          const k = c.class + '\u0001' + (c.account_name||'(no account)');
-          agg[k] = (agg[k]||0) + c.amount;
-        });
-        const rows = Object.entries(agg).map(([k,v]) => {
-          const [cls,acct] = k.split('\u0001'); return { cls, acct, v };
-        }).sort((a,b)=> a.cls===b.cls ? b.v-a.v : a.cls.localeCompare(b.cls));
+        const rows = acctTotals.map(r => ({ cls:r.class, acct:r.account, v:r.total }))
+          .sort((a,b)=> a.cls===b.cls ? b.v-a.v : a.cls.localeCompare(b.cls));
         const inChart = { cogs:'in chart', payroll:'in chart (labour)', overhead:'in chart',
                           other:'in chart', income:'not a cost', excluded:'EXCLUDED from chart' };
         el.querySelector('#how-table').innerHTML =
@@ -723,20 +690,28 @@ boot('forecast', async (supa, el) => {
         // the project picker: searchable over the FULL list; projects linked to
       // another deal stay visible and selectable — moving one is confirmed on save
       const qpSel = box.querySelector('.qp'), qpSearch = box.querySelector('.qpsearch');
+      if (!fullProjects) {
+        fetchAll(() => supa.from('qbo_projects').select('id,name,parent_id,jobcode')
+          .eq('hidden', false).order('name'))
+          .then(r => { if (!r.error) { fullProjects = r.data;
+            if (document.contains(qpSel)) drawPicker(qpSearch.value); } });
+      }
       const drawPicker = (q = '') => {
+        const pool = fullProjects || projects;
         const needle = q.trim().toLowerCase();
         const client = clientsById[d.client_id] || {};
         const match = p => !needle || p.name.toLowerCase().includes(needle);
         const label = p => esc(p.name) +
           (projTakenBy[p.id] && p.id !== d.qbo_project_id ? ` — linked to: ${esc(projTakenBy[p.id])}` : '');
-        const mine = projects.filter(p => client.qbo_customer_id &&
+        const mine = pool.filter(p => client.qbo_customer_id &&
           (p.parent_id === client.qbo_customer_id || p.id === client.qbo_customer_id) && match(p));
-        const rest = projects.filter(p => !mine.includes(p) && match(p));
+        const rest = pool.filter(p => !mine.includes(p) && match(p));
         const opt = p => `<option value="${p.id}" ${p.id===d.qbo_project_id?'selected':''}>${label(p)}</option>`;
         qpSel.innerHTML = `<option value="">— none —</option>` +
           (mine.length?`<optgroup label="this client's projects">${mine.map(opt).join('')}</optgroup>`:'') +
           `<optgroup label="${needle?'matching':'all'} projects">${rest.slice(0,400).map(opt).join('')}</optgroup>` +
-          (rest.length>400?`<option disabled>… ${rest.length-400} more — narrow the search</option>`:'');
+          (rest.length>400?`<option disabled>… ${rest.length-400} more — narrow the search</option>`:'') +
+          (fullProjects?'':'<option disabled>… full list loading</option>');
       };
       drawPicker();
       qpSearch.oninput = () => drawPicker(qpSearch.value);
