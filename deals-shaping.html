@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EMG — Deal Shaping</title>
+<!--
+  Where promoted skeletons become forecast. Pick a deal, add its commercial lines,
+  override individual months where reality differs, watch the computed GP/billable
+  match (or challenge) the as-sold number, mark it reviewed.
+
+  The maths here MIRRORS v_deal_month_forecast exactly — the database view remains
+  the truth; this page only previews it. Nothing on this page reads hours worked or
+  assignments: revenue never reads the operational side.
+-->
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --text:#e6e9ef; --dim:#8b93a3;
+          --accent:#19a789; --warn:#d1a13b; --danger:#d1453b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:14px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  .wrap { max-width:1060px; margin:0 auto; padding:28px 20px 90px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .sub { color:var(--dim); margin-bottom:20px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+          padding:14px 16px; margin-bottom:10px; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .grow { flex:1 1 200px; }
+  .name { font-weight:600; }
+  .hint { color:var(--dim); font-size:12px; }
+  select,input { padding:7px 9px; background:#0c0e12; color:var(--text);
+    border:1px solid var(--line); border-radius:8px; font:inherit; }
+  input.num { width:110px; text-align:right; }
+  input.mo { width:96px; text-align:right; }
+  button { padding:7px 13px; border-radius:8px; border:1px solid var(--line);
+           background:#20242e; color:var(--text); font:inherit; cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#06231d; font-weight:600; }
+  button.danger { border-color:var(--danger); color:var(--danger); background:transparent; }
+  button:disabled { opacity:.45; cursor:default; }
+  .pill { font-size:12px; padding:2px 8px; border-radius:99px; border:1px solid var(--line); color:var(--dim); }
+  .pill.rev { color:var(--accent); border-color:var(--accent); }
+  .pill.todo { color:var(--warn); border-color:var(--warn); }
+  .pill.agency { color:var(--danger); border-color:var(--danger); }
+  table { border-collapse:collapse; width:100%; margin-top:8px; }
+  th,td { border:1px solid var(--line); padding:5px 8px; font-size:13px; text-align:right; }
+  th:first-child, td:first-child { text-align:left; }
+  th { color:var(--dim); font-weight:500; }
+  .ok { color:var(--accent); } .err { color:var(--danger); white-space:pre-wrap; }
+  .toolbar { display:flex; gap:10px; align-items:center; margin:14px 0; flex-wrap:wrap; }
+  .muted { color:var(--dim); }
+  .total-match { color:var(--accent); font-weight:600; }
+  .total-off { color:var(--warn); font-weight:600; }
+  #login { max-width:360px; margin:80px auto; }
+  details.lines summary { cursor:pointer; color:var(--dim); margin:6px 0; }
+</style>
+</head>
+<body>
+
+<div id="login" class="card" hidden>
+  <h1>EMG Ledger</h1>
+  <p class="sub">Sign in to shape deals.</p>
+  <div class="row" style="flex-direction:column;align-items:stretch;">
+    <input id="email" type="email" placeholder="email" autocomplete="username">
+    <input id="password" type="password" placeholder="password" autocomplete="current-password">
+    <button id="signin" class="primary">Sign in</button>
+    <div id="loginmsg" class="err"></div>
+  </div>
+</div>
+
+<div id="app" class="wrap" hidden>
+  <h1>Deal shaping</h1>
+  <div class="sub">Give each promoted deal its commercial lines. The forecast and the
+    cashflow read exactly what is saved here — nothing more, nothing invented.</div>
+
+  <div class="toolbar">
+    <input id="filter" type="text" placeholder="filter deals or clients…" style="max-width:280px">
+    <label class="muted"><input type="checkbox" id="onlytodo" checked> awaiting review</label>
+    <span class="muted" id="count"></span>
+    <span style="flex:1"></span>
+    <button id="refresh">Refresh</button>
+    <button id="signout">Sign out</button>
+  </div>
+
+  <div id="list"></div>
+</div>
+
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+const supa = createClient(
+  'https://zytmlowigbfchfqcilrr.supabase.co',
+  'sb_publishable_0kcl48Yn5YsoTB0zrK-Rsg_c76JTGvR'
+);
+const $ = s => document.querySelector(s);
+const KINDS = ['retainer','search','social','programmatic','hourly','custom'];
+let deals = [], settingsMargin = 35, openDeal = null;
+
+/* ------------------------------------------------ the maths, mirrored ---- */
+// Identical to v_deal_month_forecast. cents in, cents out.
+function monthCalc(kind, mediaFunding, v, marginDefault) {
+  const amount = v.amount||0, budget = v.budget||0, fee = v.fee_pct||0,
+        margin = (v.margin_pct ?? marginDefault), rate = v.rate||0, hours = v.hours||0;
+  let gp = 0, billable = 0, mediaOut = 0;
+  switch (kind) {
+    case 'retainer': case 'custom': gp = amount; billable = amount; break;
+    case 'hourly': gp = Math.round(rate*hours); billable = gp; break;
+    case 'search': case 'social':
+      gp = Math.round(budget*fee/100);
+      billable = gp + (mediaFunding==='agency' ? budget : 0);
+      mediaOut = mediaFunding==='agency' ? budget : 0;
+      break;
+    case 'programmatic':
+      gp = Math.round(budget*margin/100 + budget*fee/100);
+      billable = budget + Math.round(budget*fee/100);
+      break;
+  }
+  return { gp, billable, mediaOut };
+}
+function monthsBetween(a, b) {
+  const out = []; let d = new Date(a + 'T00:00:00Z');
+  const end = new Date(b + 'T00:00:00Z');
+  while (d <= end) { out.push(d.toISOString().slice(0,10)); d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth()+1, 1)); }
+  return out;
+}
+const fmt$ = c => (c/100).toLocaleString(undefined,{maximumFractionDigits:0});
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// The per-month override edits the field that drives the kind's money.
+const OVERRIDE_FIELD = { retainer:'amount', custom:'amount', hourly:'hours',
+                         search:'budget', social:'budget', programmatic:'budget' };
+
+/* ----------------------------------------------------------- auth/load --- */
+async function requireSession() {
+  const { data:{ session } } = await supa.auth.getSession();
+  $('#login').hidden = !!session; $('#app').hidden = !session;
+  window.__email = session?.user?.email || 'shaping-page';
+  return session;
+}
+$('#signin').onclick = async () => {
+  const { error } = await supa.auth.signInWithPassword({
+    email: $('#email').value.trim(), password: $('#password').value });
+  if (error) { $('#loginmsg').textContent = error.message; return; }
+  await requireSession(); load();
+};
+$('#signout').onclick = async () => { await supa.auth.signOut(); requireSession(); };
+
+async function load() {
+  const [d, s] = await Promise.all([
+    supa.from('deals')
+      .select('id,name,status,flight_start,flight_end,media_funding,reviewed_at,client_id,clients(name,active),promotions(source_payload)')
+      .in('status', ['won','active'])
+      .order('flight_end', { ascending:false }),
+    supa.from('settings').select('value').eq('key','programmatic_margin_default').single()
+  ]);
+  if (d.error) { $('#list').innerHTML = `<div class="card err">${d.error.message}</div>`; return; }
+  settingsMargin = s.data ? +s.data.value : 35;
+  deals = (d.data||[]).filter(x => x.clients && x.clients.active !== false);
+  render();
+}
+
+/* --------------------------------------------------------------- render -- */
+function render() {
+  const f = $('#filter').value.trim().toLowerCase();
+  const onlyTodo = $('#onlytodo').checked;
+  const shown = deals.filter(d =>
+    (!onlyTodo || !d.reviewed_at) &&
+    (!f || d.name.toLowerCase().includes(f) || (d.clients.name||'').toLowerCase().includes(f)));
+  $('#count').textContent =
+    `${deals.filter(d=>!d.reviewed_at).length} awaiting review of ${deals.length}`;
+  $('#list').innerHTML = shown.map(d => {
+    const asSold = d.promotions?.[0]?.source_payload?.amount;
+    return `<div class="card" data-id="${d.id}">
+      <div class="row">
+        <div class="grow">
+          <div class="name">${esc(d.clients.name)} — ${esc(d.name)}</div>
+          <div class="hint">${d.flight_start} → ${d.flight_end}
+            ${asSold ? ' · as sold $' + fmt$(asSold) : ''}</div>
+        </div>
+        ${d.media_funding==='agency' ? '<span class="pill agency">agency-funded media</span>' : ''}
+        <span class="pill ${d.reviewed_at?'rev':'todo'}">${d.reviewed_at?'reviewed':'awaiting review'}</span>
+        <button class="open">${openDeal===d.id?'Close':'Shape'}</button>
+      </div>
+      <div class="detail"></div>
+    </div>`;
+  }).join('') || '<div class="card muted">Nothing to show.</div>';
+
+  document.querySelectorAll('.card[data-id]').forEach(card => {
+    card.querySelector('.open').onclick = async () => {
+      openDeal = openDeal === card.dataset.id ? null : card.dataset.id;
+      render();
+      if (openDeal) await openDetail(document.querySelector(`.card[data-id="${openDeal}"]`));
+    };
+  });
+  if (openDeal) {
+    const card = document.querySelector(`.card[data-id="${openDeal}"]`);
+    if (card) openDetail(card);
+  }
+}
+
+/* --------------------------------------------------------- deal detail --- */
+async function openDetail(card) {
+  const d = deals.find(x => x.id === card.dataset.id);
+  const el = card.querySelector('.detail');
+  el.innerHTML = '<div class="hint">loading…</div>';
+  const [lr, mr] = await Promise.all([
+    supa.from('deal_lines').select('*').eq('deal_id', d.id).order('set_at'),
+    supa.from('deal_line_months').select('*')
+  ]);
+  if (lr.error) { el.innerHTML = `<div class="err">${lr.error.message}</div>`; return; }
+  const lines = lr.data || [];
+  const overrides = {};
+  (mr.data||[]).forEach(o => { (overrides[o.deal_line_id] = overrides[o.deal_line_id]||{})[o.month] = o; });
+  const months = monthsBetween(d.flight_start, d.flight_end);
+
+  const lineRow = l => `
+    <div class="row" data-line="${l.id||''}" style="margin:8px 0;">
+      <select class="k">${KINDS.map(k=>`<option ${l.kind===k?'selected':''}>${k}</option>`).join('')}</select>
+      <input class="label grow" type="text" placeholder="label" value="${esc(l.label||'')}">
+      <label class="hint">$/mo <input class="num f-amount" value="${l.amount?(l.amount/100):''}" placeholder="0"></label>
+      <label class="hint">budget/mo <input class="num f-budget" value="${l.budget?(l.budget/100):''}" placeholder="0"></label>
+      <label class="hint">fee % <input class="num f-fee" style="width:70px" value="${l.fee_pct||''}" placeholder="0"></label>
+      <label class="hint">margin % <input class="num f-margin" style="width:70px" value="${l.margin_pct??''}" placeholder="${settingsMargin}"></label>
+      <label class="hint">rate/hr <input class="num f-rate" style="width:80px" value="${l.rate?(l.rate/100):''}" placeholder="0"></label>
+      <label class="hint">hrs/mo <input class="num f-hours" style="width:70px" value="${l.hours_per_month||''}" placeholder="0"></label>
+      <select class="bday"><option ${l.billing_day==='first'?'selected':''}>first</option><option ${l.billing_day!=='first'?'selected':''}>last</option></select>
+      <button class="danger delline">✕</button>
+    </div>`;
+
+  el.innerHTML = `
+    <div style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px;">
+      <div class="row">
+        <label class="hint">media funding
+          <select class="mf">
+            <option value="client" ${d.media_funding!=='agency'?'selected':''}>client pays (default)</option>
+            <option value="agency" ${d.media_funding==='agency'?'selected':''}>EMG pays &amp; rebills</option>
+          </select>
+        </label>
+        <span class="hint">search/social media becomes EMG cash out + rebill only when agency-funded</span>
+      </div>
+      <div class="linesbox">${lines.map(lineRow).join('')}</div>
+      <div class="row" style="margin:8px 0;">
+        <button class="addline">+ add line</button>
+        <span style="flex:1"></span>
+        <button class="saveall primary">Save lines</button>
+        <button class="reviewed" ${d.reviewed_at?'disabled':''}>Mark reviewed</button>
+      </div>
+      <div class="msg hint"></div>
+      <details class="lines"><summary>per-month overrides</summary><div class="ovbox hint">save lines first</div></details>
+      <div class="preview"></div>
+    </div>`;
+
+  const readLine = row => ({
+    id: row.dataset.line || undefined,
+    deal_id: d.id,
+    kind: row.querySelector('.k').value,
+    label: row.querySelector('.label').value || null,
+    amount: Math.round((+row.querySelector('.f-amount').value||0)*100),
+    budget: Math.round((+row.querySelector('.f-budget').value||0)*100),
+    fee_pct: +row.querySelector('.f-fee').value||0,
+    margin_pct: row.querySelector('.f-margin').value==='' ? null : +row.querySelector('.f-margin').value,
+    rate: Math.round((+row.querySelector('.f-rate').value||0)*100),
+    hours_per_month: +row.querySelector('.f-hours').value||0,
+    billing_day: row.querySelector('.bday').value,
+    set_by: window.__email, set_at: new Date().toISOString()
+  });
+
+  function preview() {
+    const rows = [...el.querySelectorAll('.linesbox .row')].map(readLine);
+    const mf = el.querySelector('.mf').value;
+    let tg=0, tb=0;
+    const per = months.map(m => {
+      let gp=0, billable=0, mediaOut=0;
+      rows.forEach(l => {
+        const ov = (overrides[l.id]||{})[m] || {};
+        const v = { amount: ov.amount ?? l.amount, budget: ov.budget ?? l.budget,
+                    hours: ov.hours ?? l.hours_per_month,
+                    fee_pct:l.fee_pct, margin_pct:l.margin_pct, rate:l.rate };
+        const r = monthCalc(l.kind, mf, v, settingsMargin);
+        gp+=r.gp; billable+=r.billable; mediaOut+=r.mediaOut;
+      });
+      tg+=gp; tb+=billable;
+      return `<tr><td>${m.slice(0,7)}</td><td>${fmt$(gp)}</td><td>${fmt$(billable)}</td><td>${fmt$(mediaOut)}</td></tr>`;
+    }).join('');
+    const asSold = d.promotions?.[0]?.source_payload?.amount;
+    const cls = asSold && Math.abs(tb-asSold)/asSold < 0.02 ? 'total-match' : 'total-off';
+    el.querySelector('.preview').innerHTML = `
+      <table><tr><th>month</th><th>GP</th><th>billable</th><th>agency media out</th></tr>${per}
+      <tr><th>total</th><th>${fmt$(tg)}</th>
+        <th class="${cls}">${fmt$(tb)}${asSold ? ' / sold ' + fmt$(asSold) : ''}</th><th></th></tr></table>`;
+  }
+
+  function renderOverrides() {
+    const saved = lines.filter(l => l.id);
+    el.querySelector('.ovbox').innerHTML = !saved.length ? 'save lines first' :
+      saved.map(l => `<div style="margin:8px 0;"><div class="hint">${esc(l.label||l.kind)} — override ${OVERRIDE_FIELD[l.kind]}${OVERRIDE_FIELD[l.kind]==='hours'?'':' ($)'} per month, blank = default</div>
+        <div class="row">${months.map(m => {
+          const o = (overrides[l.id]||{})[m];
+          const field = OVERRIDE_FIELD[l.kind];
+          const val = o ? (field==='hours' ? o.hours : (o[field]!=null ? o[field]/100 : '')) : '';
+          return `<label class="hint">${m.slice(2,7)}<br><input class="mo" data-line="${l.id}" data-month="${m}" value="${val??''}"></label>`;
+        }).join('')}</div></div>`).join('') +
+      `<div class="row" style="margin-top:6px;"><button class="saveov primary">Save overrides</button></div>`;
+    const btn = el.querySelector('.saveov');
+    if (btn) btn.onclick = async () => {
+      const ups = [], dels = [];
+      el.querySelectorAll('.ovbox .mo').forEach(inp => {
+        const l = lines.find(x => x.id === inp.dataset.line);
+        const field = OVERRIDE_FIELD[l.kind];
+        if (inp.value === '') { dels.push({ line: inp.dataset.line, month: inp.dataset.month }); return; }
+        const row = { deal_line_id: inp.dataset.line, month: inp.dataset.month,
+                      set_by: window.__email, set_at: new Date().toISOString() };
+        row[field] = field==='hours' ? +inp.value : Math.round(+inp.value*100);
+        ups.push(row);
+      });
+      for (const del of dels)
+        await supa.from('deal_line_months').delete()
+          .eq('deal_line_id', del.line).eq('month', del.month);
+      if (ups.length) {
+        const { error } = await supa.from('deal_line_months')
+          .upsert(ups, { onConflict: 'deal_line_id,month' });
+        if (error) { el.querySelector('.msg').textContent = error.message; el.querySelector('.msg').className='msg err'; return; }
+      }
+      el.querySelector('.msg').textContent = 'overrides saved'; el.querySelector('.msg').className='msg ok';
+      openDetail(card);
+    };
+  }
+
+  el.querySelector('.addline').onclick = () => {
+    el.querySelector('.linesbox').insertAdjacentHTML('beforeend',
+      lineRow({ kind:'retainer', billing_day:'first' }));
+    wireRows(); preview();
+  };
+  function wireRows() {
+    el.querySelectorAll('.linesbox .row').forEach(row => {
+      row.oninput = preview;
+      row.querySelector('.delline').onclick = async () => {
+        if (row.dataset.line) {
+          if (!confirm('Delete this line and its month overrides?')) return;
+          await supa.from('deal_lines').delete().eq('id', row.dataset.line);
+        }
+        row.remove(); preview();
+      };
+    });
+  }
+  el.querySelector('.saveall').onclick = async () => {
+    const rows = [...el.querySelectorAll('.linesbox .row')].map(readLine);
+    const msg = el.querySelector('.msg');
+    const mf = el.querySelector('.mf').value;
+    if (mf !== d.media_funding) {
+      const { error } = await supa.from('deals')
+        .update({ media_funding: mf, set_by: window.__email, set_at: new Date().toISOString() })
+        .eq('id', d.id);
+      if (error) { msg.textContent = error.message; msg.className='msg err'; return; }
+      d.media_funding = mf;
+    }
+    for (const r of rows) {
+      const q = r.id
+        ? supa.from('deal_lines').update(r).eq('id', r.id)
+        : supa.from('deal_lines').insert(r);
+      const { error } = await q;
+      if (error) { msg.textContent = error.message; msg.className='msg err'; return; }
+    }
+    msg.textContent = 'saved'; msg.className = 'msg ok';
+    openDetail(card);
+  };
+  el.querySelector('.reviewed').onclick = async () => {
+    const { error } = await supa.from('deals')
+      .update({ reviewed_at: new Date().toISOString(), set_by: window.__email, set_at: new Date().toISOString() })
+      .eq('id', d.id);
+    if (!error) { d.reviewed_at = new Date().toISOString(); render(); }
+  };
+
+  wireRows(); preview(); renderOverrides();
+}
+
+$('#filter').oninput = render;
+$('#onlytodo').onchange = render;
+$('#refresh').onclick = load;
+const session = await requireSession();
+if (session) load();
+</script>
+</body>
+</html>
