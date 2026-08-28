@@ -174,17 +174,21 @@ table.acct .err { background:var(--rust-bg); border-radius:4px; padding:1px 5px;
 /* type scale honours the OS/browser preference already via rem; keep table numerics tabular */
 table.acct td { font-variant-numeric: tabular-nums; }
 
-/* ---- deal editor: stacked settings + clean line controls ---- */
-.settings { display:flex; flex-direction:column; gap:8px; margin-bottom:14px; }
-.setrow { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+/* ---- deal editor: settings grid + clean line controls ----
+   a fixed-width label beside a fluid control, laid out on a real grid so
+   the form uses the modal's actual width instead of five skinny rows
+   hugging the left edge; deal name and QB project (the two fields that
+   benefit from room) span the full width, the rest pair up */
+.settings { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:10px 24px; margin-bottom:14px; }
+.setrow { display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-width:0; }
+.setrow.wide { grid-column:1/-1; }
 .setrow .setlabel { font-family:var(--font-mono); font-size:0.72rem; letter-spacing:.08em;
   text-transform:uppercase; color:var(--slate); width:112px; flex:none; }
 .setrow select, .setrow input { height:32px; border:1px solid var(--line); border-radius:6px;
   padding:0 10px; font-family:var(--font-mono); font-size:0.82rem; background:var(--paper-raised);
   color:var(--ink); }
-.setrow select { min-width:200px; max-width:420px; }
-.setrow input.qpsearch { width:150px; }
-.setrow select.qp { min-width:260px; }
+.setrow select, .setrow input.dname { flex:1; min-width:120px; }
+.setrow input.qpsearch { width:150px; flex:none; }
 .setrow .use-achieved { height:auto; padding:3px 9px; margin-left:6px; }
 .editorbar { display:flex; align-items:center; gap:8px; margin:10px 0; flex-wrap:wrap; }
 .lockednote { font-size:0.66rem; margin-top:4px; }
@@ -193,8 +197,13 @@ table.acct td { font-variant-numeric: tabular-nums; }
 .lparams { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
 
 /* ---- deal editor: line blocks with a control strip over a clean grid ---- */
-.totalsgrid { width:100%; border-collapse:collapse; table-layout:fixed; }
-.totalsgrid .rowlabelcol { text-align:left; width:190px; }
+/* fixed layout sized by its own columns, not stretched to 100% — a two-month
+   deal stays compact instead of ballooning empty columns; a twelve-month
+   deal grows past the modal and scrolls via .gridwrap, same as any other
+   dense table here (the laptop-discipline rule) */
+.totalsgrid { width:auto; border-collapse:collapse; table-layout:fixed; }
+.totalsgrid .rowlabelcol { text-align:left; width:190px; white-space:normal; }
+.totalsgrid .monthcol { width:84px; }
 .totalsgrid .closedcol { color:var(--slate); font-style:italic; }
 .pf { display:inline-flex; flex-direction:column; gap:3px; }
 .pf.tb .pfl { color:var(--brand); }

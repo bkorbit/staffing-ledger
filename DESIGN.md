@@ -250,6 +250,7 @@ Buttons, inputs, and cards read as **terminal-tactile**: small, precise, and den
 - **Totals row:** solid Deep Ledger Green background, white bold text — the one row in a table allowed to invert the palette.
 - **Column grouping:** on the account table, a hairline (`border-left`) marks the start of the Value column and again before Variance, quietly grouping GP Billed and GP Forecast as a pair with no divider between them — proximity signals relationship without a new visual language.
 - **Out-of-tolerance flag:** a variance beyond ±15% gets a Rust Tint chip (background, weight, small radius) instead of plain colored text — the one number per row worth interrupting the scan for. Everything inside tolerance stays quiet text; flagging every number would defeat the flag.
+- **Sized by its columns, not its container:** the deal-editor's month-by-month grid (`.totalsgrid`) is `table-layout:fixed` with explicit widths (a 190px label column, 84px per month) and no forced 100% width — a two-month deal stays compact instead of stretching into empty columns, a twelve-month deal grows past the modal and scrolls via `.gridwrap`, same laptop-discipline rule as everywhere else.
 
 ### Status Pills
 - **Style:** full-round (`99px`), IBM Plex Mono at 10px, 2px/8px padding, hairline border by default.
@@ -261,6 +262,7 @@ Buttons, inputs, and cards read as **terminal-tactile**: small, precise, and den
 - **Style:** 34px height (28–30px in dense in-table contexts), hairline border, 4px radius, IBM Plex Mono value text, raised-paper background.
 - **Focus:** border shifts to Muted Ledger Green with a soft Mint glow ring (`box-shadow: 0 0 0 2px var(--mint)`); no color change, no shadow elevation.
 - **Disabled:** light gray background, slate text, hairline-light border, not-allowed cursor.
+- **Settings form (the deal editor):** a label-beside-control row laid out on a real grid (`auto-fit, minmax(260px,1fr)`), not a stack of full-width rows — the two fields that benefit from room (deal name, QB project) span the full width, the rest pair up. A wide modal only reads as spacious when its form actually uses the width; a stack of capped-width rows against a wide container is what "small box" complaints are usually about.
 
 ### Navigation
 - **Style:** 184px fixed sidebar, raised-paper background, hairline right border, sticky with independent scroll. Section labels are uppercase IBM Plex Mono at 9px. Nav items are 13px medium-weight Montserrat.

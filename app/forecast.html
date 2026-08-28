@@ -763,7 +763,7 @@ boot('forecast', async (supa, el) => {
       const cols = (closedM.length ? [{ closed:true, label:`${closedM.length} closed`, months:closedM }] : [])
         .concat(openM.map(m => ({ closed:false, label:mLabel(m), months:[m] })));
       const colHead = cols.map(c =>
-        `<th class="${c.closed?'closedcol':''}">${c.label}${c.closed?' ✓':''}</th>`).join('');
+        `<th class="monthcol${c.closed?' closedcol':''}">${c.label}${c.closed?' ✓':''}</th>`).join('');
 
       const kindLabelOf = l => l.kind === 'creative' ? `creative · ${creativeMode(l)}` : l.kind;
       const isHourlyL = l => l.kind==='hourly' || (l.kind==='creative' && creativeMode(l)==='hourly');
@@ -833,8 +833,8 @@ boot('forecast', async (supa, el) => {
 
       box.innerHTML = `
         <div class="settings">
-          <div class="setrow"><span class="setlabel">Deal name</span>
-            <input class="dname" value="${esc(d.name)}" style="min-width:320px;max-width:560px"></div>
+          <div class="setrow wide"><span class="setlabel">Deal name</span>
+            <input class="dname" value="${esc(d.name)}"></div>
           <div class="setrow"><span class="setlabel">Client</span>
             <select class="cl">
               ${Object.values(clientsById).sort((a,b)=>a.name.localeCompare(b.name))
@@ -845,7 +845,7 @@ boot('forecast', async (supa, el) => {
             <input type="date" class="month fstart" value="${flight.start.slice(0,10)}">
             <span class="muted">→</span>
             <input type="date" class="month fend" value="${flight.end.slice(0,10)}"></div>
-          <div class="setrow"><span class="setlabel">QB Project</span>
+          <div class="setrow wide"><span class="setlabel">QB Project</span>
             <input class="qpsearch" placeholder="search projects…">
             <select class="qp"></select></div>
           <div class="setrow"><span class="setlabel">Media funding</span>
