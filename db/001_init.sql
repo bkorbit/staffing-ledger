@@ -380,7 +380,28 @@ create table qbo_project_links (
   matched_at     timestamptz not null default now()
 );
 
+-- Sync bookkeeping. Holds the rotating QuickBooks OAuth refresh token, so this
+-- table is DELIBERATELY EXCLUDED from the permissive RLS policy below: RLS is
+-- enabled with no policy at all, which means only the service role (used by the
+-- GitHub Actions syncs, and which bypasses RLS) can read or write it. An
+-- authenticated browser session must never be able to select a refresh token.
+create table sync_state (
+  id            text primary key,       -- 'quickbooks' | 'qbtime' | 'hubspot'
+  realm_id      text,
+  refresh_token text,
+  import_from   date,
+  last_run_at   timestamptz,
+  last_run_log  jsonb,
+  updated_at    timestamptz not null default now()
+);
+alter table sync_state enable row level security;   -- no policy: service role only
+
 -- ---------------------------------------------------------------- seeds ----
+
+insert into sync_state (id, import_from) values
+  ('quickbooks', '2025-01-01'),
+  ('qbtime',     '2025-01-01'),
+  ('hubspot',    null);
 
 insert into settings (key, value, set_by) values
   ('payroll_cadence',   '"semi_monthly"',            'seed'),  -- 15th and last day, 24 runs
