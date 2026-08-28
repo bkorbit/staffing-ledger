@@ -1,0 +1,50 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EMG — Settings</title><link rel="stylesheet" href="./assets/style.css"></head><body>
+<script type="module">
+import { boot, fmt$, esc } from './assets/shell.js';
+
+boot('settings', async (supa, el) => {
+  el.innerHTML = `<h1>Settings</h1><div class="sub">Sync health, bank accounts, and the knobs.</div>
+    <div class="card" id="syncs">loading…</div>
+    <div class="card" id="banks"></div>
+    <div class="card" id="knobs"></div>`;
+
+  async function load() {
+    const [syncs, banks, knobs] = await Promise.all([
+      supa.from('sync_state').select('id,last_run_at,last_run_log'),
+      supa.from('qbo_accounts').select('id,name,balance,is_operating,as_of').eq('account_type','Bank').order('balance',{ascending:false}),
+      supa.from('settings').select('key,value,set_by').order('key')
+    ]);
+
+    document.getElementById('syncs').innerHTML = `<div class="muted" style="margin-bottom:8px">Syncs</div>
+      <table><tr><th>source</th><th>last run</th><th>status</th><th>detail</th></tr>
+      ${(syncs.data||[]).map(s=>{
+        const log=s.last_run_log||{}; const ok=log.ok!==false;
+        const detail = ok
+          ? Object.entries(log).filter(([k])=>typeof log[k]==='number').map(([k,v])=>`${k} ${v}`).slice(0,6).join(' · ')
+          : `${log.stage||''}: ${log.error||''}`.slice(0,140);
+        return `<tr><td>${esc(s.id)}</td><td>${s.last_run_at?new Date(s.last_run_at).toLocaleString():'never'}</td>
+          <td>${ok?'<span class="pill good">ok</span>':'<span class="pill bad">failed</span>'}</td>
+          <td class="muted" style="text-align:left">${esc(detail)}</td></tr>`;}).join('')}</table>`;
+
+    document.getElementById('banks').innerHTML = `<div class="muted" style="margin-bottom:8px">Bank accounts
+      <span class="muted">— operating accounts form the cashflow opening position</span></div>
+      <table><tr><th>account</th><th>balance</th><th>as of</th><th>operating</th></tr>
+      ${(banks.data||[]).map(b=>`<tr><td>${esc(b.name)}</td><td>${fmt$(b.balance)}</td>
+        <td class="muted">${b.as_of||''}</td>
+        <td><input type="checkbox" data-bank="${b.id}" ${b.is_operating?'checked':''}></td></tr>`).join('')}</table>`;
+    document.querySelectorAll('input[data-bank]').forEach(cb => cb.onchange = async () => {
+      await supa.from('qbo_accounts').update({ is_operating: cb.checked }).eq('id', cb.dataset.bank);
+    });
+
+    document.getElementById('knobs').innerHTML = `<div class="muted" style="margin-bottom:8px">Settings</div>
+      <table><tr><th>key</th><th>value</th><th>set by</th></tr>
+      ${(knobs.data||[]).map(k=>`<tr><td>${esc(k.key)}</td>
+        <td style="text-align:left">${esc(JSON.stringify(k.value))}</td>
+        <td class="muted">${esc(k.set_by||'')}</td></tr>`).join('')}</table>
+      <div class="muted" style="margin-top:8px">Editing arrives with the module that owns each knob.</div>`;
+  }
+  await load();
+});
+</script></body></html>

@@ -1,0 +1,55 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EMG — Home</title><link rel="stylesheet" href="./assets/style.css"></head><body>
+<script type="module">
+import { boot, fmt$, esc, bandChart } from './assets/shell.js';
+
+boot('home', async (supa, el) => {
+  el.innerHTML = `<h1>Home</h1><div class="sub">Where the business stands, as of the last sync.</div>
+    <div class="tiles" id="tiles"></div>
+    <div class="card"><div class="muted" style="margin-bottom:8px">Cash position, 13 weeks</div><div id="chart">loading…</div></div>
+    <div class="card" id="queues"></div>`;
+
+  const [banks, ar, review, unlinked, cf, syncs] = await Promise.all([
+    supa.from('cash_accounts').select('balance,as_of'),
+    supa.from('invoices').select('balance').gt('balance', 0),
+    supa.from('deals').select('id', { count:'exact', head:true }).is('reviewed_at', null).in('status',['won','active']),
+    supa.from('clients').select('id', { count:'exact', head:true }).is('qbo_customer_id', null).eq('active', true),
+    supa.rpc('cashflow_forecast', { weeks: 13 }),
+    supa.from('sync_state').select('id,last_run_at,last_run_log')
+  ]);
+
+  const bank = (banks.data||[]).reduce((s,a)=>s+a.balance,0);
+  const arTotal = (ar.data||[]).reduce((s,i)=>s+i.balance,0);
+  const rows = cf.data||[];
+  const trough = rows.length ? Math.min(...rows.map(r=>r.position_conservative)) : 0;
+
+  document.getElementById('tiles').innerHTML = `
+    <div class="tile"><div class="l">In the bank</div><div class="v">${fmt$(bank)}</div>
+      <div class="s">as of ${(banks.data||[])[0]?.as_of||'—'}</div></div>
+    <div class="tile"><div class="l">Open AR</div><div class="v">${fmt$(arTotal)}</div>
+      <div class="s">${(ar.data||[]).length} open invoices</div></div>
+    <div class="tile"><div class="l">Conservative trough, 13 wk</div>
+      <div class="v ${trough<0?'err':'ok'}">${fmt$(trough)}</div>
+      <div class="s">worst week if every client pays at their p90</div></div>
+    <div class="tile"><div class="l">Deals awaiting review</div><div class="v">${review.count??'—'}</div>
+      <div class="s"><a href="../deals-shaping.html">shape them ↗</a></div></div>
+    <div class="tile"><div class="l">Clients needing a QuickBooks link</div><div class="v">${unlinked.count??'—'}</div>
+      <div class="s"><a href="../settings-clients.html">match them ↗</a></div></div>`;
+
+  if (rows.length) bandChart(document.getElementById('chart'),
+    rows.map(r=>r.week_start.slice(5)),
+    [{name:'expected', color:'#19a789', values: rows.map(r=>r.position_expected)},
+     {name:'conservative (p90)', color:'#d1453b', values: rows.map(r=>r.position_conservative)}]);
+  else document.getElementById('chart').textContent = 'no forecast data';
+
+  document.getElementById('queues').innerHTML = `<div class="muted" style="margin-bottom:8px">Syncs</div>
+    <table><tr><th>source</th><th>last run</th><th>status</th></tr>
+    ${(syncs.data||[]).map(s=>{
+      const log=s.last_run_log||{};
+      const ok=log.ok!==false;
+      return `<tr><td>${esc(s.id)}</td><td>${s.last_run_at? new Date(s.last_run_at).toLocaleString():'never'}</td>
+        <td>${ok?'<span class="pill good">ok</span>':`<span class="pill bad">failed: ${esc(log.stage||'')}</span>`}</td></tr>`;
+    }).join('')}</table>`;
+});
+</script></body></html>

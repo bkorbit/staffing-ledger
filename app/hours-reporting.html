@@ -1,0 +1,11 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EMG — Hours Reporting</title><link rel="stylesheet" href="./assets/style.css"></head><body>
+<script type="module">
+import { boot } from './assets/shell.js';
+boot('hourrep', async (supa, el) => {
+  el.innerHTML = `<h1>Hours Reporting</h1><div class="sub">Tracked hours against plan, from QB Time at day grain.</div>
+    <div class="placeholder"><div style="font-size:15px;margin-bottom:6px">Not built yet</div>
+    Waits on the QB Time sync rewrite.</div>`;
+});
+</script></body></html>

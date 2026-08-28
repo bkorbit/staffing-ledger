@@ -1,0 +1,38 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EMG — Sales Forecast</title><link rel="stylesheet" href="./assets/style.css"></head><body>
+<script type="module">
+import { boot, fmt$, esc } from './assets/shell.js';
+
+boot('sales', async (supa, el) => {
+  el.innerHTML = `<h1>Sales Forecast</h1>
+    <div class="sub">The open pipeline as HubSpot has it, weighted by stage probability.
+    Won deals leave here through the promotion door and become real in Deals.</div>
+    <div class="tiles" id="tiles"></div>
+    <div class="card" style="overflow-x:auto"><table id="tbl">loading…</table></div>`;
+
+  const { data, error } = await supa.from('pipeline_deals')
+    .select('*').eq('is_won', false).not('stage','in','("Closed Lost","Not Placed")')
+    .order('amount', { ascending:false, nullsFirst:false });
+  if (error) throw error;
+  const open = (data||[]).filter(d => (d.probability??0) > 0);
+  const total = open.reduce((s,d)=>s+(d.amount||0),0);
+  const weighted = open.reduce((s,d)=>s+Math.round((d.amount||0)*(d.probability||0)),0);
+
+  document.getElementById('tiles').innerHTML = `
+    <div class="tile"><div class="l">Open pipeline</div><div class="v">${fmt$(total)}</div>
+      <div class="s">${open.length} deals</div></div>
+    <div class="tile"><div class="l">Probability-weighted</div><div class="v">${fmt$(weighted)}</div>
+      <div class="s">by HubSpot stage probability</div></div>`;
+
+  document.getElementById('tbl').innerHTML =
+    `<tr><th>deal</th><th>company</th><th>stage</th><th>prob</th><th>amount</th><th>weighted</th><th>campaign</th></tr>` +
+    open.map(d=>`<tr>
+      <td><a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.name)}</a></td>
+      <td>${esc(d.company||'')}</td><td>${esc(d.stage)}</td>
+      <td>${Math.round((d.probability||0)*100)}%</td>
+      <td>${d.amount!=null?fmt$(d.amount):'<span class="muted">—</span>'}</td>
+      <td>${d.amount!=null?fmt$(Math.round(d.amount*(d.probability||0))):''}</td>
+      <td class="muted">${d.campaign_start? d.campaign_start.slice(0,7)+' → '+(d.campaign_end||'?').slice(0,7):''}</td></tr>`).join('');
+});
+</script></body></html>

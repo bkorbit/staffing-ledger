@@ -1,0 +1,37 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EMG — Cashflow</title><link rel="stylesheet" href="./assets/style.css"></head><body>
+<script type="module">
+import { boot, fmt$, bandChart } from './assets/shell.js';
+
+boot('cashflow', async (supa, el) => {
+  el.innerHTML = `<h1>Cashflow</h1>
+    <div class="sub">Weekly position from today. Open AR collects on each client's observed
+    curve; contracted revenue is billed on its cadence and collects the same way. The
+    conservative line dates every receipt at its client's p90 — its trough is the number
+    to plan around.</div>
+    <div class="card"><div id="chart">loading…</div></div>
+    <div class="card" style="overflow-x:auto"><table id="tbl"></table></div>
+    <div class="muted">Tail caution: beyond the reach of open invoices and shaped deals,
+    the model has no revenue and both lines sink. That is missing data, not a prophecy.</div>`;
+
+  const { data: rows, error } = await supa.rpc('cashflow_forecast', { weeks: 13 });
+  if (error) throw error;
+  bandChart(document.getElementById('chart'),
+    rows.map(r=>r.week_start.slice(5)),
+    [{name:'optimistic (p25)', color:'#8b93a3', values: rows.map(r=>r.position_optimistic)},
+     {name:'expected', color:'#19a789', values: rows.map(r=>r.position_expected)},
+     {name:'conservative (p90)', color:'#d1453b', values: rows.map(r=>r.position_conservative)}]);
+
+  document.getElementById('tbl').innerHTML =
+    `<tr><th>week</th><th>AR in</th><th>contracted in</th><th>bills</th><th>payroll</th>
+     <th>COGS rate</th><th>overhead</th><th>agency media</th><th>position</th><th>worst</th></tr>` +
+    rows.map(r=>`<tr><td>${r.week_start}</td>
+      <td>${fmt$(r.cash_in_expected)}</td><td>${fmt$(r.in_contracted_expected)}</td>
+      <td>${fmt$(r.out_bills)}</td><td>${fmt$(r.out_payroll)}</td>
+      <td>${fmt$(r.out_cogs_runrate)}</td><td>${fmt$(r.out_overhead)}</td>
+      <td>${fmt$(r.out_agency_media)}</td>
+      <td class="${r.position_expected<0?'err':''}">${fmt$(r.position_expected)}</td>
+      <td class="${r.position_conservative<0?'err':''}">${fmt$(r.position_conservative)}</td></tr>`).join('');
+});
+</script></body></html>

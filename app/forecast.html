@@ -1,0 +1,40 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EMG — Forecast</title><link rel="stylesheet" href="./assets/style.css"></head><body>
+<script type="module">
+import { boot, fmt$, esc } from './assets/shell.js';
+
+boot('forecast', async (supa, el) => {
+  el.innerHTML = `<h1>Forecast</h1>
+    <div class="sub">Gross profit on accrual: settled months from invoices, forward months
+    from shaped deals. First cut — client rows, drill-down and actual-GP costing follow.</div>
+    <div class="card" style="overflow-x:auto"><table id="tbl">loading…</table></div>
+    <div class="muted">Forward months show only shaped deals. ${''}Unshaped deals are
+    absent by design — the model does not invent lines from as-sold totals.</div>`;
+
+  const today = new Date(); today.setUTCDate(1);
+  const start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth()-3, 1));
+  const end   = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth()+9, 1));
+  const iso = d => d.toISOString().slice(0,10);
+  const months = []; for (let d=new Date(start); d<=end; d=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,1))) months.push(iso(d));
+  const thisMonth = iso(today);
+
+  const [inv, fwd] = await Promise.all([
+    supa.from('invoices').select('issued_on,total').gte('issued_on', iso(start)),
+    supa.from('v_deal_month_forecast').select('month,gp,reviewed').gte('month', thisMonth)
+  ]);
+  if (inv.error) throw inv.error; if (fwd.error) throw fwd.error;
+
+  const invoiced = {}, gp = {}, unrev = {};
+  (inv.data||[]).forEach(i => { const m = i.issued_on.slice(0,8)+'01'; invoiced[m]=(invoiced[m]||0)+i.total; });
+  (fwd.data||[]).forEach(f => { gp[f.month]=(gp[f.month]||0)+f.gp; if(!f.reviewed) unrev[f.month]=(unrev[f.month]||0)+f.gp; });
+
+  document.getElementById('tbl').innerHTML =
+    `<tr><th>month</th><th>invoiced (actual)</th><th>forward GP (shaped deals)</th><th>of which unreviewed</th></tr>` +
+    months.map(m => `<tr ${m===thisMonth?'style="border-top:2px solid var(--accent)"':''}>
+      <td>${m.slice(0,7)}${m===thisMonth?' ←':''}</td>
+      <td>${m<=thisMonth ? fmt$(invoiced[m]||0) : '<span class="muted">—</span>'}</td>
+      <td>${m>=thisMonth ? fmt$(gp[m]||0) : '<span class="muted">—</span>'}</td>
+      <td>${unrev[m] ? `<span class="warn">${fmt$(unrev[m])}</span>` : ''}</td></tr>`).join('');
+});
+</script></body></html>
