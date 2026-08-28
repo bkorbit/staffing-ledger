@@ -275,7 +275,7 @@ boot('forecast', async (supa, el) => {
     const [pg, dl, cl, st] = await Promise.all([
       supa.rpc('forecast_page', { p_from: rangeFrom, p_to: rangeTo }),
       supa.from('deals')
-        .select('id,name,client_id,reviewed_at,flight_start,flight_end,media_funding,qbo_project_id,promotions(as_sold:source_payload->>amount)')
+        .select('id,name,client_id,reviewed_at,flight_start,flight_end,qbo_project_id,promotions(as_sold:source_payload->>amount)')
         .in('status',['won','active'])
         .eq('hidden', false)
         .gte('flight_end','2026-01-01'),   // the platform starts at 2026
@@ -756,6 +756,7 @@ boot('forecast', async (supa, el) => {
       const flat = !cfg.cells || (l.kind==='creative' && !isHourly);
       const manual = flat && mine.length > 0;
       return { id:l.id, kind:l.kind, label:l.label,
+        media_funding: l.media_funding || 'client',
         params:{ amount:l.amount?l.amount/100:0, fee_pct:l.fee_pct||0,
                  margin_pct:l.margin_pct, rate:l.rate?l.rate/100:0,
                  hours_per_month:+l.hours_per_month||0 },
@@ -801,6 +802,14 @@ boot('forecast', async (supa, el) => {
                <option value="retainer" ${mode==='retainer'?'selected':''}>retainer $/mo</option>
                <option value="hourly" ${mode==='hourly'?'selected':''}>hourly</option>
              </select>` : '';
+        // media funding is per LINE — a deal can mix a client-funded social line
+        // with an agency-funded search line. Only search/social ever read it;
+        // programmatic is always agency-funded regardless, everything else never.
+        const fundSel = (l.kind === 'search' || l.kind === 'social')
+          ? `<select class="mf" data-li="${li}" title="who pays for this line's media">
+               <option value="client" ${l.media_funding!=='agency'?'selected':''}>client pays</option>
+               <option value="agency" ${l.media_funding==='agency'?'selected':''}>EMG pays &amp; rebills</option>
+             </select>` : '';
         const bits = [];
         if (l.kind==='retainer'||l.kind==='custom'||(l.kind==='creative'&&mode==='retainer'))
           bits.push(field(li,'amount','$ / flight month', l.params.amount||''));
@@ -830,7 +839,7 @@ boot('forecast', async (supa, el) => {
             <input class="cell" type="number" step="any" inputmode="decimal" data-li="${li}" data-m="${m}" value="${l.cells[m] ?? ''}"></label>`).join('');
         return `<div class="linecard" data-li="${li}">
           <div class="cardhead">
-            <span class="kbadge">${kindLabelOf(l)}</span>${structSel}
+            <span class="kbadge">${kindLabelOf(l)}</span>${structSel}${fundSel}
             <span style="flex:1"></span>
             <span class="lgp" data-li="${li}"></span>
             <button class="danger delline" data-li="${li}" title="remove line">✕</button>
@@ -864,11 +873,6 @@ boot('forecast', async (supa, el) => {
           <div class="setrow wide"><span class="setlabel">QB Project</span>
             <input class="qpsearch" placeholder="search projects…">
             <select class="qp"></select></div>
-          <div class="setrow"><span class="setlabel">Media funding</span>
-            <select class="mf">
-              <option value="client" ${d.media_funding!=='agency'?'selected':''}>client pays</option>
-              <option value="agency" ${d.media_funding==='agency'?'selected':''}>EMG pays &amp; rebills</option>
-            </select></div>
         </div>
         <div class="editorbar"><span class="totals"></span></div>
         <div class="gridwrap">
@@ -911,7 +915,10 @@ boot('forecast', async (supa, el) => {
         draw();
       }
 
-      box.querySelector('.mf').onchange = () => preview();   // revenue depends on funding
+      box.querySelectorAll('select.mf').forEach(sel => sel.onchange = () => {
+        model[+sel.dataset.li].media_funding = sel.value;   // revenue depends on funding
+        preview();
+      });
       box.querySelectorAll('input.p').forEach(inp => inp.oninput = () => {
         const l = model[+inp.dataset.li];
         const n = +inp.value;
@@ -977,6 +984,7 @@ boot('forecast', async (supa, el) => {
         const kind = e.target.value;
         model.push({ kind,
           label: kind==='creative' ? 'creative:retainer' : null,
+          media_funding: 'client',
           params:{ amount:0, fee_pct:0, margin_pct:null, rate:0, hours_per_month:0 },
           cells:{}, manual:false, orig:{ amount:0, hours:0 }, hadDlm:new Set() });
         draw();
@@ -1032,7 +1040,6 @@ boot('forecast', async (supa, el) => {
       preview();
 
       function preview() {
-        const mf = box.querySelector('.mf')?.value || d.media_funding || 'client';
         let total = 0, revTotal = 0; const mgp = {}, mrev = {};
         model.forEach((l, li) => {
           let lt = 0;
@@ -1043,12 +1050,12 @@ boot('forecast', async (supa, el) => {
           if (lg) lg.textContent = lt ? `line GP $${fmtN(lt)}` : '';
           const co = box.querySelector(`.gpcallout[data-li="${li}"]`);
           if (co) {
-            const lrev = fm.reduce((s,m)=>s+revMonth(l,m,mf,flight),0);
+            const lrev = fm.reduce((s,m)=>s+revMonth(l,m,l.media_funding,flight),0);
             if (l.kind==='programmatic') {
               const mgn = l.params.margin_pct ?? marginDefault;
               co.textContent = lt ? `Revenue ${fmtMoney(lrev)} · GP ${fmtMoney(lt)} — margin ${mgn}% + fee ${l.params.fee_pct||0}%` : '';
             } else if (isBudgetL(l)) {
-              co.textContent = lt ? `Revenue ${fmtMoney(lrev)} · GP ${fmtMoney(lt)} — fee ${l.params.fee_pct||0}%${mf==='agency'?' (EMG bills media + fee)':' (client pays media direct)'}` : '';
+              co.textContent = lt ? `Revenue ${fmtMoney(lrev)} · GP ${fmtMoney(lt)} — fee ${l.params.fee_pct||0}%${l.media_funding==='agency'?' (EMG bills media + fee)':' (client pays media direct)'}` : '';
             } else {
               co.textContent = lt ? `Revenue = GP ${fmtMoney(lt)} across ${openM.length} open month(s)` : '';
             }
@@ -1058,13 +1065,13 @@ boot('forecast', async (supa, el) => {
             const td = box.querySelector(`td[data-lrc="${li}:${ci}"]`);
             if (td) {
               const g = c.months.reduce((s,m)=>s+gpMonth(l,m,flight),0);
-              const rv = c.months.reduce((s,m)=>s+revMonth(l,m,mf),0);
+              const rv = c.months.reduce((s,m)=>s+revMonth(l,m,l.media_funding),0);
               td.innerHTML = g||rv
                 ? `<div>${fmtMoney(g)}</div>${rv!==g?`<div class="subrev">rev ${fmtMoney(rv)}</div>`:''}`
                 : '';
             }
           });
-          fm.forEach(m => { const r = revMonth(l, m, mf, flight); if (r) mrev[m]=(mrev[m]||0)+r; revTotal += r; });
+          fm.forEach(m => { const r = revMonth(l, m, l.media_funding, flight); if (r) mrev[m]=(mrev[m]||0)+r; revTotal += r; });
           const lrt = box.querySelector(`td[data-lrt="${li}"]`);
           if (lrt) lrt.textContent = lt ? fmtMoney(lt) : '';
           total += lt;
@@ -1095,7 +1102,6 @@ boot('forecast', async (supa, el) => {
 
       async function save() {
         const msg = box.querySelector('.msg');
-        const mf = box.querySelector('.mf').value;
         const patch = {};
         // client reassignment — one HubSpot company can hide two entities
         let chosenClient = box.querySelector('.cl').value;
@@ -1125,7 +1131,6 @@ boot('forecast', async (supa, el) => {
         }
         if (flight.start !== d.flight_start) patch.flight_start = flight.start;
         if (flight.end !== d.flight_end)     patch.flight_end   = flight.end;
-        if (mf !== d.media_funding)          patch.media_funding = mf;
         if (Object.keys(patch).length) {
           patch.set_by = window.__email; patch.set_at = new Date().toISOString();
           const { error } = await supa.from('deals').update(patch).eq('id', d.id);
@@ -1149,6 +1154,7 @@ boot('forecast', async (supa, el) => {
             fee_pct:l.params.fee_pct||0, margin_pct:l.params.margin_pct ?? null,
             rate:Math.round((l.params.rate||0)*100),
             billing_day:BILLING_BY_KIND[l.kind],
+            media_funding:l.media_funding || 'client',
             set_by:window.__email, set_at:new Date().toISOString()
           };
           if (l.id) {
