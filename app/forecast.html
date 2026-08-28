@@ -1,17 +1,22 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Forecast</title><link rel="stylesheet" href="./assets/style.css"></head><body>
+<title>EMG — Forecast</title><link rel="stylesheet" href="./assets/style.css">
+<style>
+.range{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:12px}
+.rl{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.09em;color:var(--slate)}
+.rd{font-family:var(--font-mono);font-size:10px;color:var(--slate)}
+table.sum td .pct{display:block;font-size:9px;color:var(--slate);margin-top:1px}
+table.sum td .pct.bad{color:var(--rust)} table.sum td .pct.good{color:var(--brand-2)}
+tr.deallist td{cursor:pointer}
+</style></head><body>
 <script type="module">
 import { boot, esc, fmt$, barChart } from './assets/shell.js';
 /*
-  The Forecast, whole: the v1 shape. Bars up top — invoiced actuals behind, planned
-  GP ahead. The table beneath: clients, their deals, months across, past locked and
-  filled from QuickBooks. And every deal editable right here: the shaping editor
-  opens inline under its row. No separate Deals tab.
-
-  Invariants carried through: past months come from invoices (client level always,
-  deal level when the deal is matched to its project); forward months come from
-  shaped lines and nothing else; unreviewed GP is amber; nothing here reads hours.
+  The Forecast in three rows: Revenue (actual, invoiced), Gross Profit (actual,
+  revenue minus classified COGS), and Forecasted GP with the difference against
+  actual GP shown under each settled month. The range is yours — six months back
+  and six forward by default — and it drives the chart and the table alike.
+  Deals stay editable here, in a compact list beneath the summary.
 */
 boot('forecast', async (supa, el) => {
   const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -20,13 +25,16 @@ boot('forecast', async (supa, el) => {
   const iso = d => d.toISOString().slice(0,10);
   const t0 = new Date(); t0.setUTCDate(1);
   const thisMonth = iso(t0).slice(0,8)+'01';
-  const months = [];
-  for (let i=-3;i<=9;i++) months.push(iso(new Date(Date.UTC(t0.getUTCFullYear(),t0.getUTCMonth()+i,1))));
-  const past = m => m < thisMonth;
+  const shiftM = (m,n)=>{const[y,mm]=m.slice(0,7).split('-').map(Number);
+    return new Date(Date.UTC(y,mm-1+n,1)).toISOString().slice(0,10);};
   const monthsBetween = (a,b) => { const out=[]; let d=new Date(a+'T00:00:00Z');
     const end=new Date(b+'T00:00:00Z');
-    while (d<=end) { out.push(d.toISOString().slice(0,10));
+    while (d<=end && out.length<48) { out.push(d.toISOString().slice(0,10));
       d=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,1)); } return out; };
+  const past = m => m < thisMonth;
+
+  // the range: six back, six forward, editable
+  let rangeFrom = shiftM(thisMonth,-6), rangeTo = shiftM(thisMonth,6);
 
   /* ------------------------------------------------- shaping configuration */
   const KIND = {
@@ -65,118 +73,118 @@ boot('forecast', async (supa, el) => {
   }
 
   /* -------------------------------------------------------------- the data */
-  let clientsById, dealsByClient, plan, actual, actualByProj, unattributed, openEditor = null;
+  let months, clientsById, dealsByClient, planByM, revByM, cogsByM, openEditor = null;
 
   async function loadAll() {
-    const [fc, dl, cl, inv, qp, st] = await Promise.all([
+    if (rangeTo < rangeFrom) rangeTo = rangeFrom;
+    months = monthsBetween(rangeFrom, rangeTo);
+    const [fc, dl, cl, inv, cog, st] = await Promise.all([
       supa.from('v_deal_month_forecast').select('deal_id,month,gp')
-        .gte('month', thisMonth).lte('month', months.at(-1)),
+        .gte('month', rangeFrom).lte('month', rangeTo),
       supa.from('deals')
-        .select('id,name,client_id,reviewed_at,flight_start,flight_end,media_funding,qbo_project_id,promotions(source_payload)')
+        .select('id,name,client_id,reviewed_at,flight_start,flight_end,media_funding,promotions(source_payload)')
         .in('status',['won','active']),
-      supa.from('clients').select('id,name,qbo_customer_id,active').eq('active', true),
-      supa.from('invoices').select('qbo_project_id,issued_on,total')
-        .gte('issued_on', months[0]).lt('issued_on', thisMonth),
-      supa.from('qbo_projects').select('id,parent_id'),
+      supa.from('clients').select('id,name,active').eq('active', true),
+      supa.from('invoices').select('issued_on,total')
+        .gte('issued_on', rangeFrom).lte('issued_on', shiftM(rangeTo,1)),
+      supa.from('v_cost_lines_classified').select('month,amount').eq('class','cogs')
+        .gte('month', rangeFrom).lte('month', rangeTo),
       supa.from('settings').select('value').eq('key','programmatic_margin_default').single()
     ]);
-    for (const r of [fc,dl,cl,inv,qp]) if (r.error) throw r.error;
+    for (const r of [fc,dl,cl,inv,cog]) if (r.error) throw r.error;
     marginDefault = st.data ? +st.data.value : 35;
 
-    const parentOf = {}; (qp.data||[]).forEach(p => parentOf[p.id] = p.parent_id || p.id);
-    const clientByQbo = {}; (cl.data||[]).forEach(c => { if (c.qbo_customer_id) clientByQbo[c.qbo_customer_id] = c.id; });
-    actual = {}; actualByProj = {}; unattributed = {};
-    (inv.data||[]).forEach(i => {
+    revByM = {}; (inv.data||[]).forEach(i => {
       const m = i.issued_on.slice(0,8)+'01';
-      (actualByProj[i.qbo_project_id] = actualByProj[i.qbo_project_id]||{})[m] =
-        ((actualByProj[i.qbo_project_id]||{})[m]||0) + i.total;
-      const cid = clientByQbo[parentOf[i.qbo_project_id]];
-      if (cid) (actual[cid] = actual[cid]||{})[m] = ((actual[cid]||{})[m]||0) + i.total;
-      else unattributed[m] = (unattributed[m]||0) + i.total;
+      if (m >= rangeFrom && m <= rangeTo) revByM[m] = (revByM[m]||0) + i.total;
     });
-    plan = {};
-    (fc.data||[]).forEach(r => (plan[r.deal_id] = plan[r.deal_id]||{})[r.month] =
-      ((plan[r.deal_id]||{})[r.month]||0) + r.gp);
+    cogsByM = {}; (cog.data||[]).forEach(c => cogsByM[c.month] = (cogsByM[c.month]||0) + c.amount);
+    planByM = {}; const planByDeal = {};
+    (fc.data||[]).forEach(r => {
+      planByM[r.month] = (planByM[r.month]||0) + r.gp;
+      (planByDeal[r.deal_id] = planByDeal[r.deal_id]||{})[r.month] = ((planByDeal[r.deal_id]||{})[r.month]||0) + r.gp;
+    });
     clientsById = {}; (cl.data||[]).forEach(c => clientsById[c.id] = c);
     dealsByClient = {};
-    (dl.data||[]).forEach(d => { if (clientsById[d.client_id])
-      (dealsByClient[d.client_id] = dealsByClient[d.client_id]||[]).push(d); });
+    (dl.data||[]).forEach(d => { if (clientsById[d.client_id]) {
+      d._plan = planByDeal[d.id] || {};
+      (dealsByClient[d.client_id] = dealsByClient[d.client_id]||[]).push(d); }});
     render();
   }
 
   /* ---------------------------------------------------------------- render */
   function render() {
-    const rows = Object.values(clientsById).filter(c =>
-      actual[c.id] || (dealsByClient[c.id]||[]).some(d => plan[d.id] || d.qbo_project_id))
-      .sort((a,b)=>a.name.localeCompare(b.name));
-
-    // chart series: invoiced in the past, planned GP ahead
-    const invoicedByM = {}, planByM = {};
-    months.forEach(m => {
-      if (past(m)) {
-        invoicedByM[m] = rows.reduce((s,c)=>s+((actual[c.id]||{})[m]||0),0) + (unattributed[m]||0);
-      } else {
-        planByM[m] = rows.reduce((s,c)=>s+(dealsByClient[c.id]||[])
-          .reduce((s2,d)=>s2+((plan[d.id]||{})[m]||0),0),0);
-      }
-    });
-
     el.innerHTML = `
-      <div class="sc-panel"><div id="chart"></div></div>
-      <div class="toolbar">
-        <span class="muted" style="font-size:12px">Past ✓ months are invoiced (QuickBooks,
-        locked). Forward months are planned GP; <span class="warn">amber</span> = unreviewed.
-        Click a deal to edit it here.</span>
+      <div class="range">
+        <span class="rl">Range</span>
+        <input type="month" id="r-from" value="${rangeFrom.slice(0,7)}">
+        <span class="rd">to</span>
+        <input type="month" id="r-to" value="${rangeTo.slice(0,7)}">
+        <span class="muted" style="font-size:11px;margin-left:8px">defaults to six months back, six forward</span>
         <span style="flex:1"></span>
-        <span class="muted" style="font-size:12px">${rows.length} clients</span>
+        <span class="muted" style="font-size:12px">Forecast under actuals shows the difference for settled months</span>
       </div>
-      <div class="sc-panel" style="padding:0;overflow-x:auto"><table class="grid" style="width:100%" id="tbl"></table></div>`;
+      <div class="sc-panel"><div id="chart"></div></div>
+      <div class="sc-panel" style="padding:0;overflow-x:auto"><table class="sum" id="sum"></table></div>
+      <div class="sc-panel" style="padding:0;overflow-x:auto">
+        <div class="sc-eyebrow" style="padding:12px 16px 0">Deals — click one to shape it</div>
+        <table id="deals" style="border:none"></table></div>`;
+
+    el.querySelector('#r-from').onchange = e => { rangeFrom = e.target.value+'-01'; loadAll(); };
+    el.querySelector('#r-to').onchange   = e => { rangeTo   = e.target.value+'-01'; loadAll(); };
 
     barChart(el.querySelector('#chart'), months.map(mLabel), [
-      { name:'invoiced (actual)', color:'#67706d', values: months.map(m=>invoicedByM[m]||0) },
-      { name:'planned GP (shaped deals)', color:'#19a789', values: months.map(m=>planByM[m]||0) }
+      { name:'revenue (actual, invoiced)', color:'#67706d',
+        values: months.map(m => past(m)||m===thisMonth ? (revByM[m]||0) : 0) },
+      { name:'forecast GP (shaped deals)', color:'#19a789',
+        values: months.map(m => past(m) ? 0 : (planByM[m]||0)) }
     ]);
 
-    const colTotal = {};
-    const cellCls = m => past(m) ? 'style="background:#f6f6f6;color:var(--slate)"' : '';
-    el.querySelector('#tbl').innerHTML =
-      `<tr><th style="text-align:left;min-width:230px">client / deal</th>
-        ${months.map(m=>`<th ${m===thisMonth?'style="border-left:2px solid var(--brand)"':''}>${mLabel(m)}${past(m)?' ✓':''}</th>`).join('')}
-        <th>total</th></tr>` +
-      rows.map(c => {
-        const ds = (dealsByClient[c.id]||[]).filter(d => plan[d.id] || d.qbo_project_id || !d.reviewed_at);
-        let cTotal = 0;
-        const clientCells = months.map(m => {
-          let v = past(m) ? ((actual[c.id]||{})[m]||0)
-                          : ds.reduce((s,d)=>s+((plan[d.id]||{})[m]||0),0);
-          cTotal += v; colTotal[m] = (colTotal[m]||0)+v;
-          return `<td ${cellCls(m)}>${v?fmtN(v):''}</td>`;
-        }).join('');
-        const dealRows = ds.map(d => {
-          const proj = d.qbo_project_id ? (actualByProj[d.qbo_project_id]||{}) : null;
-          const tot = months.reduce((s,m)=>s+(past(m)?(proj?(proj[m]||0):0):((plan[d.id]||{})[m]||0)),0);
-          return `<tr class="dealrow" data-id="${d.id}">
-            <td class="textleft" style="padding-left:22px;cursor:pointer" title="click to edit">
-              <span class="muted">▸</span> ${esc(d.name)}${d.reviewed_at?'':' <span class="warn">•</span>'}${d.qbo_project_id?'':' <span class="muted" title="no QuickBooks project matched">?</span>'}</td>
-            ${months.map(m => past(m)
-              ? `<td ${cellCls(m)}>${proj && proj[m] ? fmtN(proj[m]) : ''}</td>`
-              : `<td>${(plan[d.id]||{})[m] ? `<span class="${d.reviewed_at?'':'warn'}">${fmtN((plan[d.id]||{})[m])}</span>` : ''}</td>`).join('')}
-            <td class="muted">${fmtN(tot)}</td>
-          </tr>
-          <tr class="editor" data-for="${d.id}" hidden><td colspan="${months.length+2}" class="textleft"><div class="edbox"></div></td></tr>`;
-        }).join('');
-        return `<tr><td class="textleft" style="font-weight:600">${esc(c.name)}</td>
-          ${clientCells}<td style="font-weight:600">${fmtN(cTotal)}</td></tr>` + dealRows;
-      }).join('') +
-      (Object.keys(unattributed).length ? `<tr>
-        <td class="textleft muted">unattributed QBO invoices</td>
-        ${months.map(m=>`<td ${cellCls(m)}>${unattributed[m]?fmtN(unattributed[m]):''}</td>`).join('')}
-        <td class="muted">${fmtN(Object.values(unattributed).reduce((a,b)=>a+b,0))}</td></tr>` : '') +
-      `<tr class="gp"><td class="textleft">total</td>
-        ${months.map(m=>`<td>${fmtN((colTotal[m]||0)+(past(m)?(unattributed[m]||0):0))}</td>`).join('')}<td></td></tr>`;
+    // ---- the three-row summary ----
+    const gpActual = {};
+    months.forEach(m => { if ((past(m)||m===thisMonth) && (revByM[m]||cogsByM[m]))
+      gpActual[m] = (revByM[m]||0) - (cogsByM[m]||0); });
+    const pctCell = m => {
+      if (!past(m) || !gpActual[m] || !planByM[m]) return '';
+      const pct = Math.round((planByM[m]/gpActual[m] - 1)*100);
+      return `<span class="pct ${Math.abs(pct)>15?'bad':'good'}">${pct>=0?'+':''}${pct}% vs actual</span>`;
+    };
+    el.querySelector('#sum').innerHTML =
+      `<tr><th style="text-align:left;min-width:210px"></th>
+        ${months.map(m=>`<th ${m===thisMonth?'style="border-left:2px solid var(--brand)"':''}>${mLabel(m)}${past(m)?' ✓':''}</th>`).join('')}<th>total</th></tr>
+      <tr><td class="textleft" style="font-weight:600">Revenue (actual)</td>
+        ${months.map(m=>`<td>${(past(m)||m===thisMonth)&&revByM[m]?fmtN(revByM[m]):''}</td>`).join('')}
+        <td style="font-weight:600">${fmtN(months.reduce((s,m)=>s+((past(m)||m===thisMonth)?(revByM[m]||0):0),0))}</td></tr>
+      <tr><td class="textleft" style="font-weight:600">Gross profit (actual)</td>
+        ${months.map(m=>`<td>${gpActual[m]!==undefined?fmtN(gpActual[m]):''}</td>`).join('')}
+        <td style="font-weight:600">${fmtN(Object.values(gpActual).reduce((a,b)=>a+b,0))}</td></tr>
+      <tr><td class="textleft" style="font-weight:600;color:var(--brand)">Forecasted GP</td>
+        ${months.map(m=>`<td style="color:var(--brand)">${planByM[m]?fmtN(planByM[m]):''}${pctCell(m)}</td>`).join('')}
+        <td style="font-weight:600;color:var(--brand)">${fmtN(months.reduce((s,m)=>s+(planByM[m]||0),0))}</td></tr>`;
 
-    el.querySelectorAll('tr.dealrow td:first-child').forEach(td => {
-      td.onclick = () => toggleEditor(td.closest('tr').dataset.id);
+    // ---- the deals list, editable ----
+    const rows = Object.values(clientsById).filter(c =>
+      (dealsByClient[c.id]||[]).length).sort((a,b)=>a.name.localeCompare(b.name));
+    el.querySelector('#deals').innerHTML =
+      `<tr><th style="text-align:left;min-width:280px">client / deal</th>
+        <th style="text-align:left">flight</th><th>forecast GP in range</th><th style="text-align:left">status</th></tr>` +
+      rows.map(c => {
+        const ds = (dealsByClient[c.id]||[]).sort((a,b)=>(b.flight_end||'').localeCompare(a.flight_end||''));
+        return `<tr><td class="textleft" style="font-weight:600" colspan="4">${esc(c.name)}</td></tr>` +
+          ds.map(d => {
+            const tot = months.reduce((s,m)=>s+(d._plan[m]||0),0);
+            return `<tr class="deallist" data-id="${d.id}">
+              <td class="textleft" style="padding-left:22px"><span class="muted">▸</span> ${esc(d.name)}</td>
+              <td class="textleft muted">${mLabel(d.flight_start)} → ${mLabel(d.flight_end)}</td>
+              <td>${tot?fmtN(tot):'<span class="muted">—</span>'}</td>
+              <td class="textleft">${d.reviewed_at?'<span class="pill good">reviewed</span>':'<span class="pill warn">to review</span>'}</td>
+            </tr>
+            <tr class="editor" data-for="${d.id}" hidden><td colspan="4" class="textleft"><div class="edbox"></div></td></tr>`;
+          }).join('');
+      }).join('') || '<tr><td class="muted">no deals for active clients</td></tr>';
+
+    el.querySelectorAll('tr.deallist').forEach(tr => {
+      tr.onclick = () => toggleEditor(tr.dataset.id);
     });
     if (openEditor) toggleEditor(openEditor, true);
   }
@@ -291,7 +299,8 @@ boot('forecast', async (supa, el) => {
         else l.cells[inp.dataset.m] = +inp.value;
         preview();
       });
-      box.querySelectorAll('.delline').forEach(btn => btn.onclick = async () => {
+      box.querySelectorAll('.delline').forEach(btn => btn.onclick = async e => {
+        e.stopPropagation();
         const li = +btn.dataset.li;
         if (model[li].id) {
           if (!confirm('Delete this line and its months?')) return;
@@ -312,6 +321,8 @@ boot('forecast', async (supa, el) => {
         }).eq('id', d.id);
         if (!error) loadAll();
       };
+      // clicks inside the editor must not toggle the row above it
+      box.onclick = e => e.stopPropagation();
       preview();
 
       function preview() {
@@ -337,9 +348,7 @@ boot('forecast', async (supa, el) => {
         const msg = box.querySelector('.msg');
         const mf = box.querySelector('.mf').value;
         const patch = {};
-        // client reassignment — how one HubSpot company splits into two entities
-        // (On Location WC vs Events, Disney Visa vs Parks). The promotion door only
-        // creates a deal once, so a moved deal stays moved.
+        // client reassignment — one HubSpot company can hide two entities
         let chosenClient = box.querySelector('.cl').value;
         if (chosenClient === '__new__') {
           const nm = prompt('Name for the new client:');
@@ -397,7 +406,7 @@ boot('forecast', async (supa, el) => {
         }
         box.querySelector('.msg').textContent = 'saved';
         box.querySelector('.msg').className = 'msg ok';
-        loadAll();   // the table and the bars re-read the truth
+        loadAll();
       }
     }
     draw();

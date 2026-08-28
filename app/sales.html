@@ -1,119 +1,326 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Sales Forecast</title><link rel="stylesheet" href="./assets/style.css"></head><body>
+<title>EMG — Sales Forecast</title><link rel="stylesheet" href="./assets/style.css">
+<style>
+/* Layout and chart styling carried over from sales-forecast-draft.html — the design
+   the page is modelled on — trimmed to what the shell doesn't already provide. */
+.bar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:12px}
+.tog{display:flex;align-items:center;gap:6px}
+.tog>span{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--slate)}
+.cfg{font-family:var(--font-mono);font-size:10px;color:var(--slate)}
+.seg{font-family:var(--font-mono);font-size:10px;padding:6px 11px;border:1px solid var(--line);
+  background:var(--paper-raised);border-radius:5px;cursor:pointer;color:var(--slate)}
+.seg.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+.chartpanel{padding:0;overflow:visible}
+.range{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:15px 22px;border-bottom:1px solid var(--line)}
+.chartpanel.collapsed .range{border-bottom:none}
+.rl{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.09em;color:var(--slate)}
+.rd{font-family:var(--font-mono);font-size:10px;color:var(--slate)}
+.rp{display:inline-flex;margin-left:10px;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--paper-raised)}
+.rp .seg{border:none;border-radius:0;border-left:1px solid var(--line)}
+.rp .seg:first-child{border-left:none}
+.chead{padding:18px 22px 0}
+.chead h3{margin:0 0 5px;font-size:14px;color:var(--brand)}
+.csum{font-family:var(--font-mono);font-size:10px;color:var(--slate);margin:0 0 4px}
+.csvg{padding:6px 12px 0}
+.csvg.scroll{overflow-x:auto;padding-bottom:6px}
+svg.sfchart{width:100%;height:auto;display:block}
+svg.sfchart .ax{font-family:var(--font-mono);font-size:10px;fill:var(--slate)}
+svg.sfchart .bt{font-family:var(--font-mono);font-size:10.5px;font-weight:500;fill:var(--brand)}
+svg.sfchart .pl{font-family:var(--font-mono);font-size:9px;fill:var(--slate)}
+.legend{display:flex;flex-wrap:wrap;gap:8px 20px;margin:14px 0 0;padding:14px 22px 18px;
+  border-top:1px solid var(--line);background:#f2f4f3;border-radius:0 0 6px 6px}
+.legend span{display:flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:10px;color:var(--ink)}
+.legend i{width:11px;height:11px;border-radius:2px;display:inline-block;flex:none}
+.cover{font-family:var(--font-mono);font-size:11px;padding:10px 13px;border-radius:6px;margin-bottom:12px;line-height:1.6}
+.cover.good{background:var(--mint)} .cover.warn{background:var(--amber-bg)} .cover.bad{background:var(--rust-bg)}
+table.fc{width:100%;border-collapse:collapse;min-width:900px;background:var(--paper-raised)}
+table.fc th{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.07em;
+  color:var(--slate);text-align:left;padding:9px 8px;border:none;border-bottom:1px solid var(--line);background:transparent}
+table.fc td{padding:7px 8px;border:none;border-bottom:1px solid #efefef;font-family:var(--font-mono);font-size:11.5px;vertical-align:top}
+table.fc th.n,table.fc td.n{text-align:right;white-space:nowrap}
+table.fc th.cl,table.fc td.cl{min-width:230px} table.fc td.cl{font-family:var(--font-body)}
+table.fc th.pr,table.fc td.pr{min-width:120px} table.fc th.fl,table.fc td.fl{min-width:150px}
+.crow td{background:#eef1f0;font-weight:700;font-family:var(--font-display);font-size:12.5px;border-top:1px solid var(--line)}
+.crow td.n{font-family:var(--font-mono);font-size:11.5px}
+.drow td.cl{padding-left:22px}
+.drow.dim td{opacity:.55}
+.parts{font-size:9px;color:var(--slate);margin-top:2px;font-family:var(--font-mono)}
+td.pr{font-size:10px;color:var(--slate)}
+td.pr .p{display:inline-block;margin-left:5px;background:var(--brand);color:#fff;border-radius:3px;padding:0 4px;font-size:9px}
+td.tot{font-weight:700;color:var(--brand)}
+.z{color:#c8c8c8}
+.grand td{background:var(--brand);color:#fff;font-weight:700;border-top:2px solid var(--brand)}
+.flag{display:inline-block;font-size:9px;border-radius:3px;padding:1px 5px;margin:1px 3px 1px 0;font-family:var(--font-mono)}
+.flag.t{background:var(--rust-bg);color:var(--rust)} .flag.w{background:var(--amber-bg);color:var(--amber)} .flag.i{background:#ececec;color:var(--slate)}
+.empty{padding:30px;text-align:center;color:var(--slate);font-family:var(--font-mono);font-size:11px}
+</style></head><body>
 <script type="module">
-import { boot, esc, fmt$ } from './assets/shell.js';
+import { boot, esc } from './assets/shell.js';
 /*
-  The pre-won room. Open pipeline deals at or above the probability threshold
-  (a setting), grouped by probability, products read from the HubSpot line items,
-  and the amounts flighted across their campaign months so the long-term shape of
-  the pipeline is visible. Won deals are not here — they pass over through the
-  promotion door and become real in Deals.
+  The Sales Forecast, modelled on sales-forecast-draft.html and wired to the mirror.
+  Gross profit is derived from HubSpot line items through the same type map the
+  ledger uses; deals that cannot be forecast say why instead of disappearing. The
+  bars stack pipeline by stage confidence ON TOP of committed GP from shaped deals —
+  the draft faked that base layer; here it is v_deal_month_forecast for real.
 */
 boot('sales', async (supa, el) => {
-  const [pd, st] = await Promise.all([
+  const [pd, st, fc] = await Promise.all([
     supa.from('pipeline_deals').select('*'),
-    supa.from('settings').select('key,value').in('key', ['sales_probability_threshold'])
+    supa.from('settings').select('key,value')
+      .in('key', ['sales_probability_threshold','programmatic_margin_default']),
+    supa.from('v_deal_month_forecast').select('month,gp')
   ]);
   if (pd.error) throw pd.error;
-  const threshold = +(st.data?.find(s => s.key === 'sales_probability_threshold')?.value ?? 40);
+  const setting = k => (st.data||[]).find(s=>s.key===k)?.value;
+  const minProb = +(setting('sales_probability_threshold') ?? 10);
+  const PROG_MARGIN = +(setting('programmatic_margin_default') ?? 35);
 
-  const all = (pd.data || []).filter(d => !d.is_won && (d.probability ?? 0) > 0);
-  const pipelines = [...new Set(all.map(d => d.pipeline).filter(Boolean))].sort();
+  // committed GP by month, real
+  const LEDGER = {};
+  (fc.data||[]).forEach(r => LEDGER[r.month.slice(0,7)] = (LEDGER[r.month.slice(0,7)]||0) + r.gp);
 
-  el.innerHTML = `
-    <div class="toolbar">
-      <label class="mono" style="display:flex;align-items:center;gap:6px">pipeline
-        <select id="pl" style="height:32px">
-          ${pipelines.map(p => `<option>${esc(p)}</option>`).join('')}
-          <option value="__all__">all pipelines</option>
-        </select></label>
-      <span class="muted" style="font-size:12px">showing ≥ ${threshold}% probability —
-        <a href="./settings.html">change threshold</a></span>
-      <span style="flex:1"></span>
-      <span class="muted" id="count" style="font-size:12px"></span>
-    </div>
-    <div class="summary-strip" id="tiles"></div>
-    <div class="sc-panel"><div class="sc-eyebrow">Pipeline revenue by month — weighted, flighted over each campaign</div>
-      <div style="overflow-x:auto"><table id="spread"></table></div>
-      <div class="muted" id="undated" style="font-size:11.5px;margin-top:6px"></div></div>
-    <div class="sc-panel"><div class="sc-eyebrow">Deals by probability</div>
-      <div style="overflow-x:auto"><table id="tbl"></table></div></div>`;
+  /* ------------------------------------------------------------- plumbing */
+  const money = c => (c<0?'-':'') + '$' + Math.round(Math.abs(c)/100).toLocaleString();
+  const mk = d => (d||'').slice(0,7);
+  const shift = (k,n)=>{const[y,m]=k.split('-').map(Number);
+    return new Date(Date.UTC(y,m-1+n,1)).toISOString().slice(0,7);};
+  const label = k=>{const[y,m]=k.split('-').map(Number);
+    return new Date(Date.UTC(y,m-1,1)).toLocaleDateString('en-US',{month:'short',timeZone:'UTC'})+" '"+String(y).slice(2);};
+  const monthsRange=(a,b)=>{const out=[];let c=a,g=0;while(c<=b&&g<48){out.push(c);c=shift(c,1);g++;}return out;};
+  const monthsBetween=(a,b)=>{const out=[];let c=mk(a);const e=mk(b);let g=0;
+    while(c<=e&&g<60){out.push(c);c=shift(c,1);g++;}return out;};
+  const TODAY = new Date().toISOString().slice(0,10);
 
-  const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const mLabel = iso => MO[+iso.slice(5,7)-1] + ' ' + iso.slice(2,4);
-  const monthsBetween = (a, b) => {
-    const out = []; let d = new Date(a.slice(0,8) + '01T00:00:00Z');
-    const end = new Date(b.slice(0,8) + '01T00:00:00Z');
-    while (d <= end && out.length < 36) { out.push(d.toISOString().slice(0,10));
-      d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth()+1, 1)); }
-    return out;
-  };
-  const products = d => (d.line_items || []).map(li => li.name).filter(Boolean);
+  // stage confidence tiers: deep teal certain -> pale sand early
+  const TIER_COLORS = ['#19a789','#3bc9ac','#7dd8bd','#fabf4d','#e0d3ad'];
+  const tierOf = p => p>=0.85?0 : p>=0.65?1 : p>=0.45?2 : p>=0.25?3 : 4;
+  const LEDGER_COLOR = '#0a493c';
 
-  function render() {
-    const pl = el.querySelector('#pl').value;
-    const shown = all.filter(d =>
-      (pl === '__all__' || d.pipeline === pl) &&
-      Math.round((d.probability || 0) * 100) >= threshold);
-    el.querySelector('#count').textContent =
-      `${shown.length} of ${all.length} open deals shown`;
+  // the ledger's line-item type map, verbatim from the draft
+  const MAP={ 'programmatic media':['programmatic','budget'], 'programmatic buying fee':['programmatic','fee'],
+   'paid search media':['search','budget'], 'paid search fee':['search','fee'],
+   'paid social media':['social','budget'], 'paid social fee':['social','fee'],
+   'paid search hourly':['hourly','flat'], 'paid social hourly':['hourly','flat'],
+   'creative retainer':['retainer','flat'], 'creative services':['retainer','flat'],
+   'planning':['retainer','flat'], 'dashboard':['retainer','flat'] };
 
-    const total = shown.reduce((s,d)=>s+(d.amount||0),0);
-    const weighted = shown.reduce((s,d)=>s+Math.round((d.amount||0)*(d.probability||0)),0);
-    el.querySelector('#tiles').innerHTML = `
-      <div class="summary-cell"><div class="summary-label">open pipeline ≥ ${threshold}%</div>
-        <div class="summary-value pos">${fmt$(total)}</div></div>
-      <div class="summary-cell"><div class="summary-label">probability-weighted</div>
-        <div class="summary-value">${fmt$(weighted)}</div></div>
-      <div class="summary-cell"><div class="summary-label">deals</div>
-        <div class="summary-value">${shown.length}</div></div>`;
-
-    // ---- flighted monthly spread: amount ÷ campaign months × probability ----
-    const monthly = {}; let undated = 0, undatedAmt = 0;
-    shown.forEach(d => {
-      if (!d.campaign_start || !d.campaign_end || !d.amount) { undated++; undatedAmt += d.amount||0; return; }
-      const ms = monthsBetween(d.campaign_start, d.campaign_end);
-      const per = Math.round(d.amount * (d.probability||0) / ms.length);
-      ms.forEach(m => monthly[m] = (monthly[m]||0) + per);
+  function dealGP(items){
+    const g={}, flags=[];
+    (items||[]).forEach(li=>{
+      const amt = Math.round(parseFloat(li.amount||0)*100);
+      const key = String(li.name||'').split(':').pop().trim().toLowerCase();
+      const m = MAP[key];
+      if(!m){ flags.push('unmapped: '+(li.name||'?')); return; }
+      const [type,role]=m;
+      (g[type]=g[type]||{budget:0,fee:0,flat:0})[role]+= amt;
     });
-    const spreadMonths = Object.keys(monthly).sort();
-    el.querySelector('#spread').innerHTML = spreadMonths.length
-      ? `<tr>${spreadMonths.map(m=>`<th>${mLabel(m)}</th>`).join('')}</tr>
-         <tr>${spreadMonths.map(m=>`<td>${fmt$(monthly[m])}</td>`).join('')}</tr>`
-      : '<tr><td class="muted">no dated deals above the threshold</td></tr>';
-    el.querySelector('#undated').textContent = undated
-      ? `${undated} deal(s) totalling ${fmt$(undatedAmt)} have no campaign dates and are excluded from the spread — dates set in HubSpot bring them in.`
-      : '';
-
-    // ---- the table, grouped by probability, products from line items ----
-    const byProb = {};
-    shown.forEach(d => {
-      const p = Math.round((d.probability||0)*100);
-      (byProb[p] = byProb[p]||[]).push(d);
+    let gp=0; const parts=[];
+    Object.entries(g).forEach(([type,v])=>{
+      if(type==='search'||type==='social'){
+        if(v.budget>0){ const pct=v.fee/v.budget*100; gp+=v.budget*pct/100;
+          parts.push(`${type} ${pct.toFixed(1)}% of ${money(v.budget)}`);
+          if(v.fee<=0) flags.push(type+' media with no fee line'); }
+        else if(v.fee>0){ gp+=v.fee; parts.push(`${type} fee ${money(v.fee)} (no media)`); }
+        gp+=v.flat;
+      } else if(type==='programmatic'){
+        if(v.budget>0){ const pct=v.fee>0? v.fee/v.budget*100 : 0; const rate=pct+PROG_MARGIN;
+          gp+=v.budget*rate/100; parts.push(`programmatic ${rate.toFixed(1)}% of ${money(v.budget)}${v.fee>0?'':' (margin only)'}`); }
+        else if(v.fee>0){ gp+=v.fee; parts.push(`programmatic fee ${money(v.fee)} (no media)`);
+          flags.push('programmatic fee with no media line'); }
+        gp+=v.flat;
+      } else { gp+=v.flat+v.fee+v.budget; parts.push(`${type} ${money(v.flat+v.fee+v.budget)}`); }
     });
-    const probs = Object.keys(byProb).map(Number).sort((a,b)=>b-a);
-    el.querySelector('#tbl').innerHTML =
-      `<tr><th>deal</th><th>company</th><th>products</th><th>amount</th><th>weighted</th><th>campaign</th></tr>` +
-      probs.map(p => {
-        const ds = byProb[p].sort((a,b)=>(b.amount||0)-(a.amount||0));
-        const sub = ds.reduce((s,d)=>s+(d.amount||0),0);
-        return `<tr><td colspan="3" class="textleft" style="background:#f6f6f6;font-weight:600">
-            ${p}% · ${esc(ds[0].stage)} · ${ds.length} deal${ds.length>1?'s':''}</td>
-          <td style="background:#f6f6f6;font-weight:600">${fmt$(sub)}</td>
-          <td style="background:#f6f6f6">${fmt$(Math.round(sub*p/100))}</td>
-          <td style="background:#f6f6f6"></td></tr>` +
-          ds.map(d => `<tr>
-            <td class="textleft">${esc(d.name)}</td>
-            <td class="textleft">${esc(d.company||'')}</td>
-            <td class="textleft muted">${esc(products(d).join(', ')) || '<span class="muted">—</span>'}</td>
-            <td>${d.amount!=null?fmt$(d.amount):'—'}</td>
-            <td>${d.amount!=null?fmt$(Math.round(d.amount*(d.probability||0))):''}</td>
-            <td class="muted">${d.campaign_start? mLabel(d.campaign_start)+' → '+(d.campaign_end?mLabel(d.campaign_end):'?'):''}</td>
-          </tr>`).join('');
-      }).join('');
+    return {gp:Math.round(gp),parts,flags};
   }
-  el.querySelector('#pl').onchange = render;
+
+  /* ------------------------------------------------------------- the rows */
+  const open = (pd.data||[]).filter(d => !d.is_won && (d.probability??0) > 0);
+  const pipelines = [...new Set(open.map(d=>d.pipeline).filter(Boolean))].sort();
+  let pipeline = pipelines.includes('agency') ? 'agency' : (pipelines[0]||'__all__');
+  let weighted=true, showAll=false, chartOn=true;
+  try { chartOn = localStorage.getItem('sf-chart')!=='0'; } catch(e) {}
+  let rangeFrom = TODAY.slice(0,7), rangeTo = shift(rangeFrom,5);
+
+  function build(){
+    return open
+      .filter(d => (pipeline==='__all__' || d.pipeline===pipeline)
+                && Math.round((d.probability||0)*100) >= minProb)
+      .map(d => {
+        const {gp,parts,flags} = dealGP(d.line_items);
+        const f=[...flags];
+        if(!d.line_items || !d.line_items.length) f.push('no line items');
+        if(d.close_date && d.close_date < TODAY) f.push('close date passed');
+        if(d.campaign_start && d.campaign_start < TODAY) f.push('start date passed');
+        if(!d.campaign_start || !d.campaign_end) f.push('no campaign dates');
+        if(d.campaign_start && d.campaign_end && d.campaign_end < d.campaign_start)
+          f.push('campaign ends before it starts');
+        const months = (d.campaign_start && d.campaign_end && d.campaign_end >= d.campaign_start)
+          ? monthsBetween(d.campaign_start, d.campaign_end)
+          : (d.close_date ? [mk(d.close_date)] : []);
+        const client = d.company || String(d.name||'').split(' - ')[0].trim();
+        const rest = d.company ? d.name : (String(d.name||'').split(' - ').slice(1).join(' - ') || d.name);
+        return { client, rest, name:d.name, amount:d.amount||0, stage:d.stage,
+                 prob:d.probability||0, tier:tierOf(d.probability||0),
+                 gp, parts, flags:f, months, forecastable: gp>0 && months.length>0 };
+      });
+  }
+
+  /* --------------------------------------------------------------- render */
+  el.innerHTML = `
+    <div class="bar">
+      <div class="tog"><span>Pipeline</span>
+        <select id="pl" style="height:30px">${pipelines.map(p=>`<option ${p===pipeline?'selected':''}>${esc(p)}</option>`).join('')}<option value="__all__">all</option></select></div>
+      <div class="tog"><span>Value</span>
+        <button class="seg on" data-w="1">Weighted</button><button class="seg" data-w="0">Total</button></div>
+      <div class="tog"><span>Show</span>
+        <button class="seg on" data-f="0">Forecastable</button><button class="seg" data-f="1">All deals</button></div>
+      <div style="flex:1"></div>
+      <div class="cfg">min probability ${minProb}% · programmatic margin ${PROG_MARGIN}% ·
+        <a href="./settings.html">settings</a></div>
+    </div>
+    <div id="coverage"></div>
+    <div class="sc-panel chartpanel" style="padding:0">
+      <div class="range">
+        <span class="rl">Range</span>
+        <input type="month" id="r-from"><span class="rd">to</span><input type="month" id="r-to">
+        <span class="rp">
+          <button class="seg" data-span="3">3mo</button>
+          <button class="seg on" data-span="6">6mo</button>
+          <button class="seg" data-span="12">12mo</button>
+          <button class="seg" data-span="18">18mo</button></span>
+        <button class="seg" id="chart-toggle" style="margin-left:auto"></button>
+      </div>
+      <div id="chartwrap"></div>
+    </div>
+    <div class="sc-panel" style="padding:4px;overflow-x:auto"><div id="tbl"></div></div>`;
+
+  function renderChart(cols, shown){
+    const wrap = el.querySelector('#chartwrap');
+    const btn = el.querySelector('#chart-toggle');
+    btn.textContent = chartOn ? 'Hide chart' : 'Show chart';
+    el.querySelector('.chartpanel').classList.toggle('collapsed', !chartOn);
+    if(!chartOn){ wrap.innerHTML=''; return; }
+    const n=cols.length;
+    const W=Math.max(1080,Math.round(74*n)+90), H=318,PL=74,PR=22,PT=26,PB=56,IW=W-PL-PR,IH=H-PT-PB;
+    const dense=n>10, verydense=n>16;
+    const data=cols.map(c=>{
+      const byTier=[0,0,0,0,0];
+      shown.forEach(r=>{
+        if(!r.months.includes(c)||!r.gp) return;
+        byTier[r.tier]+= r.gp*(weighted?r.prob:1)/r.months.length;
+      });
+      return { c, ledger:LEDGER[c]||0, byTier, pipe:byTier.reduce((a,b)=>a+b,0) };
+    });
+    const max=Math.max(1,...data.map(d=>d.ledger+d.pipe));
+    const stepC=max>120000000?40000000:max>60000000?20000000:max>20000000?10000000:max>6000000?2000000:1000000;
+    const top=Math.ceil(max/stepC)*stepC;
+    const y=v=>PT+IH-(v/top)*IH;
+    const bw=Math.min(96,IW/n*0.6), gap=IW/n;
+    let g='';
+    for(let v=0;v<=top;v+=stepC)
+      g+=`<line x1="${PL}" y1="${y(v)}" x2="${W-PR}" y2="${y(v)}" stroke="#e2e2e2"/>`+
+         `<text x="${PL-12}" y="${y(v)+3.5}" text-anchor="end" class="ax">$${Math.round(v/100000)/10}k</text>`;
+    data.forEach((d,i)=>{
+      const cx=PL+gap*i+gap/2, x=cx-bw/2; let acc=0;
+      if(d.ledger>0){ const h=(d.ledger/top)*IH; acc+=d.ledger;
+        g+=`<rect x="${x}" y="${y(acc)}" width="${bw}" height="${h}" fill="${LEDGER_COLOR}"><title>${label(d.c)} committed ${money(d.ledger)}</title></rect>`; }
+      d.byTier.forEach((v,tIdx)=>{
+        if(v<=0) return;
+        const h=(v/top)*IH; const yTop=y(acc+v); acc+=v;
+        g+=`<rect x="${x}" y="${yTop}" width="${bw}" height="${h}" fill="${TIER_COLORS[tIdx]}"><title>${label(d.c)} ${money(v)}</title></rect>`;
+      });
+      if(acc>0&&!dense) g+=`<text x="${cx}" y="${y(acc)-6}" text-anchor="middle" class="bt">${money(acc)}</text>`;
+      if(!verydense||i%2===0) g+=`<text x="${cx}" y="${H-33}" text-anchor="middle" class="ax">${label(d.c)}</text>`;
+      if(d.pipe>0&&!dense) g+=`<text x="${cx}" y="${H-18}" text-anchor="middle" class="pl">+${money(d.pipe)} pipeline</text>`;
+    });
+    const tiersPresent=[...new Set(shown.filter(r=>r.gp&&r.months.length).map(r=>r.tier))].sort();
+    const tierLabel=t=>[...new Set(shown.filter(r=>r.tier===t).map(r=>r.stage))].join(' / ');
+    const totals=data.reduce((a,d)=>({l:a.l+d.ledger,p:a.p+d.pipe}),{l:0,p:0});
+    wrap.innerHTML =
+      `<div class="chead"><h3>Committed revenue plus pipeline — ${weighted?'weighted by stage':'total value at 100%'}</h3>
+       <div class="csum">${n} months · committed ${money(totals.l)} · pipeline ${money(Math.round(totals.p))} · total ${money(Math.round(totals.l+totals.p))}</div></div>
+       <div class="csvg${W>1240?' scroll':''}"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" class="sfchart">${g}</svg></div>
+       <div class="legend"><span><i style="background:${LEDGER_COLOR}"></i>Committed GP (shaped deals)</span>` +
+       tiersPresent.map(t=>`<span><i style="background:${TIER_COLORS[t]}"></i>${esc(tierLabel(t))}</span>`).join('') + `</div>`;
+  }
+
+  function render(){
+    const rows = build();
+    const shown = rows.filter(r=>showAll||r.forecastable);
+    if (rangeTo < rangeFrom) rangeTo = rangeFrom;
+    const cols = monthsRange(rangeFrom, rangeTo);
+    el.querySelector('#r-from').value = rangeFrom;
+    el.querySelector('#r-to').value = rangeTo;
+    el.querySelectorAll('[data-span]').forEach(b=>b.classList.toggle('on',+b.dataset.span===cols.length));
+
+    const nF=rows.filter(r=>r.forecastable).length;
+    const noLI=rows.filter(r=>r.flags.includes('no line items')).length;
+    const stale=rows.filter(r=>r.flags.includes('close date passed')).length;
+    const pct=rows.length?Math.round(nF/rows.length*100):0;
+    el.querySelector('#coverage').innerHTML = rows.length ? `<div class="cover ${pct>=70?'good':pct>=40?'warn':'bad'}">
+      ${nF} of ${rows.length} deals forecastable (${pct}%) —
+      ${noLI} without line items, ${stale} past their close date.
+      GP needs line items and campaign dates in HubSpot; fixing them there brings deals in on the next sync.</div>` : '';
+
+    renderChart(cols, shown);
+
+    const by={}; shown.forEach(r=>(by[r.client]=by[r.client]||[]).push(r));
+    const clients=Object.keys(by).sort((a,b)=>{
+      const t=x=>by[x].reduce((s,r)=>s+r.gp*(weighted?r.prob:1),0);
+      return t(b)-t(a);
+    });
+    let h='<table class="fc"><thead><tr><th class="cl">Client / deal</th><th class="pr">Stage</th>'+
+      cols.map(c=>`<th class="n">${label(c)}</th>`).join('')+'<th class="n tot">Total</th><th class="fl">Flags</th></tr></thead><tbody>';
+    const colTot={}; let grand=0;
+    clients.forEach(cn=>{
+      const ds=by[cn];
+      const cTot={}; let cSum=0;
+      ds.forEach(r=>{ const per=r.months.length? r.gp*(weighted?r.prob:1)/r.months.length : 0;
+        r.months.forEach(m=>{ if(cols.includes(m)) cTot[m]=(cTot[m]||0)+per; });
+        cSum+=r.gp*(weighted?r.prob:1); });
+      h+=`<tr class="crow"><td class="cl">${esc(cn)}</td><td></td>`+
+        cols.map(c=>`<td class="n">${cTot[c]?money(Math.round(cTot[c])):'<span class=z>·</span>'}</td>`).join('')+
+        `<td class="n tot">${money(Math.round(cSum))}</td><td></td></tr>`;
+      ds.sort((a,b)=>b.gp*(weighted?b.prob:1)-a.gp*(weighted?a.prob:1)).forEach(r=>{
+        const per=r.months.length? r.gp*(weighted?r.prob:1)/r.months.length : 0;
+        const tot=r.gp*(weighted?r.prob:1);
+        cols.forEach(c=>{ if(r.months.includes(c)) colTot[c]=(colTot[c]||0)+per; });
+        grand+=tot;
+        h+=`<tr class="drow${r.forecastable?'':' dim'}"><td class="cl">${esc(r.rest)}`+
+          (r.parts.length?`<div class="parts">${esc(r.parts.join(' · '))}</div>`:'')+`</td>`+
+          `<td class="pr">${esc(r.stage)}<span class="p">${Math.round(r.prob*100)}%</span></td>`+
+          cols.map(c=>`<td class="n">${r.months.includes(c)&&per?money(Math.round(per)):'<span class=z>·</span>'}</td>`).join('')+
+          `<td class="n tot">${tot?money(Math.round(tot)):'—'}</td>`+
+          `<td class="fl">${r.flags.map(f=>`<span class="flag ${/passed|before/.test(f)?'t':/no line|unmapped/.test(f)?'w':'i'}">${esc(f)}</span>`).join('')}</td></tr>`;
+      });
+    });
+    h+=`<tr class="grand"><td class="cl">Pipeline total — ${weighted?'weighted':'unweighted'}</td><td></td>`+
+      cols.map(c=>`<td class="n">${money(Math.round(colTot[c]||0))}</td>`).join('')+
+      `<td class="n tot">${money(Math.round(grand))}</td><td></td></tr></tbody></table>`;
+    el.querySelector('#tbl').innerHTML = shown.length ? h :
+      '<div class="empty">No forecastable deals in this pipeline above the threshold. Switch to “All deals” to see what is blocking them.</div>';
+  }
+
+  /* --------------------------------------------------------------- wiring */
+  el.querySelector('#pl').onchange = e => { pipeline = e.target.value; render(); };
+  el.querySelector('#r-from').onchange = e => { rangeFrom = e.target.value; render(); };
+  el.querySelector('#r-to').onchange = e => { rangeTo = e.target.value; render(); };
+  el.querySelector('#chart-toggle').onclick = () => {
+    chartOn = !chartOn; try { localStorage.setItem('sf-chart', chartOn?'1':'0'); } catch(e) {}
+    render();
+  };
+  el.querySelectorAll('[data-span]').forEach(b => b.onclick = () => {
+    rangeTo = shift(rangeFrom, +b.dataset.span - 1); render();
+  });
+  el.querySelectorAll('[data-w]').forEach(b => b.onclick = () => {
+    weighted = b.dataset.w==='1';
+    el.querySelectorAll('[data-w]').forEach(x=>x.classList.toggle('on',x===b)); render();
+  });
+  el.querySelectorAll('[data-f]').forEach(b => b.onclick = () => {
+    showAll = b.dataset.f==='1';
+    el.querySelectorAll('[data-f]').forEach(x=>x.classList.toggle('on',x===b)); render();
+  });
   render();
 });
 </script></body></html>
