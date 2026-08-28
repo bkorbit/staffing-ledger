@@ -14,41 +14,44 @@ export const fmt$ = c => '$' + (c / 100).toLocaleString(undefined, { maximumFrac
 export const esc = s => String(s ?? '').replace(/[&<>"']/g,
   c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 
-// One tab per module, old-app style. `soon` renders the tab with a soon tag; the
-// page behind it is an honest placeholder, so the map stays truthful.
-const TABS = [
+// Sidebar navigation, grouped by domain. `soon` marks honest placeholders.
+const NAV = [
+  { sect: 'Overview' },
   { id: 'home',      label: 'Home',            href: './index.html' },
   { id: 'forecast',  label: 'Forecast',        href: './forecast.html' },
   { id: 'cashflow',  label: 'Cashflow',        href: './cashflow.html' },
+  { sect: 'Revenue' },
   { id: 'sales',     label: 'Sales Forecast',  href: './sales.html' },
   { id: 'deals',     label: 'Deals',           href: './deals.html' },
   { id: 'scoping',   label: 'Scoping',         href: './scoping.html', soon: true },
+  { sect: 'Delivery' },
   { id: 'hourplan',  label: 'Hour Planning',   href: './hour-planning.html', soon: true },
   { id: 'hourrep',   label: 'Hours Reporting', href: './hours-reporting.html', soon: true },
   { id: 'depts',     label: 'Departments',     href: './departments.html', soon: true },
   { id: 'people',    label: 'People',          href: './people.html', soon: true },
+  { sect: 'Setup' },
   { id: 'clients',   label: 'Clients',         href: './clients.html' },
   { id: 'settings',  label: 'Settings',        href: './settings.html' },
 ];
 
 function renderShell(current) {
   document.body.innerHTML = `
-    <div class="app">
-      <header class="top">
-        <div>
+    <div class="layout">
+      <nav class="side">
+        <div class="brand">
           <div class="eyebrow">STAFFING &amp; PROFITABILITY</div>
-          <h1>EMG Ledger</h1>
+          <div class="brand-name">EMG Ledger</div>
         </div>
-        <div class="header-actions">
-          <span class="who">${esc(window.__email || '')}</span>
+        ${NAV.map(n => n.sect
+          ? `<div class="sect">${n.sect}</div>`
+          : `<a class="item ${n.id === current ? 'current' : ''}" href="${n.href}">
+               <span>${n.label}</span>${n.soon ? '<span class="soon">soon</span>' : ''}</a>`).join('')}
+        <div class="side-foot">
+          <div class="who">${esc(window.__email || '')}</div>
           <button class="ghost" id="signout">Sign out</button>
         </div>
-      </header>
-      <nav class="tab-bar">
-        ${TABS.map(t => `<a class="tab-btn ${t.id === current ? 'active' : ''}" href="${t.href}">
-            ${t.label}${t.soon ? '<span class="tab-soon">SOON</span>' : ''}</a>`).join('')}
       </nav>
-      <main id="content"></main>
+      <main class="content" id="content"></main>
     </div>`;
   document.getElementById('signout').onclick = async () => {
     await supa.auth.signOut(); location.reload();
