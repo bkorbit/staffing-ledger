@@ -25,6 +25,7 @@ boot('forecast', async (supa, el) => {
   const mLabel = iso => MO[+iso.slice(5,7)-1] + ' ' + iso.slice(2,4);
   const fmtN = c => (c/100).toLocaleString(undefined,{maximumFractionDigits:0});
   const fmtM = c => (c<0?'-$':'$') + Math.abs(c/100).toLocaleString(undefined,{maximumFractionDigits:0});
+  const fmtMoney = fmtM;
   const iso = d => d.toISOString().slice(0,10);
   const t0 = new Date(); t0.setUTCDate(1);
   const thisMonth = iso(t0).slice(0,8)+'01';
@@ -603,82 +604,102 @@ boot('forecast', async (supa, el) => {
     function draw() {
       const fm = monthsBetween(flight.start, flight.end);
       const openM = fm.filter(m=>!closed(m));
+      const closedM = fm.filter(m=>closed(m));
       const asSold = d.promotions?.[0]?.as_sold;
-      // a labelled param input, stacked label-over-box for clean wrapping
+      // a labelled param input, stacked label-over-box
       const field = (li, p, label, val, ph='0') =>
         `<label class="pf"><span class="pfl">${label}</span>
            <input class="p" data-li="${li}" data-p="${p}" value="${val}" placeholder="${ph}"></label>`;
-      const head = fm.map(m=>`<th title="${closed(m)?'closed month':''}">${mLabel(m)}${closed(m)?' ✓':''}</th>`).join('');
 
-      const lineRows = model.map((l, li) => {
+      // the month columns shown in every line's grid: one collapsed "closed" column
+      // (if any), then each open month
+      const cols = (closedM.length ? [{ closed:true, label:`${closedM.length} closed`, months:closedM }] : [])
+        .concat(openM.map(m => ({ closed:false, label:mLabel(m), months:[m] })));
+      const colHead = cols.map(c =>
+        `<th class="${c.closed?'closedcol':''}">${c.label}${c.closed?' ✓':''}</th>`).join('');
+
+      // ---- one block per line: a control strip, then that line's month cells ----
+      const lineBlocks = model.map((l, li) => {
         const cfg = KIND[l.kind];
         const mode = l.kind === 'creative' ? creativeMode(l) : null;
-        // ---- the line's controls (kind badge, structure, params, flighting) ----
         const kindLabel = l.kind === 'creative' ? `creative · ${mode}` : l.kind;
-        // creative structure selector
+        const isHourly = l.kind==='hourly' || (l.kind==='creative' && mode==='hourly');
+        const isBudget = cfg.cells==='budget';
+        const usesCells = isBudget || isHourly || (l.manual && !cfg.cells);
+
         const structSel = l.kind === 'creative'
           ? `<select class="cmode" data-li="${li}" title="how creative bills">
                <option value="retainer" ${mode==='retainer'?'selected':''}>retainer $/mo</option>
                <option value="hourly" ${mode==='hourly'?'selected':''}>hourly</option>
              </select>` : '';
-        // the flat/params inputs this line needs
-        const flatParams = (() => {
+
+        // params: amount / rate+hours / fee / margin as the kind needs
+        const params = (() => {
           const wantsAmount = (l.kind==='retainer'||l.kind==='custom'||(l.kind==='creative'&&mode==='retainer'));
-          const wantsHourly = (l.kind==='hourly'||(l.kind==='creative'&&mode==='hourly'));
           const bits = [];
-          if (wantsAmount)
-            bits.push(field(li,'amount','$ / flight month', l.params.amount||''));
-          if (wantsHourly) {
+          if (wantsAmount) bits.push(field(li,'amount','$ / flight month', l.params.amount||''));
+          if (isHourly) {
             bits.push(field(li,'rate','rate $/hr', l.params.rate||''));
             bits.push(field(li,'hours_per_month','hrs / mo', l.params.hours_per_month||''));
           }
           (cfg.defaults||[]).forEach(([p,label]) => {
-            if (p==='amount'||p==='rate'||p==='hours_per_month') return; // handled above
+            if (p==='amount'||p==='rate'||p==='hours_per_month') return;
             bits.push(field(li,p,label, p==='margin_pct'?(l.params[p]??''):(l.params[p]||''),
               p==='margin_pct'?marginDefault:'0'));
           });
           return bits.join('');
         })();
 
-        // ---- how this line flights: which cells, and the spread control ----
-        let cellsHtml, flightCtl = '';
-        const usesCells = cfg.cells === 'budget' || cfg.cells === 'hours'
-          || (l.kind==='creative' && mode==='hourly');
+        // the Total Budget box — for budget lines and hourly, an inline total that
+        // spreads across open months as you type. Flat lines use a per-month toggle.
+        let totalBox = '';
         if (usesCells) {
-          const hint = cfg.cells==='hours' || mode==='hourly' ? 'hrs' : 'budget $';
-          cellsHtml = fm.map(m=>`<td><input class="cell" data-li="${li}" data-m="${m}"
-              value="${l.cells[m] ?? ''}" placeholder="${closed(m)?'':hint}"
-              ${closed(m)?'disabled':''}></td>`).join('');
-          flightCtl = `<button class="spreadbtn" data-li="${li}"
-              title="spread a total evenly across the ${openM.length} open month(s)">spread total…</button>`;
+          const curTotal = openM.reduce((s,m)=>s+(+l.cells[m]||0),0);
+          const unit = isBudget ? 'Total budget $' : 'Total hours';
+          totalBox = `<label class="pf tb"><span class="pfl">${unit}</span>
+            <input class="totalbudget" data-li="${li}" value="${curTotal||''}" placeholder="spread evenly"></label>`;
         } else {
-          // flat lines (retainer / creative-retainer / custom): one number fills
-          // every open month; a manual override switches to per-month cells
-          if (l.manual) {
-            cellsHtml = fm.map(m=>`<td><input class="cell" data-li="${li}" data-m="${m}"
-                value="${l.cells[m] ?? (closed(m)?'':(l.params.amount||''))}" placeholder="${closed(m)?'':'$'}"
-                ${closed(m)?'disabled':''}></td>`).join('');
-            flightCtl = `<button class="spreadbtn" data-li="${li}" data-auto="1"
-                title="back to one amount across the whole flight">auto-spread</button>`;
-          } else {
-            const per = gpMonth(l, openM[0]||fm[0]);
-            cellsHtml = `<td colspan="${fm.length}" class="muted flatnote">
-                ${per?('$'+fmtN(per)+' every open month'):'enter an amount'} — ${openM.length} open month(s)</td>`;
-            flightCtl = `<button class="spreadbtn" data-li="${li}" data-manual="1"
-                title="override individual months">per-month…</button>`;
-          }
+          totalBox = l.manual
+            ? `<button class="spreadbtn" data-li="${li}" data-auto="1">back to flat</button>`
+            : `<button class="spreadbtn" data-li="${li}" data-manual="1">per-month override…</button>`;
         }
 
-        return `<tr class="lrow">
-          <td class="linehead">
-            <div class="lctl">
-              <span class="kbadge">${kindLabel}</span>
-              ${structSel}
-              <button class="danger delline" data-li="${li}" title="remove line">✕</button>
-            </div>
-            <div class="lparams">${flatParams}</div>
-            <div class="lflight">${flightCtl}</div>
-          </td>${cellsHtml}<td class="muted gp-line" data-li="${li}"></td></tr>`;
+        // the cells for this line, aligned to cols
+        const gpFor = m => gpMonth(l, m);
+        const cellFor = c => {
+          if (c.closed) {
+            const gp = c.months.reduce((s,m)=>s+gpFor(m),0);
+            return `<td class="closedcol muted">${gp?fmtMoney(gp):''}</td>`;
+          }
+          const m = c.months[0];
+          const gp = gpFor(m);
+          if (!usesCells) {
+            // flat auto line: derived $, read-only
+            return `<td class="cellwrap"><div class="cgp">${gp?fmtMoney(gp):''}</div></td>`;
+          }
+          // editable: GP on top (derived), the input (budget or hours) below
+          const raw = l.cells[m] ?? '';
+          const sub = isBudget ? 'budget' : 'hrs';
+          return `<td class="cellwrap">
+            <div class="cgp">${gp?fmtMoney(gp):''}</div>
+            <input class="cell" data-li="${li}" data-m="${m}" value="${raw}"
+              placeholder="${sub}" ${closed(m)?'disabled':''}></td>`;
+        };
+        const cells = cols.map(cellFor).join('');
+
+        return `<div class="lineblock">
+          <div class="linestrip">
+            <span class="kbadge">${kindLabel}</span>
+            ${structSel}
+            <div class="lparams">${params}${totalBox}</div>
+            <span style="flex:1"></span>
+            <span class="lgp" data-li="${li}"></span>
+            <button class="danger delline" data-li="${li}" title="remove line">✕</button>
+          </div>
+          <table class="linegrid"><tr>
+            <td class="rowlabelcol"></td>${cells}<td class="linegpcol"></td>
+          </tr></table>
+        </div>`;
       }).join('');
 
       box.innerHTML = `
@@ -706,17 +727,22 @@ boot('forecast', async (supa, el) => {
             <button class="use-achieved">apply to programmatic</button></span></div>` : ''}
         </div>
         <div class="editorbar"><span class="totals"></span></div>
-        <div class="gridwrap"><table class="grid">
-          <tr><th style="text-align:left">Line</th>${head}<th>line GP</th></tr>
-          ${lineRows || `<tr><td class="linehead muted" colspan="${fm.length+2}">no lines yet — add one below</td></tr>`}
-          <tr class="gp"><td class="linehead">GP forecast</td>
-            ${fm.map(m=>`<td data-gpm="${m}"></td>`).join('')}<td data-gptotal></td></tr>
-          <tr><td class="linehead muted">GP actual (QuickBooks)${d.qbo_project_id?'':' — no project'}</td>
-            ${fm.map(m=>`<td class="muted">${closed(m)&&actualByM[m]!==undefined?fmtN(actualByM[m]):''}</td>`).join('')}
-            <td class="muted">${fmtN(fm.reduce((s,m)=>s+(closed(m)?(actualByM[m]||0):0),0))||''}</td></tr>
-          <tr><td class="linehead muted">Δ actual vs forecast</td>
-            ${fm.map(m=>`<td data-diff="${m}"></td>`).join('')}<td></td></tr>
-        </table></div>
+        <div class="gridwrap">
+          <table class="colhead"><tr><th class="rowlabelcol">Line / month</th>${colHead}<th class="linegpcol">line GP</th></tr></table>
+          ${lineBlocks || `<div class="muted" style="padding:12px">no lines yet — add one below</div>`}
+          <table class="totalsgrid">
+            <tr class="gp"><td class="rowlabelcol">GP forecast</td>
+              ${cols.map((c,ci)=>`<td data-gpcol="${ci}"></td>`).join('')}<td data-gptotal class="linegpcol"></td></tr>
+            <tr><td class="rowlabelcol muted">GP actual (QuickBooks)${d.qbo_project_id?'':' — no project'}</td>
+              ${cols.map(c=>`<td class="muted">${
+                c.months.some(m=>closed(m)&&actualByM[m]!==undefined)
+                  ? fmtMoney(c.months.reduce((s,m)=>s+(closed(m)?(actualByM[m]||0):0),0)) : ''
+              }</td>`).join('')}
+              <td class="muted">${fmtMoney(fm.reduce((s,m)=>s+(closed(m)?(actualByM[m]||0):0),0))||''}</td></tr>
+            <tr><td class="rowlabelcol muted">Δ actual vs forecast</td>
+              ${cols.map((c,ci)=>`<td data-diffcol="${ci}"></td>`).join('')}<td></td></tr>
+          </table>
+        </div>
         <div class="muted lockednote">✓ months are locked: their actuals come from QuickBooks
         and their forecast froze when the month closed — accuracy is measured, never rewritten.</div>
         <div class="editorbar">
@@ -758,14 +784,25 @@ boot('forecast', async (supa, el) => {
         const l = model[+btn.dataset.li];
         if (btn.dataset.manual) { l.manual = true; draw(); return; }
         if (btn.dataset.auto)   { l.manual = false; l.cells = {}; draw(); return; }
-        // spread total across open months
-        const raw = prompt(`Total to spread evenly across the ${openM.length} open flight month(s):`);
-        if (raw === null) return;
-        const total = +raw; if (!(total > 0)) return;
-        const per = Math.floor(total / openM.length);
-        let rem = Math.round((total - per*openM.length) * 100) / 100;
-        openM.forEach((m,i) => l.cells[m] = i===openM.length-1 ? Math.round((per+rem)*100)/100 : per);
-        draw();
+      });
+      // Total Budget box: spread evenly across open months, remainder on the last
+      box.querySelectorAll('input.totalbudget').forEach(inp => inp.oninput = () => {
+        const l = model[+inp.dataset.li];
+        const total = +inp.value;
+        l.cells = {};
+        if (total > 0 && openM.length) {
+          const per = Math.floor((total / openM.length) * 100) / 100;
+          let acc = 0;
+          openM.forEach((m,i) => {
+            const v = i===openM.length-1 ? Math.round((total - acc)*100)/100 : per;
+            l.cells[m] = v; acc += per;
+          });
+        }
+        // refresh only this line's cells + totals, not the whole editor
+        box.querySelectorAll(`td.cellwrap input.cell[data-li="${inp.dataset.li}"]`).forEach(ci => {
+          ci.value = l.cells[ci.dataset.m] ?? '';
+        });
+        preview();
       });
         // the project picker: searchable over the FULL list; projects linked to
       // another deal stay visible and selectable — moving one is confirmed on save
@@ -799,6 +836,9 @@ boot('forecast', async (supa, el) => {
         const l = model[+inp.dataset.li];
         if (inp.value==='') delete l.cells[inp.dataset.m];
         else l.cells[inp.dataset.m] = +inp.value;
+        // keep the line's Total Budget box in sync with the sum of its cells
+        const tb = box.querySelector(`input.totalbudget[data-li="${inp.dataset.li}"]`);
+        if (tb) { const t = openM.reduce((s,m)=>s+(+l.cells[m]||0),0); tb.value = t || ''; }
         preview();
       });
       box.querySelectorAll('.delline').forEach(btn => btn.onclick = async e => {
@@ -847,25 +887,36 @@ boot('forecast', async (supa, el) => {
           let lt = 0;
           fm.forEach(m => { const g = gpMonth(l, m);
             if (g) { mgp[m]=(mgp[m]||0)+g; lt += g; } });
-          const cell = box.querySelector(`.gp-line[data-li="${li}"]`);
-          if (cell) cell.textContent = lt ? fmtN(lt) : '';
+          const lg = box.querySelector(`.lgp[data-li="${li}"]`);
+          if (lg) lg.textContent = lt ? `line GP $${fmtN(lt)}` : '';
           total += lt;
         });
-        fm.forEach(m => { const td = box.querySelector(`td[data-gpm="${m}"]`);
-          if (td) td.textContent = mgp[m] ? fmtN(mgp[m]) : ''; });
-        const tt = box.querySelector('td[data-gptotal]'); if (tt) tt.textContent = total?fmtN(total):'';
-        fm.forEach(m => {
-          const td = box.querySelector(`td[data-diff="${m}"]`);
-          if (!td) return;
-          const a = actualByM[m], f = mgp[m];
-          if (!closed(m) || a === undefined || !f) { td.innerHTML = ''; return; }
-          const pct = Math.round((a/f - 1)*100);
-          td.innerHTML = `<span class="${Math.abs(pct)>15?'err':'ok'}" style="font-size:10px">${pct>=0?'+':''}${pct}%</span>`;
+        // per-cell GP-on-top for editable lines, refreshed live
+        box.querySelectorAll('td.cellwrap').forEach(td => {
+          const inp = td.querySelector('input.cell'); if (!inp) return;
+          const l = model[+inp.dataset.li], m = inp.dataset.m;
+          const g = gpMonth(l, m);
+          const gpd = td.querySelector('.cgp'); if (gpd) gpd.textContent = g ? fmtMoney(g) : '';
         });
+        // column-aligned GP forecast + Δ (a closed column sums its months)
+        cols.forEach((c, ci) => {
+          const gp = c.months.reduce((s,m)=>s+(mgp[m]||0),0);
+          const td = box.querySelector(`td[data-gpcol="${ci}"]`);
+          if (td) td.textContent = gp ? fmtMoney(gp) : '';
+          const dtd = box.querySelector(`td[data-diffcol="${ci}"]`);
+          if (dtd) {
+            const a = c.months.reduce((s,m)=>s+(closed(m)&&actualByM[m]!==undefined?actualByM[m]:0),0);
+            const hasA = c.months.some(m=>closed(m)&&actualByM[m]!==undefined);
+            if (!hasA || !gp) { dtd.innerHTML=''; }
+            else { const pct = Math.round((a/gp - 1)*100);
+              dtd.innerHTML = `<span class="${Math.abs(pct)>15?'err':'ok'}" style="font-size:0.62rem">${pct>=0?'+':''}${pct}%</span>`; }
+          }
+        });
+        const tt = box.querySelector('td[data-gptotal]'); if (tt) tt.textContent = total?fmtMoney(total):'';
         const cls = asSold && total && Math.abs(total-asSold)/asSold < 0.02 ? 'total-match' : 'total-off';
         box.querySelector('.totals').innerHTML = (total||asSold)
           ? `<span class="${cls}">GP total $${fmtN(total)}</span>` +
-            (asSold?`<span class="muted" style="font-size:12px"> · sold $${fmtN(asSold)}</span>`:'') : '';
+            (asSold?`<span class="muted" style="font-size:0.78rem"> · sold $${fmtN(asSold)}</span>`:'') : '';
       }
 
       async function save() {

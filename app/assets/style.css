@@ -221,3 +221,46 @@ table.grid td .cell { width:100%; min-width:62px; height:28px; border:1px solid 
 table.grid td .cell:disabled { background:#f3f3f3; color:var(--slate); border-color:#ececec; }
 table.grid td .cell:focus { outline:none; border-color:var(--brand);
   box-shadow:0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); }
+
+/* ---- deal editor v2: line blocks with a control strip over a clean grid ---- */
+.gridwrap { overflow-x:auto; }
+.colhead, .linegrid, .totalsgrid { width:100%; border-collapse:collapse; table-layout:fixed; }
+.colhead th { font-family:var(--font-mono); font-size:0.6rem; letter-spacing:.06em; text-transform:uppercase;
+  color:var(--slate); background:#f4f4f2; padding:7px 8px; text-align:right; white-space:nowrap;
+  border-bottom:2px solid var(--brand); }
+.colhead .rowlabelcol, .totalsgrid .rowlabelcol { text-align:left; width:190px; }
+.colhead .closedcol { color:var(--slate); font-style:italic; }
+.colhead .linegpcol { width:96px; }
+/* the control strip above each line's cells */
+.lineblock { border-bottom:1px solid var(--line); }
+.linestrip { display:flex; align-items:center; gap:10px; padding:9px 8px 4px; flex-wrap:wrap; }
+.linestrip .kbadge { font-family:var(--font-mono); font-size:0.64rem; letter-spacing:.06em; text-transform:uppercase;
+  background:var(--mint); color:var(--brand); padding:4px 9px; border-radius:5px; white-space:nowrap; }
+.linestrip .lparams { display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; }
+.linestrip .lgp { font-family:var(--font-mono); font-size:0.72rem; color:var(--brand); font-weight:600; }
+.linestrip select.cmode { height:28px; border:1px solid var(--line); border-radius:5px;
+  font-family:var(--font-mono); font-size:0.72rem; background:var(--paper-raised); }
+.pf { display:inline-flex; flex-direction:column; gap:3px; }
+.pf.tb .pfl { color:var(--brand); }
+.pf .pfl { font-family:var(--font-mono); font-size:0.58rem; letter-spacing:.05em; text-transform:uppercase; color:var(--slate); }
+.pf input { width:120px; height:30px; border:1px solid var(--line); border-radius:6px; padding:0 9px;
+  font-family:var(--font-mono); font-size:0.8rem; background:var(--paper-raised); color:var(--ink); text-align:right; }
+.pf.tb input { border-color:var(--brand); width:140px; }
+/* the month cells: GP on top, small budget input below */
+.linegrid td { padding:4px 6px; text-align:right; vertical-align:top; border-left:1px solid #f0f0ee; }
+.linegrid td.closedcol { background:#fafafa; color:var(--slate); font-family:var(--font-mono);
+  font-size:0.76rem; vertical-align:middle; }
+.linegrid td.cellwrap .cgp { font-family:var(--font-mono); font-size:0.78rem; font-weight:600; color:var(--ink);
+  min-height:1em; margin-bottom:2px; }
+.linegrid td.cellwrap input.cell { width:100%; height:24px; border:1px solid var(--line); border-radius:4px;
+  text-align:right; padding:0 5px; font-family:var(--font-mono); font-size:0.68rem; color:var(--slate);
+  background:var(--paper-raised); }
+.linegrid td.cellwrap input.cell:disabled { background:#f3f3f3; border-color:#ececec; }
+.linegrid td.cellwrap input.cell:focus { outline:none; border-color:var(--brand);
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--brand) 16%, transparent); color:var(--ink); }
+.rowlabelcol { font-family:var(--font-body); }
+/* totals grid alignment + emphasis */
+.totalsgrid td { padding:7px 8px; text-align:right; font-family:var(--font-mono); font-size:0.8rem;
+  border-top:1px solid var(--line); white-space:nowrap; }
+.totalsgrid tr.gp td { color:var(--brand); font-weight:700; }
+.totalsgrid .linegpcol { width:96px; }
