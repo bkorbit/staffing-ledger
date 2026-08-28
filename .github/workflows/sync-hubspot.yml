@@ -1,20 +1,34 @@
-name: Sync HubSpot pipeline
- 
+name: Sync HubSpot
+
+# Manual until its first dispatch run is checked against the database, same protocol
+# as the QuickBooks sync. The nightly schedule goes on after that.
 on:
-  schedule:
-    - cron: '30 6 * * *'      # 06:30 UTC nightly, before the workday
   workflow_dispatch:
- 
+
 jobs:
-  sync:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Sync HubSpot deals into the ledger
+      - name: Unit tests
+        run: node scripts/test/hubspot.test.mjs
+      - name: End-to-end run against stubbed HubSpot and Supabase
+        run: node scripts/test/hubspot.e2e.mjs
+
+  sync:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Sync HubSpot into Postgres
         env:
           HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
         run: node scripts/sync-hubspot.mjs

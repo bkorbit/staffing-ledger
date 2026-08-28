@@ -1,233 +1,351 @@
-// Pull open HubSpot deals (with their line items and associated company) into the
-// EMG ledger, for the Sales Forecast tab.
+// HubSpot -> Postgres.
 //
-// Runs nightly via .github/workflows/sync-hubspot.yml.
-// Deliberately stores deals close to raw — line items are kept as-is and the gross
-// profit maths happens in the app, so changing the mapping in Settings takes effect
-// immediately rather than waiting for the next sync.
+// Two jobs, deliberately separate:
 //
-// Required secrets:
-//   HUBSPOT_TOKEN              – HubSpot private app token
-//   SUPABASE_SERVICE_ROLE_KEY  – Supabase service-role key (server-side only)
+//   MIRROR     every deal into pipeline_deals, verbatim. Sync-owned, disposable,
+//              replaced on every run. The sales forecast reads this.
+//   PROMOTE    won deals through the one-way door: create the client if it is new,
+//              create the deal skeleton, record the promotion forever. After this
+//              moment the ledger owns the deal and HubSpot edits do not reach it.
+//
+// What promotion does NOT do: touch deal lines. Line items in HubSpot have not been
+// enforced, so the as-sold amount travels in the promotion snapshot for reference and
+// humans shape the actual forecast lines in the platform. A deal skeleton with no
+// lines is visible and reviewable; an invented line would be a guess wearing a
+// number's clothes.
+//
+// A won deal that CANNOT promote — no company, or no campaign dates — is not forced
+// through with defaults. It stays mirrored, the reason is recorded in the run log,
+// and it promotes on a later run once fixed in HubSpot. The database constraint
+// (won deals must have a flight) is the contract; the sync respects it rather than
+// working around it.
+//
+// Client identity: the company name is matched against clients and client_aliases,
+// case-insensitively. This matching is the spine that later ties hour tracking to
+// clients, which is why a new company creates a client rather than a free-text label.
+//
+// Env: HUBSPOT_TOKEN, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+// State: sync_state where id='hubspot'.
 
-const HS_TOKEN = process.env.HUBSPOT_TOKEN;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const SUPABASE_URL = 'https://bdtzpeazcjgnsxodwzpz.supabase.co';
-const WORKSPACE_ID = 'default';
-const HS = 'https://api.hubapi.com';
-// Won deals stay in the payload for this long so they can still be copied to the ledger.
-const WON_RETAIN_DAYS = 60;
-// Deals won before the cutover were loaded into the ledger by hand, so pulling them in
-// would only create duplicates. Overridable from Settings via hubspotConfig.wonCutover.
-const WON_CUTOVER_DEFAULT = '2026-08-11';
+const HS_TOKEN     = process.env.HUBSPOT_TOKEN;
+const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const HS           = process.env.HS_BASE_URL || 'https://api.hubapi.com';
+const STATE_ID     = 'hubspot';
 
-if (!HS_TOKEN) fail('Missing HUBSPOT_TOKEN secret.');
-if (!SERVICE_KEY) fail('Missing SUPABASE_SERVICE_ROLE_KEY secret.');
-
-function fail(m) { console.error('✖ ' + m); process.exit(1); }
+const fail  = m => { throw new Error(m); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const cents = n => Math.round((+n || 0) * 100);
 
-async function hs(path, opts = {}, tries = 0) {
-  const res = await fetch(HS + path, {
-    ...opts,
-    headers: { Authorization: 'Bearer ' + HS_TOKEN, 'Content-Type': 'application/json', ...(opts.headers || {}) }
+function preflight() {
+  const missing = [];
+  if (!HS_TOKEN)     missing.push('HUBSPOT_TOKEN — repo secret, HubSpot private app token');
+  if (!SERVICE_KEY)  missing.push('SUPABASE_SERVICE_ROLE_KEY — repo secret');
+  if (!SUPABASE_URL) missing.push('SUPABASE_URL — repo variable');
+  if (!missing.length) return;
+  console.error('\n\u2716 Cannot run. Missing:');
+  missing.forEach((m, i) => console.error(`   ${i + 1}. ${m}`));
+  process.exit(1);
+}
+preflight();
+
+const sb = { apikey: SERVICE_KEY, Authorization: 'Bearer ' + SERVICE_KEY, 'Content-Type': 'application/json' };
+
+/* -------------------------------------------------------------- Supabase -- */
+
+async function sbGet(path) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: sb });
+  if (!r.ok) fail(`Supabase GET ${path} \u2192 ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+async function sbDelete(path) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { method: 'DELETE', headers: sb });
+  if (!r.ok) fail(`Supabase DELETE ${path} \u2192 ${r.status}: ${await r.text()}`);
+}
+async function sbInsert(table, rows, { returning = false } = {}) {
+  if (!rows.length) return [];
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+    method: 'POST',
+    headers: { ...sb, Prefer: returning ? 'return=representation' : 'return=minimal' },
+    body: JSON.stringify(rows)
   });
-  if (res.status === 429 && tries < 5) {            // rate limited — back off and retry
-    const wait = 1000 * Math.pow(2, tries);
-    console.log(`  rate limited, waiting ${wait}ms…`);
-    await sleep(wait);
-    return hs(path, opts, tries + 1);
-  }
-  if (!res.ok) fail(`HubSpot ${path} returned ${res.status}: ${(await res.text()).slice(0, 400)}`);
-  return res.json();
+  if (!r.ok) fail(`Supabase insert ${table} \u2192 ${r.status}: ${(await r.text()).slice(0, 500)}`);
+  return returning ? r.json() : [];
 }
-
-// ---------- HubSpot ----------
-
-async function searchDeals(pipelines, wonFrom) {
-  const props = ['dealname', 'dealstage', 'pipeline', 'amount', 'closedate',
-                 'campaign_start_date', 'campaign_end_date', 'hs_deal_stage_probability',
-                 'hs_is_closed', 'hs_is_closed_won',
-                 // job_code is the shared key with QuickBooks; the invoice totals are
-                 // already synced into HubSpot by the existing QuickBooks integration.
-                 'job_code', 'qb_project_link', 'total_amount_invoices', 'total_left_to_bill'];
-  const out = [];
-  const wonSince = Date.parse(wonFrom + 'T00:00:00Z');
-  for (const pl of pipelines) {
-    let after;
-    for (;;) {
-      const body = {
-        // group 1: still open · group 2: won recently, so it stays available to copy
-        filterGroups: [
-          { filters: [
-            { propertyName: 'pipeline', operator: 'EQ', value: pl },
-            { propertyName: 'hs_is_closed', operator: 'EQ', value: 'false' }
-          ]},
-          { filters: [
-            { propertyName: 'pipeline', operator: 'EQ', value: pl },
-            { propertyName: 'hs_is_closed_won', operator: 'EQ', value: 'true' },
-            { propertyName: 'closedate', operator: 'GTE', value: String(wonSince) }
-          ]}
-        ],
-        properties: props, limit: 100, ...(after ? { after } : {})
-      };
-      const d = await hs('/crm/v3/objects/deals/search', { method: 'POST', body: JSON.stringify(body) });
-      out.push(...(d.results || []));
-      after = d.paging && d.paging.next && d.paging.next.after;
-      if (!after) break;
-    }
-  }
-  return out;
-}
-
-// Batch-read associations, 100 ids at a time.
-async function assoc(fromType, toType, ids) {
-  const map = {};
-  for (let i = 0; i < ids.length; i += 100) {
-    const chunk = ids.slice(i, i + 100);
-    const d = await hs(`/crm/v4/associations/${fromType}/${toType}/batch/read`, {
-      method: 'POST', body: JSON.stringify({ inputs: chunk.map(id => ({ id: String(id) })) })
-    });
-    (d.results || []).forEach(r => {
-      map[r.from.id] = (r.to || []).map(t => t.toObjectId || t.id);
-    });
-  }
-  return map;
-}
-
-async function readBatch(objectType, ids, properties) {
-  const out = {};
-  for (let i = 0; i < ids.length; i += 100) {
-    const chunk = ids.slice(i, i + 100);
-    const d = await hs(`/crm/v3/objects/${objectType}/batch/read`, {
+async function sbUpsert(table, rows, onConflict) {
+  if (!rows.length) return;
+  const keys = [...new Set(rows.flatMap(Object.keys))];
+  const shaped = rows.map(r => {
+    const o = {};
+    for (const k of keys) o[k] = r[k] === undefined ? null : r[k];
+    return o;
+  });
+  for (let i = 0; i < shaped.length; i += 500) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?on_conflict=${onConflict}`, {
       method: 'POST',
-      body: JSON.stringify({ properties, inputs: chunk.map(id => ({ id: String(id) })) })
+      headers: { ...sb, Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify(shaped.slice(i, i + 500))
     });
-    (d.results || []).forEach(r => { out[r.id] = r.properties || {}; });
+    if (!r.ok) fail(`Supabase upsert ${table} \u2192 ${r.status}: ${(await r.text()).slice(0, 500)}`);
   }
-  return out;
 }
-
-// ---------- Supabase ----------
-
-const sbHeaders = { apikey: SERVICE_KEY, Authorization: 'Bearer ' + SERVICE_KEY, 'Content-Type': 'application/json' };
-let loadedVersion = null;
-
-async function loadLedger() {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/ledger_state?id=eq.${WORKSPACE_ID}&select=data,version`, { headers: sbHeaders });
-  if (!res.ok) fail(`Supabase read failed (${res.status}): ${await res.text()}`);
-  const rows = await res.json();
-  if (!rows.length) fail('No ledger row found — open the app once before syncing.');
-  loadedVersion = typeof rows[0].version === 'number' ? rows[0].version : 0;
-  return rows[0].data || {};
-}
-
-async function saveLedger(state) {
-  const url = `${SUPABASE_URL}/rest/v1/ledger_state?id=eq.${WORKSPACE_ID}&version=eq.${loadedVersion}`;
-  const res = await fetch(url, {
-    method: 'PATCH',
-    headers: { ...sbHeaders, Prefer: 'return=representation' },
-    body: JSON.stringify({ data: state, version: (loadedVersion || 0) + 1, updated_at: new Date().toISOString() })
+async function sbPatchState(patch) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/sync_state?id=eq.${STATE_ID}`, {
+    method: 'PATCH', headers: { ...sb, Prefer: 'return=minimal' },
+    body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() })
   });
-  if (!res.ok) fail(`Supabase write failed (${res.status}): ${await res.text()}`);
-  const rows = await res.json();
-  if (!rows.length) {
-    console.log('⚠ Ledger changed during sync (someone saved while it ran) — skipping write. Re-run.');
-    process.exit(0);
-  }
+  if (!r.ok) fail(`Supabase state write \u2192 ${r.status}: ${await r.text()}`);
 }
 
-// ---------- main ----------
+async function die(stage, err) {
+  const msg = err && err.message ? err.message : String(err);
+  console.error(`\u2716 [${stage}] ${msg}`);
+  try {
+    await sbPatchState({
+      last_run_at: new Date().toISOString(),
+      last_run_log: { ok: false, stage, error: msg.slice(0, 2000), at: new Date().toISOString() }
+    });
+    console.error('  (recorded in sync_state.last_run_log)');
+  } catch (e) {
+    console.error('  (could not record it: ' + (e.message || e) + ')');
+  }
+  process.exit(1);
+}
 
-const clean = v => (v === undefined || v === null || v === '') ? '' : String(v).slice(0, 10);
+/* --------------------------------------------------------------- HubSpot -- */
 
-(async () => {
-  const state = await loadLedger();
-  const cfg = state.hubspotConfig || {};
-  if (cfg.enabled === false) { console.log('Sync disabled in Settings — nothing to do.'); return; }
-  const pipelines = (cfg.pipelines && cfg.pipelines.length) ? cfg.pipelines : ['default'];
-  console.log('Pipelines:', pipelines.join(', '));
+async function hs(path, tries = 0) {
+  const r = await fetch(`${HS}${path}`, {
+    headers: { Authorization: 'Bearer ' + HS_TOKEN, Accept: 'application/json' }
+  });
+  if ((r.status === 429 || r.status >= 500) && tries < 5) {
+    const wait = 1000 * Math.pow(2, tries);
+    console.log(`  ${r.status} from HubSpot, retrying in ${wait}ms…`);
+    await sleep(wait);
+    return hs(path, tries + 1);
+  }
+  if (!r.ok) fail(`HubSpot ${path} \u2192 ${r.status}: ${(await r.text()).slice(0, 300)}`);
+  return r.json();
+}
 
-  // Retain won deals for 60 days, but never reach back past the cutover — whichever
-  // of the two is later wins, so the window slides forward once 60 days have elapsed.
-  const retainFrom = new Date(Date.now() - WON_RETAIN_DAYS * 86400000).toISOString().slice(0, 10);
-  const cutover = cfg.wonCutover || WON_CUTOVER_DEFAULT;
-  const wonFrom = retainFrom > cutover ? retainFrom : cutover;
-  console.log(`Won deals: keeping those closed on or after ${wonFrom} ` +
-    `(${WON_RETAIN_DAYS}-day retention, cutover ${cutover}).`);
+async function hsPost(path, body, tries = 0) {
+  const r = await fetch(`${HS}${path}`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + HS_TOKEN, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if ((r.status === 429 || r.status >= 500) && tries < 5) {
+    await sleep(1000 * Math.pow(2, tries));
+    return hsPost(path, body, tries + 1);
+  }
+  if (!r.ok) fail(`HubSpot ${path} \u2192 ${r.status}: ${(await r.text()).slice(0, 300)}`);
+  return r.json();
+}
 
-  const deals = await searchDeals(pipelines, wonFrom);
-  console.log(`Fetched ${deals.length} open deals.`);
-  if (!deals.length) { console.log('Nothing to write.'); return; }
+/* ---------------------------------------------------------------- pure -- */
+// Exported for tests.
 
-  const ids = deals.map(d => d.id);
-  console.log('Reading associations…');
-  const liMap = await assoc('deals', 'line_items', ids);
-  const coMap = await assoc('deals', 'companies', ids);
+// HubSpot date properties arrive as 'YYYY-MM-DD', ISO timestamps, or epoch millis
+// depending on property type and API mood. Normalise to a date or null — never guess.
+export function hsDate(v) {
+  if (v === undefined || v === null || v === '') return null;
+  const s = String(v);
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  if (/^\d+$/.test(s)) {
+    const d = new Date(+s);
+    return isNaN(d) ? null : d.toISOString().slice(0, 10);
+  }
+  return null;
+}
 
-  const liIds = [...new Set(Object.values(liMap).flat())];
-  const coIds = [...new Set(Object.values(coMap).flat())];
-  console.log(`  ${liIds.length} line items, ${coIds.length} companies.`);
+// The flight is stored as first-of-month dates (database constraint). A campaign
+// running Aug 14 to Nov 20 flies Aug through Nov.
+export function monthStart(dateStr) {
+  return dateStr ? dateStr.slice(0, 8) + '01' : null;
+}
 
-  const lineItems = liIds.length ? await readBatch('line_items', liIds, ['name', 'amount', 'price', 'quantity']) : {};
-  const companies = coIds.length ? await readBatch('companies', coIds, ['name']) : {};
+// Company names arrive with whitespace noise and inconsistent case. The KEY is for
+// matching only; the display name keeps its original form.
+export function nameKey(name) {
+  return String(name || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
 
-  // "Already copied" is derived from the ledger's own projects, not a stored flag, so it
-  // stays true only while the project actually exists.
-  const inLedgerFromProjects = new Set((state.projects || [])
-    .filter(p => p.hubspotDealId).map(p => String(p.hubspotDealId)));
+// Same jobcode convention as QuickBooks project names — the automatic join key.
+export function jobcodeFromName(name) {
+  const m = String(name || '').match(/\b\d{2}[a-z]{3,6}\d{5,8}\b/i);
+  return m ? m[0] : null;
+}
 
-  let withItems = 0, withCompany = 0;
-  const out = deals.map(d => {
+// Why a won deal cannot promote, or null if it can. The reasons are the run log's
+// vocabulary, so keep them short and stable.
+export function promotionBlocker(deal) {
+  if (!deal.company)         return 'no company';
+  if (!deal.campaign_start)  return 'no campaign start date';
+  if (!deal.campaign_end)    return 'no campaign end date';
+  if (deal.campaign_end < deal.campaign_start) return 'campaign ends before it starts';
+  return null;
+}
+
+/* ----------------------------------------------------------------- main -- */
+
+if (process.env.NODE_ENV !== 'test') main().catch(e => die('unhandled', e));
+
+async function main() {
+  let rows;
+  try { rows = await sbGet(`sync_state?id=eq.${STATE_ID}&select=*`); }
+  catch (e) { console.error('\u2716 [db-read] ' + (e.message || e)); process.exit(1); }
+  if (!rows.length) fail(`No sync_state row for '${STATE_ID}'. Run db/001_init.sql.`);
+
+  console.log('HubSpot sync');
+
+  // ---- stage metadata: which stages mean WON, and each stage's probability ----
+  const pipelines = await hs('/crm/v3/pipelines/deals');
+  const stageMeta = {};
+  (pipelines.results || []).forEach(p => (p.stages || []).forEach(s => {
+    stageMeta[s.id] = {
+      label: s.label,
+      won: String((s.metadata || {}).isClosedWon) === 'true',
+      probability: +((s.metadata || {}).probability ?? NaN)
+    };
+  }));
+  console.log(`  ${Object.keys(stageMeta).length} stages across ${(pipelines.results || []).length} pipeline(s)`);
+
+  // ---- all deals, paginated, with company associations ----
+  const props = ['dealname', 'amount', 'dealstage', 'closedate',
+                 'campaign_start_date', 'campaign_end_date', 'pipeline'];
+  const deals = [];
+  let after = '';
+  for (;;) {
+    const page = await hs(`/crm/v3/objects/deals?limit=100&properties=${props.join(',')}` +
+      `&associations=companies,line_items${after ? '&after=' + after : ''}`);
+    deals.push(...(page.results || []));
+    after = ((page.paging || {}).next || {}).after;
+    if (!after) break;
+    if (deals.length > 20000) { console.log('  \u26a0 over 20k deals — stopping'); break; }
+  }
+  console.log(`  ${deals.length} deals`);
+
+  // ---- company names, batch-read ----
+  const companyIds = [...new Set(deals.flatMap(d =>
+    (((d.associations || {}).companies || {}).results || []).map(a => a.id)))];
+  const companyName = {};
+  for (let i = 0; i < companyIds.length; i += 100) {
+    const batch = await hsPost('/crm/v3/objects/companies/batch/read', {
+      properties: ['name'],
+      inputs: companyIds.slice(i, i + 100).map(id => ({ id }))
+    });
+    (batch.results || []).forEach(c => { companyName[c.id] = (c.properties || {}).name || ''; });
+  }
+  console.log(`  ${companyIds.length} companies`);
+
+  // ---- line items, batch-read: enrichment only, promotion never depends on them ----
+  const liIds = [...new Set(deals.flatMap(d =>
+    (((d.associations || {})['line items'] || (d.associations || {}).line_items || {}).results || [])
+      .map(a => a.id)))];
+  const lineItem = {};
+  for (let i = 0; i < liIds.length; i += 100) {
+    const batch = await hsPost('/crm/v3/objects/line_items/batch/read', {
+      properties: ['name', 'amount', 'price', 'quantity'],
+      inputs: liIds.slice(i, i + 100).map(id => ({ id }))
+    });
+    (batch.results || []).forEach(li => { lineItem[li.id] = li.properties || {}; });
+  }
+  if (liIds.length) console.log(`  ${liIds.length} line items (stored for reference only)`);
+
+  // ---- mirror ----
+  const mirrored = deals.map(d => {
     const p = d.properties || {};
-    const items = (liMap[d.id] || []).map(id => {
-      const li = lineItems[id] || {};
-      return [li.name || '', +li.amount || 0];
-    }).filter(x => x[0] || x[1]);
-    if (items.length) withItems++;
-    const coId = (coMap[d.id] || [])[0];
-    const company = coId && companies[coId] ? (companies[coId].name || '') : '';
-    if (company) withCompany++;
+    const meta = stageMeta[p.dealstage] || {};
+    const firstCompany = ((((d.associations || {}).companies || {}).results || [])[0] || {}).id;
+    const lis = ((((d.associations || {})['line items'] || (d.associations || {}).line_items || {}).results) || [])
+      .map(a => lineItem[a.id]).filter(Boolean);
     return {
-      id: d.id,
-      name: p.dealname || 'Untitled',
-      company,
-      stage: p.dealstage || '',
-      prob: parseFloat(p.hs_deal_stage_probability) || 0,
-      amount: parseFloat(p.amount) || 0,
-      closeDate: clean(p.closedate),
-      campaignStart: clean(p.campaign_start_date),
-      campaignEnd: clean(p.campaign_end_date),
-      items,
-      won: String(p.hs_is_closed_won) === 'true',
-      jobCode: (p.job_code || '').trim(),
-      qbLink: p.qb_project_link || '',
-      billed: parseFloat(p.total_amount_invoices) || 0,
-      leftToBill: parseFloat(p.total_left_to_bill) || 0,
-      url: `https://app.hubspot.com/contacts/45979252/record/0-3/${d.id}`,
-      inLedger: inLedgerFromProjects.has(String(d.id))
+      hubspot_deal_id: String(d.id),
+      name: p.dealname || '',
+      company: companyName[firstCompany] || null,
+      stage: meta.label || p.dealstage || '',
+      probability: isNaN(meta.probability) ? null : meta.probability,
+      amount: p.amount ? cents(p.amount) : null,
+      close_date: hsDate(p.closedate),
+      campaign_start: hsDate(p.campaign_start_date),
+      campaign_end: hsDate(p.campaign_end_date),
+      is_won: !!meta.won,
+      jobcode: jobcodeFromName(p.dealname),
+      line_items: lis,
+      url: `https://app.hubspot.com/contacts/deals/${d.id}`,
+      synced_at: new Date().toISOString()
     };
   });
+  // Full replace: the mirror is disposable by design; promotions protect history.
+  await sbDelete('pipeline_deals?hubspot_deal_id=neq.__none__');
+  await sbUpsert('pipeline_deals', mirrored, 'hubspot_deal_id');
+  const won = mirrored.filter(m => m.is_won);
+  console.log(`  mirrored ${mirrored.length} (${won.length} won)`);
 
-  state.salesPipeline = { syncedAt: new Date().toISOString(), deals: out };
-  await saveLedger(state);
+  // ---- the one-way door ----
+  const already = new Set((await sbGet('promotions?select=hubspot_deal_id'))
+    .map(r => r.hubspot_deal_id));
+  const clients = await sbGet('clients?select=id,name');
+  const aliases = await sbGet('client_aliases?select=client_id,alias');
+  const clientByKey = {};
+  clients.forEach(c => { clientByKey[nameKey(c.name)] = c.id; });
+  aliases.forEach(a => { clientByKey[nameKey(a.alias)] = a.client_id; });
 
-  console.log('');
-  const nWon = out.filter(d => d.won).length;
-  console.log(`✔ Wrote ${out.length} deals (${out.length - nWon} open, ${nWon} won since ${wonFrom}).`);
-  console.log(`  ${withItems} have line items (${out.length - withItems} cannot be forecast until sales adds them).`);
-  console.log(`  ${withCompany} have an associated company.`);
-  const nJob = out.filter(d => d.jobCode).length;
-  const nBilled = out.filter(d => d.billed > 0).length;
-  console.log(`  ${nJob} carry a jobcode, ${nBilled} have QuickBooks billing totals.`);
-  // jobcodes that clearly are not jobcodes — someone pasted the wrong thing in
-  const badJob = out.filter(d => d.jobCode && (d.jobCode.length > 24 || /\s/.test(d.jobCode)));
-  if (badJob.length) {
-    console.log(`  ⚠ ${badJob.length} jobcode(s) look malformed:`);
-    badJob.slice(0, 5).forEach(d => console.log(`      ${d.name}: "${d.jobCode.slice(0, 60)}…"`));
+  const skipped = {};
+  let promoted = 0, newClients = 0;
+
+  for (const m of won) {
+    if (already.has(m.hubspot_deal_id)) continue;
+    const blocker = promotionBlocker(m);
+    if (blocker) { (skipped[blocker] = skipped[blocker] || []).push(m.name || m.hubspot_deal_id); continue; }
+
+    let clientId = clientByKey[nameKey(m.company)];
+    if (!clientId) {
+      const [c] = await sbInsert('clients',
+        [{ name: m.company.trim(), set_by: 'hubspot-sync' }], { returning: true });
+      clientId = c.id;
+      clientByKey[nameKey(m.company)] = clientId;
+      newClients++;
+    }
+
+    const [deal] = await sbInsert('deals', [{
+      client_id: clientId,
+      name: m.name || 'Unnamed deal',
+      status: 'won',
+      origin: 'hubspot',
+      flight_start: monthStart(m.campaign_start),
+      flight_end: monthStart(m.campaign_end),
+      hubspot_deal_id: m.hubspot_deal_id,
+      jobcode: m.jobcode,
+      promoted_at: new Date().toISOString(),
+      set_by: 'hubspot-sync'
+    }], { returning: true });
+
+    await sbInsert('promotions', [{
+      hubspot_deal_id: m.hubspot_deal_id,
+      deal_id: deal.id,
+      promoted_by: 'hubspot-sync',
+      source_payload: m            // the as-sold record, amount included, forever
+    }]);
+    promoted++;
   }
-  const noDates = out.filter(d => !d.campaignStart || !d.campaignEnd).length;
-  if (noDates) console.log(`  ⚠ ${noDates} have no campaign dates.`);
-  const stale = out.filter(d => d.closeDate && d.closeDate < new Date().toISOString().slice(0, 10)).length;
-  if (stale) console.log(`  ⚠ ${stale} are past their close date.`);
-})();
+
+  const skipCount = Object.values(skipped).reduce((s, a) => s + a.length, 0);
+  console.log(`  promoted ${promoted} (${newClients} new clients)` +
+    (skipCount ? `, ${skipCount} won deal(s) cannot promote yet:` : ''));
+  Object.entries(skipped).forEach(([why, names]) =>
+    console.log(`    ${why}: ${names.slice(0, 5).join(' · ')}${names.length > 5 ? ` +${names.length - 5} more` : ''}`));
+
+  await sbPatchState({
+    last_run_at: new Date().toISOString(),
+    last_run_log: {
+      ok: true,
+      deals: mirrored.length, won: won.length,
+      promoted, new_clients: newClients,
+      skipped: Object.fromEntries(Object.entries(skipped).map(([k, v]) => [k, v.length])),
+      skipped_names: skipped,
+      at: new Date().toISOString()
+    }
+  });
+  console.log('\u2714 Done.');
+}
