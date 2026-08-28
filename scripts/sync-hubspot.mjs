@@ -394,8 +394,12 @@ async function main() {
       name: m.name || 'Unnamed deal',
       status: 'won',
       origin: 'hubspot',
-      flight_start: monthStart(m.campaign_start),
-      flight_end: monthStart(m.campaign_end),
+      // exact HubSpot campaign dates, not month-truncated — 022 dropped the
+      // schema's first-of-month constraint and taught v_deal_month_forecast
+      // to date_trunc internally for its own month series; this was the one
+      // remaining place still throwing the day precision away at the door
+      flight_start: m.campaign_start,
+      flight_end: m.campaign_end,
       hubspot_deal_id: m.hubspot_deal_id,
       jobcode: m.jobcode,
       promoted_at: new Date().toISOString(),

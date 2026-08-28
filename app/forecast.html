@@ -1129,8 +1129,10 @@ boot('forecast', async (supa, el) => {
           }
           patch.qbo_project_id = chosenProj;
         }
-        if (flight.start !== d.flight_start) patch.flight_start = flight.start;
-        if (flight.end !== d.flight_end)     patch.flight_end   = flight.end;
+        // once a human sets flight dates here, no HubSpot-sourced backfill
+        // (028 or any future one) may touch this deal's dates again
+        if (flight.start !== d.flight_start) { patch.flight_start = flight.start; patch.flight_locked = true; }
+        if (flight.end !== d.flight_end)     { patch.flight_end   = flight.end;   patch.flight_locked = true; }
         if (Object.keys(patch).length) {
           patch.set_by = window.__email; patch.set_at = new Date().toISOString();
           const { error } = await supa.from('deals').update(patch).eq('id', d.id);

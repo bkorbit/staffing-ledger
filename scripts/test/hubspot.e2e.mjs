@@ -96,7 +96,7 @@ check(clients.length===1,'exactly 1 client created — Akron once, reused; skipp
 const dealRows=(writes.deals||[]);
 check(dealRows.length===2,'exactly 2 deals promoted (D1, D2): got '+dealRows.length);
 const d1=dealRows.find(d=>d.hubspot_deal_id==='D1')||{};
-check(d1.flight_start==='2026-09-01'&&d1.flight_end==='2026-12-01','D1 flight truncated to months: '+d1.flight_start+'..'+d1.flight_end);
+check(d1.flight_start==='2026-09-14'&&d1.flight_end==='2026-12-20','D1 flight keeps HubSpot exact dates: '+d1.flight_start+'..'+d1.flight_end);
 check(d1.jobcode==='26akrn260101','D1 jobcode extracted');
 const proms=(writes.promotions||[]);
 check(proms.length===2,'2 promotions recorded');
