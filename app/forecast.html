@@ -114,6 +114,7 @@ boot('forecast', async (supa, el) => {
   /* -------------------------------------------------------------- the data */
   let months, clientsById, dealsByClient, planByM, planBillByM, revByM, costByCM, openEditor = null;
   let projects = [], projTakenBy = {}, fixedCosts = [], runrate = { payroll:0, overhead:0 };
+  let revByProj = {}, cogsByProj = {}, openClients = new Set();
 
   async function loadAll() {
     if (rangeTo < rangeFrom) rangeTo = rangeFrom;
@@ -126,9 +127,9 @@ boot('forecast', async (supa, el) => {
         .in('status',['won','active'])
         .gte('flight_end','2026-01-01'),   // the platform starts at 2026
       supa.from('clients').select('id,name,active,qbo_customer_id').eq('active', true),
-      supa.from('invoices').select('issued_on,total')
+      supa.from('invoices').select('issued_on,total,qbo_project_id')
         .gte('issued_on', rangeFrom).lte('issued_on', shiftM(rangeTo,1)),
-      supa.from('v_cost_lines_classified').select('month,amount,class')
+      supa.from('v_cost_lines_classified').select('month,amount,class,qbo_project_id')
         .in('class',['cogs','payroll','overhead'])
         .gte('month', rangeFrom).lte('month', rangeTo),
       supa.from('settings').select('key,value')
@@ -143,17 +144,29 @@ boot('forecast', async (supa, el) => {
     fixedCosts = sv('forecast_fixed_costs') || [];
     runrate = { payroll: rrPay.data||0, overhead: rrOver.data||0 };
 
-    revByM = {}; (inv.data||[]).forEach(i => {
+    revByM = {}; revByProj = {};
+    (inv.data||[]).forEach(i => {
       const m = i.issued_on.slice(0,8)+'01';
-      if (m >= rangeFrom && m <= rangeTo) revByM[m] = (revByM[m]||0) + i.total;
+      if (m < rangeFrom || m > rangeTo) return;
+      revByM[m] = (revByM[m]||0) + i.total;
+      (revByProj[i.qbo_project_id] = revByProj[i.qbo_project_id]||{total:0,_:0})[
+        m <= thisMonth ? 'total' : '_'] += i.total;
     });
-    costByCM = {}; (cog.data||[]).forEach(c => {
-      (costByCM[c.class] = costByCM[c.class]||{})[c.month] = ((costByCM[c.class]||{})[c.month]||0) + c.amount; });
+    costByCM = {}; cogsByProj = {};
+    (cog.data||[]).forEach(c => {
+      (costByCM[c.class] = costByCM[c.class]||{})[c.month] = ((costByCM[c.class]||{})[c.month]||0) + c.amount;
+      if (c.class === 'cogs' && c.month <= thisMonth)
+        cogsByProj[c.qbo_project_id] = (cogsByProj[c.qbo_project_id]||0) + c.amount;
+    });
     planByM = {}; planBillByM = {}; const planByDeal = {};
     (fc.data||[]).forEach(r => {
       planByM[r.month] = (planByM[r.month]||0) + r.gp;
       planBillByM[r.month] = (planBillByM[r.month]||0) + (r.billable||0);
-      (planByDeal[r.deal_id] = planByDeal[r.deal_id]||{})[r.month] = ((planByDeal[r.deal_id]||{})[r.month]||0) + r.gp;
+      const p = planByDeal[r.deal_id] = planByDeal[r.deal_id] ||
+        { gpAll:0, gpSettled:0, billFuture:0 };
+      p.gpAll += r.gp;
+      if (r.month < thisMonth) p.gpSettled += r.gp;
+      else p.billFuture += (r.billable||0);
     });
     projects = (qp.data||[]);
     projTakenBy = {};
@@ -161,7 +174,7 @@ boot('forecast', async (supa, el) => {
     clientsById = {}; (cl.data||[]).forEach(c => clientsById[c.id] = c);
     dealsByClient = {};
     (dl.data||[]).forEach(d => { if (clientsById[d.client_id]) {
-      d._plan = planByDeal[d.id] || {};
+      d._agg = planByDeal[d.id] || { gpAll:0, gpSettled:0, billFuture:0 };
       (dealsByClient[d.client_id] = dealsByClient[d.client_id]||[]).push(d); }});
     render();
   }
@@ -194,9 +207,8 @@ boot('forecast', async (supa, el) => {
         </div>
       </div>
       <div class="sc-panel"><div id="chart"></div></div>
-      <div class="sc-panel" style="padding:0;overflow-x:auto"><table id="pl"></table></div>
       <div class="sc-panel" style="padding:0;overflow-x:auto">
-        <div class="sc-eyebrow" style="padding:10px 14px 0">Revenue by deal, rolled into clients — click a deal to shape it</div>
+        <div class="sc-eyebrow" style="padding:10px 14px 0">Clients over the range — arrow opens the deals; click a deal to shape it</div>
         <table class="sum" id="sum"></table></div>`;
 
     el.querySelector('#r-from').onchange = e => { rangeFrom = e.target.value+'-01'; loadAll(); };
@@ -233,7 +245,7 @@ boot('forecast', async (supa, el) => {
     };
     drawFixed();
 
-    // ---- per-month P&L: measured behind the line, projected ahead of it ----
+    // ---- per-month rows still feed the chart; the table is per client now ----
     const cur = thisMonth;
     const rowFor = m => {
       const settled = past(m), current = m === cur;
@@ -247,72 +259,126 @@ boot('forecast', async (supa, el) => {
       const other  = measured ? ((costByCM.overhead||{})[m]||0) : runrate.overhead;
       const fixed  = measured ? 0 : fixedTotal();
       const net = (measured ? actualGP : forecastGP) - labour - other - fixed;
-      const variance = settled && forecastGP && actualGP !== null
-        ? Math.round((actualGP/forecastGP - 1)*100) : null;
-      const basis = settled ? 'actual (QuickBooks)' : current ? 'month in progress' : 'forecast';
       return { m, settled, current, measured, revenue, cogs, forecastGP, actualGP,
-               labour, other, fixed, net, variance, basis };
+               labour, other, fixed, net };
     };
     const plRows = months.map(rowFor);
-
-    // ---- combo chart: revenue + cost stack as bars, net profit as the line ----
     comboChart(el.querySelector('#chart'), plRows);
 
-    el.querySelector('#pl').innerHTML =
-      `<tr><th style="width:20px"></th><th style="text-align:left">Month</th>
+    // ---- ONE table: clients over the range, deals under a collapsible arrow ----
+    const parentOf = {}; projects.forEach(p => parentOf[p.id] = p.parent_id || p.id);
+    const projsUnder = {}; projects.forEach(p => (projsUnder[parentOf[p.id]] = projsUnder[parentOf[p.id]]||[]).push(p.id));
+    const nSettled = months.filter(m=>past(m)).length;
+    const nFuture  = months.length - nSettled - (months.includes(cur)?1:0);
+
+    const dealRow = d => {
+      const p = d._agg || { gpAll:0, gpSettled:0, billFuture:0 };
+      const matched = !!d.qbo_project_id;
+      const revA = matched ? ((revByProj[d.qbo_project_id]||{}).total||0) : 0;
+      const cogsA = matched ? (cogsByProj[d.qbo_project_id]||0) : 0;
+      const revenue = revA + p.billFuture;
+      const actualGP = matched ? revA - cogsA : null;
+      const variance = matched && p.gpSettled && actualGP !== null
+        ? Math.round((actualGP/p.gpSettled - 1)*100) : null;
+      const basis = (matched ? 'actual + ' : (revA||cogsA ? '' : 'no QB link · ')) + 'forecast';
+      return { revenue, cogs:cogsA, forecastGP:p.gpAll, actualGP, variance, basis, matched };
+    };
+    const clientRow = c => {
+      const ds = dealsByClient[c.id]||[];
+      const myProjects = c.qbo_customer_id ? (projsUnder[c.qbo_customer_id]||[]) : [];
+      const revA = myProjects.reduce((s,pid)=>s+((revByProj[pid]||{}).total||0),0);
+      const cogsA = myProjects.reduce((s,pid)=>s+(cogsByProj[pid]||0),0);
+      const billFuture = ds.reduce((s,d)=>s+((d._agg||{}).billFuture||0),0);
+      const gpAll = ds.reduce((s,d)=>s+((d._agg||{}).gpAll||0),0);
+      const gpSettled = ds.reduce((s,d)=>s+((d._agg||{}).gpSettled||0),0);
+      const actualGP = (revA||cogsA) ? revA - cogsA : null;
+      const variance = gpSettled && actualGP !== null
+        ? Math.round((actualGP/gpSettled - 1)*100) : null;
+      const basis = (revA||cogsA ? 'actual (QuickBooks) + ' : '') + (gpAll ? 'forecast' : '—');
+      return { revenue:revA+billFuture, cogs:cogsA, forecastGP:gpAll, actualGP, variance, basis };
+    };
+
+    const num = v => v ? fmtN(v) : '';
+    const varCell = v => v===null||v===undefined ? '' :
+      `<span class="${Math.abs(v)>15?'err':'ok'}">${v>=0?'+':''}${v}%</span>`;
+
+    const clients = Object.values(clientsById).filter(c => {
+      const ds = dealsByClient[c.id]||[];
+      const cr = clientRow(c);
+      return ds.length || cr.revenue || cr.cogs;
+    }).map(c => ({ c, agg: clientRow(c) }))
+      .sort((a,b)=>(b.agg.revenue+b.agg.forecastGP)-(a.agg.revenue+a.agg.forecastGP));
+
+    let totals = { revenue:0, cogs:0, forecastGP:0, actualGP:0 };
+    const bodyRows = clients.map(({c, agg}) => {
+      totals.revenue+=agg.revenue; totals.cogs+=agg.cogs;
+      totals.forecastGP+=agg.forecastGP; totals.actualGP+=agg.actualGP||0;
+      const ds = (dealsByClient[c.id]||[]).sort((a,b)=>(b.flight_end||'').localeCompare(a.flight_end||''));
+      const isOpen = openClients.has(c.id);
+      const head = `<tr class="clientrow" data-cid="${c.id}" style="cursor:pointer">
+        <td class="textleft" style="font-weight:600">
+          <span class="muted">${ds.length?(isOpen?'▾':'▸'):'·'}</span>
+          <span class="ellip" title="${esc(c.name)}">${esc(c.name)}</span>
+          ${ds.length?`<span class="muted" style="font-size:9.5px"> ${ds.length}</span>`:''}</td>
+        <td>${num(agg.revenue)}</td><td>${num(agg.cogs)}</td>
+        <td style="color:var(--brand)">${num(agg.forecastGP)}</td>
+        <td>${agg.actualGP!==null?fmtN(agg.actualGP):'<span class="muted">—</span>'}</td>
+        <td>${varCell(agg.variance)}</td>
+        <td class="muted">·</td><td class="muted">·</td><td class="muted">·</td>
+        <td class="textleft muted" style="font-size:10px">${agg.basis}</td></tr>`;
+      const kids = !isOpen ? '' : ds.map(d => {
+        const r = dealRow(d);
+        return `<tr class="deallist" data-id="${d.id}" title="click to shape">
+          <td class="textleft" style="padding-left:26px">▸
+            <span class="ellip" style="max-width:190px" title="${esc(d.name)}">${esc(d.name)}</span>
+            ${d.reviewed_at?'':'<span class="warn">•</span>'}${r.matched?'':' <span class="muted" title="no QuickBooks project linked — pick one in the editor">?</span>'}</td>
+          <td>${num(r.revenue)}</td><td>${num(r.cogs)}</td>
+          <td style="color:var(--brand)">${num(r.forecastGP)}</td>
+          <td>${r.actualGP!==null?fmtN(r.actualGP):'<span class="muted">—</span>'}</td>
+          <td>${varCell(r.variance)}</td>
+          <td class="muted">·</td><td class="muted">·</td><td class="muted">·</td>
+          <td class="textleft muted" style="font-size:10px">${r.basis}</td></tr>
+        <tr class="editor" data-for="${d.id}" hidden><td colspan="10" class="textleft"><div class="edbox"></div></td></tr>`;
+      }).join('');
+      return head + kids;
+    }).join('');
+
+    // the company row carries what clients honestly cannot yet: labour, overhead, net
+    const labourT = plRows.reduce((s,r)=>s+r.labour,0);
+    const otherT  = plRows.reduce((s,r)=>s+r.other,0);
+    const fixedT  = plRows.reduce((s,r)=>s+r.fixed,0);
+    const netT    = plRows.reduce((s,r)=>s+r.net,0);
+    const unattributedRev = plRows.filter(r=>r.measured).reduce((s,r)=>s+r.revenue,0)
+      + plRows.filter(r=>!r.measured).reduce((s,r)=>s+r.revenue,0) - totals.revenue;
+
+    el.querySelector('#sum').innerHTML =
+      `<tr><th style="text-align:left;min-width:230px">Client / deal</th>
         <th>Revenue billed</th><th>COGS</th><th>Forecast GP</th><th>Actual GP</th>
         <th>Variance</th><th>Labour</th><th>Other exp.</th><th>Net profit</th>
         <th style="text-align:left">Basis</th></tr>` +
-      plRows.map(r => `<tr ${r.current?'style="border-top:2px solid var(--brand)"':''}>
-        <td><span style="display:inline-block;width:9px;height:9px;border-radius:2px;
-          background:${r.settled?'var(--brand)':r.current?'var(--gold)':'var(--mint)'}"></span></td>
-        <td class="textleft" style="${r.settled?'':'color:var(--slate)'}">${mLabel(r.m)}</td>
-        <td>${r.revenue?fmtN(r.revenue):''}</td>
-        <td>${r.cogs?fmtN(r.cogs):''}</td>
-        <td style="color:var(--brand)">${r.forecastGP?fmtN(r.forecastGP):''}</td>
-        <td>${r.actualGP!==null?fmtN(r.actualGP):'<span class="muted">—</span>'}</td>
-        <td>${r.variance!==null?`<span class="${Math.abs(r.variance)>15?'err':'ok'}">${r.variance>=0?'+':''}${r.variance}%</span>`:''}</td>
-        <td>${r.labour?fmtN(r.labour):''}</td>
-        <td>${r.other?fmtN(r.other):''}</td>
-        <td class="${r.net<0?'err':''}" style="font-weight:600">${fmtN(r.net)}</td>
-        <td class="textleft muted" style="font-size:10px">${r.basis}${r.fixed?` · fixed −${fmtN(r.fixed)}`:''}</td>
-      </tr>`).join('') +
-      (() => { const t = plRows.reduce((a,r)=>({rev:a.rev+r.revenue,cogs:a.cogs+r.cogs,
-          fgp:a.fgp+r.forecastGP,agp:a.agp+(r.actualGP||0),lab:a.lab+r.labour,
-          oth:a.oth+r.other,net:a.net+r.net}),{rev:0,cogs:0,fgp:0,agp:0,lab:0,oth:0,net:0});
-        return `<tr class="gp"><td></td><td class="textleft">total</td>
-          <td>${fmtN(t.rev)}</td><td>${fmtN(t.cogs)}</td><td>${fmtN(t.fgp)}</td>
-          <td>${fmtN(t.agp)}</td><td></td><td>${fmtN(t.lab)}</td><td>${fmtN(t.oth)}</td>
-          <td style="font-weight:700" class="${t.net<0?'err':''}">${fmtN(t.net)}</td><td></td></tr>`; })();
+      bodyRows +
+      (Math.abs(unattributedRev) > 100 ? `<tr>
+        <td class="textleft muted">unattributed (no client link)</td>
+        <td class="muted">${fmtN(unattributedRev)}</td>
+        <td colspan="7"></td><td class="textleft muted" style="font-size:10px">link clients on the Clients tab</td></tr>` : '') +
+      `<tr class="gp"><td class="textleft">company — ${months.length} months</td>
+        <td>${fmtN(plRows.reduce((s,r)=>s+r.revenue,0))}</td>
+        <td>${fmtN(plRows.reduce((s,r)=>s+r.cogs,0))}</td>
+        <td>${fmtN(plRows.reduce((s,r)=>s+r.forecastGP,0))}</td>
+        <td>${fmtN(plRows.filter(r=>r.measured).reduce((s,r)=>s+(r.actualGP||0),0))}</td>
+        <td></td>
+        <td>${fmtN(labourT)}</td><td>${fmtN(otherT+fixedT)}</td>
+        <td style="font-weight:700" class="${netT<0?'err':''}">${fmtN(netT)}</td>
+        <td class="textleft muted" style="font-size:10px">labour &amp; overhead are company-level
+          until hour tracking lands — net by client follows then</td></tr>`;
 
-    // ---- revenue by deal rolled into clients (unchanged) ----
-    const rows = Object.values(clientsById).filter(c =>
-      (dealsByClient[c.id]||[]).length).sort((a,b)=>a.name.localeCompare(b.name));
-    const nCols = months.length + 2;
-    const clientBlocks = rows.map(c => {
-      const ds = (dealsByClient[c.id]||[]).sort((a,b)=>(b.flight_end||'').localeCompare(a.flight_end||''));
-      const cByM = {}; ds.forEach(d => months.forEach(m => cByM[m]=(cByM[m]||0)+(d._plan[m]||0)));
-      const cTot = months.reduce((s,m)=>s+(cByM[m]||0),0);
-      return `<tr><td class="textleft" style="font-weight:600"><span class="ellip" title="${esc(c.name)}">${esc(c.name)}</span></td>
-          ${months.map(m=>`<td style="font-weight:600">${cByM[m]?fmtN(cByM[m]):''}</td>`).join('')}
-          <td style="font-weight:600">${cTot?fmtN(cTot):''}</td></tr>` +
-        ds.map(d => {
-          const tot = months.reduce((s,m)=>s+(d._plan[m]||0),0);
-          return `<tr class="deallist" data-id="${d.id}" title="click to shape">
-            <td class="textleft" style="padding-left:20px"><span class="muted">▸</span>
-              <span class="ellip" style="max-width:180px" title="${esc(d.name)}">${esc(d.name)}</span>
-              ${d.reviewed_at?'':'<span class="warn">•</span>'}${d.qbo_project_id?'':' <span class="muted" title="no QuickBooks project linked — pick one in the editor">?</span>'}</td>
-            ${months.map(m=>`<td>${d._plan[m]?`<span class="${d.reviewed_at?'':'warn'}">${fmtN(d._plan[m])}</span>`:''}</td>`).join('')}
-            <td class="muted">${tot?fmtN(tot):''}</td></tr>
-          <tr class="editor" data-for="${d.id}" hidden><td colspan="${nCols}" class="textleft"><div class="edbox"></div></td></tr>`;
-        }).join('');
-    }).join('');
-
-
-    el.querySelector('#sum').innerHTML =
-      `<tr><th style="text-align:left;min-width:170px"></th>
-        ${months.map(m=>`<th ${m===thisMonth?'style="border-left:2px solid var(--brand)"':''}>${mLabel(m)}${past(m)?' ✓':''}</th>`).join('')}<th>total</th></tr>
-      ${clientBlocks}`;
+    el.querySelectorAll('tr.clientrow').forEach(tr => {
+      tr.onclick = () => {
+        const id = tr.dataset.cid;
+        openClients.has(id) ? openClients.delete(id) : openClients.add(id);
+        render();
+      };
+    });
 
     el.querySelectorAll('tr.deallist').forEach(tr => {
       tr.onclick = () => toggleEditor(tr.dataset.id);
