@@ -24,6 +24,7 @@ boot('forecast', async (supa, el) => {
   const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const mLabel = iso => MO[+iso.slice(5,7)-1] + ' ' + iso.slice(2,4);
   const fmtN = c => (c/100).toLocaleString(undefined,{maximumFractionDigits:0});
+  const fmtM = c => (c<0?'-$':'$') + Math.abs(c/100).toLocaleString(undefined,{maximumFractionDigits:0});
   const iso = d => d.toISOString().slice(0,10);
   const t0 = new Date(); t0.setUTCDate(1);
   const thisMonth = iso(t0).slice(0,8)+'01';
@@ -115,6 +116,7 @@ boot('forecast', async (supa, el) => {
   let months, clientsById, dealsByClient, planByM, planBillByM, revByM, costByCM, openEditor = null;
   let projects = [], projTakenBy = {}, fixedCosts = [], runrate = { payroll:0, overhead:0 };
   let revByProj = {}, cogsByProj = {}, openClients = new Set();
+  let tableSort = { key:'revenue', dir:-1 }, tableQuery = '';
 
   async function loadAll() {
     if (rangeTo < rangeFrom) rangeTo = rangeFrom;
@@ -207,9 +209,15 @@ boot('forecast', async (supa, el) => {
         </div>
       </div>
       <div class="sc-panel"><div id="chart"></div></div>
-      <div class="sc-panel" style="padding:0;overflow-x:auto">
-        <div class="sc-eyebrow" style="padding:10px 14px 0">Clients over the range — arrow opens the deals; click a deal to shape it</div>
-        <table class="sum" id="sum"></table></div>`;
+      <div class="sc-panel" style="padding:0">
+        <div class="tbltools">
+          <span class="sc-eyebrow" style="margin:0">Clients over the range</span>
+          <input type="search" id="tq" placeholder="search clients & deals…" value="${esc(tableQuery)}">
+          <span id="missing-note" class="muted" style="font-size:11px"></span>
+          <span style="flex:1"></span>
+          <span class="muted" style="font-size:10.5px">arrow opens deals · click a deal to shape it · click a header to sort</span>
+        </div>
+        <div style="overflow-x:auto"><table class="acct" id="sum"></table></div></div>`;
 
     el.querySelector('#r-from').onchange = e => { rangeFrom = e.target.value+'-01'; loadAll(); };
     el.querySelector('#r-to').onchange   = e => { rangeTo   = e.target.value+'-01'; loadAll(); };
@@ -298,79 +306,96 @@ boot('forecast', async (supa, el) => {
       return { revenue:revA+billFuture, cogs:cogsA, forecastGP:gpAll, actualGP, variance, basis };
     };
 
-    const num = v => v ? fmtN(v) : '';
+    const num = v => v ? fmtM(v) : '';
     const varCell = v => v===null||v===undefined ? '' :
       `<span class="${Math.abs(v)>15?'err':'ok'}">${v>=0?'+':''}${v}%</span>`;
+    const noFc = `<span class="pill warn" title="no lines shaped — open the deal and give it a plan">no forecast</span>`;
 
+    const q = tableQuery.trim().toLowerCase();
     const clients = Object.values(clientsById).filter(c => {
       const ds = dealsByClient[c.id]||[];
       const cr = clientRow(c);
-      return ds.length || cr.revenue || cr.cogs;
-    }).map(c => ({ c, agg: clientRow(c) }))
-      .sort((a,b)=>(b.agg.revenue+b.agg.forecastGP)-(a.agg.revenue+a.agg.forecastGP));
+      const hasData = ds.length || cr.revenue || cr.cogs;
+      if (!hasData) return false;
+      if (!q) return true;
+      return c.name.toLowerCase().includes(q) ||
+             ds.some(d => d.name.toLowerCase().includes(q));
+    }).map(c => ({ c, agg: clientRow(c),
+                   missing: (dealsByClient[c.id]||[]).filter(d => !(d._agg||{}).gpAll).length }));
+
+    const dir = tableSort.dir, key = tableSort.key;
+    const sv = a => key==='name' ? a.c.name.toLowerCase()
+      : key==='variance' ? (a.agg.variance ?? -1e15*dir)
+      : (a.agg[key] ?? 0);
+    clients.sort((a,b)=>{ const x=sv(a), y=sv(b);
+      return (x<y?-1:x>y?1:0) * (key==='name'?-dir:dir) * -1; });
+
+    const totalMissing = Object.values(dealsByClient).flat().filter(d=>!(d._agg||{}).gpAll).length;
 
     let totals = { revenue:0, cogs:0, forecastGP:0, actualGP:0 };
-    const bodyRows = clients.map(({c, agg}) => {
+    const bodyRows = clients.map(({c, agg, missing}) => {
       totals.revenue+=agg.revenue; totals.cogs+=agg.cogs;
       totals.forecastGP+=agg.forecastGP; totals.actualGP+=agg.actualGP||0;
-      const ds = (dealsByClient[c.id]||[]).sort((a,b)=>(b.flight_end||'').localeCompare(a.flight_end||''));
-      const isOpen = openClients.has(c.id);
-      const head = `<tr class="clientrow" data-cid="${c.id}" style="cursor:pointer">
-        <td class="textleft" style="font-weight:600">
-          <span class="muted">${ds.length?(isOpen?'▾':'▸'):'·'}</span>
-          <span class="ellip" title="${esc(c.name)}">${esc(c.name)}</span>
-          ${ds.length?`<span class="muted" style="font-size:9.5px"> ${ds.length}</span>`:''}</td>
+      const ds = (dealsByClient[c.id]||[])
+        .filter(d => !q || d.name.toLowerCase().includes(q) || c.name.toLowerCase().includes(q))
+        .sort((a,b)=>(b.flight_end||'').localeCompare(a.flight_end||''));
+      const isOpen = openClients.has(c.id) || (q && ds.length);
+      const head = `<tr class="clientrow" data-cid="${c.id}">
+        <td><span class="muted">${ds.length?(isOpen?'▾':'▸'):'·'}</span>
+          <span class="ellip" style="max-width:240px" title="${esc(c.name)}">${esc(c.name)}</span>
+          ${missing?`<span class="pill warn" style="margin-left:6px" title="${missing} deal(s) with no forecast">${missing} unshaped</span>`:''}</td>
         <td>${num(agg.revenue)}</td><td>${num(agg.cogs)}</td>
-        <td style="color:var(--brand)">${num(agg.forecastGP)}</td>
-        <td>${agg.actualGP!==null?fmtN(agg.actualGP):'<span class="muted">—</span>'}</td>
+        <td style="color:var(--brand)">${agg.forecastGP?fmtM(agg.forecastGP):(ds.length?noFc:'')}</td>
+        <td>${agg.actualGP!==null?`<span class="${agg.actualGP<0?'neg':''}">${fmtM(agg.actualGP)}</span>`:'<span class="muted">—</span>'}</td>
         <td>${varCell(agg.variance)}</td>
-        <td class="muted">·</td><td class="muted">·</td><td class="muted">·</td>
-        <td class="textleft muted" style="font-size:10px">${agg.basis}</td></tr>`;
+        <td style="text-align:left" class="muted">${agg.basis}</td></tr>`;
       const kids = !isOpen ? '' : ds.map(d => {
         const r = dealRow(d);
-        return `<tr class="deallist" data-id="${d.id}" title="click to shape">
-          <td class="textleft" style="padding-left:26px">▸
-            <span class="ellip" style="max-width:190px" title="${esc(d.name)}">${esc(d.name)}</span>
-            ${d.reviewed_at?'':'<span class="warn">•</span>'}${r.matched?'':' <span class="muted" title="no QuickBooks project linked — pick one in the editor">?</span>'}</td>
+        return `<tr class="dealsub deallist" data-id="${d.id}" title="click to shape">
+          <td style="padding-left:28px">▸
+            <span class="ellip" style="max-width:210px" title="${esc(d.name)}">${esc(d.name)}</span>
+            ${d.reviewed_at?'':'<span class="warn" title="awaiting review">•</span>'}${r.matched?'':' <span class="muted" title="no QuickBooks project linked — pick one in the editor">?</span>'}</td>
           <td>${num(r.revenue)}</td><td>${num(r.cogs)}</td>
-          <td style="color:var(--brand)">${num(r.forecastGP)}</td>
-          <td>${r.actualGP!==null?fmtN(r.actualGP):'<span class="muted">—</span>'}</td>
+          <td style="color:var(--brand)">${r.forecastGP?fmtM(r.forecastGP):noFc}</td>
+          <td>${r.actualGP!==null?`<span class="${r.actualGP<0?'neg':''}">${fmtM(r.actualGP)}</span>`:'<span class="muted">—</span>'}</td>
           <td>${varCell(r.variance)}</td>
-          <td class="muted">·</td><td class="muted">·</td><td class="muted">·</td>
-          <td class="textleft muted" style="font-size:10px">${r.basis}</td></tr>
-        <tr class="editor" data-for="${d.id}" hidden><td colspan="10" class="textleft"><div class="edbox"></div></td></tr>`;
+          <td style="text-align:left" class="muted">${r.basis}</td></tr>`;
       }).join('');
       return head + kids;
     }).join('');
 
-    // the company row carries what clients honestly cannot yet: labour, overhead, net
-    const labourT = plRows.reduce((s,r)=>s+r.labour,0);
-    const otherT  = plRows.reduce((s,r)=>s+r.other,0);
-    const fixedT  = plRows.reduce((s,r)=>s+r.fixed,0);
-    const netT    = plRows.reduce((s,r)=>s+r.net,0);
-    const unattributedRev = plRows.filter(r=>r.measured).reduce((s,r)=>s+r.revenue,0)
-      + plRows.filter(r=>!r.measured).reduce((s,r)=>s+r.revenue,0) - totals.revenue;
+    const unattributedRev = plRows.reduce((s,r)=>s+r.revenue,0) - totals.revenue;
+    const HCOLS = [['name','Client / deal'],['revenue','Revenue billed'],['cogs','COGS'],
+      ['forecastGP','Forecast GP'],['actualGP','Actual GP'],['variance','Variance'],[null,'Basis']];
 
     el.querySelector('#sum').innerHTML =
-      `<tr><th style="text-align:left;min-width:230px">Client / deal</th>
-        <th>Revenue billed</th><th>COGS</th><th>Forecast GP</th><th>Actual GP</th>
-        <th>Variance</th><th>Labour</th><th>Other exp.</th><th>Net profit</th>
-        <th style="text-align:left">Basis</th></tr>` +
+      `<tr>${HCOLS.map(([k,label]) => k
+        ? `<th data-sort="${k}">${label}${tableSort.key===k?`<span class="dir">${tableSort.dir<0?'▼':'▲'}</span>`:''}</th>`
+        : `<th style="cursor:default;text-align:left">${label}</th>`).join('')}</tr>` +
       bodyRows +
       (Math.abs(unattributedRev) > 100 ? `<tr>
-        <td class="textleft muted">unattributed (no client link)</td>
-        <td class="muted">${fmtN(unattributedRev)}</td>
-        <td colspan="7"></td><td class="textleft muted" style="font-size:10px">link clients on the Clients tab</td></tr>` : '') +
-      `<tr class="gp"><td class="textleft">company — ${months.length} months</td>
-        <td>${fmtN(plRows.reduce((s,r)=>s+r.revenue,0))}</td>
-        <td>${fmtN(plRows.reduce((s,r)=>s+r.cogs,0))}</td>
-        <td>${fmtN(plRows.reduce((s,r)=>s+r.forecastGP,0))}</td>
-        <td>${fmtN(plRows.filter(r=>r.measured).reduce((s,r)=>s+(r.actualGP||0),0))}</td>
+        <td class="muted">unattributed (no client link)</td>
+        <td class="muted">${fmtM(unattributedRev)}</td>
+        <td colspan="4"></td><td style="text-align:left" class="muted">link clients on the Clients tab</td></tr>` : '') +
+      `<tr class="totalrow"><td>company — ${months.length} months</td>
+        <td>${fmtM(plRows.reduce((s,r)=>s+r.revenue,0))}</td>
+        <td>${fmtM(plRows.reduce((s,r)=>s+r.cogs,0))}</td>
+        <td>${fmtM(plRows.reduce((s,r)=>s+r.forecastGP,0))}</td>
+        <td>${fmtM(plRows.filter(r=>r.measured).reduce((s,r)=>s+(r.actualGP||0),0))}</td>
         <td></td>
-        <td>${fmtN(labourT)}</td><td>${fmtN(otherT+fixedT)}</td>
-        <td style="font-weight:700" class="${netT<0?'err':''}">${fmtN(netT)}</td>
-        <td class="textleft muted" style="font-size:10px">labour &amp; overhead are company-level
-          until hour tracking lands — net by client follows then</td></tr>`;
+        <td style="text-align:left;font-size:9.5px;font-weight:400">labour &amp; overhead live in the chart — 6-month trailing average forward</td></tr>`;
+
+    el.querySelector('#missing-note').innerHTML = totalMissing
+      ? `<span class="warn">${totalMissing} deal${totalMissing>1?'s':''} missing a forecast</span>` : '';
+
+    const tq = el.querySelector('#tq');
+    tq.oninput = () => { tableQuery = tq.value; render();
+      const n = el.querySelector('#tq'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); };
+    el.querySelectorAll('th[data-sort]').forEach(th => th.onclick = () => {
+      const k = th.dataset.sort;
+      tableSort = { key:k, dir: tableSort.key===k ? -tableSort.dir : -1 };
+      render();
+    });
 
     el.querySelectorAll('tr.clientrow').forEach(tr => {
       tr.onclick = () => {
@@ -383,20 +408,33 @@ boot('forecast', async (supa, el) => {
     el.querySelectorAll('tr.deallist').forEach(tr => {
       tr.onclick = () => toggleEditor(tr.dataset.id);
     });
-    if (openEditor) toggleEditor(openEditor, true);
   }
 
-  /* --------------------------------------------------- the inline editor -- */
-  async function toggleEditor(dealId, forceOpen = false) {
-    const row = el.querySelector(`tr.editor[data-for="${dealId}"]`);
-    if (!row) { openEditor = null; return; }
-    const isOpen = !row.hidden;
-    el.querySelectorAll('tr.editor').forEach(r => r.hidden = true);
-    if (isOpen && !forceOpen) { openEditor = null; return; }
-    openEditor = dealId; row.hidden = false;
+  /* -------------------------------------------- the editor, focus overlay -- */
+  function closeModal() {
+    document.querySelector('.modal-back')?.remove();
+    document.onkeydown = null;
+    openEditor = null;
+  }
+  async function toggleEditor(dealId) {
+    closeModal();
+    openEditor = dealId;
     const d = Object.values(dealsByClient).flat().find(x => x.id === dealId);
-    const box = row.querySelector('.edbox');
-    box.innerHTML = '<span class="muted" style="font-size:12px">loading…</span>';
+    if (!d) return;
+    const back = document.createElement('div');
+    back.className = 'modal-back';
+    back.innerHTML = `<div class="modal">
+      <div class="modal-head">
+        <span class="modal-title">${esc((clientsById[d.client_id]||{}).name||'')} — ${esc(d.name)}</span>
+        <button class="mclose">Close ✕</button>
+      </div>
+      <div class="modal-body edbox"><span class="muted" style="font-size:12px">loading…</span></div>
+    </div>`;
+    document.body.appendChild(back);
+    back.onclick = e => { if (e.target === back) closeModal(); };
+    back.querySelector('.mclose').onclick = closeModal;
+    document.onkeydown = e => { if (e.key === 'Escape') closeModal(); };
+    const box = back.querySelector('.edbox');
 
     const lr = await supa.from('deal_lines').select('*').eq('deal_id', d.id).order('set_at');
     if (lr.error) { box.innerHTML = `<span class="err">${lr.error.message}</span>`; return; }
@@ -532,8 +570,6 @@ boot('forecast', async (supa, el) => {
         }).eq('id', d.id);
         if (!error) loadAll();
       };
-      // clicks inside the editor must not toggle the row above it
-      box.onclick = e => e.stopPropagation();
       preview();
 
       function preview() {
