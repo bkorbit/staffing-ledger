@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Forecast</title><link rel="stylesheet" href="./assets/style.css?v=fc8d5d3">
+<title>EMG — Forecast</title><link rel="stylesheet" href="./assets/style.css?v=e452b22">
 <style>
 .range{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:12px}
 .rl{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.09em;color:var(--slate)}
@@ -10,7 +10,7 @@ table.sum td .pct.bad{color:var(--rust)} table.sum td .pct.good{color:var(--bran
 tr.deallist td{cursor:pointer}
 </style></head><body>
 <script type="module">
-import { boot, esc, fmt$, barChart } from './assets/shell.js?v=fc8d5d3';
+import { boot, esc, fmt$, barChart } from './assets/shell.js?v=e452b22';
 /*
   The Forecast, remodelled on the v1 ledger's Forecast view, recovered from git:
   months as ROWS in a P&L ledger — Revenue billed, COGS, Forecast GP, Actual GP,
@@ -172,6 +172,7 @@ boot('forecast', async (supa, el) => {
   let revByProj = {}, cogsByProj = {}, openClients = new Set();
   let warnings = [];
   let tableSort = { key:'revenue', dir:-1 }, tableQuery = '';
+  let plRowsCache = [];
 
   async function loadAll() {
     if (rangeTo < rangeFrom) rangeTo = rangeFrom;
@@ -311,7 +312,14 @@ boot('forecast', async (supa, el) => {
     };
     const plRows = months.map(rowFor);
     comboChart(el.querySelector('#chart'), plRows);
+    plRowsCache = plRows;
+    renderTable();
+  }
 
+  // the table re-renders alone on search / sort / expand — the shell and chart
+  // are rebuilt only when the data reloads, which is what makes clicks instant
+  function renderTable() {
+    const plRows = plRowsCache;
     // ---- ONE table: clients over the range, deals under a collapsible arrow ----
     const parentOf = {}; projects.forEach(p => parentOf[p.id] = p.parent_id || p.id);
     const projsUnder = {}; projects.forEach(p => (projsUnder[parentOf[p.id]] = projsUnder[parentOf[p.id]]||[]).push(p.id));
@@ -470,12 +478,11 @@ boot('forecast', async (supa, el) => {
       ? `<span class="warn">${totalMissing} deal${totalMissing>1?'s':''} missing a forecast</span>` : '';
 
     const tq = el.querySelector('#tq');
-    tq.oninput = () => { tableQuery = tq.value; render();
-      const n = el.querySelector('#tq'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); };
+    tq.oninput = () => { tableQuery = tq.value; renderTable(); };
     el.querySelectorAll('th[data-sort]').forEach(th => th.onclick = () => {
       const k = th.dataset.sort;
       tableSort = { key:k, dir: tableSort.key===k ? -tableSort.dir : -1 };
-      render();
+      renderTable();
     });
 
     el.querySelectorAll('tr.projrow').forEach(tr => {
@@ -541,7 +548,7 @@ boot('forecast', async (supa, el) => {
       tr.onclick = () => {
         const id = tr.dataset.cid;
         openClients.has(id) ? openClients.delete(id) : openClients.add(id);
-        render();
+        renderTable();
       };
     });
 
@@ -576,28 +583,29 @@ boot('forecast', async (supa, el) => {
     document.onkeydown = e => { if (e.key === 'Escape') closeModal(); };
     const box = back.querySelector('.edbox');
 
-    const marginHint = await supa.from('v_client_achieved_margin')
-      .select('achieved_margin_pct,revenue').eq('client_id', d.client_id).maybeSingle();
-    const achieved = marginHint.data?.achieved_margin_pct ?? null;
-    const lr = await supa.from('deal_lines').select('*').eq('deal_id', d.id).order('set_at');
+    // one parallel wave: lines WITH their months embedded, the margin hint, and
+    // the project's actuals — the editor opens in a single round trip's time
+    const [lr, marginHint, ai, ac] = await Promise.all([
+      supa.from('deal_lines').select('*, deal_line_months(*)')
+        .eq('deal_id', d.id).order('set_at'),
+      supa.from('v_client_achieved_margin')
+        .select('achieved_margin_pct,revenue').eq('client_id', d.client_id).maybeSingle(),
+      d.qbo_project_id
+        ? supa.from('invoices').select('issued_on,total').eq('qbo_project_id', d.qbo_project_id)
+        : Promise.resolve({ data: [] }),
+      d.qbo_project_id
+        ? supa.from('v_cost_lines_classified').select('month,amount')
+            .eq('qbo_project_id', d.qbo_project_id).eq('class','cogs')
+        : Promise.resolve({ data: [] })
+    ]);
     if (lr.error) { box.innerHTML = `<span class="err">${lr.error.message}</span>`; return; }
-    // monthly actual GP for this deal = its project's invoiced revenue minus its
-    // project's classified COGS, month by month. No project link, no actuals.
+    const achieved = marginHint.data?.achieved_margin_pct ?? null;
     const actualByM = {};
-    if (d.qbo_project_id) {
-      const [ai, ac] = await Promise.all([
-        supa.from('invoices').select('issued_on,total').eq('qbo_project_id', d.qbo_project_id),
-        supa.from('v_cost_lines_classified').select('month,amount')
-          .eq('qbo_project_id', d.qbo_project_id).eq('class','cogs')
-      ]);
-      (ai.data||[]).forEach(i => { const m = i.issued_on.slice(0,8)+'01';
-        actualByM[m] = (actualByM[m]||0) + i.total; });
-      (ac.data||[]).forEach(c => { actualByM[c.month] = (actualByM[c.month]||0) - c.amount; });
-    }
-    const ids = (lr.data||[]).map(l=>l.id);
-    const mr = ids.length
-      ? await supa.from('deal_line_months').select('*').in('deal_line_id', ids)
-      : { data: [] };
+    (ai.data||[]).forEach(i => { const m = i.issued_on.slice(0,8)+'01';
+      actualByM[m] = (actualByM[m]||0) + i.total; });
+    (ac.data||[]).forEach(c => { actualByM[c.month] = (actualByM[c.month]||0) - c.amount; });
+    const mr = { data: (lr.data||[]).flatMap(l =>
+      (l.deal_line_months||[]).map(o => ({ ...o, deal_line_id: l.id }))) };
     const model = (lr.data||[]).map(l => {
       const cfg = KIND[l.kind] || KIND.custom;
       // which per-month column this kind stores: creative-hourly & hourly use hours,
