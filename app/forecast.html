@@ -429,7 +429,10 @@ boot('forecast', async (supa, el) => {
         return `<tr class="dealsub deallist" data-id="${d.id}" title="click to shape">
           <td class="namecell" style="padding-left:28px">▸
             <span class="namewrap">${esc(d.name)}</span>
-            ${d.reviewed_at?'':'<span class="warn" title="awaiting review">•</span>'}${r.matched?'':' <span class="pill bad" title="no QuickBooks project linked — open the deal and pick one">no QB project</span>'}</td>
+            ${d.reviewed_at?'':'<span class="warn" title="awaiting review">•</span>'}${
+              !(d._agg||{}).gpAll && d.flight_end >= thisMonth
+                ? ' <span class="pill warn" title="flight runs into the future but no forecast is shaped — open the deal and give it lines">!</span>' : ''
+            }${r.matched?'':' <span class="pill bad" title="no QuickBooks project linked — open the deal and pick one">no QB project</span>'}</td>
           <td>${num(r.revenue)}</td><td>${num(r.cogs)}</td>
           <td class="muted">${num(r.fcCogs)}</td>
           <td style="color:var(--brand)">${r.forecastGP?fmtM(r.forecastGP):''}</td>
