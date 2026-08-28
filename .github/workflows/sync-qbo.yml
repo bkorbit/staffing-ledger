@@ -1,9 +1,11 @@
 name: Sync QBO (new)
 
-# Manual only for now. The nightly schedule goes on once a dispatch run has been
-# checked against the database — an unproven sync running unattended at 07:00 is how
-# you get a week of quietly wrong data.
+# Nightly at 07:00 UTC, plus manual dispatch. The schedule went on after the pipeline
+# proved itself against real data: tests gate the sync, failures are recorded in
+# sync_state, and the curves refresh as part of each run.
 on:
+  schedule:
+    - cron: '0 7 * * *'
   workflow_dispatch:
 
 jobs:

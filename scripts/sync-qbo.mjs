@@ -599,6 +599,19 @@ async function main() {
       `their revenue is stored but unattributed until matched.`);
   }
 
+  // New payments change the collection curves, so recompute them as part of the run
+  // rather than trusting someone to remember. Failure here is reported but does not
+  // fail the sync: stale curves are worse than fresh ones but far better than no data.
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/refresh_payment_behaviour`, {
+      method: 'POST', headers: sb, body: '{}'
+    });
+    if (!r.ok) throw new Error(`${r.status}: ${(await r.text()).slice(0, 200)}`);
+    console.log('  payment behaviour curves refreshed');
+  } catch (e) {
+    console.log('  \u26a0 curve refresh failed (sync data is fine): ' + (e.message || e));
+  }
+
   await sbPatchState({
     last_run_at: new Date().toISOString(),
     last_run_log: {
