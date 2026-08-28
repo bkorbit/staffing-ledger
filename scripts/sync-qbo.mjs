@@ -86,8 +86,19 @@ async function sbDelete(path) {
 }
 async function sbUpsert(table, rows, onConflict = 'id') {
   if (!rows.length) return;
-  for (let i = 0; i < rows.length; i += 500) {
-    const chunk = rows.slice(i, i + 500);
+  // PostgREST rejects a bulk insert whose objects do not all carry the same keys
+  // (PGRST102). Rows for one table are built in several places here — bills, card
+  // charges and journal entries all land in `bills` — so a column added to one path
+  // and not another breaks the whole write with an error that names no column.
+  // Normalising to the union of keys makes that impossible rather than merely unlikely.
+  const keys = [...new Set(rows.flatMap(Object.keys))];
+  const shaped = rows.map(r => {
+    const o = {};
+    for (const k of keys) o[k] = r[k] === undefined ? null : r[k];
+    return o;
+  });
+  for (let i = 0; i < shaped.length; i += 500) {
+    const chunk = shaped.slice(i, i + 500);
     const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?on_conflict=${onConflict}`, {
       method: 'POST',
       headers: { ...sb, Prefer: 'resolution=merge-duplicates,return=minimal' },
