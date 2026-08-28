@@ -482,6 +482,19 @@ boot('forecast', async (supa, el) => {
     const achieved = marginHint.data?.achieved_margin_pct ?? null;
     const lr = await supa.from('deal_lines').select('*').eq('deal_id', d.id).order('set_at');
     if (lr.error) { box.innerHTML = `<span class="err">${lr.error.message}</span>`; return; }
+    // monthly actual GP for this deal = its project's invoiced revenue minus its
+    // project's classified COGS, month by month. No project link, no actuals.
+    const actualByM = {};
+    if (d.qbo_project_id) {
+      const [ai, ac] = await Promise.all([
+        supa.from('invoices').select('issued_on,total').eq('qbo_project_id', d.qbo_project_id),
+        supa.from('v_cost_lines_classified').select('month,amount')
+          .eq('qbo_project_id', d.qbo_project_id).eq('class','cogs')
+      ]);
+      (ai.data||[]).forEach(i => { const m = i.issued_on.slice(0,8)+'01';
+        actualByM[m] = (actualByM[m]||0) + i.total; });
+      (ac.data||[]).forEach(c => { actualByM[c.month] = (actualByM[c.month]||0) - c.amount; });
+    }
     const ids = (lr.data||[]).map(l=>l.id);
     const mr = ids.length
       ? await supa.from('deal_line_months').select('*').in('deal_line_id', ids)
@@ -496,7 +509,12 @@ boot('forecast', async (supa, el) => {
       return { id:l.id, kind:l.kind,
         params:{ amount:l.amount?l.amount/100:0, fee_pct:l.fee_pct||0,
                  margin_pct:l.margin_pct, rate:l.rate?l.rate/100:0,
-                 hours_per_month:+l.hours_per_month||0 }, cells };
+                 hours_per_month:+l.hours_per_month||0 },
+        cells,
+        // the frozen record: what the line said when this editor opened, and which
+        // months already have explicit rows — closed months freeze at these values
+        orig: { amount:l.amount||0, hours:+l.hours_per_month||0 },
+        hadDlm: new Set((mr.data||[]).filter(o=>o.deal_line_id===l.id).map(o=>o.month)) };
     });
     let flight = { start: d.flight_start, end: d.flight_end };
     const closed = m => m < thisMonth;
@@ -564,9 +582,17 @@ boot('forecast', async (supa, el) => {
         <div class="gridwrap"><table class="grid">
           <tr><th style="text-align:left">line</th>${head}<th>line GP</th></tr>
           ${lineRows || `<tr><td class="linehead muted" colspan="${fm.length+2}">no lines yet — add one below</td></tr>`}
-          <tr class="gp"><td class="linehead">GP</td>
+          <tr class="gp"><td class="linehead">GP forecast</td>
             ${fm.map(m=>`<td data-gpm="${m}"></td>`).join('')}<td data-gptotal></td></tr>
+          <tr><td class="linehead muted">GP actual (QuickBooks)${d.qbo_project_id?'':' — no project linked'}</td>
+            ${fm.map(m=>`<td class="muted">${closed(m)&&actualByM[m]!==undefined?fmtN(actualByM[m]):''}</td>`).join('')}
+            <td class="muted">${fmtN(fm.reduce((s,m)=>s+(closed(m)?(actualByM[m]||0):0),0))||''}</td></tr>
+          <tr><td class="linehead muted">Δ actual vs forecast</td>
+            ${fm.map(m=>`<td data-diff="${m}"></td>`).join('')}<td></td></tr>
         </table></div>
+        <div class="muted" style="font-size:10px;margin-top:4px">✓ months are locked:
+        their actuals come from QuickBooks and their forecast froze when the month
+        closed — accuracy is measured, never rewritten.</div>
         <div class="dhead" style="margin-top:8px">
           <select class="newkind" style="height:32px"><option value="">+ add a line…</option>
             ${Object.keys(KIND).map(k=>`<option value="${k}">${k}</option>`).join('')}</select>
@@ -607,7 +633,8 @@ boot('forecast', async (supa, el) => {
       box.querySelector('.newkind').onchange = e => {
         if (!e.target.value) return;
         model.push({ kind:e.target.value,
-          params:{ amount:0, fee_pct:0, margin_pct:null, rate:0, hours_per_month:0 }, cells:{} });
+          params:{ amount:0, fee_pct:0, margin_pct:null, rate:0, hours_per_month:0 },
+          cells:{}, orig:{ amount:0, hours:0 }, hadDlm:new Set() });
         draw();
       };
       const ua = box.querySelector('.use-achieved');
@@ -637,6 +664,14 @@ boot('forecast', async (supa, el) => {
         fm.forEach(m => { const td = box.querySelector(`td[data-gpm="${m}"]`);
           if (td) td.textContent = mgp[m] ? fmtN(mgp[m]) : ''; });
         const tt = box.querySelector('td[data-gptotal]'); if (tt) tt.textContent = total?fmtN(total):'';
+        fm.forEach(m => {
+          const td = box.querySelector(`td[data-diff="${m}"]`);
+          if (!td) return;
+          const a = actualByM[m], f = mgp[m];
+          if (!closed(m) || a === undefined || !f) { td.innerHTML = ''; return; }
+          const pct = Math.round((a/f - 1)*100);
+          td.innerHTML = `<span class="${Math.abs(pct)>15?'err':'ok'}" style="font-size:10px">${pct>=0?'+':''}${pct}%</span>`;
+        });
         const cls = asSold && total && Math.abs(total-asSold)/asSold < 0.02 ? 'total-match' : 'total-off';
         box.querySelector('.totals').innerHTML = (total||asSold)
           ? `<span class="${cls}">GP total $${fmtN(total)}</span>` +
@@ -691,6 +726,23 @@ boot('forecast', async (supa, el) => {
             const { data, error } = await supa.from('deal_lines').insert(rowData).select('id').single();
             if (error) { msg.textContent = error.message; msg.className='msg err'; return; }
             l.id = data.id;
+          }
+          // freeze: closed flight months without an explicit row get one at the
+          // value the line held when this editor opened
+          const closedMonths = monthsBetween(flight.start, flight.end).filter(m=>closed(m));
+          const freezeField = KIND[l.kind].cells === 'hours' ? 'hours'
+                            : KIND[l.kind].cells ? null : 'amount';
+          if (freezeField && l.hadDlm && closedMonths.length) {
+            const freeze = closedMonths.filter(m => !l.hadDlm.has(m)).map(m => {
+              const r = { deal_line_id:l.id, month:m, set_by:'freeze-on-close', set_at:new Date().toISOString() };
+              r[freezeField] = freezeField==='hours' ? l.orig.hours : l.orig.amount;
+              return r;
+            });
+            if (freeze.length) {
+              const fz = await supa.from('deal_line_months').insert(freeze);
+              if (fz.error) { msg.textContent = fz.error.message; msg.className='msg err'; return; }
+              freeze.forEach(r => l.hadDlm.add(r.month));
+            }
           }
           const cfg = KIND[l.kind];
           if (cfg.cells) {
