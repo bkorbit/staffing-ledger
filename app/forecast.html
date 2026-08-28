@@ -121,28 +121,24 @@ boot('forecast', async (supa, el) => {
     return 0;
   }
 
-  /* ------------------------------------------- the chart system: hero + combo --
-     Finance-deck direction: one headline number leads, the chart is supporting
-     evidence. Bar palette is a validated chart-only categorical ramp (six hues,
-     CVD-checked — see DESIGN.md Chart System; the old palette put three greens
-     and two grays adjacent and failed that check). Net stays Signal Gold,
-     reserved to this one metric wherever it is the headline figure. Settled
-     months render full-strength; projected months render lighter — unchanged. */
-  function heroStat(rows) {
-    const measured = rows.filter(r => r.measured);
-    const r = measured[measured.length - 1] || rows[0];
-    if (!r) return null;
-    return { m: r.m, net: r.net, measured: r.measured };
-  }
+  /* --------------------------------------------------- the chart system: combo --
+     Third pass, after a full color audit against source: no invented hues at
+     all. Six cost categories, five confirmed brand tokens (Deep Ledger Green,
+     Slate, Muted Ledger Green, Ledger Teal, Logo Teal) — cogs and fixed share
+     Slate since only five real colors exist for six categories; they never
+     touch in the stack (cogs is its own bar, fixed sits at the top of the
+     opex stack), so position plus the hover title disambiguate them. No hero
+     figure (revisit as a KPI ribbon separately); sharp square bars; direct
+     value labels on every bar and every net point. */
   function comboChart(elc, rows) {
     const SERIES = [
-      ['revenue',  '#2f8a68', 'revenue'],
-      ['cogs',     '#4f74b3', 'COGS'],
-      ['labour',   '#c07f2e', 'labour'],
-      ['other',    '#a15fc4', 'overhead'],
-      ['misc',     '#b06b4a', 'other'],
-      ['fixed',    '#0f9999', 'fixed'],
-      ['net',      '#fabf4d', 'net (line)'],
+      ['revenue',  'var(--brand)',   'revenue'],
+      ['cogs',     'var(--slate)',   'COGS'],
+      ['labour',   'var(--brand-2)', 'labour'],
+      ['other',    'var(--brand-4)', 'overhead'],
+      ['misc',     'var(--accent)',  'other'],
+      ['fixed',    'var(--slate)',   'fixed'],
+      ['net',      'var(--gold)',    'net (line)'],
     ];
     const colorOf = Object.fromEntries(SERIES.map(([k,c])=>[k,c]));
     const hidden = new Set(JSON.parse(localStorage.getItem('fc_hidden')||'[]'));
@@ -151,13 +147,6 @@ boot('forecast', async (supa, el) => {
     const W=960,H=280,P={l:64,r:12,t:16,b:26};
     const fmtC = c => { const d=c/100, a=Math.abs(d);
       return (d<0?'-$':'$') + (a>=1e6?(a/1e6).toFixed(1)+'M':a>=1e3?Math.round(a/1e3)+'k':Math.round(a)); };
-    // top corners rounded, square at the baseline; a stacked segment rounds
-    // only when nothing else in its stack sits above it
-    const barPath = (x, yy, w, h, rad) => {
-      const r = Math.max(0, Math.min(rad, h, w/2));
-      if (r < 0.5) return `M${x} ${yy+h} L${x} ${yy} L${x+w} ${yy} L${x+w} ${yy+h} Z`;
-      return `M${x} ${yy+h} L${x} ${yy+r} Q${x} ${yy} ${x+r} ${yy} L${x+w-r} ${yy} Q${x+w} ${yy} ${x+w} ${yy+r} L${x+w} ${yy+h} Z`;
-    };
     const opexOf = r => (on('labour')?r.labour:0) + (on('other')?r.other:0)
                       + (on('misc')?r.misc:0) + (on('fixed')?r.fixed:0);
     // scale adapts to what is visible
@@ -182,17 +171,23 @@ boot('forecast', async (supa, el) => {
     rows.forEach((r,i)=>{
       const cx=P.l+gap*i+gap/2, op=r.measured?1:0.55;
       const x0=cx-1.5*bw-2;
-      if(on('revenue') && r.revenue>0) g+=`<path d="${barPath(x0,y(r.revenue),bw,y0-y(r.revenue),4)}" fill="${colorOf.revenue}" opacity="${op}"><title>${mLabel(r.m)} revenue ${fmtM(r.revenue)}</title></path>`;
-      if(on('cogs') && r.cogs>0) g+=`<path d="${barPath(x0+bw+2,y(r.cogs),bw,y0-y(r.cogs),4)}" fill="${colorOf.cogs}" opacity="${op}"><title>${mLabel(r.m)} COGS ${fmtM(r.cogs)}</title></path>`;
+      const labY = [];
+      const dodge = yv => { let yy=yv-3;
+        while (labY.some(o=>Math.abs(o-yy)<10)) yy-=10;
+        labY.push(yy); return yy; };
+      if(on('revenue') && r.revenue>0) g+=`<rect x="${x0}" y="${y(r.revenue)}" width="${bw}" height="${y0-y(r.revenue)}" fill="${colorOf.revenue}" opacity="${op}"><title>${mLabel(r.m)} revenue ${fmtM(r.revenue)}</title></rect>
+        <text x="${x0+bw/2}" y="${dodge(y(r.revenue))}" fill="${INK}" font-size="9" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(r.revenue)}</text>`;
+      if(on('cogs') && r.cogs>0) g+=`<rect x="${x0+bw+2}" y="${y(r.cogs)}" width="${bw}" height="${y0-y(r.cogs)}" fill="${colorOf.cogs}" opacity="${op}"><title>${mLabel(r.m)} COGS ${fmtM(r.cogs)}</title></rect>
+        <text x="${x0+1.5*bw+2}" y="${dodge(y(r.cogs))}" fill="${INK}" font-size="9" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(r.cogs)}</text>`;
       let acc=0; const xs=x0+2*(bw+2);
-      const stack = [['labour'],['other'],['misc'],['fixed']].filter(([k])=>on(k) && r[k]);
-      stack.forEach(([k],si)=>{
-        const v=r[k];
-        const yTop=y(acc+v), h=Math.max(0,y(acc)-y(acc+v)-1); acc+=v;
-        const isTop = si === stack.length-1;
+      [['labour'],['other'],['misc'],['fixed']].forEach(([k])=>{
+        if(!on(k)) return;
+        const v=r[k]; if(!v) return;
+        const y1=y(acc+v), h=y(acc)-y(acc+v); acc+=v;
         const nm = k==='other'?'overhead':k==='misc'?'other accts':k;
-        g+=`<path d="${barPath(xs,yTop+1,bw,Math.max(0,h-1),isTop?4:0)}" fill="${colorOf[k]}" opacity="${op}"><title>${mLabel(r.m)} ${nm} ${fmtM(v)}</title></path>`;
+        g+=`<rect x="${xs}" y="${y1}" width="${bw}" height="${h}" fill="${colorOf[k]}" opacity="${op}"><title>${mLabel(r.m)} ${nm} ${fmtM(v)}</title></rect>`;
       });
+      if(acc>0) g+=`<text x="${xs+bw/2}" y="${dodge(y(acc))}" fill="${INK}" font-size="9" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(acc)}</text>`;
       g+=`<text x="${cx}" y="${H-8}" fill="${INK}" font-size="${rows.length>14?8:9.5}" font-family="IBM Plex Mono" text-anchor="middle">${mLabel(r.m)}</text>`;
     });
     if (on('net')) {
@@ -205,13 +200,9 @@ boot('forecast', async (supa, el) => {
           stroke="${colorOf.net}" stroke-width="2.5" opacity="${segMeasured?1:0.55}"
           ${segMeasured?'':'stroke-dasharray="5 3"'}/>`;
       }
-      // selective labels: the story is net, so only its two endpoints get a
-      // direct value — not a number on every point
       rows.forEach((r,i)=>{const cx=P.l+gap*i+gap/2, cy=y(r.net);
-        const isEndpoint = i===0 || i===rows.length-1;
-        g+=`<circle cx="${cx}" cy="${cy}" r="4" fill="${colorOf.net}" stroke="var(--paper-raised)" stroke-width="2" opacity="${r.measured?1:0.55}"><title>${mLabel(r.m)} net ${fmtM(r.net)} — ${r.measured?'measured':'forecast: GP − labour − overhead − other − fixed'}</title></circle>`;
-        if (isEndpoint) g+=`<text x="${cx}" y="${cy - 10}" fill="${INK}" font-size="10" font-weight="600" font-family="IBM Plex Mono" text-anchor="${i===0?'start':'end'}">${fmtC(r.net)}</text>`;
-      });
+        g+=`<circle cx="${cx}" cy="${cy}" r="4" fill="${colorOf.net}" stroke="var(--paper-raised)" stroke-width="2" opacity="${r.measured?1:0.55}"><title>${mLabel(r.m)} net ${fmtM(r.net)} — ${r.measured?'measured':'forecast: GP − labour − overhead − other − fixed'}</title></circle>
+        <text x="${cx}" y="${cy-10}" fill="${INK}" font-size="9.5" font-weight="600" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(r.net)}</text>`;});
     }
     // the legend lives at the BOTTOM and toggles series on click or Enter/Space
     const LEG_Y = H + 10;
@@ -220,16 +211,11 @@ boot('forecast', async (supa, el) => {
       const off = hidden.has(k);
       return `<g class="lgd" data-k="${k}" style="cursor:pointer" opacity="${off?0.35:1}"
           tabindex="0" role="button" aria-pressed="${!off}" aria-label="${off?'show':'hide'} ${label} series">
-        <rect x="${x}" y="${LEG_Y}" width="9" height="9" rx="2" fill="${c}" ${off?'stroke="var(--slate)" stroke-dasharray="2 1.5"':''}/>
+        <rect x="${x}" y="${LEG_Y}" width="9" height="9" fill="${c}" ${off?'stroke="var(--slate)" stroke-dasharray="2 1.5"':''}/>
         <text x="${x+13}" y="${LEG_Y+8}" fill="${INK}" font-size="10" font-family="IBM Plex Mono" ${off?'text-decoration="line-through"':''}>${label}</text>
         <title>${off?'show':'hide'} ${label}</title></g>`;
     }).join('');
-    const hero = heroStat(rows);
-    const heroHtml = hero ? `<div class="chart-hero">
-        <div class="chart-hero-label">Net — ${mLabel(hero.m)}${hero.measured?'':' (forecast)'}</div>
-        <div class="chart-hero-value ${hero.net<0?'neg':''}">${fmtM(hero.net)}</div>
-      </div>` : '';
-    elc.innerHTML=`${heroHtml}<svg class="chart" viewBox="0 0 ${W} ${H+26}"><g>${g}</g>${leg}</svg>`;
+    elc.innerHTML=`<svg class="chart" viewBox="0 0 ${W} ${H+26}"><g>${g}</g>${leg}</svg>`;
     const toggleSeries = k => {
       hidden.has(k) ? hidden.delete(k) : hidden.add(k);
       localStorage.setItem('fc_hidden', JSON.stringify([...hidden]));

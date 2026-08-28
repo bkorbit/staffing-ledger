@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-28T07:00:00.000Z",
+  "generatedAt": "2026-08-28T10:00:00.000Z",
   "title": "Design System: EMG Staffing Ledger",
   "extensions": {
     "colorMeta": {
@@ -19,12 +19,7 @@
       "alert-rust-tint": { "role": "semantic", "displayName": "Alert Rust Tint", "canonical": "#fbe7e4" },
       "alert-amber": { "role": "semantic", "displayName": "Alert Amber", "canonical": "#b07a14", "tonalRamp": ["#2c1f05", "#4f3709", "#724f0d", "#966811", "#b07a14", "#c09543", "#d4b67e", "#e7d7b9"] },
       "alert-amber-tint": { "role": "semantic", "displayName": "Alert Amber Tint", "canonical": "#fdf3dc" },
-      "chart-revenue-green": { "role": "chart", "displayName": "Chart Revenue Green", "canonical": "#2f8a68", "tonalRamp": ["#0c231a","#153e2f","#1f5a44","#287558","#2f8a68","#59a186","#8dbfac","#c1dcd2"] },
-      "chart-cogs-blue": { "role": "chart", "displayName": "Chart COGS Blue", "canonical": "#4f74b3", "tonalRamp": ["#141d2d","#243451","#334b74","#436398","#4f74b3","#7290c2","#9eb3d5","#cad5e8"] },
-      "chart-labour-amber": { "role": "chart", "displayName": "Chart Labour Amber", "canonical": "#c07f2e", "tonalRamp": ["#30200c","#563915","#7d531e","#a36c27","#c07f2e","#cd9958","#dcb98c","#ecd9c0"] },
-      "chart-overhead-violet": { "role": "chart", "displayName": "Chart Overhead Violet", "canonical": "#a15fc4", "tonalRamp": ["#281831","#482b58","#693e7f","#8951a7","#a15fc4","#b47fd0","#cba7df","#e3cfed"] },
-      "chart-other-terracotta": { "role": "chart", "displayName": "Chart Other Terracotta", "canonical": "#b06b4a", "tonalRamp": ["#2c1b13","#4f3021","#724630","#965b3f","#b06b4a","#c0896e","#d4ae9b","#e7d3c9"] },
-      "chart-fixed-teal": { "role": "chart", "displayName": "Chart Fixed Teal", "canonical": "#0f9999", "tonalRamp": ["#042626","#074545","#0a6363","#0d8282","#0f9999","#3fadad","#7bc7c7","#b7e0e0"] },
+      "ledger-teal": { "role": "secondary", "displayName": "Ledger Teal", "canonical": "#19a789", "tonalRamp": ["#062a22","#0b4b3e","#106d59","#158e74","#19a789","#47b9a1","#81cfbe","#bae5dc"] },
       "table-header-wash": { "role": "neutral", "displayName": "Table Header Wash", "canonical": "#f6f6f6" },
       "column-header-wash": { "role": "neutral", "displayName": "Column Header Wash", "canonical": "#f2f2f2" },
       "client-row-tint": { "role": "neutral", "displayName": "Client Row Tint", "canonical": "#fafaf8" },
@@ -35,8 +30,7 @@
       "title": { "displayName": "Title", "purpose": "Client names, modal titles, the sidebar brand mark." },
       "body": { "displayName": "Body", "purpose": "Prose: subtitles, hints, descriptive text." },
       "label": { "displayName": "Label", "purpose": "Uppercase mono labels: eyebrows, table headers, form labels." },
-      "data": { "displayName": "Data", "purpose": "Every table cell, badge, and numeric input; tabular numerals." },
-      "chart-hero-figure": { "displayName": "Chart Hero Figure", "purpose": "The one headline number every chart leads with (net, Montserrat, proportional — never tabular at this size). Exactly one per chart." }
+      "data": { "displayName": "Data", "purpose": "Every table cell, badge, and numeric input; tabular numerals." }
     },
     "shadows": [],
     "motion": [
@@ -115,8 +109,8 @@
       "Settled data reads at full strength; forecast/projected data reads visually lighter — the system always shows you which numbers are real."
     ],
     "rules": [
-      { "name": "The One Gold Rule", "body": "Signal Gold marks net profit and nothing else — the forecast chart's net line, and a chart's hero figure when that figure is net. A hero figure showing a loss wears Alert Rust instead.", "section": "colors" },
-      { "name": "The Chart System Rule", "body": "Every chart leads with one hero figure (net, Montserrat, 48px, proportional), then earns detail underneath. Bar-stack categories use the validated six-hue chart-only ramp, never the UI chrome's palette. Label the endpoint, the extreme, or the one series the story is about — never a number on every point.", "section": "chart" },
+      { "name": "The One Gold Rule", "body": "Within the forecast chart, Signal Gold appears in exactly one place: the net line. The sales pipeline ramp is a separate, confirmed exception — a different chart, a different job. Don't add a third.", "section": "colors" },
+      { "name": "The Chart System Rule", "body": "Bar-stack categories draw from the confirmed brand palette, never a newly invented ramp (two rejected attempts both invented six-hue sets with no tie to this brand). Sharp square bars, no rounding. Every bar and every net-line point carries its value directly on the chart — a CEO reads the answer without hovering.", "section": "chart" },
       { "name": "The Two-Voice Rule", "body": "Montserrat speaks; IBM Plex Mono counts. A heading, a sentence, a button label — Montserrat. A number, a table cell, a badge, a column header — IBM Plex Mono. Never swap them, never mix them within one element.", "section": "typography" },
       { "name": "The Micro-Scale Rule", "body": "New chrome text uses a step from the Chrome scale (9px-22px, fixed); new deal-editor controls use a step from the Editor micro-scale (0.56rem-0.82rem, fluid). Don't invent a new literal size — pick the closest existing step, or extend the scale deliberately if none fits.", "section": "typography" },
       { "name": "The Flat-By-Rule Rule", "body": "No box-shadow anywhere. Depth is hairline borders and background contrast only.", "section": "elevation" },

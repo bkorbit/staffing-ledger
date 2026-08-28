@@ -17,12 +17,7 @@ colors:
   alert-rust-tint: "#fbe7e4"
   alert-amber: "#b07a14"
   alert-amber-tint: "#fdf3dc"
-  chart-revenue-green: "#2f8a68"
-  chart-cogs-blue: "#4f74b3"
-  chart-labour-amber: "#c07f2e"
-  chart-overhead-violet: "#a15fc4"
-  chart-other-terracotta: "#b06b4a"
-  chart-fixed-teal: "#0f9999"
+  ledger-teal: "#19a789"
   table-header-wash: "#f6f6f6"
   column-header-wash: "#f2f2f2"
   client-row-tint: "#fafaf8"
@@ -70,7 +65,6 @@ typography:
     brand-mark: "17px"
     kpi-value: "18px"
     login-heading: "22px"
-    chart-hero-figure: "48px"
     editor-micro-1: "0.56rem"
     editor-micro-2: "0.58rem"
     editor-micro-3: "0.6rem"
@@ -163,10 +157,11 @@ A closed, two-green-plus-two-accents palette on a warm gray paper ground — not
 
 ### Secondary
 - **Muted Ledger Green** (`#48a278`): The active/positive/hover register — primary-button hover, "matched" and "ok" status text, links inside summary notes, the good-pill border, and the input focus ring.
+- **Ledger Teal** (`#19a789`): A confirmed brand color, declared as `--brand-4` but never wired through it — it shows up as a literal hex instead. The "expected/on-track" line on the cashflow chart and the home dashboard's band chart, and the most-confident tier in the sales pipeline ramp. Legitimate and usable; the gap was documentation, not the color.
 
 ### Tertiary
 - **Signal Gold** (`#fabf4d`): The single most important color in the system. Reserved for the forecast chart's net-profit line — nothing else. The comment at its point of use in the codebase says it plainly: "Net wears accent gold: the most important line."
-- **Logo Teal** (`#3bc9ac`): A sparing wayfinding accent — the current-nav-item indicator border and the sidebar collapse-toggle icon. It marks "you are here" and nothing more; it is not a general decorative accent.
+- **Logo Teal** (`#3bc9ac`): A sparing wayfinding accent in the app chrome — the current-nav-item indicator border and the sidebar collapse-toggle icon. It marks "you are here" there and nothing more. It also appears as a confidence-tier step in the sales pipeline chart (a confirmed, pre-existing exception — see Sales pipeline confidence ramp); that's a different context (chart series identity, not navigation), not license to use it as a decorative accent generally.
 
 ### Neutral
 - **Ledger Paper** (`#ebebeb`): The page background — a warm, slightly warm-gray paper, never pure white.
@@ -186,12 +181,12 @@ A closed, two-green-plus-two-accents palette on a warm gray paper ground — not
 - **Alert Amber** (`#b07a14`) / **Alert Amber Tint** (`#fdf3dc`): Warnings, the warn-pill treatment.
 - **Rust on Brand** (`#ffb4ac`): A lightened rust used only for negative figures sitting on the totals row's solid Deep Ledger Green background — plain Alert Rust doesn't have enough contrast there.
 
-### Chart-only categorical ramp
-Six hues reserved entirely for chart series identity — never nav, buttons, tables, or any other UI chrome, and never a stand-in for a status color. Validated as a set (OKLCH lightness, chroma, CVD adjacent-pair separation, normal-vision separation, contrast — see Chart System below); change one and the whole set needs revalidating, not just the one swatch.
-- **Chart Revenue Green** (`#2f8a68`), **Chart COGS Blue** (`#4f74b3`), **Chart Labour Amber** (`#c07f2e`), **Chart Overhead Violet** (`#a15fc4`), **Chart Other Terracotta** (`#b06b4a`), **Chart Fixed Teal** (`#0f9999`): the six bar-stack categories on every chart built to this system.
+### Sales pipeline confidence ramp
+Pre-existing, not invented this session: `sales.html`'s pipeline chart colors stages by close confidence, deep teal (certain) fading to pale gold (early) — an ordinal ramp, which is the right structure for tiered confidence data. Every step is now a confirmed brand token; the two steps that weren't (`#7dd8bd`, `#e0d3ad` — never documented, discovered during a color audit) are replaced with Mint Tint and Alert Amber Tint, both already established elsewhere in this system.
+- **certain → early:** Ledger Teal `#19a789` → Logo Teal `#3bc9ac` → Mint Tint `#e2f5ef` → Signal Gold `#fabf4d` → Alert Amber Tint `#fdf3dc`.
 
 ### Named Rules
-**The One Gold Rule.** Signal Gold marks net profit and nothing else — the forecast chart's net line, and a chart's hero figure when that figure is net. It is not a general accent, a warning color, or a highlight; its rarity is what makes it legible as "the number that matters." A hero figure showing a loss wears Alert Rust instead — gold promises a real number, not a specific sign, but a loss is a different fact and reads with the app's established negative-value color, not a euphemism.
+**The One Gold Rule.** Within the forecast chart, Signal Gold appears in exactly one place: the net line. It is not a general accent, a warning color, or a highlight there — its rarity is what makes it legible as "the number that matters." It also appears as a confidence-tier step in the sales pipeline chart, a separate, confirmed, pre-existing exception (see Sales pipeline confidence ramp) — a different chart, a different job. Don't add a third.
 
 ## Typography
 
@@ -276,24 +271,17 @@ Buttons, inputs, and cards read as **terminal-tactile**: small, precise, and den
 - **Collapsed:** the sidebar can shrink to 52px, hiding every label and centering the icon-only nav items; the transition is a quick 0.12s width ease.
 
 ### Chart System — the template for every chart in the platform
-Built for `forecast.html`'s combo chart, this is the reusable pattern for every future chart and dashboard here, not a one-off. It deliberately departs from the app chrome's dense-mono-everywhere register: a chart leads with one editorial headline number, then earns the right to be quiet and detailed underneath. Two things forced this rather than settled it by taste: the finance-deck direction chosen for this pass, and the chart-only categorical palette below, whose predecessor **failed an accessibility check on real data** (documented as evidence, not decoration).
+Built for `forecast.html`'s combo chart, this is the reusable pattern for every future chart and dashboard here, not a one-off. Two invented six-hue palettes got rejected before landing here — a bright one that read as a gamified consumer stat card, then a deeper/muted one rejected for the same root cause: new colors with no tie to this brand's guide. A full color audit against source (every literal color in `style.css`, `shell.js`, and every page, not just this file) settled it: the chart draws from the confirmed brand tokens, not an invented ramp.
 
-**The mechanism — hero figure, then evidence.** Every chart in this system opens with one number: net for the latest fully-measured period, Montserrat, 48px, proportional figures (never `tabular-nums` at display size — `121` looks loose with equal-width digits), Signal Gold if positive, Alert Rust if it's a loss. Labeled in small mono above it (`NET — JUL 2026`, plus `(forecast)` when no month in range has closed yet). The chart below is supporting evidence for that headline, not a second competing focal point — this is the "finance deck" mechanism: one number a leadership slide would put on its own line, then the detail underneath for whoever wants it.
+**Direct labels, not hover-only.** Every bar carries its value — revenue, COGS, the cost-stack total, and the net line at every point, not just the endpoints. A CEO reading this chart gets the numbers without an interaction; the legend, axis, and hover title still exist, but as backup, not the only path to a value. (This is a deliberate departure from the `dataviz` skill's default "label the endpoint, the extreme, or the one series the story is about" guidance — the brief's explicit requirement for a fully legible-at-a-glance chart outweighs that default here.)
 
-**The bars — a validated chart-only categorical ramp.** Six cost categories (revenue, COGS, labour, overhead, other, fixed) each need a genuinely distinguishable hue — the UI chrome's closed palette can't supply that (it has exactly one green family, and the old chart palette proved why that matters: it put three different greens and two different grays adjacent on the same chart and **failed color-vision-deficiency separation outright** — `#48a278` and `#19a789` measured ΔE 2.3 under deuteranopia and 2.8 even for full-color vision, "hard to tell apart even with full color vision," not a marginal case). The replacement is validated, not eyeballed:
+**The bars — five confirmed brand tokens, no invented sixth.** Six cost categories, drawn entirely from the CSS custom properties already in `style.css` — literal `var(--brand)` etc. in the chart code, not new hex values: Deep Ledger Green (revenue), Slate (COGS), Muted Ledger Green (labour), Ledger Teal (overhead), Logo Teal (other). Fixed reuses Slate — the confirmed brand palette only has five real identity colors, one short of six, and the decision was to accept that rather than invent a sixth hue or shrink the category list. COGS and fixed never touch in the layout (COGS is its own bar; fixed sits at the top of the opex stack, several bar-widths away), so the shared color reads as two same-toned areas in different, fixed positions, not one ambiguous boundary — position and the hover title disambiguate them. The legend does show two identical swatches for different labels; that's the accepted trade-off, not an oversight.
 
-```
-revenue  #2f8a68   cogs     #4f74b3   labour   #c07f2e
-overhead #a15fc4   other    #b06b4a   fixed    #0f9999
-```
-
-All six clear OKLCH lightness (0.43–0.77), chroma floor (≥0.10), CVD adjacent-pair separation (worst ΔE 11.2 deutan), the normal-vision floor (worst ΔE 15.5), and 3:1 contrast against the paper surface, checked with the `dataviz` skill's `validate_palette.js` — rerun that check before ever changing one of these six. These hues are chart-only: they never appear in nav, buttons, tables, or any UI chrome, and they never stand in for a status color (good/warn/bad stay reserved). Net keeps Signal Gold, validated separately as a singular hue nowhere near this set — see The One Gold Rule.
-
-**Marks.** Bars are ≤13px, top corners rounded (4px), square at the baseline, growing from one shared axis. A stacked segment rounds only when nothing sits above it in that stack — the visual top of the whole stack, not every boundary. A 1–2px gap separates every touching bar and every stacked segment; nothing is separated by a drawn border. Net-line markers are 4px radius with a 2px paper-color ring, so they stay legible crossing the line or each other. Gridlines and the zero-baseline stay hairline and recessive (`var(--line)`, solid, never dashed — dashing reads as a threshold or projection when it's just a grid).
-
-**Labels — selective, not exhaustive.** The old chart put a number on every bar segment on every month, which the `dataviz` skill's own anti-pattern list names directly: "a value beside every dot or segment is chaos and goes unread." This system labels the endpoint, the extreme, or the one series the story is about, and lets the legend, the axis, and the hover title carry the rest — here, that means only the net line's first and last points carry a direct value; the bars carry none, relying on the legend, the Y-axis ticks, and each mark's native hover tooltip.
+**Marks.** Bars are ≤13px, sharp rectangles — no rounding; a rounded top read as soft/consumer-app rather than institutional. Net-line markers are 4px radius with a 2px paper-color ring, so they stay legible crossing the line or each other. Gridlines and the zero-baseline stay hairline and recessive (`var(--line)`, solid, never dashed — dashing reads as a threshold or projection when it's just a grid).
 
 **Measured vs. forecast** stays exactly as before: settled months render at full color strength, projected months at 55% opacity with the net line's projected segments dashed — so a viewer can always tell forecast from fact without reading a label. The legend sits at the bottom, is clickable and keyboard-operable, and hiding a series persists to `localStorage` and rescales the y-axis to whatever remains visible.
+
+**Deferred, not forgotten: a KPI ribbon.** A headline-numbers strip above the chart (net, and likely revenue/GP alongside it) is worth building, but as its own considered piece — not a single oversized number bolted onto the chart. Build it as a separate task when asked.
 
 **Not yet extended.** `shell.js`'s `barChart`/`bandChart` (used on the home dashboard and Sales) and any future chart still draw with the old approach. This system is the documented template for bringing them into line, not something already applied there — ask for that pass explicitly rather than assuming it shipped with this one.
 
@@ -310,5 +298,5 @@ All six clear OKLCH lightness (0.43–0.77), chroma floor (≥0.10), CVD adjacen
 ### Don't:
 - **Don't** add `box-shadow` anywhere; this system is flat by rule. Bring the modal and line-card's current shadows to border-based separation next time either is touched.
 - **Don't** introduce a new accent color outside this closed palette (two greens, one gold, one teal, functional red/amber).
-- **Don't** use Logo Teal for anything beyond the current-nav-item indicator and the sidebar toggle icon — it is a wayfinding mark, not a decorative accent.
-- **Don't** use Signal Gold anywhere but the forecast chart's net line — not a pill border, not a warning state, not a highlight.
+- **Don't** use Logo Teal in the app chrome for anything beyond the current-nav-item indicator and the sidebar toggle icon — it is a wayfinding mark there, not a decorative accent. (The sales pipeline ramp is a confirmed, separate exception.)
+- **Don't** use Signal Gold in the forecast chart for anything but the net line — not a pill border, not a warning state, not a highlight. (The sales pipeline ramp is a confirmed, separate exception.)
