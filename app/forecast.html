@@ -162,19 +162,19 @@ boot('forecast', async (supa, el) => {
         <text x="${x0+1.5*bw+2}" y="${dodge(y(r.cogs))}" fill="#67706d" font-size="8.5" font-family="DM Mono" text-anchor="middle">${fmtC(r.cogs)}</text>`;
       // opex stack: labour, overhead, other, fixed
       let acc=0; const xs=x0+2*(bw+2);
-      [['labour','#fabf4d'],['other','#d1453b'],['misc','#9a9a94'],['fixed','#b0b0b0']].forEach(([k,c])=>{
+      [['labour','#fabf4d'],['other','#48a278'],['misc','#9a9a94'],['fixed','#b0b0b0']].forEach(([k,c])=>{
         const v=r[k]; if(!v) return;
         const y1=y(acc+v), h=y(acc)-y(acc+v); acc+=v;
         g+=`<rect x="${xs}" y="${y1}" width="${bw}" height="${h}" fill="${c}" opacity="${op}"><title>${mLabel(r.m)} ${k==='other'?'overhead':k==='misc'?'other accts':k} ${fmtM(v)}</title></rect>`;
       });
-      if(acc>0) g+=`<text x="${xs+bw/2}" y="${dodge(y(acc))}" fill="#9a6b1e" font-size="8.5" font-family="DM Mono" text-anchor="middle">${fmtC(acc)}</text>`;
+      if(acc>0) g+=`<text x="${xs+bw/2}" y="${dodge(y(acc))}" fill="#b07a14" font-size="8.5" font-family="DM Mono" text-anchor="middle">${fmtC(acc)}</text>`;
       g+=`<text x="${cx}" y="${H-8}" fill="#67706d" font-size="${rows.length>14?8:9.5}" font-family="DM Mono" text-anchor="middle">${mLabel(r.m)}</text>`;
     });
     g+=`<polyline fill="none" stroke="#19a789" stroke-width="2"
       points="${rows.map((r,i)=>(P.l+gap*i+gap/2)+','+y(r.net)).join(' ')}"/>`;
     rows.forEach((r,i)=>{const cx=P.l+gap*i+gap/2;
       g+=`<circle cx="${cx}" cy="${y(r.net)}" r="2.6" fill="#19a789"><title>${mLabel(r.m)} net ${fmtM(r.net)} — ${r.measured?'measured':'forecast: GP − labour − overhead − other − fixed'}</title></circle>`;});
-    const leg=[['#0a493c','revenue'],['#67706d','COGS'],['#fabf4d','labour'],['#d1453b','overhead'],['#9a9a94','other'],['#b0b0b0','fixed'],['#19a789','net (line)']]
+    const leg=[['#0a493c','revenue'],['#67706d','COGS'],['#fabf4d','labour'],['#48a278','overhead'],['#9a9a94','other'],['#b0b0b0','fixed'],['#19a789','net (line)']]
       .map(([c,n],i)=>`<rect x="${P.l+i*112}" y="0" width="9" height="9" fill="${c}"/><text x="${P.l+i*112+13}" y="8" fill="#67706d" font-size="10" font-family="DM Mono">${n}</text>`).join('');
     elc.innerHTML=`<svg class="chart" viewBox="0 0 ${W} ${H+14}"><g transform="translate(0,12)">${g}</g>${leg}</svg>`;
   }

@@ -2,8 +2,8 @@
 
 :root{
   --paper:#ebebeb; --paper-raised:#ffffff; --ink:#23272b;
-  --brand:#0a493c; --brand-2:#2e6e56; --brand-3:#48a278; --brand-4:#19a789;
-  --accent:#3bc9ac; --mint:#dcf4e9; --gold:#fabf4d;
+  --brand:#0a493c; --brand-2:#48a278; --brand-3:#48a278; --brand-4:#19a789;
+  --accent:#3bc9ac; --mint:#e2f5ef; --gold:#fabf4d;   /* mint = logo color at ~14% on white */
   --slate:#67706d; --line:#d2d2d2;
   --rust:#d1453b; --rust-bg:#fbe7e4; --amber:#b07a14; --amber-bg:#fdf3dc;
   --font-display:'Montserrat',sans-serif; --font-body:'Montserrat',sans-serif;
@@ -170,7 +170,7 @@ table.acct tr.totalrow .neg { color:#ffb4ac; }
 /* ---- collapsible sidebar ---- */
 .brand { display:flex; align-items:center; gap:8px; }
 .navtoggle { background:transparent; border:none; font-size:18px; line-height:1; padding:2px 4px;
-  color:var(--brand); cursor:pointer; }
+  color:var(--accent); cursor:pointer; }
 .navtoggle:hover { color:var(--ink); }
 .layout.nav-collapsed nav.side { width:52px; }
 .layout.nav-collapsed nav.side .brandwords,
