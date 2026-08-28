@@ -155,6 +155,7 @@ boot('forecast', async (supa, el) => {
       supa.from('deals')
         .select('id,name,client_id,reviewed_at,flight_start,flight_end,media_funding,qbo_project_id,promotions(as_sold:source_payload->>amount)')
         .in('status',['won','active'])
+        .eq('hidden', false)
         .gte('flight_end','2026-01-01'),   // the platform starts at 2026
       supa.from('clients').select('id,name,active,qbo_customer_id').eq('active', true),
       supa.from('settings').select('key,value')
@@ -503,8 +504,9 @@ boot('forecast', async (supa, el) => {
         cell.innerHTML = `<select style="height:26px;max-width:230px">
             <option value="">— choose the deal that owns this project —</option>
             ${ds.map(d=>`<option value="${d.id}">${esc(d.name)}${d.qbo_project_id?' — already linked':''}</option>`).join('')}
+            <option value="__new__">+ create a new deal for this project…</option>
           </select> <button class="dolink primary" style="padding:2px 10px">Link</button>
-          <button class="dohide danger" style="padding:2px 10px" title="remove this project from every list — its money still rolls up to the client">Hide</button>`;
+          <button class="dohide danger" style="padding:2px 10px" title="remove this project from every list — its money still rolls up to the client">Hide project</button>`;
         cell.onclick = ev => ev.stopPropagation();
         cell.querySelector('.dohide').onclick = async () => {
           const pj = projects.find(p=>p.id===pid)||{};
@@ -516,14 +518,26 @@ boot('forecast', async (supa, el) => {
           loadAll();
         };
         cell.querySelector('.dolink').onclick = async () => {
-          const dealId = cell.querySelector('select').value;
-          if (!dealId) return;
-          const deal = ds.find(x=>x.id===dealId);
+          const val = cell.querySelector('select').value;
+          if (!val) return;
+          if (val === '__new__') {
+            const pj = projects.find(p=>p.id===pid)||{};
+            const name = prompt('Name the new deal for this project:', pj.name || '');
+            if (!name) return;
+            const { data: nd, error: ce } = await supa.from('deals').insert([{
+              client_id: cid, name, status:'active', origin:'manual',
+              qbo_project_id: pid, set_by: window.__email
+            }]).select('id').single();
+            if (ce) { alert(ce.message); return; }
+            loadAll();   // opens as an unshaped deal ready to plan
+            return;
+          }
+          const deal = ds.find(x=>x.id===val);
           if (deal.qbo_project_id &&
               !confirm(`"${deal.name}" is already linked to another project. Replace that link with this project?`)) return;
           const { error } = await supa.from('deals')
             .update({ qbo_project_id: pid, set_by: window.__email, set_at: new Date().toISOString() })
-            .eq('id', dealId);
+            .eq('id', val);
           if (error) { alert(error.message); return; }
           loadAll();
         };
@@ -679,6 +693,8 @@ boot('forecast', async (supa, el) => {
           <span style="flex:1"></span>
           <button class="saveall primary">Save</button>
           <button class="reviewed" ${d.reviewed_at?'disabled':''}>Mark reviewed</button>
+          <span style="flex:1"></span>
+          <button class="hidedeal danger" title="remove this deal from the forecast — reversible from SQL">Hide deal</button>
         </div>
         <div class="msg" style="margin-top:6px;font-size:12px"></div>`;
 
@@ -749,6 +765,14 @@ boot('forecast', async (supa, el) => {
       if (ua) ua.onclick = () => {
         model.forEach(l => { if (l.kind === 'programmatic') l.params.margin_pct = achieved; });
         draw();
+      };
+      box.querySelector('.hidedeal').onclick = async () => {
+        if (!confirm(`Hide "${d.name}" from the forecast?\n\nIts plan leaves the chart and table. Any matched project's actuals fall back to the client. Survives syncs; unhide from SQL.`)) return;
+        const { error } = await supa.from('deals')
+          .update({ hidden:true, hidden_by:window.__email, hidden_at:new Date().toISOString() })
+          .eq('id', d.id);
+        if (error) { alert(error.message); return; }
+        closeModal(); loadAll();
       };
       box.querySelector('.saveall').onclick = save;
       box.querySelector('.reviewed').onclick = async () => {
