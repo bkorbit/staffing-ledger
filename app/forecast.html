@@ -244,6 +244,12 @@ boot('forecast', async (supa, el) => {
             <input type="month" class="month fstart" value="${flight.start.slice(0,7)}">
             <span class="muted">→</span>
             <input type="month" class="month fend" value="${flight.end.slice(0,7)}"></label>
+          <label class="mono" style="display:flex;align-items:center;gap:6px">client
+            <select class="cl" style="height:30px;max-width:220px">
+              ${Object.values(clientsById).sort((a,b)=>a.name.localeCompare(b.name))
+                .map(c=>`<option value="${c.id}" ${c.id===d.client_id?'selected':''}>${esc(c.name)}</option>`).join('')}
+              <option value="__new__">+ new client…</option>
+            </select></label>
           <label class="mono" style="display:flex;align-items:center;gap:6px">media funding
             <select class="mf" style="height:30px">
               <option value="client" ${d.media_funding!=='agency'?'selected':''}>client pays</option>
@@ -331,6 +337,19 @@ boot('forecast', async (supa, el) => {
         const msg = box.querySelector('.msg');
         const mf = box.querySelector('.mf').value;
         const patch = {};
+        // client reassignment — how one HubSpot company splits into two entities
+        // (On Location WC vs Events, Disney Visa vs Parks). The promotion door only
+        // creates a deal once, so a moved deal stays moved.
+        let chosenClient = box.querySelector('.cl').value;
+        if (chosenClient === '__new__') {
+          const nm = prompt('Name for the new client:');
+          if (!nm) { msg.textContent = 'save cancelled — no client name'; msg.className='msg err'; return; }
+          const { data, error } = await supa.from('clients')
+            .insert({ name: nm.trim(), set_by: window.__email }).select('id').single();
+          if (error) { msg.textContent = error.message; msg.className='msg err'; return; }
+          chosenClient = data.id;
+        }
+        if (chosenClient !== d.client_id) patch.client_id = chosenClient;
         if (flight.start !== d.flight_start) patch.flight_start = flight.start;
         if (flight.end !== d.flight_end)     patch.flight_end   = flight.end;
         if (mf !== d.media_funding)          patch.media_funding = mf;

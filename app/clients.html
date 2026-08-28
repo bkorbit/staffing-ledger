@@ -66,7 +66,7 @@ function render() {
           <div class="name">${esc(c.name)}</div>
           <div class="hint">${linkedName ? 'linked to ' + esc(linkedName) : 'not linked to QuickBooks'}</div>
         </div>
-        <span class="pill ${linkedName ? 'linked' : 'todo'}">${linkedName ? 'linked' : 'needs link'}</span>
+        <span class="pill ${linkedName ? 'good' : 'warn'}">${linkedName ? 'linked' : 'needs link'}</span>
         <div class="grow">
           <select class="pick">
             <option value="">— choose QuickBooks customer —</option>${opts}
@@ -79,7 +79,7 @@ function render() {
     </div>`;
   }).join('') || '<div class="sc-panel muted">Nothing to show.</div>';
 
-  document.querySelectorAll('.card[data-id]').forEach(card => {
+  el.querySelectorAll('.sc-panel[data-id]').forEach(card => {
     const pick = card.querySelector('.pick');
     const save = card.querySelector('.save');
     const msg  = card.querySelector('.msg');

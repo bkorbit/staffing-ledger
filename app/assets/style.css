@@ -115,3 +115,8 @@ input.p { width:64px; height:28px; text-align:right; }
 .total-off { color:var(--amber); font-weight:600; font-family:var(--font-mono); }
 .toolbar { display:flex; gap:10px; align-items:center; margin:0 0 16px; flex-wrap:wrap; }
 @media (max-width:760px){ .layout{flex-direction:column;} nav.side{width:100%;height:auto;position:static;} }
+
+.row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.grow { flex:1 1 220px; min-width:0; }
+.name { font-weight:600; font-size:13.5px; }
+.hint { color:var(--slate); font-size:12px; }
