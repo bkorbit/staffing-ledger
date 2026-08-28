@@ -120,12 +120,23 @@ boot('forecast', async (supa, el) => {
   // Supabase caps every response at 1000 rows SERVER-side — .limit() cannot exceed
   // it. Anything that can outgrow a thousand rows must page.
   async function fetchAll(build) {
-    const out = []; const page = 1000;
-    for (let i = 0; ; i++) {
-      const { data, error } = await build().range(i * page, (i + 1) * page - 1);
-      if (error) return { data: out, error };
-      out.push(...(data || []));
-      if (!data || data.length < page) return { data: out, error: null };
+    const page = 1000;
+    const one = async i => build().range(i * page, (i + 1) * page - 1);
+    const first = await one(0);
+    if (first.error) return first;
+    const out = [...(first.data || [])];
+    if (out.length < page) return { data: out, error: null };
+    // pages arrive in parallel waves that double: 4, then 8, then 16 …
+    for (let start = 1, wave = 4; ; start += wave, wave *= 2) {
+      const results = await Promise.all(
+        Array.from({ length: wave }, (_, k) => one(start + k)));
+      let done = false;
+      for (const r of results) {
+        if (r.error) return { data: out, error: r.error };
+        out.push(...(r.data || []));
+        if ((r.data || []).length < page) { done = true; break; }
+      }
+      if (done) return { data: out, error: null };
     }
   }
 
@@ -143,7 +154,7 @@ boot('forecast', async (supa, el) => {
       fetchAll(() => supa.from('v_deal_month_forecast').select('deal_id,month,gp,billable')
         .gte('month', rangeFrom).lte('month', rangeTo)),
       supa.from('deals')
-        .select('id,name,client_id,reviewed_at,flight_start,flight_end,media_funding,qbo_project_id,promotions(source_payload)')
+        .select('id,name,client_id,reviewed_at,flight_start,flight_end,media_funding,qbo_project_id,promotions(as_sold:source_payload->>amount)')
         .in('status',['won','active'])
         .gte('flight_end','2026-01-01'),   // the platform starts at 2026
       supa.from('clients').select('id,name,active,qbo_customer_id').eq('active', true),
@@ -626,7 +637,7 @@ boot('forecast', async (supa, el) => {
 
     function draw() {
       const fm = monthsBetween(flight.start, flight.end);
-      const asSold = d.promotions?.[0]?.source_payload?.amount;
+      const asSold = d.promotions?.[0]?.as_sold;
       const head = fm.map(m=>`<th title="${closed(m)?'closed month':''}">${mLabel(m)}${closed(m)?' ✓':''}</th>`).join('');
       const lineRows = model.map((l, li) => {
         const cfg = KIND[l.kind];
