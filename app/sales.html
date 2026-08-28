@@ -191,7 +191,9 @@ boot('sales', async (supa, el) => {
     <div class="sc-panel chartpanel" style="padding:0">
       <div class="range">
         <span class="rl">Range</span>
-        <input type="month" id="r-from"><span class="rd">to</span><input type="month" id="r-to">
+        <input type="month" id="r-from" aria-label="Range from">
+        <span class="rd">to</span>
+        <input type="month" id="r-to" aria-label="Range to">
         <span class="rp">
           <button class="seg" data-span="3">3mo</button>
           <button class="seg on" data-span="6">6mo</button>

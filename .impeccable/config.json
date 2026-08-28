@@ -35,6 +35,15 @@
         ],
         "createdAt": "2026-08-28T19:24:34.909Z",
         "reason": "confirmed with user across multiple sessions: nav.side's width transition is a single manual-toggle click (184px<->52px), not a continuous/scroll-driven animation; a transform-based rework is a real behavior change deferred as out of scope, not a defect to keep re-flagging"
+      },
+      {
+        "rule": "flat-type-hierarchy",
+        "value": "*",
+        "files": [
+          "app/sales.html"
+        ],
+        "createdAt": "2026-08-28T19:41:55.544Z",
+        "reason": "DESIGN.md documents an intentional dense Chrome scale (9px/10px/10.5px/11px steps for micro-label, index-text, dense-table-cell, table-cell roles) for this financial console; .tog>span (9px) vs .cfg/.seg (10px) are different semantic roles on that documented scale, not organic drift"
       }
     ]
   }

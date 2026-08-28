@@ -14,6 +14,29 @@ export const fmt$ = c => '$' + (c / 100).toLocaleString(undefined, { maximumFrac
 export const esc = s => String(s ?? '').replace(/[&<>"']/g,
   c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 
+// Supabase caps every response at 1000 rows SERVER-side — .limit() cannot exceed
+// it. Anything that can outgrow a thousand rows must page. Pages arrive in
+// parallel waves that double (4, then 8, then 16 …) rather than one at a time.
+export async function fetchAll(build) {
+  const page = 1000;
+  const one = async i => build().range(i * page, (i + 1) * page - 1);
+  const first = await one(0);
+  if (first.error) return first;
+  const out = [...(first.data || [])];
+  if (out.length < page) return { data: out, error: null };
+  for (let start = 1, wave = 4; ; start += wave, wave *= 2) {
+    const results = await Promise.all(
+      Array.from({ length: wave }, (_, k) => one(start + k)));
+    let done = false;
+    for (const r of results) {
+      if (r.error) return { data: out, error: r.error };
+      out.push(...(r.data || []));
+      if ((r.data || []).length < page) { done = true; break; }
+    }
+    if (done) return { data: out, error: null };
+  }
+}
+
 // Sidebar navigation, grouped by domain. `soon` marks honest placeholders.
 const NAV = [
   { sect: 'Overview' },
@@ -155,6 +178,9 @@ export function bandChart(el, labels, bands) {
   const legend = bands.map((b, i) =>
     `<rect x="${P.l + i * 200}" y="0" width="10" height="10" fill="${b.color}"/>
      <text x="${P.l + i * 200 + 14}" y="9" fill="#67706d" font-size="11" font-family="IBM Plex Mono">${b.name}</text>`).join('');
-  el.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H + 16}">
+  const summary = `Line chart of ${bands.map(b => b.name).join(', ')} across ${labels.length} `
+    + `periods, from ${labels[0]} to ${labels[labels.length - 1]}.`;
+  el.innerHTML = `<svg class="chart" role="img" aria-label="${esc(summary)}" viewBox="0 0 ${W} ${H + 16}">
+    <title>${esc(summary)}</title>
     <g transform="translate(0,14)">${grid}${zero}${lines}${xlabels}</g>${legend}</svg>`;
 }

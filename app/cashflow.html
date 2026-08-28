@@ -2,12 +2,12 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EMG — Cashflow</title><link rel="stylesheet" href="./assets/style.css?v=c452b56"></head><body>
 <script type="module">
-import { boot, fmt$, bandChart } from './assets/shell.js?v=c452b56';
+import { boot, fmt$, bandChart, fetchAll } from './assets/shell.js?v=c452b56';
 
 boot('cashflow', async (supa, el) => {
   el.innerHTML = `<div class="range">
-      <span class="rl">Horizon</span>
-      <select id="cf-weeks" style="height:30px">
+      <label class="rl" for="cf-weeks">Horizon</label>
+      <select id="cf-weeks">
         <option value="6">3 months</option><option value="12">6 months</option>
         <option value="18">9 months</option><option value="24">12 months</option>
       </select>
@@ -26,40 +26,38 @@ boot('cashflow', async (supa, el) => {
     <div class="muted">Tail caution: beyond the reach of open invoices and shaped deals,
     the model has no revenue and both lines sink. That is missing data, not a prophecy.</div>`;
 
-  const periods = +(localStorage.getItem('cf_periods') || 12);
   const sel = document.getElementById('cf-weeks');
-  sel.value = String(periods);
-  sel.onchange = () => { localStorage.setItem('cf_periods', sel.value); location.reload(); };
-  const fetchAll = async build => {
-    const out = [];
-    for (let i = 0; ; i++) {
-      const r = await build().range(i*1000, (i+1)*1000-1);
-      if (r.error) return r;
-      out.push(...(r.data||[]));
-      if ((r.data||[]).length < 1000) return { data: out, error: null };
-    }
-  };
-  const [{ data: rows, error }, ar, ap, pj, cl] = await Promise.all([
-    supa.rpc('cashflow_forecast', { periods }),
+
+  // ---- everything below is independent of the horizon — loaded once
+  const [ar, ap, pj, cl, dl] = await Promise.all([
     fetchAll(() => supa.from('invoices')
       .select('qbo_customer_name,qbo_project_id,due_on,issued_on,balance').gt('balance', 0)),
     fetchAll(() => supa.from('bills')
       .select('vendor_name,due_on,issued_on,balance').gt('balance', 0)),
     fetchAll(() => supa.from('qbo_projects').select('id,name,parent_id')),
-    supa.from('clients').select('name,qbo_customer_id').not('qbo_customer_id','is',null)
+    supa.from('clients').select('id,name,qbo_customer_id'),
+    supa.from('deals').select('client_id,qbo_project_id')
+      .in('status',['won','active']).eq('hidden', false).not('qbo_project_id','is',null)
   ]);
-  if (error) throw error;
-  for (const r of [ar, ap, pj, cl]) if (r.error) throw r.error;
+  for (const r of [ar, ap, pj, cl, dl]) if (r.error) throw r.error;
 
-  // roll AR up to the master client: invoice -> project -> QuickBooks parent ->
-  // the platform client linked to that parent, else the parent's own name
+  // roll AR up to the master client: a project claimed by a deal belongs to that
+  // deal's client (claims attribution — lets two platform clients split one QBO
+  // parent); otherwise invoice -> project -> QuickBooks parent -> the platform
+  // client linked to that parent, else the parent's own name
   const parentOf = {}, projName = {};
   (pj.data||[]).forEach(p => { parentOf[p.id] = p.parent_id || p.id; projName[p.id] = p.name; });
-  const clientByParent = {};
-  (cl.data||[]).forEach(c => clientByParent[c.qbo_customer_id] = c.name);
+  const clientNameById = {}, clientByParent = {};
+  (cl.data||[]).forEach(c => {
+    clientNameById[c.id] = c.name;
+    if (c.qbo_customer_id) clientByParent[c.qbo_customer_id] = c.name;
+  });
+  const claimedClientOf = {};
+  (dl.data||[]).forEach(d => { claimedClientOf[d.qbo_project_id] = clientNameById[d.client_id]; });
   (ar.data||[]).forEach(i => {
     const parent = parentOf[i.qbo_project_id] || i.qbo_project_id;
-    i.master = clientByParent[parent] || projName[parent] || i.qbo_customer_name || '(unnamed)';
+    i.master = claimedClientOf[i.qbo_project_id] || clientByParent[parent]
+      || projName[parent] || i.qbo_customer_name || '(unnamed)';
   });
 
   // ---- aging: bucket every open balance by days past due; not-yet-due is Current
@@ -104,22 +102,36 @@ boot('cashflow', async (supa, el) => {
   }
   agingTable('ar-aging', ar.data, 'master', Infinity);   // every master client, all of it
   agingTable('ap-aging', ap.data, 'vendor_name');
-  bandChart(document.getElementById('chart'),
-    rows.map(r=>r.period_label.replace(/ \d\d$/,'')),
-    [{name:'optimistic (p25)', color:'#67706d', values: rows.map(r=>r.position_optimistic)},
-     {name:'expected', color:'#19a789', values: rows.map(r=>r.position_expected)},
-     {name:'conservative (p90)', color:'#d1453b', values: rows.map(r=>r.position_conservative)}]);
 
-  document.getElementById('tbl').innerHTML =
-    `<tr><th>period</th><th>AR in</th><th>contracted in</th><th>bills</th><th>payroll</th>
-     <th>COGS rate</th><th>overhead</th><th>agency media</th><th>fcst COGS</th><th>position</th><th>worst</th></tr>` +
-    rows.map(r=>`<tr><td style="white-space:nowrap">${r.period_label}</td>
-      <td>${fmt$(r.cash_in_expected)}</td><td>${fmt$(r.in_contracted_expected)}</td>
-      <td>${fmt$(r.out_bills)}</td><td>${fmt$(r.out_payroll)}</td>
-      <td>${fmt$(r.out_cogs_runrate)}</td><td>${fmt$(r.out_overhead)}</td>
-      <td>${fmt$(r.out_agency_media)}</td>
-      <td>${fmt$(r.out_contracted_cogs)}</td>
-      <td class="${r.position_expected<0?'err':''}">${fmt$(r.position_expected)}</td>
-      <td class="${r.position_conservative<0?'err':''}">${fmt$(r.position_conservative)}</td></tr>`).join('');
+  // ---- horizon-dependent: the only part that needs to re-run on a horizon change
+  async function renderPeriods(periods) {
+    const { data: rows, error } = await supa.rpc('cashflow_forecast', { periods });
+    if (error) throw error;
+    bandChart(document.getElementById('chart'),
+      rows.map(r=>r.period_label.replace(/ \d\d$/,'')),
+      [{name:'optimistic (p25)', color:'#67706d', values: rows.map(r=>r.position_optimistic)},
+       {name:'expected', color:'#19a789', values: rows.map(r=>r.position_expected)},
+       {name:'conservative (p90)', color:'#d1453b', values: rows.map(r=>r.position_conservative)}]);
+
+    document.getElementById('tbl').innerHTML =
+      `<tr><th>period</th><th>AR in</th><th>contracted in</th><th>bills</th><th>payroll</th>
+       <th>COGS rate</th><th>overhead</th><th>agency media</th><th>fcst COGS</th><th>position</th><th>worst</th></tr>` +
+      rows.map(r=>`<tr><td style="white-space:nowrap">${r.period_label}</td>
+        <td>${fmt$(r.cash_in_expected)}</td><td>${fmt$(r.in_contracted_expected)}</td>
+        <td>${fmt$(r.out_bills)}</td><td>${fmt$(r.out_payroll)}</td>
+        <td>${fmt$(r.out_cogs_runrate)}</td><td>${fmt$(r.out_overhead)}</td>
+        <td>${fmt$(r.out_agency_media)}</td>
+        <td>${fmt$(r.out_contracted_cogs)}</td>
+        <td class="${r.position_expected<0?'err':''}">${fmt$(r.position_expected)}</td>
+        <td class="${r.position_conservative<0?'err':''}">${fmt$(r.position_conservative)}</td></tr>`).join('');
+  }
+
+  const periods = +(localStorage.getItem('cf_periods') || 12);
+  sel.value = String(periods);
+  sel.onchange = () => {
+    localStorage.setItem('cf_periods', sel.value);
+    renderPeriods(+sel.value);
+  };
+  await renderPeriods(periods);
 });
 </script></body></html>
