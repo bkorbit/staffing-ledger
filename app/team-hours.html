@@ -162,17 +162,17 @@ boot('teamhours', async (supa, el) => {
         <div class="summary-cell"><div class="summary-label">Over capacity</div>
           <div class="summary-value ${overCount>0?'neg':'pos'}">${overCount}</div></div>
       </div>
-      <div class="tbltools" style="padding:10px 0;border-bottom:none;display:flex;gap:10px;flex-wrap:wrap">
-        <input id="q" placeholder="search name…" value="${esc(query)}" aria-label="Search name" style="width:180px">
-        <select id="dept-filter" aria-label="Filter by department">
-          <option value="">All departments</option>
-          ${departments.map(d=>`<option value="${esc(d)}" ${d===deptFilter?'selected':''}>${esc(d)}</option>`).join('')}
-        </select>
-        <label class="mono" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--slate)">
-          <input type="checkbox" id="show-inactive" ${showInactive?'checked':''}> show inactive
-        </label>
-      </div>
-      <div class="gridwrap">
+      <div class="sc-panel" style="padding:0">
+        <div class="tbltools" style="padding:10px 14px;display:flex;gap:10px;flex-wrap:wrap">
+          <input id="q" placeholder="search name…" value="${esc(query)}" aria-label="Search name" style="width:180px">
+          <select id="dept-filter" aria-label="Filter by department">
+            <option value="">All departments</option>
+            ${departments.map(d=>`<option value="${esc(d)}" ${d===deptFilter?'selected':''}>${esc(d)}</option>`).join('')}
+          </select>
+          <label class="mono" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--slate)">
+            <input type="checkbox" id="show-inactive" ${showInactive?'checked':''}> show inactive
+          </label>
+        </div>
         <table class="ledger" style="table-layout:fixed">
           <colgroup><col style="width:20%"><col style="width:7%">
             <col style="width:20%"><col style="width:20%"><col style="width:20%"><col style="width:13%"></colgroup>
