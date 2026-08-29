@@ -35,10 +35,13 @@ const hub=http.createServer((req,res)=>{
        associations:{companies:{results:[{id:'C2'}]}}},
       {id:'D6',properties:{dealname:'Placed: Jane Doe',amount:'25000',dealstage:'placed',pipeline:'recruiting',
         campaign_start_date:'2026-09-01',campaign_end_date:'2026-12-01'},
-       associations:{companies:{results:[{id:'C2'}]}}}
+       associations:{companies:{results:[{id:'C2'}]}}},
+      {id:'D7',properties:{dealname:'Mismatched Deal',amount:'30000',dealstage:'won-stage',pipeline:'sales',
+        closedate:'2026-08-20',campaign_start_date:'2026-09-01',campaign_end_date:'2026-10-01'},
+       associations:{companies:{results:[{id:'C3'}]}}}
     ]}));
     if(req.url.includes('/companies/batch/read')) return res.end(JSON.stringify({results:[
-      {id:'C1',properties:{name:'Visit Akron'}},{id:'C2',properties:{name:'MMGY'}}]}));
+      {id:'C1',properties:{name:'Visit Akron'}},{id:'C2',properties:{name:'MMGY'}},{id:'C3',properties:{name:'  IMG  '}}]}));
     if(req.url.includes('/line_items/batch/read')) return res.end(JSON.stringify({results:[]}));
     res.end('{}');
   });
@@ -52,6 +55,7 @@ const supa=http.createServer((req,res)=>{
     if(req.method==='GET'&&table==='sync_state') return res.end(JSON.stringify([{id:'hubspot'}]));
     if(req.method==='GET'&&table==='promotions') return res.end(JSON.stringify([{hubspot_deal_id:'D4'}])); // D4 already through the door
     if(req.method==='GET'&&table==='settings') return res.end(JSON.stringify([{value:['Sales Pipeline']}]));
+    if(req.method==='GET'&&table==='blocked_company_names') return res.end(JSON.stringify([{name_key:'img'}]));
     if(req.method==='GET') return res.end('[]');
     if(req.method==='DELETE'){deletes.push(req.url);res.statusCode=204;return res.end();}
     if(req.method==='POST'&&req.url.includes('/rpc/')){rpc.push(req.url);
@@ -87,7 +91,7 @@ await new Promise(r=>setTimeout(r,2500));
 let bad=0;
 const check=(cond,msg)=>{ console.log((cond?'  ok  ':'  FAIL ')+msg); if(!cond)bad=1; };
 
-check((writes.pipeline_deals||[]).length===6,'all 6 deals mirrored');
+check((writes.pipeline_deals||[]).length===7,'all 7 deals mirrored');
 const d6m=(writes.pipeline_deals||[]).find(d=>d.hubspot_deal_id==='D6')||{};
 check(d6m.is_won===true&&d6m.pipeline==='Recruiting','placed candidate is recognised as won, in the Recruiting pipeline');
 check(!(writes.deals||[]).find(d=>d.hubspot_deal_id==='D6'),'recruiting win held at the door — not promoted');
@@ -103,6 +107,8 @@ check(proms.length===2,'2 promotions recorded');
 check(!proms.find(p=>p.hubspot_deal_id==='D4'),'already-promoted D4 not re-promoted');
 check(!dealRows.find(d=>d.hubspot_deal_id==='D3'),'dateless D3 did not promote');
 check(!dealRows.find(d=>d.hubspot_deal_id==='D5'),'open D5 did not promote');
+check(!dealRows.find(d=>d.hubspot_deal_id==='D7'),'D7 (company "IMG", on the 029 blocklist) held at the door despite complete dates');
+check(!clients.find(c=>c.name.trim()==='IMG'),'blocked D7 never created a client for "IMG"');
 const state=(writes.sync_state||[]);
 const akron2=dealRows.filter(d=>['D1','D2'].includes(d.hubspot_deal_id)).map(d=>d.client_id);
 check(akron2.length===2&&akron2[0]===akron2[1],'both Akron deals share one client id');
@@ -116,6 +122,9 @@ check(rpc.some(u=>u.includes('match_deals_to_projects')),'matcher called after p
 // is covered by unit fixtures; here assert the run log carries the counters
 const lastState=state[state.length-1]||{};
 check('flighted' in (lastState.last_run_log||{}), 'run log carries the flighted counter');
+const skipNames=(lastState.last_run_log||{}).skipped_names||{};
+check((skipNames['company name blocked (see Clients tab)']||[]).includes('Mismatched Deal'),
+  'run log names D7 under the blocked-company skip reason');
 
 console.log(bad?'\nE2E FAILED':'\nall e2e checks passed');
 hub.close();supa.close();process.exit(bad);

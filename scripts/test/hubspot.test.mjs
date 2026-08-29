@@ -28,6 +28,10 @@ eq(m.promotionBlocker({company:null,campaign_start:'2026-08-01',campaign_end:'20
 eq(m.promotionBlocker({company:'A',campaign_start:null,campaign_end:'2026-09-01'}),'no campaign start date','start required');
 eq(m.promotionBlocker({company:'A',campaign_start:'2026-08-01',campaign_end:null}),'no campaign end date','end required');
 eq(m.promotionBlocker({company:'A',campaign_start:'2026-09-01',campaign_end:'2026-08-01'}),'campaign ends before it starts','order checked');
+eq(m.promotionBlocker({company:'A',campaign_start:'2026-08-01',campaign_end:'2026-09-01'}),null,'no blocklist arg -> unblocked, backward compatible');
+eq(m.promotionBlocker({company:'IMG',campaign_start:'2026-08-01',campaign_end:'2026-09-01'},new Set(['img'])),'company name blocked (see Clients tab)','blocked name (029) held at the door even with complete dates');
+eq(m.promotionBlocker({company:'  IMG  ',campaign_start:'2026-08-01',campaign_end:'2026-09-01'},new Set(['img'])),'company name blocked (see Clients tab)','blocklist match runs through the same nameKey normalization');
+eq(m.promotionBlocker({company:'Other Co',campaign_start:'2026-08-01',campaign_end:'2026-09-01'},new Set(['img'])),null,'a blocklist with unrelated names does not block this deal');
 
 console.log('jobcode');
 eq(m.jobcodeFromName('26akrn260101 Visit Akron World Cup'),'26akrn260101','extracts');

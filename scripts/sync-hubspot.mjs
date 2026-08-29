@@ -239,9 +239,13 @@ export function jobcodeFromName(name) {
 }
 
 // Why a won deal cannot promote, or null if it can. The reasons are the run log's
-// vocabulary, so keep them short and stable.
-export function promotionBlocker(deal) {
+// vocabulary, so keep them short and stable. blockedNames is a set of
+// nameKey()-normalized company names a human has marked "don't match" on the
+// Clients tab (029) — checked right alongside "no company", since both mean
+// there's no client this deal should attach to yet.
+export function promotionBlocker(deal, blockedNames = new Set()) {
   if (!deal.company)         return 'no company';
+  if (blockedNames.has(nameKey(deal.company))) return 'company name blocked (see Clients tab)';
   if (!deal.campaign_start)  return 'no campaign start date';
   if (!deal.campaign_end)    return 'no campaign end date';
   if (deal.campaign_end < deal.campaign_start) return 'campaign ends before it starts';
@@ -368,6 +372,8 @@ async function main() {
     .map(r => r.hubspot_deal_id));
   const clients = await sbGet('clients?select=id,name');
   const aliases = await sbGet('client_aliases?select=client_id,alias');
+  const blockedNames = new Set((await sbGet('blocked_company_names?select=name_key'))
+    .map(r => r.name_key));
   const clientByKey = {};
   clients.forEach(c => { clientByKey[nameKey(c.name)] = c.id; });
   aliases.forEach(a => { clientByKey[nameKey(a.alias)] = a.client_id; });
@@ -377,7 +383,7 @@ async function main() {
 
   for (const m of gated) {
     if (already.has(m.hubspot_deal_id)) continue;
-    const blocker = promotionBlocker(m);
+    const blocker = promotionBlocker(m, blockedNames);
     if (blocker) { (skipped[blocker] = skipped[blocker] || []).push(m.name || m.hubspot_deal_id); continue; }
 
     let clientId = clientByKey[nameKey(m.company)];

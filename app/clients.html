@@ -20,11 +20,14 @@ boot('clients', async (supa, el) => {
   const $ = s => el.querySelector(s);
 
 
-let clients = [], parents = [], takenBy = {};
+let clients = [], parents = [], takenBy = {}, blocked = new Set();
 
+// must match sync-hubspot.mjs's nameKey() exactly — this is what the sync
+// checks against blocked_company_names (029) before a deal can promote
+const nameKey = name => String(name || '').trim().replace(/\s+/g, ' ').toLowerCase();
 
 async function load() {
-  const [c, q] = await Promise.all([
+  const [c, q, b] = await Promise.all([
     supa.from('clients').select('id,name,qbo_customer_id,active').order('name'),
     (async () => {  // paginate: Supabase caps responses at 1000 rows server-side
       const out = [];
@@ -35,11 +38,13 @@ async function load() {
         out.push(...(r.data||[]));
         if ((r.data||[]).length < 1000) return { data: out, error: null };
       }
-    })()
+    })(),
+    supa.from('blocked_company_names').select('name_key')
   ]);
-  if (c.error || q.error) { $('#list').innerHTML =
-    `<div class="sc-panel err">${(c.error||q.error).message}</div>`; return; }
+  if (c.error || q.error || b.error) { $('#list').innerHTML =
+    `<div class="sc-panel err">${(c.error||q.error||b.error).message}</div>`; return; }
   clients = c.data; parents = q.data;
+  blocked = new Set((b.data||[]).map(r => r.name_key));
   takenBy = {};
   clients.forEach(cl => { if (cl.qbo_customer_id) takenBy[cl.qbo_customer_id] = cl.name; });
   render();
@@ -69,11 +74,13 @@ function render() {
       return `<option value="${p.id}" ${sel ? 'selected' : ''} ${taken ? 'data-taken="1"' : ''}>` +
              `${esc(p.name)}${taken ? ` — already linked to ${esc(takenBy[p.id])}` : ''}</option>`;
     }).join('');
-    return `<div class="sc-panel" data-id="${c.id}">
+    const inactive = c.active === false;
+    const dontMatch = blocked.has(nameKey(c.name));
+    return `<div class="sc-panel" data-id="${c.id}" ${inactive ? 'style="opacity:.6"' : ''}>
       <div class="row">
         <div class="grow">
-          <div class="name">${esc(c.name)}</div>
-          <div class="hint">${linkedName ? 'linked to ' + esc(linkedName) : 'not linked to QuickBooks'}</div>
+          <div class="name">${esc(c.name)}${inactive ? ' <span class="pill">inactive</span>' : ''}${dontMatch ? ' <span class="pill bad">don’t match</span>' : ''}</div>
+          <div class="hint">${linkedName ? 'linked to ' + esc(linkedName) : 'not linked to QuickBooks'}${dontMatch ? ' — HubSpot deals for this name are held at the door' : ''}</div>
         </div>
         <span class="pill ${linkedName ? 'good' : 'warn'}">${linkedName ? 'linked' : 'needs link'}</span>
         <div class="grow">
@@ -83,6 +90,8 @@ function render() {
         </div>
         <button class="save primary" disabled>Save</button>
         ${linkedName ? '<button class="unlink">Unlink</button>' : ''}
+        <button class="toggleactive ${inactive ? '' : 'danger'}">${inactive ? 'Reactivate' : 'Deactivate'}</button>
+        <button class="toggleblock ${dontMatch ? '' : 'danger'}" title="${dontMatch ? 'let HubSpot match this company name to a client again' : 'never let a HubSpot deal auto-create or attach to a client for this company name again'}">${dontMatch ? 'Allow matching' : "Don’t match"}</button>
       </div>
       <div class="hint msg"></div>
     </div>`;
@@ -122,6 +131,29 @@ function render() {
       const { error } = await supa.from('clients')
         .update({ qbo_customer_id: null, set_by: userEmail(), set_at: new Date().toISOString() })
         .eq('id', card.dataset.id);
+      if (!error) load();
+    };
+    card.querySelector('.toggleactive').onclick = async () => {
+      const c = clients.find(x => x.id === card.dataset.id);
+      const willActivate = c.active === false;
+      if (!willActivate && !confirm(`Deactivate "${c.name}"?\n\nIt disappears from Forecast and from this list by default (reversible any time from "show inactive"). Its deals and history are untouched.`)) return;
+      const { error } = await supa.from('clients')
+        .update({ active: willActivate, set_by: userEmail(), set_at: new Date().toISOString() })
+        .eq('id', card.dataset.id);
+      if (!error) load();
+    };
+    card.querySelector('.toggleblock').onclick = async () => {
+      const c = clients.find(x => x.id === card.dataset.id);
+      const key = nameKey(c.name);
+      const isBlocked = blocked.has(key);
+      if (isBlocked) {
+        const { error } = await supa.from('blocked_company_names').delete().eq('name_key', key);
+        if (!error) load();
+        return;
+      }
+      if (!confirm(`Don't match "${c.name}"?\n\nAny HubSpot deal whose company matches this name will be held at the door on every future sync — never creating or attaching to any client, this one included. Fix the mismatch in HubSpot, or come back here to allow matching again.`)) return;
+      const { error } = await supa.from('blocked_company_names')
+        .upsert({ name_key: key, name: c.name, set_by: userEmail(), set_at: new Date().toISOString() });
       if (!error) load();
     };
   });

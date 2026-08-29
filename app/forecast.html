@@ -267,6 +267,7 @@ boot('forecast', async (supa, el) => {
   let acctTotals = [], fullProjects = null;
   let revByProj = {}, cogsByProj = {}, openClients = new Set();
   let tableSort = { key:'value', dir:-1 }, tableQuery = '';
+  let unattributedOpen = false;
   let plRowsCache = [];
 
   async function loadAll() {
@@ -547,7 +548,26 @@ boot('forecast', async (supa, el) => {
       return head + kids;
     }).join('');
 
+    // every project attributed to ANY client — computed over every client,
+    // not just the ones the search box currently shows, so unattributed
+    // revenue never balloons just because someone typed in the filter
+    const attributedProjects = new Set();
+    Object.values(clientsById).forEach(c => {
+      (c.qbo_customer_id ? (projsUnder[c.qbo_customer_id]||[]) : [])
+        .filter(pid => !projClaimedBy[pid] || projClaimedBy[pid] === c.id)
+        .forEach(pid => attributedProjects.add(pid));
+      (dealsByClient[c.id]||[]).forEach(d => { if (d.qbo_project_id) attributedProjects.add(d.qbo_project_id); });
+    });
+    const unattributedProjects = Object.keys(revByProj)
+      .filter(pid => !attributedProjects.has(pid) && ((revByProj[pid]||{}).total || cogsByProj[pid]))
+      .map(pid => ({ pid, name: (projects.find(p=>p.id===pid)||{}).name || pid,
+                      revenue: (revByProj[pid]||{}).total||0, cogs: cogsByProj[pid]||0 }))
+      .sort((a,b) => Math.abs(b.revenue) - Math.abs(a.revenue));
     const unattributedRev = plRows.reduce((s,r)=>s+r.revenue,0) - totals.value;
+    // rev_proj (unlike rev_month) only sums lines that already carry a
+    // QuickBooks project — a line with none at all can't show up in the list
+    // above, so name the gap instead of silently dropping it
+    const untraced = unattributedRev - unattributedProjects.reduce((s,p)=>s+p.revenue,0);
     const HCOLS = [['name','Client / deal'],
       ['value','Value','Billed + forecasted, across the range'],
       ['gpBilled','GP Billed'],
@@ -559,10 +579,20 @@ boot('forecast', async (supa, el) => {
         ? `<th data-sort="${k}"${hint?` title="${hint}"`:''} tabindex="0" role="columnheader" aria-sort="${tableSort.key===k?(tableSort.dir<0?'descending':'ascending'):'none'}">${label}${tableSort.key===k?`<span class="dir">${tableSort.dir<0?'▼':'▲'}</span>`:''}</th>`
         : `<th style="cursor:default;text-align:left">${label}</th>`).join('')}</tr>` +
       bodyRows +
-      (Math.abs(unattributedRev) > 100 ? `<tr>
-        <td class="muted">unattributed (no client link)</td>
+      (Math.abs(unattributedRev) > 100 ? `<tr class="dealsub unattrow" tabindex="0" role="button" aria-expanded="${unattributedOpen}">
+        <td class="namecell"><span class="muted">${unattributedProjects.length?(unattributedOpen?'▾':'▸'):'·'}</span> unattributed (no client link)</td>
         <td class="muted">${fmtM(unattributedRev)}</td>
-        <td colspan="3"></td><td style="text-align:left" class="muted">link clients on the Clients tab</td></tr>` : '') +
+        <td colspan="3"></td><td style="text-align:left" class="muted">${unattributedProjects.length?'click to see which QuickBooks projects':'link clients on the Clients tab'}</td></tr>` +
+        (unattributedOpen ? unattributedProjects.map(p => `<tr class="dealsub">
+            <td class="namecell" style="padding-left:28px;color:var(--slate)">◦ <span class="namewrap">${esc(p.name)}</span></td>
+            <td>${p.revenue?fmtM(p.revenue):''}</td>
+            <td>${(p.revenue||p.cogs)?fmtM(p.revenue-p.cogs):''}</td><td></td><td></td>
+            <td style="text-align:left" class="muted">its QuickBooks parent isn't linked to any client — link it on the Clients tab</td></tr>`).join('')
+          + (Math.abs(untraced) > 100 ? `<tr class="dealsub">
+              <td class="namecell" style="padding-left:28px;color:var(--slate)">◦ no QuickBooks project at all</td>
+              <td class="muted">${fmtM(untraced)}</td><td colspan="3"></td>
+              <td style="text-align:left" class="muted">invoices or cost lines with no project code in QuickBooks</td></tr>` : '')
+          : '') : '') +
       `<tr class="totalrow"><td>company — ${months.length} months</td>
         <td>${fmtM(plRows.reduce((s,r)=>s+r.revenue,0))}</td>
         <td>${fmtM(plRows.filter(r=>r.measured).reduce((s,r)=>s+(r.actualGP||0),0))}</td>
@@ -601,10 +631,9 @@ boot('forecast', async (supa, el) => {
         if (cell.querySelector('select')) return;   // already open
         const opt = x => `<option value="${x.id}">${esc(x.name)}${x._cn?` — ${esc(x._cn)}`:''}${x.qbo_project_id?' · already linked':''}</option>`;
         cell.innerHTML = `<select style="height:26px;max-width:300px">
-            <option value="">— choose the deal that owns this project —</option>
+            <option value="">— choose the deal that owns this project (must already exist — deals always come from HubSpot) —</option>
             ${ds.length?`<optgroup label="this client's deals">${ds.map(d=>opt({...d,_cn:''})).join('')}</optgroup>`:''}
             ${others.length?`<optgroup label="other clients' deals">${others.map(opt).join('')}</optgroup>`:''}
-            <option value="__new__">+ create a new deal for this project…</option>
           </select> <button class="dolink primary" style="padding:2px 10px">Link</button>
           <button class="dohide danger" style="padding:2px 10px" title="remove this project from every list — its money still rolls up to the client">Hide project</button>`;
         cell.onclick = ev => ev.stopPropagation();
@@ -620,18 +649,10 @@ boot('forecast', async (supa, el) => {
         cell.querySelector('.dolink').onclick = async () => {
           const val = cell.querySelector('select').value;
           if (!val) return;
-          if (val === '__new__') {
-            const pj = projects.find(p=>p.id===pid)||{};
-            const name = prompt('Name the new deal for this project:', pj.name || '');
-            if (!name) return;
-            const { data: nd, error: ce } = await supa.from('deals').insert([{
-              client_id: cid, name, status:'active', origin:'manual',
-              qbo_project_id: pid, set_by: window.__email
-            }]).select('id').single();
-            if (ce) { alert(ce.message); return; }
-            loadAll();   // opens as an unshaped deal ready to plan
-            return;
-          }
+          // deals only ever come from HubSpot — no manual creation path here.
+          // If no deal fits, the deal itself is missing or not-yet-promotable
+          // in HubSpot (check its campaign dates) rather than something to
+          // paper over in the platform.
           const deal = ds.find(x=>x.id===val)
             || Object.values(dealsByClient).flat().find(x=>x.id===val);
           if (deal.qbo_project_id &&
@@ -666,6 +687,13 @@ boot('forecast', async (supa, el) => {
       tr.onclick = activate;
       tr.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); } };
     });
+
+    const unattrow = el.querySelector('tr.unattrow');
+    if (unattrow) {
+      const activate = () => { unattributedOpen = !unattributedOpen; renderTable(); };
+      unattrow.onclick = activate;
+      unattrow.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); } };
+    }
   }
 
   /* -------------------------------------------- the editor, focus overlay -- */
