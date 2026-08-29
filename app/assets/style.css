@@ -146,10 +146,17 @@ tr.risk-row td { color:var(--ink); }
    the client/deal breakout with its own planned-vs-logged bar per line on
    the left, the internal/PTO/client time split on the right — since they're
    two different questions ("who for" vs. "what kind of time") rather than
-   one long list. */
+   one long list. The tint (Table Header Wash, plain neutral gray) is purely
+   a "these two rows belong together" anchor, not a status color — the
+   parent name row picks up the same tint while its own expand row is open
+   (overriding the ordinary mint hover, so it doesn't fight for the same
+   real estate) so the pair reads as one connected block, not two unrelated
+   rows with an incidental hover tint between them. */
+tr.namerow.open:not(.risk-row) td,
+tr.namerow.open:not(.risk-row):hover td { background:#f6f6f6; }
 tr.expand-row td { padding:0; border-bottom:1px solid var(--line); }
 .expand-grid { display:grid; grid-template-columns:1.4fr 1fr; gap:24px;
-  background:#fafaf8; padding:16px 18px 18px; }
+  background:#f6f6f6; padding:16px 18px 18px; }
 .assign-line { margin-bottom:10px; }
 .assign-line:last-child { margin-bottom:0; }
 .assign-label { font-size:11.5px; margin-bottom:3px; }
@@ -293,7 +300,9 @@ table.ledger th { font-family:var(--font-mono); font-size:9px; letter-spacing:.0
 table.ledger th:first-child { text-align:left; }
 table.ledger td { padding:6px 10px; border:none; border-bottom:1px solid #efefef;
   font-family:var(--font-mono); font-size:11px; text-align:right; white-space:nowrap;
-  font-variant-numeric:tabular-nums; }
+  font-variant-numeric:tabular-nums; vertical-align:middle; } /* explicit, not assumed: a
+  bar+caption stack (Team Hours' utilization/pacing/plan-vs-logged) needs to center
+  against a taller neighboring cell, not sit pinned to the top */
 table.ledger td:first-child { text-align:left; }
 table.ledger tr:not(.gp):hover td { background:var(--mint); }
 table.ledger tr.gp td { background:var(--brand); color:#fff; font-weight:700; border-top:2px solid var(--brand); }

@@ -243,7 +243,7 @@ boot('teamhours', async (supa, el) => {
               ? stackSegments(r.assignedHours, [[r.clientHours > r.assignedHours ? 'seg-over' : 'seg-good', r.clientHours]])
               : null;
             const open = openStaff.has(r.s.id);
-            return `<tr class="${r.profit<0?'risk-row':''} namerow" data-sid="${r.s.id}" role="button" tabindex="0" aria-expanded="${open}" style="cursor:pointer">
+            return `<tr class="${r.profit<0?'risk-row':''} namerow${open?' open':''}" data-sid="${r.s.id}" role="button" tabindex="0" aria-expanded="${open}" style="cursor:pointer">
                 <td class="textleft">
                   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
                     <div>${open?'▾':'▸'} ${esc(r.s.name)}<div class="summary-note">${esc(r.s.department||'')}</div></div>
