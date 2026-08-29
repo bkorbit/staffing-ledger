@@ -2,9 +2,13 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EMG — Forecast</title><link rel="stylesheet" href="./assets/style.css?v=510ac2f">
 <style>
-.range{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:12px}
+/* matches .summary-strip's own margin-bottom (style.css) so the new KPI-ribbon-to-range
+   gap and the range-to-chart gap read as one rhythm, not two (same fix as sales.html's .bar) */
+.range{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:22px}
 .rl{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.09em;color:var(--slate)}
 .rd{font-family:var(--font-mono);font-size:10px;color:var(--slate)}
+svg.chart .colgroup{outline:none}
+svg.chart .colgroup:focus-visible{outline:2px solid var(--brand-2);outline-offset:-2px}
 table.sum td .pct{display:block;font-size:9px;color:var(--slate);margin-top:1px}
 table.sum td .pct.bad{color:var(--rust)} table.sum td .pct.good{color:var(--brand-2)}
 tr.deallist td{cursor:pointer}
@@ -167,24 +171,36 @@ boot('forecast', async (supa, el) => {
     }
     if(min<0) g+=`<line x1="${P.l}" y1="${y(0)}" x2="${W-P.r}" y2="${y(0)}" stroke="var(--rust)" stroke-dasharray="4 3"/>`;
     const y0=y(Math.max(min,0));
+    // one plain-text line per month, shared by the keyboard focus label and
+    // the mouse/touch tooltip below — same pattern as sales.html's chart
+    const rowVals = r => ({ revenue:r.revenue, cogs:r.cogs, labour:r.labour, other:r.other, misc:r.misc, fixed:r.fixed, net:r.net });
+    const rowParts = r => { const vals=rowVals(r);
+      return SERIES.filter(([k])=>on(k) && (k==='net' || vals[k]>0)).map(([k,,lbl])=>`${lbl} ${fmtM(vals[k])}`); };
     rows.forEach((r,i)=>{
       const cx=P.l+gap*i+gap/2, op=r.measured?1:0.55;
       const x0=cx-1.5*bw-2;
+      let colG='';
       // called out directly on the chart: revenue and net only. Everything
       // else (COGS, the opex stack) carries its value in the hover tip, not
       // a permanent label — that was the clutter.
-      if(on('revenue') && r.revenue>0) g+=`<rect x="${x0}" y="${y(r.revenue)}" width="${bw}" height="${y0-y(r.revenue)}" fill="${colorOf.revenue}" opacity="${op}" data-tip="${mLabel(r.m)} revenue ${fmtM(r.revenue)}"><title>${mLabel(r.m)} revenue ${fmtM(r.revenue)}</title></rect>
+      if(on('revenue') && r.revenue>0) colG+=`<rect x="${x0}" y="${y(r.revenue)}" width="${bw}" height="${y0-y(r.revenue)}" fill="${colorOf.revenue}" opacity="${op}"><title>${mLabel(r.m)} revenue ${fmtM(r.revenue)}</title></rect>
         <text x="${x0+bw/2}" y="${y(r.revenue)-4}" fill="${INK}" font-size="9" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(r.revenue)}</text>`;
-      if(on('cogs') && r.cogs>0) g+=`<rect x="${x0+bw+2}" y="${y(r.cogs)}" width="${bw}" height="${y0-y(r.cogs)}" fill="${colorOf.cogs}" opacity="${op}" data-tip="${mLabel(r.m)} COGS ${fmtM(r.cogs)}"><title>${mLabel(r.m)} COGS ${fmtM(r.cogs)}</title></rect>`;
+      if(on('cogs') && r.cogs>0) colG+=`<rect x="${x0+bw+2}" y="${y(r.cogs)}" width="${bw}" height="${y0-y(r.cogs)}" fill="${colorOf.cogs}" opacity="${op}"><title>${mLabel(r.m)} COGS ${fmtM(r.cogs)}</title></rect>`;
       let acc=0; const xs=x0+2*(bw+2);
       [['labour'],['other'],['misc'],['fixed']].forEach(([k])=>{
         if(!on(k)) return;
         const v=r[k]; if(!v) return;
         const y1=y(acc+v), h=y(acc)-y(acc+v); acc+=v;
         const nm = k==='other'?'overhead':k==='misc'?'other accts':k;
-        g+=`<rect x="${xs}" y="${y1}" width="${bw}" height="${h}" fill="${colorOf[k]}" opacity="${op}" data-tip="${mLabel(r.m)} ${nm} ${fmtM(v)}"><title>${mLabel(r.m)} ${nm} ${fmtM(v)}</title></rect>`;
+        colG+=`<rect x="${xs}" y="${y1}" width="${bw}" height="${h}" fill="${colorOf[k]}" opacity="${op}"><title>${mLabel(r.m)} ${nm} ${fmtM(v)}</title></rect>`;
       });
-      g+=`<text x="${cx}" y="${H-8}" fill="${INK}" font-size="${rows.length>14?8:9.5}" font-family="IBM Plex Mono" text-anchor="middle">${mLabel(r.m)}</text>`;
+      colG+=`<text x="${cx}" y="${H-8}" fill="${INK}" font-size="${rows.length>14?8:9.5}" font-family="IBM Plex Mono" text-anchor="middle">${mLabel(r.m)}</text>`;
+      // the whole column (bars + month label) is one keyboard focus stop —
+      // Tab reaches every month in order, focus shows the same aggregate
+      // tooltip a mouse hover does, so the breakdown isn't mouse/touch-only
+      const parts = rowParts(r);
+      const colSummary = `${mLabel(r.m)} (${r.measured?'measured':'forecast'}): ${parts.length?parts.join(', '):'no data'}`;
+      g+=`<g tabindex="0" role="img" aria-label="${esc(colSummary)}" class="colgroup" data-idx="${i}">${colG}</g>`;
     });
     if (on('net')) {
       // the net line honors the same measured/forecast weighting as the bars —
@@ -198,7 +214,7 @@ boot('forecast', async (supa, el) => {
       }
       rows.forEach((r,i)=>{const cx=P.l+gap*i+gap/2, cy=y(r.net);
         const tip = `${mLabel(r.m)} net ${fmtM(r.net)} — ${r.measured?'measured':'forecast: GP − labour − overhead − other − fixed'}`;
-        g+=`<circle cx="${cx}" cy="${cy}" r="4" fill="${colorOf.net}" stroke="var(--paper-raised)" stroke-width="2" opacity="${r.measured?1:0.55}" data-tip="${tip}"><title>${tip}</title></circle>
+        g+=`<circle cx="${cx}" cy="${cy}" r="4" fill="${colorOf.net}" stroke="var(--paper-raised)" stroke-width="2" opacity="${r.measured?1:0.55}"><title>${tip}</title></circle>
         <text x="${cx}" y="${cy+17}" fill="${INK}" font-size="9.5" font-weight="600" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(r.net)}</text>`;});
     }
     // the legend lives in the chart's grey footer bar (the app-wide standard —
@@ -220,17 +236,49 @@ boot('forecast', async (supa, el) => {
       comboChart(elc, rows);
     };
     elc.querySelectorAll('.lg-item.toggle').forEach(b => { b.onclick = () => toggleSeries(b.dataset.k); });
-    // real hover tooltip — the native <title> tooltip stays as a no-JS/a11y
-    // floor, but it's slow to appear and easy to miss; this is instant
+    // real hover tooltip, same pattern as sales.html: aggregates every
+    // visible series for the whole month, not just the one segment under
+    // the cursor. The per-rect <title> stays as a no-JS/a11y floor.
+    // Shared by mouse/touch (showAt, from cursor position) AND keyboard
+    // (each column's own tabindex="0" focus, wired below).
+    const svgEl = elc.querySelector('svg.chart');
     const tip = elc.querySelector('.chart-tip');
-    elc.querySelectorAll('[data-tip]').forEach(mark => {
-      mark.addEventListener('mouseenter', () => { tip.textContent = mark.dataset.tip; tip.style.opacity = '1'; });
-      mark.addEventListener('mousemove', e => {
-        const box = elc.getBoundingClientRect();
-        tip.style.left = (e.clientX - box.left + 12) + 'px';
-        tip.style.top = (e.clientY - box.top - 10) + 'px';
-      });
-      mark.addEventListener('mouseleave', () => { tip.style.opacity = '0'; });
+    const tipHtmlFor = idx => {
+      const r = rows[idx], vals = rowVals(r);
+      const tipRows = SERIES.filter(([k])=>on(k) && (k==='net' || vals[k]>0))
+        .map(([k,c,lbl])=>`<div class="tip-row"><span class="tip-dot" style="background:${c}"></span>${esc(lbl)} <b>${fmtM(vals[k])}</b></div>`);
+      return `<div class="tip-label">${mLabel(r.m)} · ${r.measured?'measured':'forecast'}</div>` +
+        (tipRows.length ? tipRows.join('') : '<div class="tip-row">no data</div>');
+    };
+    const positionNear = (clientX, clientY) => {
+      const box = elc.getBoundingClientRect();
+      tip.style.left = (clientX - box.left + 12) + 'px';
+      tip.style.top = (clientY - box.top - 10) + 'px';
+    };
+    const showAt = (clientX, clientY) => {
+      const svgBox = svgEl.getBoundingClientRect();
+      const scale = W / svgBox.width;
+      const vx = (clientX - svgBox.left) * scale;
+      let idx = Math.floor((vx - P.l) / gap);
+      idx = Math.max(0, Math.min(rows.length - 1, idx));
+      tip.innerHTML = tipHtmlFor(idx);
+      tip.style.opacity = '1';
+      positionNear(clientX, clientY);
+    };
+    const hideTip = () => { tip.style.opacity = '0'; };
+    svgEl.onmousemove = e => showAt(e.clientX, e.clientY);
+    svgEl.onmouseleave = hideTip;
+    svgEl.ontouchstart = svgEl.ontouchmove = e => { if (e.touches[0]) showAt(e.touches[0].clientX, e.touches[0].clientY); };
+    svgEl.ontouchend = hideTip;
+    elc.querySelectorAll('.colgroup').forEach(colEl => {
+      const idx = +colEl.dataset.idx;
+      colEl.onfocus = () => {
+        tip.innerHTML = tipHtmlFor(idx);
+        tip.style.opacity = '1';
+        const r = colEl.getBoundingClientRect();
+        positionNear(r.left + r.width / 2, r.top);
+      };
+      colEl.onblur = hideTip;
     });
   }
 
@@ -320,6 +368,7 @@ boot('forecast', async (supa, el) => {
   /* ---------------------------------------------------------------- render */
   function render() {
     el.innerHTML = `
+      <div class="summary-strip" id="kpis"></div>
       <div class="range">
         <span class="rl">Range</span>
         <input type="month" id="r-from" aria-label="Range from" value="${rangeFrom.slice(0,7)}">
@@ -404,6 +453,27 @@ boot('forecast', async (supa, el) => {
     const plRows = months.map(rowFor);
     comboChart(el.querySelector('#chart'), plRows);
     plRowsCache = plRows;
+
+    // headline numbers for the range, sourced from the exact same plRows
+    // the chart draws from — so the ribbon and the chart can never disagree
+    const netTotal = plRows.reduce((s,r)=>s+r.net,0);
+    const revTotal = plRows.reduce((s,r)=>s+r.revenue,0);
+    const gpTotal = plRows.reduce((s,r)=>s+(r.measured?r.actualGP:r.forecastGP),0);
+    const measuredCount = plRows.filter(r=>r.measured).length;
+    el.querySelector('#kpis').innerHTML = `
+      <div class="summary-cell"><div class="summary-label">Net profit</div>
+        <div class="summary-value ${netTotal<0?'neg':'pos'}">${fmtM(netTotal)}</div>
+        <div class="summary-note">${plRows.length} months, ${mLabel(rangeFrom)}–${mLabel(rangeTo)}</div></div>
+      <div class="summary-cell"><div class="summary-label">Revenue</div>
+        <div class="summary-value">${fmtM(revTotal)}</div>
+        <div class="summary-note">billed + planned, this range</div></div>
+      <div class="summary-cell"><div class="summary-label">Gross profit</div>
+        <div class="summary-value ${gpTotal<0?'neg':'pos'}">${fmtM(gpTotal)}</div>
+        <div class="summary-note">actual + forecast, this range</div></div>
+      <div class="summary-cell"><div class="summary-label">Measured</div>
+        <div class="summary-value">${measuredCount} / ${plRows.length}</div>
+        <div class="summary-note">months fully closed</div></div>`;
+
     renderTable();
   }
 
