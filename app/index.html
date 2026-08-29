@@ -2,53 +2,129 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EMG — Home</title><link rel="stylesheet" href="./assets/style.css?v=3ddb014"></head><body>
 <script type="module">
-import { boot, fmt$, esc, bandChart } from './assets/shell.js?v=3ddb014';
+import { boot, esc } from './assets/shell.js?v=3ddb014';
+
+// Bottom-up: actual hours x each staff member's own resolved cost rate,
+// joined against the SAME rev_proj forecast.html already reads (via
+// forecast_page) — this page and Forecast must never disagree about what
+// counts as revenue, only about what "cost" means (hours here, QBO COGS
+// there). See db/031_hours_page.sql.
+const fmtHours = h => (+h || 0).toLocaleString(undefined, { maximumFractionDigits: 1 });
+const fmt$0 = c => (c < 0 ? '-$' : '$') + Math.abs(Math.round((c || 0) / 100)).toLocaleString();
+
+const iso = d => d.toISOString().slice(0, 10);
+const monthOf = s => s.slice(0, 7) + '-01';
+const shiftM = (m, n) => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
+  return iso(new Date(Date.UTC(y, mm - 1 + n, 1))); };
+const endOfMonth = m => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
+  return iso(new Date(Date.UTC(y, mm, 0))); };
+const mLabel = s => new Date(s + 'T00:00:00Z')
+  .toLocaleDateString(undefined, { month: 'short', year: '2-digit', timeZone: 'UTC' });
 
 boot('home', async (supa, el) => {
-  el.innerHTML = `<div class="summary-strip" id="tiles"></div>
-    <div class="sc-panel chartpanel"><div style="padding:16px 18px 0"><div class="muted" style="margin-bottom:8px">Cash position, 13 weeks</div></div><div id="chart"><div style="padding:0 18px 16px">loading…</div></div></div>
-    <div class="sc-panel" id="queues"></div>`;
+  const thisMonth = monthOf(iso(new Date()));
+  let rangeFrom = shiftM(thisMonth, -2), rangeTo = thisMonth;
+  const openClients = new Set();
 
-  const [banks, ar, review, unlinked, cf, syncs] = await Promise.all([
-    supa.from('cash_accounts').select('balance,as_of'),
-    supa.from('invoices').select('balance').gt('balance', 0),
-    supa.from('deals').select('id', { count:'exact', head:true }).is('reviewed_at', null).in('status',['won','active']),
-    supa.from('clients').select('id', { count:'exact', head:true }).is('qbo_customer_id', null).eq('active', true),
-    supa.rpc('cashflow_forecast', { periods: 6 }),
-    supa.from('sync_state').select('id,last_run_at,last_run_log')
-  ]);
+  el.innerHTML = `<div class="sc-panel" id="panel">loading…</div>`;
 
-  const bank = (banks.data||[]).reduce((s,a)=>s+a.balance,0);
-  const arTotal = (ar.data||[]).reduce((s,i)=>s+i.balance,0);
-  const rows = cf.data||[];
-  const trough = rows.length ? Math.min(...rows.map(r=>r.position_conservative)) : 0;
+  async function load() {
+    const [hp, fp, dl, cl] = await Promise.all([
+      supa.rpc('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) }),
+      supa.rpc('forecast_page', { p_from: rangeFrom, p_to: rangeTo }),
+      supa.from('deals').select('id,name,client_id,qbo_project_id'),
+      supa.from('clients').select('id,name')
+    ]);
+    for (const r of [hp, fp, dl, cl]) if (r.error) {
+      el.innerHTML = `<div class="sc-panel err">${esc(r.error.message)}</div>`; return;
+    }
+    const H = hp.data || {}, P = fp.data || {};
+    const dealsById = {}; (dl.data || []).forEach(d => dealsById[d.id] = d);
+    const clientsById = {}; (cl.data || []).forEach(c => clientsById[c.id] = c);
+    const revByProj = {}; (P.rev_proj || []).forEach(r => revByProj[r.qbo_project_id] = r.total);
+    const laborByDeal = {}; (H.deal_labor || []).forEach(r => laborByDeal[r.deal_id] = r);
+    const plannedByDeal = {}; (H.deal_planned || []).forEach(r => plannedByDeal[r.deal_id] = +r.planned_hours);
 
-  document.getElementById('tiles').innerHTML = `
-    <div class="summary-cell"><div class="summary-label">In the bank</div><div class="summary-value">${fmt$(bank)}</div>
-      <div class="summary-note">as of ${(banks.data||[])[0]?.as_of||'—'}</div></div>
-    <div class="summary-cell"><div class="summary-label">Open AR</div><div class="summary-value">${fmt$(arTotal)}</div>
-      <div class="summary-note">${(ar.data||[]).length} open invoices</div></div>
-    <div class="summary-cell"><div class="summary-label">Conservative trough, 13 wk</div>
-      <div class="summary-value ${trough<0?'neg':'pos'}">${fmt$(trough)}</div>
-      <div class="summary-note">worst week if every client pays at their p90</div></div>
-    <div class="summary-cell"><div class="summary-label">Deals awaiting review</div><div class="summary-value">${review.count??'—'}</div>
-      <div class="summary-note"><a href="./deals.html">shape them</a></div></div>
-    <div class="summary-cell"><div class="summary-label">Clients needing a QuickBooks link</div><div class="summary-value">${unlinked.count??'—'}</div>
-      <div class="summary-note"><a href="./clients.html">match them</a></div></div>`;
+    // one row per deal that has EITHER actual labor hours or a claimed QBO
+    // project (so a deal with revenue but zero hours still shows, flagging
+    // that its labor was never logged against it)
+    const dealRows = Object.keys(laborByDeal)
+      .concat(Object.values(dealsById).filter(d => d.qbo_project_id).map(d => d.id))
+      .filter((id, i, a) => a.indexOf(id) === i)
+      .map(id => {
+        const deal = dealsById[id]; if (!deal) return null;
+        const labor = laborByDeal[id] || { hours: 0, cost: 0 };
+        const revenue = deal.qbo_project_id ? (revByProj[deal.qbo_project_id] || 0) : 0;
+        return {
+          dealId: id, name: deal.name, clientId: deal.client_id,
+          hours: +labor.hours, cost: +labor.cost, planned: plannedByDeal[id] || 0,
+          revenue, profit: revenue - (+labor.cost)
+        };
+      }).filter(Boolean);
 
-  if (rows.length) bandChart(document.getElementById('chart'),
-    rows.map(r=>(r.period_label||r.week_start.slice(5)).replace(/ \d\d$/,'')),
-    [{name:'expected', color:'#19a789', values: rows.map(r=>r.position_expected)},
-     {name:'conservative (p90)', color:'#d1453b', values: rows.map(r=>r.position_conservative)}]);
-  else document.getElementById('chart').innerHTML = '<div style="padding:0 18px 16px">no forecast data</div>';
+    const byClient = {};
+    dealRows.forEach(r => (byClient[r.clientId] = byClient[r.clientId] || []).push(r));
+    const clientRows = Object.entries(byClient).map(([cid, deals]) => ({
+      clientId: cid, name: (clientsById[cid] || {}).name || '(unknown client)',
+      deals: deals.sort((a, b) => b.revenue - a.revenue),
+      hours: deals.reduce((s, d) => s + d.hours, 0),
+      cost: deals.reduce((s, d) => s + d.cost, 0),
+      planned: deals.reduce((s, d) => s + d.planned, 0),
+      revenue: deals.reduce((s, d) => s + d.revenue, 0),
+      profit: deals.reduce((s, d) => s + d.profit, 0)
+    })).sort((a, b) => b.revenue - a.revenue);
 
-  document.getElementById('queues').innerHTML = `<div class="muted" style="margin-bottom:8px">Syncs</div>
-    <table><tr><th>source</th><th>last run</th><th>status</th></tr>
-    ${(syncs.data||[]).map(s=>{
-      const log=s.last_run_log||{};
-      const ok=log.ok!==false;
-      return `<tr><td>${esc(s.id)}</td><td>${s.last_run_at? new Date(s.last_run_at).toLocaleString():'never'}</td>
-        <td>${ok?'<span class="pill good">ok</span>':`<span class="pill bad">failed: ${esc(log.stage||'')}</span>`}</td></tr>`;
-    }).join('')}</table>`;
+    const totalHours = clientRows.reduce((s, c) => s + c.hours, 0);
+    const totalPlanned = clientRows.reduce((s, c) => s + c.planned, 0);
+    const totalCost = clientRows.reduce((s, c) => s + c.cost, 0);
+    const totalRevenue = clientRows.reduce((s, c) => s + c.revenue, 0);
+    const totalProfit = totalRevenue - totalCost;
+
+    el.querySelector('#panel').innerHTML = `
+      <div class="range">
+        <span class="rl">Range</span>
+        <input type="month" id="r-from" aria-label="Range from" value="${rangeFrom.slice(0,7)}">
+        <span class="muted">→</span>
+        <input type="month" id="r-to" aria-label="Range to" value="${rangeTo.slice(0,7)}">
+      </div>
+      <div class="summary-strip">
+        <div class="summary-cell"><div class="summary-label">Revenue</div>
+          <div class="summary-value">${fmt$0(totalRevenue)}</div></div>
+        <div class="summary-cell"><div class="summary-label">Labor cost</div>
+          <div class="summary-value">${fmt$0(totalCost)}</div></div>
+        <div class="summary-cell"><div class="summary-label">Profit (hours-based)</div>
+          <div class="summary-value ${totalProfit<0?'neg':'pos'}">${fmt$0(totalProfit)}</div></div>
+        <div class="summary-cell"><div class="summary-label">Hours (actual vs planned)</div>
+          <div class="summary-value">${fmtHours(totalHours)}<span class="muted" style="font-size:11px"> / ${fmtHours(totalPlanned)}</span></div>
+          <div class="summary-note">${mLabel(rangeFrom)}–${mLabel(rangeTo)} · revenue is measured-to-date, same number Forecast shows</div></div>
+      </div>
+      <div class="sc-panel" style="padding:0">
+        <table><tr><th>client / deal</th><th>hours</th><th>planned</th><th>labor cost</th><th>revenue</th><th>profit</th></tr>
+          ${clientRows.map(c => {
+            const open = openClients.has(c.clientId);
+            return `<tr class="clientrow" data-cid="${c.clientId}" style="cursor:pointer;font-weight:600;background:var(--client-row-tint,#fafaf8)">
+                <td class="textleft">${open?'▾':'▸'} ${esc(c.name)}</td>
+                <td>${fmtHours(c.hours)}</td><td class="muted">${fmtHours(c.planned)}</td>
+                <td>${fmt$0(c.cost)}</td><td>${fmt$0(c.revenue)}</td>
+                <td class="${c.profit<0?'err':'ok'}">${fmt$0(c.profit)}</td></tr>
+              ${open ? c.deals.map(d => `<tr>
+                  <td class="textleft" style="padding-left:26px">${esc(d.name)}</td>
+                  <td>${fmtHours(d.hours)}</td><td class="muted">${fmtHours(d.planned)}</td>
+                  <td>${fmt$0(d.cost)}</td><td>${fmt$0(d.revenue)}</td>
+                  <td class="${d.profit<0?'err':'ok'}">${fmt$0(d.profit)}</td></tr>`).join('') : ''}`;
+          }).join('')}
+        </table>
+      </div>`;
+
+    el.querySelector('#r-from').onchange = e => { rangeFrom = monthOf(e.target.value); load(); };
+    el.querySelector('#r-to').onchange = e => { rangeTo = monthOf(e.target.value); load(); };
+    el.querySelectorAll('tr.clientrow').forEach(tr => tr.onclick = () => {
+      const cid = tr.dataset.cid;
+      openClients.has(cid) ? openClients.delete(cid) : openClients.add(cid);
+      load();
+    });
+  }
+
+  await load();
 });
 </script></body></html>
