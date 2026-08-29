@@ -119,8 +119,8 @@ boot('clientprofit', async (supa, el) => {
         <div class="tbltools" style="padding:10px 14px">
           <input id="q" placeholder="search client…" value="${esc(query)}" style="width:220px">
         </div>
-        <table><tr><th>client</th><th>hours</th><th>vs planned</th><th>labor cost</th><th>revenue</th><th>profit</th></tr>
-          ${clientRows.map(c => `<tr class="${c.profit<0?'risk-row':''}">
+        <table class="ledger"><tr><th>client</th><th>hours</th><th>vs planned</th><th>labor cost</th><th>revenue</th><th>profit</th></tr>
+          ${!clientRows.length ? `<tr><td colspan="6" class="empty-note">No clients match the current search.</td></tr>` : clientRows.map(c => `<tr class="${c.profit<0?'risk-row':''}">
               <td class="textleft">${esc(c.name)}</td>
               <td>${fmtHours(c.hours)}
                 <div class="mini-track" title="hours logged — no planned figure to compare against yet">
@@ -128,7 +128,7 @@ boot('clientprofit', async (supa, el) => {
                 </div></td>
               <td class="delta-note flat">no plan set</td>
               <td>${fmt$0(c.cost)}</td><td>${fmt$0(c.revenue)}</td>
-              <td class="${c.profit<0?'err':'ok'}">${fmt$0(c.profit)}</td></tr>`).join('')}
+              <td class="${c.profit<0?'err':'pos'}">${fmt$0(c.profit)}</td></tr>`).join('')}
         </table>
       </div>`;
 

@@ -261,11 +261,12 @@ Buttons, inputs, and cards read as **terminal-tactile**: small, precise, and den
 - **Bad:** Alert Rust Tint background, Alert Rust text and border.
 
 ### Utilization Mini-Bar
-A compact per-row progress track for "how much of X is used" — hours logged against capacity, on Team Hours, Client Profitability, and Project Hours.
-- **Track:** 5px tall, full-round, Hairline background, 130px wide.
-- **Fill:** Muted Ledger Green under/at capacity, Alert Rust over — no third color.
-- **Caption:** a small mono line below the bar spelling out the breakdown in words (e.g. "38h client · 4.5h internal · 2h PTO / 60h avail") rather than adding more bar segments — text scales to as many categories as a person has that period; a bar segment per category didn't.
-- **Delta note:** a small mono caption ("vs N planned") that reads Muted Ledger Green (ahead), Alert Rust (behind), or Slate (nothing to compare — e.g. planned hours not entered yet). Placeholder states are always shown, never omitted — "not assigned yet" is real information, not a gap to hide.
+A compact per-row progress track for "how much of X is used" — hours against some denominator, on Team Hours, Client Profitability, and Project Hours. Two variants share the same track/caption mechanics but differ in what fills the bar:
+- **Track:** 5px tall, full-round, Hairline background, 130px wide. Segments are capped so the running fill never exceeds 100% width — real overage renders as a separate delta note, never an impossible bar.
+- **Two-tone fill** (Client Profitability, Project Hours, and Team Hours' pacing column): Muted Ledger Green under/at the denominator, Alert Rust over — no third color.
+- **Three-tone composition fill** (Team Hours' utilization column only): client (Muted Ledger Green), internal (Deep Ledger Green), and time-off (Slate) stacked as distinct segments against capacity — Slate stands in rather than reaching for Signal Gold or Logo Teal, both reserved elsewhere (the same resolution the combo chart made when it ran one category short of a real color).
+- **Caption:** a small mono line below the bar spelling out the breakdown in words (e.g. "38h client · 4.5h internal · 2h PTO / 60h cap") rather than adding more bar segments than the three-tone fill already has — text carries any further detail; the bar stays a shape you can scan at a glance.
+- **Delta note:** a small mono caption ("+3.2h over capacity") appearing only when there's real overage; otherwise the caption line alone stands as the reading. A denominator of zero (nothing assigned yet, nothing to compare) shows an explicit "not assigned yet" placeholder in Slate rather than a bar reading 0% — that's real information, not a gap to hide.
 - **Risk row:** a flagged record (losing money, over scope) tints its whole row Alert Rust Tint rather than just one cell — one step louder than a colored figure, quiet enough to still read as a data row among others.
 
 ### Inputs / Fields

@@ -110,8 +110,8 @@ boot('projhours', async (supa, el) => {
         <div class="tbltools" style="padding:10px 14px">
           <input id="q" placeholder="search project or client…" value="${esc(query)}" style="width:220px">
         </div>
-        <table><tr><th>project / deal</th><th>client</th><th>hours</th><th>vs scoped</th><th>labor cost</th><th>revenue</th><th>profit</th></tr>
-          ${shown.map(d => `<tr class="${d.profit<0&&d.hours>0?'risk-row':''}">
+        <table class="ledger"><tr><th>project / deal</th><th>client</th><th>hours</th><th>vs scoped</th><th>labor cost</th><th>revenue</th><th>profit</th></tr>
+          ${!shown.length ? `<tr><td colspan="7" class="empty-note">No projects match the current search.</td></tr>` : shown.map(d => `<tr class="${d.profit<0&&d.hours>0?'risk-row':''}">
               <td class="textleft">${esc(d.name)}</td>
               <td class="textleft muted">${esc(d.client)}</td>
               <td>${fmtHours(d.hours)}
@@ -120,7 +120,7 @@ boot('projhours', async (supa, el) => {
                 </div></td>
               <td class="delta-note flat">not scoped yet</td>
               <td>${fmt$0(d.cost)}</td><td>${fmt$0(d.revenue)}</td>
-              <td class="${d.profit<0?'err':'ok'}">${fmt$0(d.profit)}</td></tr>`).join('')}
+              <td class="${d.profit<0?'err':'pos'}">${fmt$0(d.profit)}</td></tr>`).join('')}
         </table>
       </div>`;
 

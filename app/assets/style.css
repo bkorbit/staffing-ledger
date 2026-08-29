@@ -104,6 +104,18 @@ td.textleft { text-align:left; font-family:var(--font-body); }
 .mini-track .seg-good  { background:var(--brand-2); }
 .mini-track .seg-over  { background:var(--rust); }
 
+/* Three-way composition bar (Team Hours' capacity column): client, internal,
+   and time-off hours stacked in one track. Muted Ledger Green (client) and
+   Deep Ledger Green (internal) are both already-established "real work"
+   colors; time off reuses Slate rather than reaching for Signal Gold or Logo
+   Teal, both reserved elsewhere (the One Gold Rule; Logo Teal's nav-only
+   role) — the same resolution the combo chart already made when it ran one
+   category short of a real color (Fixed reuses Slate there too). */
+.mini-track.split { gap:1px; }
+.mini-track.split .seg-client   { background:var(--brand-2); }
+.mini-track.split .seg-internal { background:var(--brand); }
+.mini-track.split .seg-pto      { background:var(--slate); }
+
 /* Plan -> actual delta note, e.g. "+3.2h vs plan" — mono, colored by direction. */
 .delta-note { font-family:var(--font-mono); font-size:10.5px; }
 .delta-note.pos { color:var(--brand-2); }
@@ -249,6 +261,13 @@ table.ledger tr:not(.gp):hover td { background:var(--mint); }
 table.ledger tr.gp td { background:var(--brand); color:#fff; font-weight:700; border-top:2px solid var(--brand); }
 table.ledger .err { background:var(--rust-bg); color:var(--rust); border-radius:4px; padding:1px 5px; font-weight:700; }
 table.ledger .pos { color:var(--brand); font-weight:600; }
+/* a mid-row column that isn't the name column but still needs to hold a bar
+   or free text (Team Hours' utilization/pacing/plan-vs-logged) — table.ledger
+   th/td default right-aligned, which .textleft alone can't beat on specificity */
+table.ledger th.textleft, table.ledger td.textleft { text-align:left; }
+table.ledger td.textleft { font-family:var(--font-body); white-space:normal; }
+table.ledger .empty-note { text-align:center; color:var(--slate); font-family:var(--font-body);
+  white-space:normal; padding:22px 10px; }
 .tbltools { display:flex; align-items:center; gap:10px; padding:10px 14px; flex-wrap:wrap;
   border-bottom:1px solid var(--line); }
 .tbltools input[type=search] { width:240px; }

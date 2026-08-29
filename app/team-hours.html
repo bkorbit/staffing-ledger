@@ -1,8 +1,8 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Team Hours</title><link rel="stylesheet" href="./assets/style.css?v=d849fb2"></head><body>
+<title>EMG — Team Hours</title><link rel="stylesheet" href="./assets/style.css?v=3316d1b"></head><body>
 <script type="module">
-import { boot, esc } from './assets/shell.js?v=d849fb2';
+import { boot, esc } from './assets/shell.js?v=3316d1b';
 
 // Read-only by design: this page is for GETTING information, not providing
 // it. Salary, capacity, department, and start/end dates are all managed on
@@ -11,17 +11,26 @@ import { boot, esc } from './assets/shell.js?v=d849fb2';
 // Per-deal detail (which project a person's hours went to) lives on Project
 // Hours, not here — same reasoning as Client Profitability vs. Project
 // Hours: each page answers one question, not one drilling into the other.
-// This one answers "how is each person doing," flat and plain, matching the
-// rest of the app rather than the original hour-tracking tool's own denser
-// roster layout (utilization-vs-plan, logged-vs-assigned, per-project
-// expand) — those columns depended entirely on assignments, which has no
-// data and no entry path, and made the table much harder to read for no
-// real information gained.
 //
-// Data: bottom-up from actual hours (time_entries) x each staff member's own
-// resolved comp rate (comp_periods), joined against forecast_page()'s own
-// rev_proj for revenue attribution — same method as Client Profitability and
-// Project Hours, kept deliberately separate from Forecast's QBO-COGS plan.
+// Five real numbers per person, three of them bars:
+//   capacity        — weekly_capacity x weeks in range (comp_periods), plain.
+//   composition     — client + internal + time-off hours, ALL against
+//                      capacity: "what filled their plate, and how full is it."
+//   pacing          — assigned hours against capacity: "how much of their
+//                      capacity is even planned" — independent of what's
+//                      actually been logged. assignments has no entry
+//                      mechanism yet, so this reads 0h/not entered until it
+//                      does; the column stays on the page so it's ready.
+//   plan vs. logged — logged CLIENT hours against ASSIGNED client hours
+//                      specifically: are they tracking to their own plan.
+//                      Undefined (not just zero) while assigned is 0 — shown
+//                      as an explicit "not assigned yet" state, not a 0%.
+//   profit          — bottom-up: a deal's revenue splits across whoever
+//                      logged hours on it, proportional to hours, netted
+//                      against their own resolved cost (comp_periods). Same
+//                      method as Client Profitability/Project Hours, joined
+//                      against forecast_page()'s own rev_proj so no page
+//                      ever disagrees about what counts as revenue.
 const fmtHours = h => (+h || 0).toLocaleString(undefined, { maximumFractionDigits: 1 });
 const fmt$0 = c => (c < 0 ? '-$' : '$') + Math.abs(Math.round((c || 0) / 100)).toLocaleString();
 
@@ -31,6 +40,20 @@ const shiftM = (m, n) => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
   return iso(new Date(Date.UTC(y, mm - 1 + n, 1))); };
 const endOfMonth = m => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
   return iso(new Date(Date.UTC(y, mm, 0))); };
+
+// Stacks segments left-to-right, each capped so the running total never
+// exceeds 100% of the track — a real over-capacity condition is reported as
+// text (the exact overage), not an impossible >100%-wide bar.
+function stackSegments(cap, parts) {
+  if (cap <= 0) return { html: '', overBy: 0 };
+  let used = 0, html = '';
+  parts.forEach(([cls, hours]) => {
+    const w = Math.min(Math.max(hours / cap * 100, 0), Math.max(100 - used, 0));
+    if (w > 0.05) { used += w; html += `<div class="seg ${cls}" style="width:${w}%"></div>`; }
+  });
+  const total = parts.reduce((s, [, h]) => s + h, 0);
+  return { html, overBy: total > cap ? total - cap : 0 };
+}
 
 boot('teamhours', async (supa, el) => {
   const thisMonth = monthOf(iso(new Date()));
@@ -54,7 +77,7 @@ boot('teamhours', async (supa, el) => {
   function render(H, P, deals) {
     const dealsById = {}; deals.forEach(d => dealsById[d.id] = d);
     const compByStaff = {}; (H.comp_current || []).forEach(c => compByStaff[c.staff_id] = c);
-    const hoursByStaff = {}; // staff_id -> { hours, cost }
+    const hoursByStaff = {}; // staff_id -> { hours, cost } — actual, client+internal only
     (H.staff_hours_month || []).forEach(r => {
       const a = hoursByStaff[r.staff_id] = hoursByStaff[r.staff_id] || { hours: 0, cost: 0 };
       a.hours += +r.hours; a.cost += +r.cost;
@@ -63,10 +86,8 @@ boot('teamhours', async (supa, el) => {
     (H.staff_hours_deal || []).forEach(r => {
       (dealHoursByStaff[r.staff_id] = dealHoursByStaff[r.staff_id] || []).push(r);
     });
+    const plannedByStaff = {}; (H.staff_planned || []).forEach(r => plannedByStaff[r.staff_id] = +r.planned_hours);
 
-    // Bottom-up per-person profit: a deal's revenue splits across whoever
-    // logged hours on it, proportional to hours, netted against their own
-    // resolved cost. No assignments needed.
     const revByProj = {}; (P.rev_proj || []).forEach(r => revByProj[r.qbo_project_id] = r.total);
     const revPerHourByDeal = {};
     (H.deal_labor || []).forEach(r => {
@@ -79,8 +100,8 @@ boot('teamhours', async (supa, el) => {
     const daysInRange = (new Date(rangeToEnd) - new Date(rangeFrom)) / 86400000 + 1;
     const weeksInRange = daysInRange / 7;
 
-    // time_off.hours (db/032) is a RANGE total, not per-day — a range that
-    // only partially overlaps the selected window is prorated by day-overlap.
+    // time_off.hours (db/032) is a RANGE total, not per-day — prorated by
+    // day-overlap when the query window only partially covers a range.
     const ptoByStaff = {};
     (H.time_off || []).forEach(o => {
       const s0 = new Date(o.starts_on < rangeFrom ? rangeFrom : o.starts_on);
@@ -98,15 +119,15 @@ boot('teamhours', async (supa, el) => {
       const comp = compByStaff[s.id];
       const hc = hoursByStaff[s.id] || { hours: 0, cost: 0 };
       const cap = comp ? comp.weekly_capacity * weeksInRange : 0;
-      const ptoHours = ptoByStaff[s.id] || 0;
-      const avail = Math.max(cap - ptoHours, 0);
       const deals2 = dealHoursByStaff[s.id] || [];
       const clientHours = deals2.reduce((s2, d) => s2 + +d.hours, 0);
       const internalHours = Math.max(hc.hours - clientHours, 0);
+      const ptoHours = ptoByStaff[s.id] || 0;
+      const assignedHours = plannedByStaff[s.id] || 0;
       let attributed = 0;
       deals2.forEach(d => { const rph = revPerHourByDeal[d.deal_id]; if (rph) attributed += +d.hours * rph; });
       const profit = attributed - hc.cost;
-      return { s, hc, cap, avail, ptoHours, clientHours, internalHours, profit };
+      return { s, hc, cap, clientHours, internalHours, ptoHours, assignedHours, profit };
     });
 
     // Auto-hide anyone with no logged hours since the current QB Time import
@@ -121,7 +142,7 @@ boot('teamhours', async (supa, el) => {
     const totalHours = rows.reduce((s, r) => s + r.hc.hours, 0);
     const totalCost = rows.reduce((s, r) => s + r.hc.cost, 0);
     const totalCapacity = rows.reduce((s, r) => s + r.cap, 0);
-    const overCount = rows.filter(r => r.avail > 0 && r.hc.hours / r.avail > 1.001).length;
+    const overCount = rows.filter(r => r.cap > 0 && (r.hc.hours + r.ptoHours) > r.cap).length;
 
     el.querySelector('#panel').innerHTML = `
       <h1 style="font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--brand);margin:0 0 14px;letter-spacing:-.01em">Team Hours</h1>
@@ -153,22 +174,38 @@ boot('teamhours', async (supa, el) => {
             <input type="checkbox" id="show-inactive" ${showInactive?'checked':''}> show inactive
           </label>
         </div>
-        <table><tr><th>name</th><th>hours</th><th>labor cost</th><th>profit</th></tr>
-          ${!rows.length ? `<tr><td colspan="4" class="empty-note">No people match the current filters.</td></tr>` : rows.map(r => {
-            const over = r.avail > 0 && r.hc.hours > r.avail;
-            const pct = r.avail > 0 ? Math.min(r.hc.hours / r.avail * 100, 100) : 0;
-            const bits = [`${fmtHours(r.clientHours)}h client`];
-            if (r.internalHours > 0) bits.push(`${fmtHours(r.internalHours)}h int`);
-            if (r.ptoHours > 0) bits.push(`${fmtHours(r.ptoHours)}h PTO`);
+        <table class="ledger"><tr><th>name</th><th>capacity</th><th class="textleft">utilization</th><th class="textleft">pacing (assigned)</th><th class="textleft">plan vs. logged</th><th>profit</th></tr>
+          ${!rows.length ? `<tr><td colspan="6" class="empty-note">No people match the current filters.</td></tr>` : rows.map(r => {
+            // Utilization: client + internal + time-off, all against capacity.
+            const util = stackSegments(r.cap, [['seg-client', r.clientHours], ['seg-internal', r.internalHours], ['seg-pto', r.ptoHours]]);
+            // Pacing: assigned hours against capacity — a planning signal,
+            // independent of what's actually been logged.
+            const pacing = stackSegments(r.cap, [[r.assignedHours > r.cap ? 'seg-over' : 'seg-good', r.assignedHours]]);
+            // Plan vs. logged: client hours logged against client hours
+            // assigned — undefined (not zero) while nothing's assigned yet.
+            const hasPlan = r.assignedHours > 0;
+            const planVsLogged = hasPlan
+              ? stackSegments(r.assignedHours, [[r.clientHours > r.assignedHours ? 'seg-over' : 'seg-good', r.clientHours]])
+              : null;
             return `<tr class="${r.profit<0?'risk-row':''}">
                 <td class="textleft">${esc(r.s.name)}<div class="summary-note">${esc(r.s.department||'')}</div></td>
-                <td>${fmtHours(r.hc.hours)}
-                  <div class="mini-track" title="hours logged vs. weekly-capacity-minus-time-off for this range">
-                    <div class="seg ${over?'seg-over':'seg-good'}" style="width:${pct}%"></div>
-                  </div>
-                  <div class="delta-note flat">${bits.join(' · ')} / ${fmtHours(r.avail)}h avail</div></td>
-                <td>${fmt$0(r.hc.cost)}</td>
-                <td class="${r.profit<0?'err':'ok'}">${(r.hc.hours>0||r.hc.cost>0)?fmt$0(r.profit):'<span class="muted">—</span>'}</td>
+                <td>${fmtHours(r.cap)}h</td>
+                <td class="textleft">
+                  <div class="mini-track split">${util.html}</div>
+                  <div class="delta-note flat">${fmtHours(r.clientHours)}h client · ${fmtHours(r.internalHours)}h int · ${fmtHours(r.ptoHours)}h PTO / ${fmtHours(r.cap)}h cap</div>
+                  ${util.overBy > 0.05 ? `<div class="delta-note neg">+${fmtHours(util.overBy)}h over capacity</div>` : ''}
+                </td>
+                <td class="textleft">
+                  <div class="mini-track split">${pacing.html}</div>
+                  <div class="delta-note flat">${r.assignedHours>0?`${fmtHours(r.assignedHours)}h assigned / ${fmtHours(r.cap)}h cap`:'not assigned yet'}</div>
+                </td>
+                <td class="textleft">
+                  ${hasPlan ? `<div class="mini-track split">${planVsLogged.html}</div>
+                    <div class="delta-note flat">${fmtHours(r.clientHours)}h logged / ${fmtHours(r.assignedHours)}h assigned</div>
+                    ${planVsLogged.overBy > 0.05 ? `<div class="delta-note neg">+${fmtHours(planVsLogged.overBy)}h over plan</div>` : ''}`
+                    : `<div class="mini-track split"></div><div class="delta-note flat">not assigned yet</div>`}
+                </td>
+                <td class="${r.profit<0?'err':'pos'}">${(r.hc.hours>0||r.hc.cost>0)?fmt$0(r.profit):'<span class="muted">—</span>'}</td>
               </tr>`;
           }).join('')}
         </table>
