@@ -108,8 +108,8 @@ td.textleft { text-align:left; font-family:var(--font-body); }
    primary content of the column, not a small addendum next to a number
    (that's what the plain 130px .mini-track above is for, on Client
    Profitability/Project Hours) — so it fills its full column width and
-   stands twice as tall to read at a glance across a whole roster. */
-.mini-track.wide { width:100%; height:10px; }
+   stands taller to read at a glance across a whole roster. */
+.mini-track.wide { width:100%; height:14px; }
 
 /* Three-way composition bar (Team Hours' capacity column): client, internal,
    and time-off hours stacked in one track. Muted Ledger Green (client) and
@@ -124,10 +124,17 @@ td.textleft { text-align:left; font-family:var(--font-body); }
 .mini-track.split .seg-pto      { background:var(--slate); }
 
 /* Plan -> actual delta note, e.g. "+3.2h vs plan" — mono, colored by direction. */
-.delta-note { font-family:var(--font-mono); font-size:10.5px; }
+.delta-note { font-family:var(--font-mono); font-size:10.5px; line-height:1.35; }
 .delta-note.pos { color:var(--brand-2); }
 .delta-note.neg { color:var(--rust); }
 .delta-note.flat { color:var(--slate); }
+/* Reserves two lines' worth of height under Team Hours' three bar columns —
+   utilization's breakdown text ("Xh client · Yh int · Zh PTO / Wh cap") is
+   the longest and usually wraps to 2 lines; pacing/plan-vs-logged's shorter
+   captions don't, which left their bars sitting at a different height than
+   utilization's. Reserving the same space under all three regardless of
+   actual wrap keeps every bar in a row aligned to the same top edge. */
+.delta-note.barcap { min-height: 2.7em; }
 
 /* Whole-row tint for a flagged record (losing money, over scope) — one step
    louder than a colored cell, quiet enough to still read as a data row. */
@@ -383,6 +390,21 @@ table.acct td { font-variant-numeric: tabular-nums; }
    compensation history behind a second toggle; centering it at a normal
    modal's width, with history inline in the same dialog, was the fix. */
 .modal.modal-sm { width:min(640px,94vw); }
+
+/* A small anchored popover (position:fixed, sized to its trigger's own rect
+   in JS) — still very much in use: Home's range control and every copied
+   panel's "Settings" button build on this exact class via the shared
+   makePopover() helper. Team's row editor moved off it onto the centered
+   modal above for a bigger form; that's a different job (a rich multi-field
+   record editor) from this one (three or four quick settings next to a
+   chart), not a reason to retire the class — a quick menu next to its
+   trigger shouldn't open as a full centered dialog with a backdrop. */
+.editpop { position:fixed; z-index:50; width:340px; max-width:92vw;
+  background:var(--paper-raised); border:1px solid var(--line); border-radius:6px; }
+.editpop .setrow { padding:0 14px; margin-bottom:10px; }
+.editpop .setrow:first-child { margin-top:14px; }
+.editpop-foot { display:flex; align-items:center; gap:10px; justify-content:flex-end;
+  padding:12px 14px; border-top:1px solid var(--line); }
 .editorbar { display:flex; align-items:center; gap:8px; margin:10px 0; flex-wrap:wrap; }
 .lockednote { font-size:0.66rem; margin-top:4px; }
 .kbadge { font-family:var(--font-mono); font-size:0.66rem; letter-spacing:.06em; text-transform:uppercase;

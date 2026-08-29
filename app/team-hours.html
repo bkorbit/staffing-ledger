@@ -1,8 +1,8 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Team Hours</title><link rel="stylesheet" href="./assets/style.css?v=53df3b2"></head><body>
+<title>EMG — Team Hours</title><link rel="stylesheet" href="./assets/style.css?v=0cc8168"></head><body>
 <script type="module">
-import { boot, esc } from './assets/shell.js?v=53df3b2';
+import { boot, esc } from './assets/shell.js?v=0cc8168';
 
 // Read-only by design: this page is for GETTING information, not providing
 // it. Salary, capacity, department, and start/end dates are all managed on
@@ -194,18 +194,18 @@ boot('teamhours', async (supa, el) => {
                 <td>${fmtHours(r.cap)}h</td>
                 <td class="textleft">
                   <div class="mini-track split wide">${util.html}</div>
-                  <div class="delta-note flat">${fmtHours(r.clientHours)}h client · ${fmtHours(r.internalHours)}h int · ${fmtHours(r.ptoHours)}h PTO / ${fmtHours(r.cap)}h cap</div>
+                  <div class="delta-note flat barcap">${fmtHours(r.clientHours)}h client · ${fmtHours(r.internalHours)}h int · ${fmtHours(r.ptoHours)}h PTO / ${fmtHours(r.cap)}h cap</div>
                   ${util.overBy > 0.05 ? `<div class="delta-note neg">+${fmtHours(util.overBy)}h over capacity</div>` : ''}
                 </td>
                 <td class="textleft">
                   <div class="mini-track wide">${pacing.html}</div>
-                  <div class="delta-note flat">${r.assignedHours>0?`${fmtHours(r.assignedHours)}h assigned / ${fmtHours(r.cap)}h cap`:'not assigned yet'}</div>
+                  <div class="delta-note flat barcap">${r.assignedHours>0?`${fmtHours(r.assignedHours)}h assigned / ${fmtHours(r.cap)}h cap`:'not assigned yet'}</div>
                 </td>
                 <td class="textleft">
                   ${hasPlan ? `<div class="mini-track wide">${planVsLogged.html}</div>
-                    <div class="delta-note flat">${fmtHours(r.clientHours)}h logged / ${fmtHours(r.assignedHours)}h assigned</div>
+                    <div class="delta-note flat barcap">${fmtHours(r.clientHours)}h logged / ${fmtHours(r.assignedHours)}h assigned</div>
                     ${planVsLogged.overBy > 0.05 ? `<div class="delta-note neg">+${fmtHours(planVsLogged.overBy)}h over plan</div>` : ''}`
-                    : `<div class="mini-track wide"></div><div class="delta-note flat">not assigned yet</div>`}
+                    : `<div class="mini-track wide"></div><div class="delta-note flat barcap">not assigned yet</div>`}
                 </td>
                 <td class="${r.profit<0?'err':'pos'}">${(r.hc.hours>0||r.hc.cost>0)?fmt$0(r.profit):'<span class="muted">—</span>'}</td>
               </tr>`;
