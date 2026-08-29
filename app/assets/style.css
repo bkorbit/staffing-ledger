@@ -37,6 +37,7 @@ nav.side .side-foot { margin-top:auto; padding:14px 18px 0; border-top:1px solid
   word-break:break-word; text-decoration:none; }
 .ver-tag:hover { text-decoration:underline; }
 .ver-tag.stale { color:var(--amber); font-weight:600; }
+.ver-tag.fresh { color:var(--brand); }
 main.content { flex:1; padding:20px 22px 80px; max-width:none; min-width:0; overflow-x:hidden; }
 
 /* flex, not grid: a grid's column tracks stay aligned across rows, which

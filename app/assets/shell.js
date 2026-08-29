@@ -65,9 +65,13 @@ const VER_CACHE_MS = 5 * 60 * 1000;
 
 async function loadVerTag(el) {
   const render = (sha, date) => {
-    const stale = loadedVer && !sha.startsWith(loadedVer);
+    // loadedVer empty (no ?v= on this import) means we can't tell either way —
+    // stay neutral rather than claiming "fresh" without evidence.
+    const known = !!loadedVer;
+    const stale = known && !sha.startsWith(loadedVer);
     el.textContent = `live ${fmtLocal(date)}${stale ? ' · reload for latest' : ''}`;
     el.classList.toggle('stale', stale);
+    el.classList.toggle('fresh', known && !stale);
     el.href = `https://github.com/bkorbit/staffing-ledger/commit/${sha}`;
   };
   const cached = JSON.parse(localStorage.getItem(VER_CACHE_KEY) || 'null');
