@@ -151,6 +151,23 @@ boot('sales', async (supa, el) => {
     return {gp:Math.round(gp),parts,flags};
   }
 
+  // the effective margin a deal's programmatic items are expected to earn —
+  // same formula dealGP() uses internally (fee%, if any, plus the configured
+  // default margin), exposed separately so it can be tagged onto the raw
+  // line item itself, not just folded into the deal's summary line
+  function programmaticRate(items){
+    let budget=0, fee=0;
+    (items||[]).forEach(li=>{
+      const key = String(li.name||'').split(':').pop().trim().toLowerCase();
+      const m = MAP[key];
+      if(!m || m[0]!=='programmatic') return;
+      const amt = Math.round(parseFloat(li.amount||0)*100);
+      if(m[1]==='budget') budget+=amt; else if(m[1]==='fee') fee+=amt;
+    });
+    if(budget<=0) return null;
+    return (fee>0? fee/budget*100 : 0) + PROG_MARGIN;
+  }
+
   /* ------------------------------------------------------------- the rows */
   const CUTOFF = '2026-01-01';
   const touches2026 = d => !d.campaign_end || d.campaign_end >= CUTOFF;
@@ -365,13 +382,18 @@ boot('sales', async (supa, el) => {
           cols.map(c=>`<td class="n">${r.months.includes(c)&&per?money(Math.round(per)):'<span class=z>·</span>'}</td>`).join('')+
           `<td class="n tot">${tot?money(Math.round(tot)):'—'}</td>`+
           `<td class="fl">${r.flags.map(f=>`<span class="flag ${/passed|before/.test(f)?'t':/no line|unmapped/.test(f)?'w':'i'}">${esc(f)}</span>`).join('')}</td></tr>`;
+        const progRate = dealOpen ? programmaticRate(r.items) : null;
         if (dealOpen) r.items.forEach(li2=>{
           // flighted: the raw HubSpot line-item amount spread evenly across
           // the DEAL's own campaign months — the same spread the deal-level
           // row above uses for its GP, just applied to this item's own amount
           const amt = Math.round(parseFloat(li2.amount||0)*100);
           const iper = r.months.length ? amt/r.months.length : 0;
-          h+=`<tr class="drow dim li"><td class="cl" style="padding-left:38px;font-size:9.5px;color:var(--slate)">↳ ${esc(li2.name||'?')}</td>`+
+          const key2 = String(li2.name||'').split(':').pop().trim().toLowerCase();
+          const isProg = (MAP[key2]||[])[0]==='programmatic';
+          const rateTag = isProg && progRate!=null
+            ? ` <span class="pill" title="expected margin: the configured default${(progRate-PROG_MARGIN)>0.05?' plus this deal’s own buying fee':''}">${progRate.toFixed(1)}% margin</span>` : '';
+          h+=`<tr class="drow dim li"><td class="cl" style="padding-left:38px;font-size:9.5px;color:var(--slate)">↳ ${esc(li2.name||'?')}${rateTag}</td>`+
             `<td></td><td></td>`+
             cols.map(c=>`<td class="n" style="font-size:9.5px;color:var(--slate)">${r.months.includes(c)&&iper?money(Math.round(iper)):'<span class=z>·</span>'}</td>`).join('')+
             `<td class="n" style="font-size:9.5px;color:var(--slate)">${amt?money(amt):''}</td><td></td></tr>`;
