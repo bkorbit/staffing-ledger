@@ -14,7 +14,12 @@
 .tog>span{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--slate)}
 .bardiv{width:1px;align-self:stretch;background:var(--line)}
 .cfg{font-family:var(--font-mono);font-size:10px;color:var(--slate)}
-.seg{font-family:var(--font-mono);font-size:10px;padding:6px 11px;border:1px solid var(--line);
+/* height:34px matches the bar's other controls (#pl select, the range month
+   inputs) — .seg used to fall back to its own ~26px padding-derived height,
+   the same mismatch app.css's shared .range/.toolbar button rule already
+   fixed for bare buttons elsewhere; this is that same fix, local to .seg */
+.seg{font-family:var(--font-mono);font-size:10px;padding:0 11px;height:34px;display:inline-flex;
+  align-items:center;border:1px solid var(--line);
   background:var(--paper-raised);border-radius:5px;cursor:pointer;color:var(--slate)}
 .seg.on{background:var(--brand);color:#fff;border-color:var(--brand)}
 /* the settings link now lives in the chart's grey footer, sized to sit flush
