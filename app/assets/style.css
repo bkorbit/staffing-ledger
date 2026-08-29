@@ -4,6 +4,7 @@
   --paper:#ebebeb; --paper-raised:#ffffff; --ink:#23272b;
   --brand:#0a493c; --brand-2:#48a278; --brand-4:#19a789;
   --accent:#3bc9ac; --mint:#e2f5ef; --gold:#fabf4d;   /* mint = logo color at ~14% on white */
+  --brand-hover:#2f7e60;  /* midpoint of --brand/--brand-2, not a new accent: --brand-2 only clears 3.13:1 for white text, this clears 4.91:1 */
   --slate:#67706d; --line:#d2d2d2;
   --rust:#d1453b; --rust-bg:#fbe7e4; --amber:#b07a14; --amber-bg:#fdf3dc;
   --font-display:'Montserrat',sans-serif; --font-body:'Montserrat',sans-serif;
@@ -66,7 +67,7 @@ button:hover { border-color:var(--ink); }
 button.ghost { background:transparent; border:1px solid var(--line); color:var(--slate); padding:7px 12px; }
 button.ghost:hover { border-color:var(--ink); color:var(--ink); }
 button.primary { background:var(--brand); color:var(--paper-raised); border:none; padding:7px 13px; font-size:12px; }
-button.primary:hover { background:var(--brand-2); }
+button.primary:hover { background:var(--brand-hover); }
 button.danger { background:transparent; border:1px solid var(--rust); color:var(--rust); padding:5px 10px; }
 button:disabled { background:var(--line); color:var(--slate); cursor:default; border-color:var(--line); }
 

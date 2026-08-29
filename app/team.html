@@ -68,27 +68,31 @@ boot('team', async (supa, el) => {
             <input type="checkbox" id="show-inactive" ${showInactive?'checked':''}> show inactive
           </label>
         </div>
-        <table><tr><th>name</th><th>department</th><th>comp</th><th>start date</th><th>end date</th><th>active</th></tr>
+        <div class="gridwrap">
+        <table>
+          <thead><tr><th scope="col">name</th><th scope="col">department</th><th scope="col">comp</th><th scope="col">start date</th><th scope="col">end date</th><th scope="col">active</th></tr></thead>
+          <tbody>
           ${!rows.length ? `<tr><td colspan="6" class="empty-note">No people match the current filters.</td></tr>` : rows.map(s => {
             const comp = compCurrentByStaff[s.id];
             const periods = (compAllByStaff[s.id] || []).slice().sort((a, b) => b.starts_on.localeCompare(a.starts_on));
             const open = openHistory.has(s.id);
             return `<tr class="${!s.active?'muted':''}">
                 <td class="textleft"><input type="text" value="${esc(s.name)}" data-role="name" data-id="${s.id}" style="height:28px"></td>
-                <td class="textleft"><input type="text" value="${esc(s.department||'')}" placeholder="department" data-role="dept" data-id="${s.id}" style="height:28px;width:140px"></td>
+                <td class="textleft"><input type="text" value="${esc(s.department||'')}" placeholder="department" aria-label="${esc(s.name)} — department" data-role="dept" data-id="${s.id}" style="height:28px;width:140px"></td>
                 <td class="textleft">${comp
                   ? (comp.kind === 'hourly'
                       ? `$${(comp.hourly_cost/100).toLocaleString()}/hr · ${comp.weekly_capacity}h/wk`
                       : `$${(comp.annual_cost/100).toLocaleString()}/yr · ${comp.weekly_capacity}h/wk`)
                   : '<span class="muted">not set</span>'}
-                  <button class="ghost history-toggle" data-sid="${s.id}" style="padding:1px 7px;font-size:9.5px;margin-left:6px">${open?'hide':'history'} (${periods.length})</button></td>
-                <td><input type="date" value="${s.start_date||''}" data-role="start" data-id="${s.id}" style="height:28px"></td>
-                <td><input type="date" value="${s.end_date||''}" data-role="end" data-id="${s.id}" style="height:28px"></td>
-                <td><input type="checkbox" data-role="active" data-id="${s.id}" ${s.active?'checked':''}></td>
+                  <button class="ghost history-toggle" data-sid="${s.id}" style="padding:3px 8px;font-size:11px;margin-left:6px">${open?'hide':'history'} (${periods.length})</button></td>
+                <td><input type="date" value="${s.start_date||''}" data-role="start" data-id="${s.id}" aria-label="${esc(s.name)} — start date" style="height:28px"></td>
+                <td><input type="date" value="${s.end_date||''}" data-role="end" data-id="${s.id}" aria-label="${esc(s.name)} — end date" style="height:28px"></td>
+                <td><input type="checkbox" data-role="active" data-id="${s.id}" aria-label="${esc(s.name)} active" ${s.active?'checked':''}></td>
               </tr>
               ${open ? `<tr><td colspan="6" style="background:#f6f6f6;padding:8px 14px">
                 <table style="width:auto;min-width:560px">
-                  <tr><th>start</th><th>end</th><th>kind</th><th>cost</th><th>hrs/wk</th><th></th></tr>
+                  <thead><tr><th scope="col">start</th><th scope="col">end</th><th scope="col">kind</th><th scope="col">cost</th><th scope="col">hrs/wk</th><th scope="col"></th></tr></thead>
+                  <tbody>
                   ${!periods.length ? `<tr><td colspan="6" class="muted" style="text-align:left">No comp periods yet.</td></tr>` : periods.map(p => `
                     <tr data-period="${p.id}">
                       <td><input type="date" class="cp-start" value="${p.starts_on}" style="height:26px;width:130px"></td>
@@ -100,13 +104,14 @@ boot('team', async (supa, el) => {
                       <td><input type="text" class="cp-cost" value="${p.kind==='hourly'?fromCents(p.hourly_cost):fromCents(p.annual_cost)}" style="height:26px;width:80px"></td>
                       <td><input type="text" class="cp-cap" value="${p.weekly_capacity}" style="height:26px;width:56px"></td>
                       <td style="white-space:nowrap">
-                        <button class="ghost cp-save" data-id="${p.id}" style="padding:2px 7px;font-size:10px">Save</button>
-                        <button class="ghost cp-delete" data-id="${p.id}" style="padding:2px 7px;font-size:10px;color:var(--rust)" title="Delete this period">×</button>
+                        <button class="ghost cp-save" data-id="${p.id}" style="padding:3px 8px;font-size:11px">Save</button>
+                        <button class="ghost cp-delete" data-id="${p.id}" style="padding:3px 8px;font-size:11px;color:var(--rust)" title="Delete this period" aria-label="Delete this comp period">×</button>
                       </td>
                     </tr>`).join('')}
+                  </tbody>
                 </table>
                 <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
-                  <span class="mono muted" style="font-size:10px">+ new period starting</span>
+                  <span class="mono muted" style="font-size:11px">+ new period starting</span>
                   <input type="date" class="np-start" data-sid="${s.id}" value="${iso(new Date())}" style="height:26px">
                   <select class="np-kind" data-sid="${s.id}" style="height:26px">
                     <option value="salary">salary/yr</option>
@@ -115,11 +120,13 @@ boot('team', async (supa, el) => {
                   <input type="text" class="np-cost" data-sid="${s.id}" placeholder="$" style="height:26px;width:80px">
                   <input type="text" class="np-cap" data-sid="${s.id}" placeholder="hrs/wk" value="40" style="height:26px;width:56px">
                   <button class="primary np-add" data-sid="${s.id}" style="padding:2px 8px">Add period</button>
-                  <span class="np-msg err" data-sid="${s.id}" style="font-size:10px"></span>
+                  <span class="np-msg err" data-sid="${s.id}" style="font-size:11px"></span>
                 </div>
               </td></tr>` : ''}`;
           }).join('')}
+          </tbody>
         </table>
+        </div>
       </div>`;
 
     el.querySelector('#q').oninput = e => { query = e.target.value; render(staff, comp); };
