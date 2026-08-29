@@ -147,14 +147,51 @@ boot('clientprofit', async (supa, el) => {
     const gp = c.actualGP + (historicalOnly ? 0 : c.forecastGP);
     const profitAfterLabor = gp - c.laborCost;
     const profitPerHour = c.actualHours > 0 ? profitAfterLabor / c.actualHours : null;
-    return { revenue, cogs, gp, profitAfterLabor, profitPerHour };
+    // revenue per hour actually worked — a distinct question from profitPerHour
+    // (which nets out labor cost): "what does an hour on this account bill
+    // for," not "what does it net"
+    const effectiveRate = c.actualHours > 0 ? revenue / c.actualHours : null;
+    return { revenue, cogs, gp, profitAfterLabor, profitPerHour, effectiveRate };
+  }
+
+  // column definitions for the table: key drives both the sort comparator
+  // (sortValue below) and the data-sort attribute; label is the header text.
+  // The hours-vs-planned bar has no single scalar to sort by (it's already
+  // just plannedHrs vs actualHrs, both sortable on their own), so it's the
+  // one column with no key.
+  const COLUMNS = [
+    ['name', 'client'], ['start', 'start → end'], [null, 'hours vs planned'],
+    ['plannedHours', 'planned hrs'], ['actualHours', 'actual hrs'],
+    ['revenue', 'revenue'], ['cogs', 'cogs'], ['gp', 'gross profit'],
+    ['laborCost', 'labor cost'], ['effectiveRate', 'effective rate'],
+    ['profitAfterLabor', 'profit after labor'], ['profitPerHour', 'profit / hr'],
+  ];
+  let tableSort = { key: 'revenue', dir: -1 };
+  function sortValue(c, key) {
+    switch (key) {
+      case 'name': return c.name.toLowerCase();
+      case 'start': return c.flightStart || '';
+      case 'plannedHours': return c.plannedHours;
+      case 'actualHours': return c.actualHours;
+      case 'laborCost': return c.laborCost;
+      // ?? -Infinity so a client with no hours yet (null rate) sorts to the
+      // bottom on a descending sort instead of floating to the top as "0"
+      case 'revenue': case 'cogs': case 'gp': case 'profitAfterLabor':
+        return c.b[key];
+      case 'effectiveRate': case 'profitPerHour':
+        return c.b[key] ?? -Infinity;
+      default: return 0;
+    }
   }
 
   function render() {
     const q = query.trim().toLowerCase();
     const clientRows = (!q ? allClientRows : allClientRows.filter(c => c.name.toLowerCase().includes(q)))
       .map(c => ({ ...c, b: blend(c) }))
-      .sort((a, b) => b.b.revenue - a.b.revenue);
+      .sort((a, b) => {
+        const x = sortValue(a, tableSort.key), y = sortValue(b, tableSort.key);
+        return (x < y ? -1 : x > y ? 1 : 0) * tableSort.dir;
+      });
     const allBlended = allClientRows.map(blend);
 
     const totalHours = allClientRows.reduce((s, c) => s + c.actualHours, 0);
@@ -189,18 +226,12 @@ boot('clientprofit', async (supa, el) => {
         </div>
         <div class="gridwrap" style="margin-top:0">
         <table class="ledger"><tr>
-            <th class="textleft">client</th>
-            <th class="textleft">start → end</th>
-            <th class="textleft">hours vs planned</th>
-            <th>planned hrs</th>
-            <th>actual hrs</th>
-            <th>revenue</th>
-            <th>cogs</th>
-            <th>gross profit</th>
-            <th>labor cost</th>
-            <th>effective rate</th>
-            <th>profit after labor</th>
-            <th>profit / hr</th>
+            ${COLUMNS.map(([key, label]) => {
+              if (!key) return `<th class="textleft">${label}</th>`;
+              const active = tableSort.key === key;
+              const cls = key === 'name' || key === 'start' ? ' textleft' : '';
+              return `<th class="${cls}" data-sort="${key}" tabindex="0" role="columnheader" aria-sort="${active ? (tableSort.dir < 0 ? 'descending' : 'ascending') : 'none'}">${label}${active ? `<span class="dir">${tableSort.dir < 0 ? '▼' : '▲'}</span>` : ''}</th>`;
+            }).join('')}
           </tr>
           ${!clientRows.length ? `<tr><td colspan="12" class="empty-note">No clients match the current search.</td></tr>` : clientRows.map(c => {
               const hasPlan = c.plannedHours > 0;
@@ -208,10 +239,6 @@ boot('clientprofit', async (supa, el) => {
                 ? stackSegments(c.plannedHours, [[c.actualHours > c.plannedHours ? 'seg-over' : 'seg-good', c.actualHours]])
                 : null;
               const b = c.b;
-              // revenue per hour actually worked — a distinct question from
-              // profit/hr (which nets out labor cost): "what does an hour on
-              // this account bill for," not "what does it net"
-              const effectiveRate = c.actualHours > 0 ? b.revenue / c.actualHours : null;
               return `<tr class="${b.profitAfterLabor < 0 ? 'risk-row' : ''}">
                   <td class="textleft">${esc(c.name)}</td>
                   <td class="textleft">${fmtDate(c.flightStart)} → ${fmtDate(c.flightEnd)}</td>
@@ -227,7 +254,7 @@ boot('clientprofit', async (supa, el) => {
                   <td>${fmt$0(b.cogs)}</td>
                   <td class="${b.gp < 0 ? 'err' : 'ok'}">${fmt$0(b.gp)}</td>
                   <td>${fmt$0(c.laborCost)}</td>
-                  <td class="${effectiveRate === null ? 'muted' : ''}">${effectiveRate === null ? '—' : fmt$0(effectiveRate) + '/h'}</td>
+                  <td class="${b.effectiveRate === null ? 'muted' : ''}">${b.effectiveRate === null ? '—' : fmt$0(b.effectiveRate) + '/h'}</td>
                   <td class="${b.profitAfterLabor < 0 ? 'err' : 'ok'}">${fmt$0(b.profitAfterLabor)}</td>
                   <td class="${b.profitPerHour === null ? 'muted' : b.profitPerHour < 0 ? 'err' : 'ok'}">${b.profitPerHour === null ? '—' : fmt$0(b.profitPerHour) + '/h'}</td>
                 </tr>`;
@@ -237,6 +264,15 @@ boot('clientprofit', async (supa, el) => {
       </div>`;
 
     document.getElementById('q').oninput = e => { query = e.target.value; render(); };
+    document.querySelectorAll('th[data-sort]').forEach(th => {
+      const activate = () => {
+        const key = th.dataset.sort;
+        tableSort = { key, dir: tableSort.key === key ? -tableSort.dir : (key === 'name' ? 1 : -1) };
+        render();
+      };
+      th.onclick = activate;
+      th.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); } };
+    });
   }
 
   document.getElementById('r-from').onchange = e => { rangeFrom = monthOf(e.target.value); load(); };

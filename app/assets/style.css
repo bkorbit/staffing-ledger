@@ -318,6 +318,15 @@ table.ledger th.textleft, table.ledger td.textleft { text-align:left; }
 table.ledger td.textleft { font-family:var(--font-body); white-space:normal; }
 table.ledger .empty-note { text-align:center; color:var(--slate); font-family:var(--font-body);
   white-space:normal; padding:22px 10px; }
+
+/* Sortable column headers — first established on Forecast's account table
+   (table.acct th has its own, higher-specificity copy of this), generalized
+   here so any other table (Client Profitability's ledger table first) gets
+   the same clickable header, brand-green direction arrow, and focus ring
+   just by adding data-sort, without a page-local style block. */
+th[data-sort] { cursor:pointer; user-select:none; }
+th[data-sort] .dir { color:var(--brand); margin-left:3px; }
+th[data-sort]:focus-visible { outline:none; box-shadow:inset 0 0 0 2px var(--brand-2), inset 0 0 0 4px var(--mint); }
 .tbltools { display:flex; align-items:center; gap:10px; padding:10px 14px; flex-wrap:wrap;
   border-bottom:1px solid var(--line); }
 .tbltools input[type=search] { width:240px; }
