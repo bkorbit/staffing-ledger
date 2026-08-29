@@ -1,8 +1,8 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Client Profitability</title><link rel="stylesheet" href="./assets/style.css?v=0fd2104"></head><body>
+<title>EMG — Client Profitability</title><link rel="stylesheet" href="./assets/style.css?v=f21e7ee"></head><body>
 <script type="module">
-import { boot, esc, barChart } from './assets/shell.js?v=0fd2104';
+import { boot, esc, barChart } from './assets/shell.js?v=f21e7ee';
 
 // Client-level evaluation — is this account healthy? For per-project detail
 // (scoping, tracking how much work is going into a specific deal), see
@@ -15,12 +15,28 @@ import { boot, esc, barChart } from './assets/shell.js?v=0fd2104';
 // counts as revenue, only about what "cost" means (hours here, QBO COGS
 // there). See db/031_hours_page.sql.
 //
-// Planned hours (assignments) render as an explicit "not assigned yet" empty
-// state rather than being left out of the layout — the mechanism for
-// entering planned hours is being reworked, but the shape of the comparison
-// stays on the page so it's ready the moment that data exists.
+// Hours vs. planned reuses Team Hours' pacing-bar pattern exactly: a
+// two-tone track (green under/at plan, red over) once planned hours exist,
+// an explicit "not assigned yet" empty state when they don't — the
+// mechanism for entering planned hours is being reworked, but the
+// comparison stays wired and ready the moment that data exists.
 const fmtHours = h => (+h || 0).toLocaleString(undefined, { maximumFractionDigits: 1 });
 const fmt$0 = c => (c < 0 ? '-$' : '$') + Math.abs(Math.round((c || 0) / 100)).toLocaleString();
+
+// Stacks segments left-to-right, capped so the running total never exceeds
+// 100% of the track — a real over-plan condition is reported as text (the
+// exact overage), not an impossible >100%-wide bar. Same helper as Team
+// Hours, applied here to hours logged vs. planned instead of vs. capacity.
+function stackSegments(cap, parts) {
+  if (cap <= 0) return { html: '', overBy: 0 };
+  let used = 0, html = '';
+  parts.forEach(([cls, hours]) => {
+    const w = Math.min(Math.max(hours / cap * 100, 0), Math.max(100 - used, 0));
+    if (w > 0.05) { used += w; html += `<div class="seg ${cls}" style="width:${w}%"></div>`; }
+  });
+  const total = parts.reduce((s, [, h]) => s + h, 0);
+  return { html, overBy: total > cap ? total - cap : 0 };
+}
 
 const iso = d => d.toISOString().slice(0, 10);
 const monthOf = s => s.slice(0, 7) + '-01';
@@ -118,16 +134,23 @@ boot('clientprofit', async (supa, el) => {
         <div class="tbltools" style="padding:10px 14px">
           <input id="q" placeholder="search client…" value="${esc(query)}" style="width:220px">
         </div>
-        <table class="ledger"><tr><th>client</th><th>hours</th><th>vs planned</th><th>labor cost</th><th>revenue</th><th>profit</th></tr>
-          ${!clientRows.length ? `<tr><td colspan="6" class="empty-note">No clients match the current search.</td></tr>` : clientRows.map(c => `<tr class="${c.profit<0?'risk-row':''}">
-              <td class="textleft">${esc(c.name)}</td>
-              <td>${fmtHours(c.hours)}
-                <div class="mini-track" title="hours logged — no planned figure to compare against yet">
-                  <div class="seg seg-good" style="width:${c.hours>0?100:0}%"></div>
-                </div></td>
-              <td class="delta-note flat">no plan set</td>
-              <td>${fmt$0(c.cost)}</td><td>${fmt$0(c.revenue)}</td>
-              <td class="${c.profit<0?'err':'pos'}">${fmt$0(c.profit)}</td></tr>`).join('')}
+        <table class="ledger"><tr><th>client</th><th class="textleft">hours</th><th>labor cost</th><th>revenue</th><th>profit</th></tr>
+          ${!clientRows.length ? `<tr><td colspan="5" class="empty-note">No clients match the current search.</td></tr>` : clientRows.map(c => {
+              const hasPlan = c.planned > 0;
+              const bar = hasPlan
+                ? stackSegments(c.planned, [[c.hours > c.planned ? 'seg-over' : 'seg-good', c.hours]])
+                : null;
+              return `<tr class="${c.profit<0?'risk-row':''}">
+                  <td class="textleft">${esc(c.name)}</td>
+                  <td class="textleft">
+                    ${hasPlan ? `<div class="mini-track">${bar.html}</div>
+                      <div class="delta-note flat">${fmtHours(c.hours)}h logged / ${fmtHours(c.planned)}h planned</div>
+                      ${bar.overBy > 0.05 ? `<div class="delta-note neg">+${fmtHours(bar.overBy)}h over plan</div>` : ''}`
+                      : `<div class="mini-track"></div><div class="delta-note flat">${fmtHours(c.hours)}h logged — not assigned yet</div>`}
+                  </td>
+                  <td>${fmt$0(c.cost)}</td><td>${fmt$0(c.revenue)}</td>
+                  <td class="${c.profit<0?'err':'pos'}">${fmt$0(c.profit)}</td></tr>`;
+            }).join('')}
         </table>
       </div>`;
 
