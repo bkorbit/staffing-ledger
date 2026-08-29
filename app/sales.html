@@ -269,6 +269,10 @@ boot('sales', async (supa, el) => {
     const top=Math.ceil(max/stepC)*stepC;
     const y=v=>PT+IH-(v/top)*IH;
     const bw=Math.min(96,IW/n*0.6), gap=IW/n;
+    // anchored off the plot's own bottom edge (not H) so the month label
+    // always gets a real gap below the last gridline instead of nearly
+    // touching it — the axis labels had no breathing room from the chart
+    const plotBottom=PT+IH;
     let g='';
     for(let v=0;v<=top;v+=stepC)
       g+=`<line x1="${PL}" y1="${y(v)}" x2="${W-PR}" y2="${y(v)}" stroke="var(--line)"/>`+
@@ -286,8 +290,8 @@ boot('sales', async (supa, el) => {
         g+=`<rect x="${x}" y="${yTop}" width="${bw}" height="${h}" fill="${TIER_COLORS[tIdx]}" stroke="var(--line)" stroke-width="1"><title>${label(d.c)} ${money(v)}</title></rect>`;
       });
       if(acc>0&&!dense) g+=`<text x="${cx}" y="${y(acc)-6}" text-anchor="middle" class="bt">${money(acc)}</text>`;
-      if(!verydense||i%2===0) g+=`<text x="${cx}" y="${H-33}" text-anchor="middle" class="ax">${label(d.c)}</text>`;
-      if(d.pipe>0&&!dense) g+=`<text x="${cx}" y="${H-18}" text-anchor="middle" class="pl">+${money(d.pipe)} pipeline</text>`;
+      if(!verydense||i%2===0) g+=`<text x="${cx}" y="${plotBottom+14}" text-anchor="middle" class="ax">${label(d.c)}</text>`;
+      if(d.pipe>0&&!dense) g+=`<text x="${cx}" y="${plotBottom+28}" text-anchor="middle" class="pl">+${money(d.pipe)} pipeline</text>`;
     });
     const tiersPresent=[...new Set(shown.filter(r=>r.gp&&r.months.length).map(r=>r.tier))].sort();
     const tierLabel=t=>[...new Set(shown.filter(r=>r.tier===t).map(r=>r.stage))].join(' / ');
@@ -311,10 +315,12 @@ boot('sales', async (supa, el) => {
         <a href="./forecast.html">Forecast</a> automatically${wonReview.length?` — ${wonReview.length} still awaiting review there`:''}${wonWaiting?`; ${wonWaiting} will pass on the next sync`:''}.
         Mappable line items are flighted out on arrival; the rest get a skeleton and a reason.</div>` : '') +
       `</div>` : '';
+    wrap.style.position='relative';
     wrap.innerHTML =
       `<div class="chead"><h3>Committed revenue plus pipeline — ${weighted?'weighted by stage':'total value at 100%'}</h3>
        <div class="csum">${n} months · committed ${money(totals.l)} · pipeline ${money(Math.round(totals.p))} · total ${money(Math.round(totals.l+totals.p))}</div></div>
        <div class="csvg${dense?' scroll':''}"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" class="sfchart" role="img" aria-label="${esc(chartSummary)}"${svgStyle}><title>${esc(chartSummary)}</title>${g}</svg></div>
+       <div class="chart-tip"></div>
        <div class="chart-legend">
          <span class="lg-item"><i class="lg-dot" style="background:${LEDGER_COLOR}"></i>Committed GP (shaped deals)</span>` +
        tiersPresent.map(t=>`<span class="lg-item"><i class="lg-dot" style="background:${TIER_COLORS[t]}"></i>${esc(tierLabel(t))}</span>`).join('') +
@@ -322,6 +328,35 @@ boot('sales', async (supa, el) => {
          <button class="lg-item toggle" id="covtoggle" aria-expanded="${coverageOpen}" aria-controls="health-detail">
            <i class="lg-dot" style="background:${healthColor}"></i>pipeline health${totalRows?` — ${pct}% forecastable`:''}${coverageOpen?' ▾':' ▸'}</button>` : '') +
        `</div>${detailHtml}`;
+
+    // real hover tooltip, same pattern as the other charts: the per-rect
+    // <title> stays as a no-JS/a11y floor, but this is instant and aggregates
+    // every stage present in the hovered month, not just one segment
+    const svgEl = wrap.querySelector('svg.sfchart');
+    const tip = wrap.querySelector('.chart-tip');
+    const showAt = (clientX, clientY) => {
+      const svgBox = svgEl.getBoundingClientRect();
+      const scale = W / svgBox.width;
+      const vx = (clientX - svgBox.left) * scale;
+      let idx = Math.floor((vx - PL) / gap);
+      idx = Math.max(0, Math.min(n - 1, idx));
+      const d = data[idx];
+      const rows = [];
+      if (d.ledger > 0) rows.push(`<div class="tip-row"><span class="tip-dot" style="background:${LEDGER_COLOR}"></span>Committed GP <b>${money(d.ledger)}</b></div>`);
+      d.byTier.forEach((v, tIdx) => { if (v > 0) rows.push(
+        `<div class="tip-row"><span class="tip-dot" style="background:${TIER_COLORS[tIdx]}"></span>${esc(tierLabel(tIdx))} <b>${money(Math.round(v))}</b></div>`); });
+      tip.innerHTML = `<div class="tip-label">${label(d.c)}</div>` + (rows.length ? rows.join('') : '<div class="tip-row">nothing forecastable</div>');
+      tip.style.opacity = '1';
+      const wrapBox = wrap.getBoundingClientRect();
+      tip.style.top = (clientY - wrapBox.top - 10) + 'px';
+      const left = Math.min(wrapBox.width - tip.offsetWidth, Math.max(0, clientX - wrapBox.left + 12));
+      tip.style.left = left + 'px';
+    };
+    const hideTip = () => { tip.style.opacity = '0'; };
+    svgEl.onmousemove = e => showAt(e.clientX, e.clientY);
+    svgEl.onmouseleave = hideTip;
+    svgEl.ontouchstart = svgEl.ontouchmove = e => { if (e.touches[0]) showAt(e.touches[0].clientX, e.touches[0].clientY); };
+    svgEl.ontouchend = hideTip;
     return totals;
   }
 
