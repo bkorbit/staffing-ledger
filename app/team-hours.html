@@ -55,6 +55,32 @@ function stackSegments(cap, parts) {
   return { html, overBy: total > cap ? total - cap : 0 };
 }
 
+// Utilization bar: internal + PTO reserve their own room first, THEN client
+// work gets whatever's left of capacity — so a person loaded with internal
+// meetings/time off goes red on CLIENT hours sooner than a raw total-vs-cap
+// comparison would show, since their non-client time already ate into the
+// budget. Internal/PTO always keep their own color, win or lose; only the
+// client segment ever turns red. Scaled to whichever is bigger, capacity or
+// actual total hours worked, so the bar always fits its track (no empty
+// gray track once someone's at or past capacity) instead of clipping an
+// overage into an invisible sliver — a zero/missing capacity (a data gap,
+// not a real 0-hour week) means EVERY client hour reads as red on sight,
+// which is deliberately the same visual as genuine overwork: a bar that's
+// all red is real information either way, and self-corrects once capacity
+// data is fixed.
+function utilizationBar(cap, internalHours, ptoHours, clientHours) {
+  const total = internalHours + ptoHours + clientHours;
+  const scale = Math.max(cap, total);
+  if (scale <= 0) return { html: '', overBy: 0 };
+  const available = Math.max(cap - internalHours - ptoHours, 0);
+  const greenClient = Math.min(clientHours, available);
+  const redClient = Math.max(clientHours - available, 0);
+  const seg = (cls, hours) => hours > 0.05 ? `<div class="seg ${cls}" style="width:${hours / scale * 100}%"></div>` : '';
+  const html = seg('seg-internal', internalHours) + seg('seg-pto', ptoHours)
+    + seg('seg-client', greenClient) + seg('seg-over', redClient);
+  return { html, overBy: Math.max(total - cap, 0) };
+}
+
 boot('teamhours', async (supa, el) => {
   const thisMonth = monthOf(iso(new Date()));
   let rangeFrom = shiftM(thisMonth, -2), rangeTo = thisMonth;
@@ -179,7 +205,7 @@ boot('teamhours', async (supa, el) => {
           <tr><th>name</th><th>capacity</th><th class="textleft">utilization</th><th class="textleft">pacing (assigned)</th><th class="textleft">plan vs. logged</th><th>profit</th></tr>
           ${!rows.length ? `<tr><td colspan="6" class="empty-note">No people match the current filters.</td></tr>` : rows.map(r => {
             // Utilization: client + internal + time-off, all against capacity.
-            const util = stackSegments(r.cap, [['seg-client', r.clientHours], ['seg-internal', r.internalHours], ['seg-pto', r.ptoHours]]);
+            const util = utilizationBar(r.cap, r.internalHours, r.ptoHours, r.clientHours);
             // Pacing: assigned hours against capacity — a planning signal,
             // independent of what's actually been logged.
             const pacing = stackSegments(r.cap, [[r.assignedHours > r.cap ? 'seg-over' : 'seg-good', r.assignedHours]]);
