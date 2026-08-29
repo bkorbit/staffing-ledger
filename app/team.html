@@ -42,7 +42,7 @@ boot('team', async (supa, el) => {
   let modalOpener = null;
   let compAllByStaffLive = {}; // staff_id -> comp_periods[], refreshed every load()
 
-  el.innerHTML = `<div class="sc-panel" id="panel">loading…</div>`;
+  el.innerHTML = `<div id="panel">loading…</div>`;
 
   function closeModal() {
     document.querySelector('.modal-back')?.remove();

@@ -35,7 +35,7 @@ boot('projhours', async (supa, el) => {
   let rangeFrom = shiftM(thisMonth, -2), rangeTo = thisMonth;
   let query = '';
 
-  el.innerHTML = `<div class="sc-panel" id="panel">loading…</div>`;
+  el.innerHTML = `<div id="panel">loading…</div>`;
 
   async function load() {
     const [hp, fp, dl, cl] = await Promise.all([

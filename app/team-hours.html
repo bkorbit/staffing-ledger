@@ -60,7 +60,7 @@ boot('teamhours', async (supa, el) => {
   let rangeFrom = shiftM(thisMonth, -2), rangeTo = thisMonth;
   let deptFilter = '', query = '', showInactive = false;
 
-  el.innerHTML = `<div class="sc-panel" id="panel">loading…</div>`;
+  el.innerHTML = `<div id="panel">loading…</div>`;
 
   async function load() {
     const [hp, fp, dl] = await Promise.all([
