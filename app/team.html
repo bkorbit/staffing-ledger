@@ -18,16 +18,113 @@ import { boot, esc } from './assets/shell.js?v=6806655';
 // start date and closes it there, rather than always assuming "the currently
 // open one" — that assumption breaks the moment you backfill or schedule a
 // future change out of chronological order.
+//
+// The roster row itself (name/department/dates/active) reads as plain
+// ledger text, not a permanent row of input boxes — matching the table
+// language cashflow.html established (table.ledger: no per-cell gridlines,
+// a brand header rule, hover-tint rows). Editing opens a small floating
+// popover (one shared instance, positioned on click) instead of writing on
+// every keystroke; comp-period history keeps its own existing expand-row,
+// since that was already click-to-reveal rather than always-on.
 const toCents = dollars => Math.round((+dollars || 0) * 100);
 const fromCents = cents => ((cents || 0) / 100).toFixed(2);
 const iso = d => d.toISOString().slice(0, 10);
 const dayBefore = dateStr => iso(new Date(new Date(dateStr + 'T00:00:00Z').getTime() - 86400000));
+const fmtDate = s => s ? new Date(s + 'T00:00:00Z')
+  .toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+  : '<span class="muted">—</span>';
 
 boot('team', async (supa, el) => {
   let query = '', deptFilter = '', showInactive = true;
+  let tableSort = { key: 'active', dir: -1 };
   const openHistory = new Set();
 
   el.innerHTML = `<div class="sc-panel" id="panel">loading…</div>`;
+
+  // ---- row-edit popover: one shared floating surface for both "+ Add
+  // person" and every row's "Edit" button. Lives in document.body (outside
+  // #panel, and outside .gridwrap's overflow-x:auto) so re-rendering the
+  // table never touches it and it's never clipped by the table's own
+  // scroll container. Positioned like the chart tooltip in shell.js:
+  // anchored to the trigger's own rect, clamped to the viewport.
+  const pop = document.createElement('div');
+  pop.className = 'editpop';
+  pop.hidden = true;
+  pop.innerHTML = `
+    <div class="editpop-body">
+      <div class="setrow"><span class="setlabel">Name</span><input class="ep-name" type="text"></div>
+      <div class="setrow"><span class="setlabel">Department</span><input class="ep-dept" type="text" placeholder="department"></div>
+      <div class="setrow"><span class="setlabel">Start date</span><input class="ep-start" type="date"></div>
+      <div class="setrow"><span class="setlabel">End date</span><input class="ep-end" type="date"></div>
+      <div class="setrow"><span class="setlabel">Active</span>
+        <label class="mono" style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:normal;font-size:12.5px;font-family:var(--font-body);color:var(--ink)">
+          <input class="ep-active" type="checkbox"> active</label></div>
+    </div>
+    <div class="editpop-foot">
+      <span class="err ep-msg" style="flex:1"></span>
+      <button class="ghost ep-cancel">Cancel</button>
+      <button class="primary ep-save">Save</button>
+    </div>`;
+  document.body.appendChild(pop);
+  let editState = null; // { mode: 'edit'|'create', id }
+
+  const onOutsideClick = e => {
+    if (!pop.contains(e.target) && !e.target.closest('.edit-btn, #add-staff-btn')) closePopover();
+  };
+  const onPopoverKeydown = e => { if (e.key === 'Escape') closePopover(); };
+
+  function closePopover() {
+    pop.hidden = true;
+    editState = null;
+    document.removeEventListener('mousedown', onOutsideClick, true);
+    document.removeEventListener('keydown', onPopoverKeydown, true);
+    window.removeEventListener('scroll', closePopover, true);
+  }
+
+  function openPopover(anchorEl, mode, person) {
+    document.removeEventListener('mousedown', onOutsideClick, true);
+    document.removeEventListener('keydown', onPopoverKeydown, true);
+    window.removeEventListener('scroll', closePopover, true);
+
+    editState = { mode, id: person ? person.id : null };
+    pop.querySelector('.ep-name').value = person ? person.name : '';
+    pop.querySelector('.ep-dept').value = person ? (person.department || '') : '';
+    pop.querySelector('.ep-start').value = person ? (person.start_date || '') : '';
+    pop.querySelector('.ep-end').value = person ? (person.end_date || '') : '';
+    pop.querySelector('.ep-active').checked = person ? person.active : true;
+    pop.querySelector('.ep-msg').textContent = '';
+    pop.hidden = false;
+
+    const r = anchorEl.getBoundingClientRect();
+    const top = Math.max(8, Math.min(r.bottom + 6, window.innerHeight - pop.offsetHeight - 8));
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - pop.offsetWidth - 8));
+    pop.style.top = top + 'px';
+    pop.style.left = left + 'px';
+
+    pop.querySelector('.ep-name').focus();
+    document.addEventListener('mousedown', onOutsideClick, true);
+    document.addEventListener('keydown', onPopoverKeydown, true);
+    window.addEventListener('scroll', closePopover, true);
+  }
+
+  pop.querySelector('.ep-cancel').onclick = closePopover;
+  pop.querySelector('.ep-save').onclick = async () => {
+    const name = pop.querySelector('.ep-name').value.trim();
+    if (!name) { pop.querySelector('.ep-msg').textContent = 'name is required'; return; }
+    const payload = {
+      name,
+      department: pop.querySelector('.ep-dept').value.trim() || null,
+      start_date: pop.querySelector('.ep-start').value || null,
+      end_date: pop.querySelector('.ep-end').value || null,
+      active: pop.querySelector('.ep-active').checked
+    };
+    const { error } = editState.mode === 'create'
+      ? await supa.from('staff').insert({ ...payload, set_by: window.__email })
+      : await supa.from('staff').update(payload).eq('id', editState.id);
+    if (error) { pop.querySelector('.ep-msg').textContent = error.message; return; }
+    closePopover();
+    load();
+  };
 
   async function load() {
     const [st, cp] = await Promise.all([
@@ -38,6 +135,18 @@ boot('team', async (supa, el) => {
     render(st.data || [], cp.data || []);
   }
 
+  const SORT_ACCESSORS = {
+    name: s => s.name.toLowerCase(),
+    department: s => (s.department || '').toLowerCase(),
+    start_date: s => s.start_date || '',
+    end_date: s => s.end_date || '',
+    active: s => s.active ? 1 : 0
+  };
+  const HCOLS = [
+    ['name', 'Name'], ['department', 'Department'], [null, 'Comp'],
+    ['start_date', 'Start date'], ['end_date', 'End date'], ['active', 'Active'], [null, '']
+  ];
+
   function render(staff, comp) {
     const compAllByStaff = {};
     comp.forEach(c => (compAllByStaff[c.staff_id] = compAllByStaff[c.staff_id] || []).push(c));
@@ -46,11 +155,16 @@ boot('team', async (supa, el) => {
 
     const departments = [...new Set(staff.map(s => s.department).filter(Boolean))].sort();
     const q = query.trim().toLowerCase();
-    const rows = staff
+    const staffById = {}; staff.forEach(s => staffById[s.id] = s);
+    const visible = staff
       .filter(s => showInactive || s.active)
       .filter(s => !deptFilter || s.department === deptFilter)
-      .filter(s => !q || s.name.toLowerCase().includes(q))
-      .sort((a, b) => (b.active - a.active) || a.name.localeCompare(b.name));
+      .filter(s => !q || s.name.toLowerCase().includes(q));
+    const rows = visible.slice().sort((a, b) => {
+      const av = SORT_ACCESSORS[tableSort.key](a), bv = SORT_ACCESSORS[tableSort.key](b);
+      if (av !== bv) return (av < bv ? -1 : 1) * tableSort.dir;
+      return a.name.localeCompare(b.name);
+    });
 
     el.querySelector('#panel').innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:14px;flex-wrap:wrap;gap:10px">
@@ -67,30 +181,38 @@ boot('team', async (supa, el) => {
           <label class="mono" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--slate)">
             <input type="checkbox" id="show-inactive" ${showInactive?'checked':''}> show inactive
           </label>
+          <span class="muted" id="count" style="font-size:11px">${rows.length} of ${staff.length} shown</span>
         </div>
         <div class="gridwrap">
-        <table>
-          <thead><tr><th scope="col">name</th><th scope="col">department</th><th scope="col">comp</th><th scope="col">start date</th><th scope="col">end date</th><th scope="col">active</th></tr></thead>
+        <table class="ledger">
+          <thead><tr>${HCOLS.map(([k, label]) => k
+            ? `<th data-sort="${k}" scope="col" tabindex="0" role="columnheader" aria-sort="${tableSort.key===k?(tableSort.dir<0?'descending':'ascending'):'none'}">${label}${tableSort.key===k?`<span class="dir">${tableSort.dir<0?'▼':'▲'}</span>`:''}</th>`
+            : `<th scope="col"${label?'':' style="cursor:default"'}>${label}</th>`
+          ).join('')}</tr></thead>
           <tbody>
-          ${!rows.length ? `<tr><td colspan="6" class="empty-note">No people match the current filters.</td></tr>` : rows.map(s => {
+          ${!rows.length ? `<tr><td colspan="7" class="empty-note">No people match the current filters.</td></tr>` : rows.map(s => {
             const comp = compCurrentByStaff[s.id];
             const periods = (compAllByStaff[s.id] || []).slice().sort((a, b) => b.starts_on.localeCompare(a.starts_on));
             const open = openHistory.has(s.id);
             return `<tr class="${!s.active?'muted':''}">
-                <td class="textleft"><input type="text" value="${esc(s.name)}" data-role="name" data-id="${s.id}" style="height:28px"></td>
-                <td class="textleft"><input type="text" value="${esc(s.department||'')}" placeholder="department" aria-label="${esc(s.name)} — department" data-role="dept" data-id="${s.id}" style="height:28px;width:140px"></td>
-                <td class="textleft">${comp
+                <td>${esc(s.name)}</td>
+                <td>${s.department ? esc(s.department) : '<span class="muted">—</span>'}</td>
+                <td>${comp
                   ? (comp.kind === 'hourly'
                       ? `$${(comp.hourly_cost/100).toLocaleString()}/hr · ${comp.weekly_capacity}h/wk`
                       : `$${(comp.annual_cost/100).toLocaleString()}/yr · ${comp.weekly_capacity}h/wk`)
                   : '<span class="muted">not set</span>'}
                   <button class="ghost history-toggle" data-sid="${s.id}" style="padding:3px 8px;font-size:11px;margin-left:6px">${open?'hide':'history'} (${periods.length})</button></td>
-                <td><input type="date" value="${s.start_date||''}" data-role="start" data-id="${s.id}" aria-label="${esc(s.name)} — start date" style="height:28px"></td>
-                <td><input type="date" value="${s.end_date||''}" data-role="end" data-id="${s.id}" aria-label="${esc(s.name)} — end date" style="height:28px"></td>
-                <td><input type="checkbox" data-role="active" data-id="${s.id}" aria-label="${esc(s.name)} active" ${s.active?'checked':''}></td>
+                <td>${fmtDate(s.start_date)}</td>
+                <td>${fmtDate(s.end_date)}</td>
+                <td><span class="pill ${s.active?'good':'bad'}">${s.active?'active':'inactive'}</span></td>
+                <td style="white-space:nowrap">
+                  <button class="ghost edit-btn" data-id="${s.id}">Edit</button>
+                  <button class="ghost toggle-active-btn" data-id="${s.id}">${s.active?'Deactivate':'Reactivate'}</button>
+                </td>
               </tr>
-              ${open ? `<tr><td colspan="6" style="background:#f6f6f6;padding:8px 14px">
-                <table style="width:auto;min-width:560px">
+              ${open ? `<tr><td colspan="7" style="background:#f2f2f2;padding:8px 14px">
+                <table class="ledger" style="width:auto;min-width:560px">
                   <thead><tr><th scope="col">start</th><th scope="col">end</th><th scope="col">kind</th><th scope="col">cost</th><th scope="col">hrs/wk</th><th scope="col"></th></tr></thead>
                   <tbody>
                   ${!periods.length ? `<tr><td colspan="6" class="muted" style="text-align:left">No comp periods yet.</td></tr>` : periods.map(p => `
@@ -132,31 +254,26 @@ boot('team', async (supa, el) => {
     el.querySelector('#q').oninput = e => { query = e.target.value; render(staff, comp); };
     el.querySelector('#dept-filter').onchange = e => { deptFilter = e.target.value; render(staff, comp); };
     el.querySelector('#show-inactive').onchange = e => { showInactive = e.target.checked; render(staff, comp); };
-    el.querySelector('#add-staff-btn').onclick = async () => {
-      const name = prompt('Name for the new person:');
-      if (!name) return;
-      const { error } = await supa.from('staff').insert({ name: name.trim(), active: true, set_by: window.__email });
-      if (error) { alert(error.message); return; }
-      load();
+    el.querySelectorAll('th[data-sort]').forEach(th => {
+      const activate = () => {
+        const k = th.dataset.sort;
+        tableSort = { key: k, dir: tableSort.key === k ? -tableSort.dir : (k === 'active' ? -1 : 1) };
+        render(staff, comp);
+      };
+      th.onclick = activate;
+      th.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); } };
+    });
+    el.querySelector('#add-staff-btn').onclick = () => {
+      openPopover(el.querySelector('#add-staff-btn'), 'create', null);
     };
-    el.querySelectorAll('[data-role="name"]').forEach(inp => inp.onchange = async () => {
-      await supa.from('staff').update({ name: inp.value.trim() }).eq('id', inp.dataset.id);
-      load();
+    el.querySelectorAll('.edit-btn').forEach(btn => btn.onclick = () => {
+      openPopover(btn, 'edit', staffById[btn.dataset.id]);
     });
-    el.querySelectorAll('[data-role="dept"]').forEach(inp => inp.onchange = async () => {
-      await supa.from('staff').update({ department: inp.value.trim() || null }).eq('id', inp.dataset.id);
-      load();
-    });
-    el.querySelectorAll('[data-role="start"]').forEach(inp => inp.onchange = async () => {
-      await supa.from('staff').update({ start_date: inp.value || null }).eq('id', inp.dataset.id);
-      load();
-    });
-    el.querySelectorAll('[data-role="end"]').forEach(inp => inp.onchange = async () => {
-      await supa.from('staff').update({ end_date: inp.value || null }).eq('id', inp.dataset.id);
-      load();
-    });
-    el.querySelectorAll('[data-role="active"]').forEach(cb => cb.onchange = async () => {
-      await supa.from('staff').update({ active: cb.checked }).eq('id', cb.dataset.id);
+    el.querySelectorAll('.toggle-active-btn').forEach(btn => btn.onclick = async () => {
+      const s = staffById[btn.dataset.id];
+      if (s.active && !confirm(`Deactivate "${s.name}"?`)) return;
+      const { error } = await supa.from('staff').update({ active: !s.active }).eq('id', s.id);
+      if (error) { alert(error.message); return; }
       load();
     });
     el.querySelectorAll('.history-toggle').forEach(btn => btn.onclick = () => {
