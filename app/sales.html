@@ -4,7 +4,9 @@
 <style>
 /* Layout and chart styling carried over from sales-forecast-draft.html — the design
    the page is modelled on — trimmed to what the shell doesn't already provide. */
-.bar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:12px}
+/* matches .summary-strip's own margin-bottom (style.css) so the KPI-ribbon-to-bar
+   gap and the bar-to-chart gap read as one consistent rhythm, not two different ones */
+.bar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:22px}
 .toggroup{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
 .tog{display:flex;align-items:center;gap:6px}
 .tog>span{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--slate)}
