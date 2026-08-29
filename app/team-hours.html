@@ -63,11 +63,11 @@ function stackSegments(cap, parts) {
 // client segment ever turns red. Scaled to whichever is bigger, capacity or
 // actual total hours worked, so the bar always fits its track (no empty
 // gray track once someone's at or past capacity) instead of clipping an
-// overage into an invisible sliver — a zero/missing capacity (a data gap,
-// not a real 0-hour week) means EVERY client hour reads as red on sight,
-// which is deliberately the same visual as genuine overwork: a bar that's
-// all red is real information either way, and self-corrects once capacity
-// data is fixed.
+// overage into an invisible sliver. A missing comp period no longer shows
+// up here at all — hours_page() (038) defaults an unset weekly_capacity to
+// 40 server-side, so this only ever sees a real number; an explicit 0 (a
+// human actually entered zero hours/week on a comp period) still reads as
+// every client hour being red, same as genuine overwork.
 function utilizationBar(cap, internalHours, ptoHours, clientHours) {
   const total = internalHours + ptoHours + clientHours;
   const scale = Math.max(cap, total);
@@ -163,7 +163,9 @@ boot('teamhours', async (supa, el) => {
     let rows = (H.staff || []).map(s => {
       const comp = compByStaff[s.id];
       const hc = hoursByStaff[s.id] || { hours: 0, cost: 0 };
-      const cap = comp ? comp.weekly_capacity * weeksInRange : 0;
+      // comp_current (038) is one row per staff member always, weekly_capacity
+      // defaulted to 40 server-side when nobody has a comp period entered yet.
+      const cap = comp.weekly_capacity * weeksInRange;
       const deals2 = dealHoursByStaff[s.id] || [];
       const clientHours = deals2.reduce((s2, d) => s2 + +d.hours, 0);
       const internalHours = Math.max(hc.hours - clientHours, 0);
