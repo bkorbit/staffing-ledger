@@ -20,7 +20,7 @@ boot('settings', async (supa, el) => {
       supa.from('pipeline_deals').select('hubspot_deal_id,name,company,campaign_start,campaign_end,pipeline,is_won,url,jobcode,stage'),
       supa.from('promotions').select('hubspot_deal_id'),
       supa.from('blocked_company_names').select('name_key'),
-      supa.from('deals').select('id,name,client_id,hubspot_deal_id,flight_start,flight_end,flight_locked').not('hubspot_deal_id', 'is', null),
+      supa.from('deals').select('id,name,client_id,hubspot_deal_id,flight_start,flight_end,flight_locked,status,hidden').not('hubspot_deal_id', 'is', null),
       supa.from('clients').select('id,name')
     ]);
 
@@ -106,7 +106,7 @@ boot('settings', async (supa, el) => {
               <td class="textleft muted">${esc(d.pipeline || '')}</td>
               <td class="muted">${d.campaign_start || '—'} → ${d.campaign_end || '—'}</td>
               <td class="muted">${esc(d.jobcode || '')}</td>
-              <td>${promoted ? `<span class="pill good">yes — ${esc(promoted.flight_start||'?')}→${esc(promoted.flight_end||'?')}</span>` : '<span class="pill">no</span>'}</td>
+              <td>${promoted ? `<span class="pill ${promoted.hidden?'bad':'good'}">yes — ${esc(promoted.status)}${promoted.hidden?' · HIDDEN':''} — ${esc(promoted.flight_start||'?')}→${esc(promoted.flight_end||'?')}</span>` : '<span class="pill">no</span>'}</td>
               <td><a href="${esc(d.url)}" target="_blank" rel="noopener">HubSpot ↗</a></td></tr>`;
           }).join('')}</table>`;
     }
