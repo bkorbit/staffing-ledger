@@ -104,6 +104,13 @@ td.textleft { text-align:left; font-family:var(--font-body); }
 .mini-track .seg-good  { background:var(--brand-2); }
 .mini-track .seg-over  { background:var(--rust); }
 
+/* Wide variant (Team Hours' three bar columns): the bar itself IS the
+   primary content of the column, not a small addendum next to a number
+   (that's what the plain 130px .mini-track above is for, on Client
+   Profitability/Project Hours) — so it fills its full column width and
+   stands twice as tall to read at a glance across a whole roster. */
+.mini-track.wide { width:100%; height:10px; }
+
 /* Three-way composition bar (Team Hours' capacity column): client, internal,
    and time-off hours stacked in one track. Muted Ledger Green (client) and
    Deep Ledger Green (internal) are both already-established "real work"

@@ -174,7 +174,10 @@ boot('teamhours', async (supa, el) => {
             <input type="checkbox" id="show-inactive" ${showInactive?'checked':''}> show inactive
           </label>
         </div>
-        <table class="ledger"><tr><th>name</th><th>capacity</th><th class="textleft">utilization</th><th class="textleft">pacing (assigned)</th><th class="textleft">plan vs. logged</th><th>profit</th></tr>
+        <table class="ledger" style="table-layout:fixed">
+          <colgroup><col style="width:20%"><col style="width:7%">
+            <col style="width:20%"><col style="width:20%"><col style="width:20%"><col style="width:13%"></colgroup>
+          <tr><th>name</th><th>capacity</th><th class="textleft">utilization</th><th class="textleft">pacing (assigned)</th><th class="textleft">plan vs. logged</th><th>profit</th></tr>
           ${!rows.length ? `<tr><td colspan="6" class="empty-note">No people match the current filters.</td></tr>` : rows.map(r => {
             // Utilization: client + internal + time-off, all against capacity.
             const util = stackSegments(r.cap, [['seg-client', r.clientHours], ['seg-internal', r.internalHours], ['seg-pto', r.ptoHours]]);
@@ -191,19 +194,19 @@ boot('teamhours', async (supa, el) => {
                 <td class="textleft">${esc(r.s.name)}<div class="summary-note">${esc(r.s.department||'')}</div></td>
                 <td>${fmtHours(r.cap)}h</td>
                 <td class="textleft">
-                  <div class="mini-track split">${util.html}</div>
+                  <div class="mini-track split wide">${util.html}</div>
                   <div class="delta-note flat">${fmtHours(r.clientHours)}h client · ${fmtHours(r.internalHours)}h int · ${fmtHours(r.ptoHours)}h PTO / ${fmtHours(r.cap)}h cap</div>
                   ${util.overBy > 0.05 ? `<div class="delta-note neg">+${fmtHours(util.overBy)}h over capacity</div>` : ''}
                 </td>
                 <td class="textleft">
-                  <div class="mini-track split">${pacing.html}</div>
+                  <div class="mini-track wide">${pacing.html}</div>
                   <div class="delta-note flat">${r.assignedHours>0?`${fmtHours(r.assignedHours)}h assigned / ${fmtHours(r.cap)}h cap`:'not assigned yet'}</div>
                 </td>
                 <td class="textleft">
-                  ${hasPlan ? `<div class="mini-track split">${planVsLogged.html}</div>
+                  ${hasPlan ? `<div class="mini-track wide">${planVsLogged.html}</div>
                     <div class="delta-note flat">${fmtHours(r.clientHours)}h logged / ${fmtHours(r.assignedHours)}h assigned</div>
                     ${planVsLogged.overBy > 0.05 ? `<div class="delta-note neg">+${fmtHours(planVsLogged.overBy)}h over plan</div>` : ''}`
-                    : `<div class="mini-track split"></div><div class="delta-note flat">not assigned yet</div>`}
+                    : `<div class="mini-track wide"></div><div class="delta-note flat">not assigned yet</div>`}
                 </td>
                 <td class="${r.profit<0?'err':'pos'}">${(r.hc.hours>0||r.hc.cost>0)?fmt$0(r.profit):'<span class="muted">—</span>'}</td>
               </tr>`;
