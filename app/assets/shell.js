@@ -102,10 +102,10 @@ const NAV = [
   { id: 'hourplan',  label: 'Hour Planning',   href: './hour-planning.html', soon: true },
   { id: 'clientprofit', label: 'Client Profitability', href: './client-profitability.html' },
   { id: 'projhours', label: 'Project Hours',   href: './project-hours.html' },
-  { id: 'team',      label: 'Team',            href: './team.html' },
+  { id: 'teamhours', label: 'Team Hours',      href: './team-hours.html' },
   { sect: 'Setup' },
   { id: 'clients',   label: 'Clients',         href: './clients.html' },
-  { id: 'teamsetup', label: 'Team Setup',      href: './team-setup.html' },
+  { id: 'team',      label: 'Team',            href: './team.html' },
   { id: 'settings',  label: 'Settings',        href: './settings.html' },
 ];
 
