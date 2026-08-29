@@ -49,6 +49,7 @@ const NAV = [
   { sect: 'Delivery' },
   { id: 'hourplan',  label: 'Hour Planning',   href: './hour-planning.html', soon: true },
   { id: 'hourrep',   label: 'Hours Reporting', href: './hours-reporting.html' },
+  { id: 'projhours', label: 'Project Hours',   href: './project-hours.html' },
   { id: 'team',      label: 'Team',            href: './team.html' },
   { sect: 'Setup' },
   { id: 'clients',   label: 'Clients',         href: './clients.html' },

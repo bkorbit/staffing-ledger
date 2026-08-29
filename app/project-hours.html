@@ -1,13 +1,13 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Hours Reporting</title><link rel="stylesheet" href="./assets/style.css?v=89cf765"></head><body>
+<title>EMG — Project Hours</title><link rel="stylesheet" href="./assets/style.css?v=89cf765"></head><body>
 <script type="module">
 import { boot, esc } from './assets/shell.js?v=89cf765';
 
-// Client-level evaluation — is this account healthy? For per-project detail
-// (scoping, tracking how much work is going into a specific deal), see
-// Project Hours instead; the two answer different questions and are kept as
-// separate pages rather than one view drilling into the other.
+// Per-project scoping and tracking — how much work is actually going into a
+// specific deal. For client-level health, see Hours Reporting instead; the
+// two answer different questions and are kept as separate pages rather than
+// one view drilling into the other.
 //
 // Bottom-up: actual hours x each staff member's own resolved cost rate,
 // joined against the SAME rev_proj forecast.html already reads (via
@@ -26,9 +26,10 @@ const endOfMonth = m => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
 const mLabel = s => new Date(s + 'T00:00:00Z')
   .toLocaleDateString(undefined, { month: 'short', year: '2-digit', timeZone: 'UTC' });
 
-boot('hourrep', async (supa, el) => {
+boot('projhours', async (supa, el) => {
   const thisMonth = monthOf(iso(new Date()));
   let rangeFrom = shiftM(thisMonth, -2), rangeTo = thisMonth;
+  let query = '';
 
   el.innerHTML = `<div class="sc-panel" id="panel">loading…</div>`;
 
@@ -50,8 +51,8 @@ boot('hourrep', async (supa, el) => {
     const plannedByDeal = {}; (H.deal_planned || []).forEach(r => plannedByDeal[r.deal_id] = +r.planned_hours);
 
     // one row per deal that has EITHER actual labor hours or a claimed QBO
-    // project (so a deal with revenue but zero hours still counts toward its
-    // client, flagging that its labor was never logged against it)
+    // project (so a deal with revenue but zero hours still shows, flagging
+    // that its labor was never logged against it)
     const dealRows = Object.keys(laborByDeal)
       .concat(Object.values(dealsById).filter(d => d.qbo_project_id).map(d => d.id))
       .filter((id, i, a) => a.indexOf(id) === i)
@@ -60,26 +61,20 @@ boot('hourrep', async (supa, el) => {
         const labor = laborByDeal[id] || { hours: 0, cost: 0 };
         const revenue = deal.qbo_project_id ? (revByProj[deal.qbo_project_id] || 0) : 0;
         return {
-          clientId: deal.client_id, hours: +labor.hours, cost: +labor.cost,
-          planned: plannedByDeal[id] || 0, revenue, profit: revenue - (+labor.cost)
+          name: deal.name, client: (clientsById[deal.client_id] || {}).name || '',
+          hours: +labor.hours, cost: +labor.cost, planned: plannedByDeal[id] || 0,
+          revenue, profit: revenue - (+labor.cost)
         };
-      }).filter(Boolean);
+      }).filter(Boolean).sort((a, b) => b.hours - a.hours);
 
-    const byClient = {};
-    dealRows.forEach(r => (byClient[r.clientId] = byClient[r.clientId] || []).push(r));
-    const clientRows = Object.entries(byClient).map(([cid, deals]) => ({
-      clientId: cid, name: (clientsById[cid] || {}).name || '(unknown client)',
-      hours: deals.reduce((s, d) => s + d.hours, 0),
-      cost: deals.reduce((s, d) => s + d.cost, 0),
-      planned: deals.reduce((s, d) => s + d.planned, 0),
-      revenue: deals.reduce((s, d) => s + d.revenue, 0),
-      profit: deals.reduce((s, d) => s + d.profit, 0)
-    })).sort((a, b) => b.revenue - a.revenue);
+    const q = query.trim().toLowerCase();
+    const shown = !q ? dealRows : dealRows.filter(d =>
+      d.name.toLowerCase().includes(q) || d.client.toLowerCase().includes(q));
 
-    const totalHours = clientRows.reduce((s, c) => s + c.hours, 0);
-    const totalPlanned = clientRows.reduce((s, c) => s + c.planned, 0);
-    const totalCost = clientRows.reduce((s, c) => s + c.cost, 0);
-    const totalRevenue = clientRows.reduce((s, c) => s + c.revenue, 0);
+    const totalHours = dealRows.reduce((s, d) => s + d.hours, 0);
+    const totalPlanned = dealRows.reduce((s, d) => s + d.planned, 0);
+    const totalCost = dealRows.reduce((s, d) => s + d.cost, 0);
+    const totalRevenue = dealRows.reduce((s, d) => s + d.revenue, 0);
     const totalProfit = totalRevenue - totalCost;
 
     el.querySelector('#panel').innerHTML = `
@@ -101,17 +96,22 @@ boot('hourrep', async (supa, el) => {
           <div class="summary-note">${mLabel(rangeFrom)}–${mLabel(rangeTo)} · revenue is measured-to-date, same number Forecast shows</div></div>
       </div>
       <div class="sc-panel" style="padding:0">
-        <table><tr><th>client</th><th>hours</th><th>planned</th><th>labor cost</th><th>revenue</th><th>profit</th></tr>
-          ${clientRows.map(c => `<tr>
-              <td class="textleft">${esc(c.name)}</td>
-              <td>${fmtHours(c.hours)}</td><td class="muted">${fmtHours(c.planned)}</td>
-              <td>${fmt$0(c.cost)}</td><td>${fmt$0(c.revenue)}</td>
-              <td class="${c.profit<0?'err':'ok'}">${fmt$0(c.profit)}</td></tr>`).join('')}
+        <div class="tbltools" style="padding:10px 14px">
+          <input id="q" placeholder="search project or client…" value="${esc(query)}" style="width:220px">
+        </div>
+        <table><tr><th>project / deal</th><th>client</th><th>hours</th><th>planned</th><th>labor cost</th><th>revenue</th><th>profit</th></tr>
+          ${shown.map(d => `<tr>
+              <td class="textleft">${esc(d.name)}</td>
+              <td class="textleft muted">${esc(d.client)}</td>
+              <td>${fmtHours(d.hours)}</td><td class="muted">${fmtHours(d.planned)}</td>
+              <td>${fmt$0(d.cost)}</td><td>${fmt$0(d.revenue)}</td>
+              <td class="${d.profit<0?'err':'ok'}">${fmt$0(d.profit)}</td></tr>`).join('')}
         </table>
       </div>`;
 
     el.querySelector('#r-from').onchange = e => { rangeFrom = monthOf(e.target.value); load(); };
     el.querySelector('#r-to').onchange = e => { rangeTo = monthOf(e.target.value); load(); };
+    el.querySelector('#q').oninput = e => { query = e.target.value; load(); };
   }
 
   await load();
