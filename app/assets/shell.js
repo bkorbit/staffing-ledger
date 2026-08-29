@@ -181,7 +181,14 @@ export async function boot(pageId, main) {
 
 // Monthly bars: two stacked meanings on one axis — past (invoiced) and forward
 // (planned GP) — drawn as one bar per month in its own colour.
-export function barChart(el, labels, series) {
+// opts lets a call site with many dense columns (Home's weekly-by-project
+// chart) ask for narrower bars and a smaller axis label than the default —
+// every other caller omits opts and renders exactly as before.
+export function barChart(el, labels, series, opts) {
+  // valueFmt lets a non-money bar chart (Home's hours-based charts) label
+  // its own axis correctly — every caller before that one was money, so the
+  // default keeps fmt$ rather than making every existing call site pass it.
+  const { barWidth = 0.7, labelSize = 10, valueFmt = fmt$ } = opts || {};
   // H matches bandChart's own 940x240 exactly — every chart in the app now
   // shares one aspect ratio, so a row of equal-width panels renders at equal
   // heights instead of each chart's own ratio deciding its panel's height.
@@ -194,18 +201,22 @@ export function barChart(el, labels, series) {
   const grid = Array.from({ length: ticks + 1 }, (_, i) => {
     const v = max * i / ticks;
     return `<line x1="${P.l}" y1="${y(v)}" x2="${W - P.r}" y2="${y(v)}" stroke="var(--line)"/>
-      <text x="${P.l - 6}" y="${y(v) + 4}" fill="#67706d" font-size="10" font-family="IBM Plex Mono" text-anchor="end">${fmt$(v)}</text>`;
+      <text x="${P.l - 6}" y="${y(v) + 4}" fill="#67706d" font-size="10" font-family="IBM Plex Mono" text-anchor="end">${valueFmt(v)}</text>`;
   }).join('');
   const bars = labels.map((_, i) => {
     let acc = 0;
     return series.map(sr => {
       const v = sr.values[i] || 0; if (!v) return '';
       const y1 = y(acc + v), h = y(acc) - y(acc + v); acc += v;
-      return `<rect x="${P.l + i * bw + bw * 0.15}" y="${y1}" width="${bw * 0.7}" height="${h}" fill="${sr.color}"/>`;
+      return `<rect x="${P.l + i * bw + bw * (1 - barWidth) / 2}" y="${y1}" width="${bw * barWidth}" height="${h}" fill="${sr.color}"/>`;
     }).join('');
   }).join('');
-  const xl = labels.map((l, i) => i % 2 ? '' :
-    `<text x="${P.l + i * bw + bw / 2}" y="${H - 8}" fill="#67706d" font-size="10" font-family="IBM Plex Mono" text-anchor="middle">${l}</text>`).join('');
+  // skipping every other label only earns its keep once there are enough
+  // columns to actually crowd each other (13 weeks did; 3-5 departments
+  // never did — skipping there just silently dropped half the names)
+  const skip = labels.length > 10;
+  const xl = labels.map((l, i) => skip && i % 2 ? '' :
+    `<text x="${P.l + i * bw + bw / 2}" y="${H - 8}" fill="#67706d" font-size="${labelSize}" font-family="IBM Plex Mono" text-anchor="middle">${l}</text>`).join('');
   // legend lives in the shared grey chart-legend footer below the SVG, not
   // drawn inline — the app-wide standard established on sales.html
   const legend = series.map(sr =>
@@ -346,7 +357,7 @@ export function bandChart(el, labels, bands) {
 // cue needed), and the segment math stays simple percentage-of-circumference
 // arithmetic instead of trig for arc endpoints. Legend below carries the exact
 // percentage per slice since the ring itself only has room for the biggest.
-export function donutChart(el, slices, size = 176) {
+export function donutChart(el, slices, size = 208) {
   const cx = size / 2, cy = size / 2, r = size * 0.365, sw = size * 0.135;
   const circumference = 2 * Math.PI * r;
   const total = slices.reduce((s, x) => s + Math.max(x.value, 0), 0);

@@ -379,10 +379,20 @@ table.acct td { font-variant-numeric: tabular-nums; }
   min-height:20px; padding:14px 18px 10px; }
 .chart-settings-btn { height:26px; padding:0 10px; font-size:10px; flex:none; }
 .chart-body { flex:1; display:flex; flex-direction:column; justify-content:center; min-width:0; }
-/* every chart's grey footer reserves the same height whether its legend
-   wraps to one line (a 4-series bar chart) or two (the combo chart's seven
-   toggles) — otherwise the shorter legend's panel would end up shorter too */
-.chartpanel .chart-legend { min-height:64px; box-sizing:border-box; }
+/* No forced min-height on the grey chart-legend footer — Time allocation,
+   Forecast, and Sales Forecast now each get their own full row (.chart-wide)
+   instead of being paired against a chart with a mismatched natural height,
+   which was the actual reason panels needed matching; padding a plain
+   1-line legend out to reserve room for someone else's 2-line one just
+   left a visibly oversized grey bar under the shorter one. */
+/* Time allocation's donut pair is a fixed pixel height (not width-relative
+   like every bar/band/combo chart's viewBox), so pairing it in a row forced
+   whatever bar chart landed next to it to stretch — its own content stayed
+   at its natural (correct) height while the extra reserved space just sat
+   empty above and below, reading as "doesn't fill its container." Giving it
+   the full row instead means it never sits next to, and never distorts, a
+   width-relative chart's height. */
+.chart-grid > .chart-wide { grid-column: span 2; }
 
 /* Team's row editor reuses the deal-editor's own focus-overlay modal
    (.modal-back/.modal/.modal-head/.settings) rather than a small anchored

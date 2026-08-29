@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Home</title><link rel="stylesheet" href="./assets/style.css?v=f8dc888">
+<title>EMG — Home</title><link rel="stylesheet" href="./assets/style.css?v=800182a">
 <style>
 /* Sales Forecast panel — carried over from sales.html's own local overrides
    (its chart isn't drawn through the shared barChart/bandChart helpers, so
@@ -36,7 +36,7 @@ svg.chart .colgroup{outline:none}
 svg.chart .colgroup:focus-visible{outline:2px solid var(--brand-2);outline-offset:-2px}
 </style></head><body>
 <script type="module">
-import { boot, esc, fetchAll, barChart, bandChart, donutChart } from './assets/shell.js?v=f8dc888';
+import { boot, esc, fetchAll, barChart, bandChart, donutChart } from './assets/shell.js?v=800182a';
 
 // The Hour-tracking Dashboard, back on Home — bottom-up from actual hours
 // (time_entries) x each staff member's own resolved comp rate, joined
@@ -111,11 +111,17 @@ function makePopover(trigger, innerHTML) {
 
 boot('home', async (supa, el) => {
   const thisMonth = monthOf(iso(new Date()));
-  let rangeFrom = shiftM(thisMonth, -2), rangeTo = thisMonth;
+  // spans a bit into the future as well as the past now that this same
+  // range also drives Forecast and Sales Forecast below, not just the
+  // backward-looking hours charts it originally covered alone
+  let rangeFrom = shiftM(thisMonth, -2), rangeTo = shiftM(thisMonth, 3);
 
-  el.innerHTML = `<div class="range"><div class="range-wrap" style="position:relative">
-      <button class="ghost" id="range-trigger" style="min-width:170px"></button>
-    </div></div>
+  el.innerHTML = `<div class="range">
+      <span class="rl">Range</span>
+      <input type="month" id="r-from" aria-label="Range from" value="${rangeFrom.slice(0, 7)}">
+      <span class="muted">→</span>
+      <input type="month" id="r-to" aria-label="Range to" value="${rangeTo.slice(0, 7)}">
+    </div>
     <div id="kpi-panel">loading…</div>
     <div class="chart-grid">
       <div class="sc-panel chartpanel">
@@ -126,7 +132,7 @@ boot('home', async (supa, el) => {
         <div class="chart-head"><div class="sc-eyebrow" style="margin-bottom:0">Revenue &amp; labor cost — trend</div></div>
         <div class="chart-body"><div id="chart-trend"></div></div>
       </div>
-      <div class="sc-panel chartpanel">
+      <div class="sc-panel chartpanel chart-wide">
         <div class="chart-head"><div class="sc-eyebrow" style="margin-bottom:0">Time allocation</div></div>
         <div class="chart-body"><div class="pie-pair">
           <div class="pie-cell"><div class="sc-eyebrow">Of hours logged</div><div id="chart-split"></div></div>
@@ -138,20 +144,14 @@ boot('home', async (supa, el) => {
         <div class="chart-body"><div id="chart-weekly"></div></div>
       </div>
       <div class="sc-panel chartpanel">
-        <div class="chart-head">
-          <div class="sc-eyebrow" style="margin-bottom:0">Cashflow</div>
-          <button class="ghost chart-settings-btn" id="cf-settings-btn">Settings ▾</button>
-        </div>
+        <div class="chart-head"><div class="sc-eyebrow" style="margin-bottom:0">Cashflow</div></div>
         <div class="chart-body"><div id="panel-cashflow">loading…</div></div>
       </div>
-      <div class="sc-panel chartpanel">
-        <div class="chart-head">
-          <div class="sc-eyebrow" style="margin-bottom:0">Forecast</div>
-          <button class="ghost chart-settings-btn" id="fc-settings-btn">Settings ▾</button>
-        </div>
+      <div class="sc-panel chartpanel chart-wide">
+        <div class="chart-head"><div class="sc-eyebrow" style="margin-bottom:0">Forecast</div></div>
         <div class="chart-body"><div id="panel-forecast">loading…</div></div>
       </div>
-      <div class="sc-panel chartpanel">
+      <div class="sc-panel chartpanel chart-wide">
         <div class="chart-head">
           <div class="sc-eyebrow" style="margin-bottom:0">Sales Forecast</div>
           <button class="ghost chart-settings-btn" id="sf-settings-btn">Settings ▾</button>
@@ -160,34 +160,22 @@ boot('home', async (supa, el) => {
       </div>
     </div>`;
 
-  // ---- range popover: click-to-open instead of two permanently-visible
-  // date-input boxes sitting on the page. Governs only the four
-  // hours-tracking charts above; the three copied panels below keep their
-  // own source pages' own range/settings, behind their own "Settings" button.
-  const trigger = document.getElementById('range-trigger');
-  const { pop, close: closePop } = makePopover(trigger, `
-    <div class="editpop-body">
-      <div class="editorbar" style="padding:0 14px;margin-top:14px">
-        <button class="ghost rp-preset" data-n="0">This month</button>
-        <button class="ghost rp-preset" data-n="-2">Last 3 months</button>
-        <button class="ghost rp-preset" data-n="-5">Last 6 months</button>
-        <button class="ghost rp-preset" data-n="-11">Last 12 months</button>
-      </div>
-      <div class="setrow"><span class="setlabel">From</span><input class="rp-from" type="month"></div>
-      <div class="setrow"><span class="setlabel">To</span><input class="rp-to" type="month"></div>
-    </div>
-    <div class="editpop-foot"><button class="primary rp-done">Done</button></div>`);
-  pop.querySelector('.rp-from').onchange = e => { rangeFrom = monthOf(e.target.value); setTriggerLabel(); load(); };
-  pop.querySelector('.rp-to').onchange = e => { rangeTo = monthOf(e.target.value); setTriggerLabel(); load(); };
-  pop.querySelectorAll('.rp-preset').forEach(btn => btn.onclick = () => {
-    rangeFrom = shiftM(thisMonth, +btn.dataset.n); rangeTo = thisMonth;
-    pop.querySelector('.rp-from').value = rangeFrom.slice(0, 7);
-    pop.querySelector('.rp-to').value = rangeTo.slice(0, 7);
-    setTriggerLabel(); load();
-  });
-  pop.querySelector('.rp-done').onclick = closePop;
-  const setTriggerLabel = () => { trigger.textContent = `${mLabel(rangeFrom)} – ${mLabel(rangeTo)} ▾`; };
-  setTriggerLabel();
+  // ---- the one date range for the whole page: the same plain two-month-input
+  // control every other page uses (Cashflow, Forecast, Sales Forecast, Client
+  // Profitability, Project Hours, Team Hours) — Home's own popover version
+  // read as inconsistent sitting next to all of them. Drives every chart
+  // below, including the three copied panels; each panel's own from/to date
+  // controls are gone; only Sales Forecast keeps a Settings menu, for the
+  // pipeline/weighted/forecastable choices that aren't dates.
+  let cfHandle, fcHandle, sfHandle;
+  function onRangeChange() {
+    load();
+    cfHandle?.refresh(rangeFrom, rangeTo);
+    fcHandle?.refresh(rangeFrom, rangeTo);
+    sfHandle?.refresh(rangeFrom, rangeTo);
+  }
+  el.querySelector('#r-from').onchange = e => { rangeFrom = monthOf(e.target.value); onRangeChange(); };
+  el.querySelector('#r-to').onchange = e => { rangeTo = monthOf(e.target.value); onRangeChange(); };
 
   async function load() {
     const kpiPanel = document.getElementById('kpi-panel');
@@ -353,7 +341,7 @@ boot('home', async (supa, el) => {
       { name: 'internal hours', color: 'var(--brand)', values: allDeptRows.map(d => d.internal) },
       { name: 'time off', color: 'var(--slate)', values: allDeptRows.map(d => d.off) },
       { name: 'unused capacity', color: 'var(--line)', values: allDeptRows.map(d => d.unused) }
-    ]);
+    ], { valueFmt: v => Math.round(v) + 'h' });
     else document.getElementById('chart-dept').innerHTML = '<div style="padding:16px 18px" class="muted">No staff with logged hours in this range.</div>';
 
     bandChart(document.getElementById('chart-trend'), months.map(mLabel), [
@@ -373,14 +361,14 @@ boot('home', async (supa, el) => {
       { name: 'Unused', color: 'var(--line)', value: totUnused }
     ]);
 
-    if (weeks.length && weekSeries.length) barChart(document.getElementById('chart-weekly'), weeks.map(wLabel), weekSeries);
+    if (weeks.length && weekSeries.length) barChart(document.getElementById('chart-weekly'), weeks.map(wLabel), weekSeries, { barWidth: 0.55, labelSize: 9, valueFmt: v => Math.round(v) + 'h' });
     else document.getElementById('chart-weekly').innerHTML = '<div style="padding:16px 18px" class="muted">No hours logged against a project in this range.</div>';
   }
 
   load();
-  mountCashflowPanel(supa, document.getElementById('panel-cashflow'));
-  mountForecastPanel(supa, document.getElementById('panel-forecast'));
-  mountSalesPanel(supa, document.getElementById('panel-sales'));
+  mountCashflowPanel(supa, document.getElementById('panel-cashflow'), rangeFrom, rangeTo).then(h => cfHandle = h);
+  mountForecastPanel(supa, document.getElementById('panel-forecast'), rangeFrom, rangeTo).then(h => fcHandle = h);
+  mountSalesPanel(supa, document.getElementById('panel-sales'), rangeFrom, rangeTo).then(h => sfHandle = h);
 });
 
 // ============================================================================
@@ -390,22 +378,21 @@ boot('home', async (supa, el) => {
 // into the KPI ribbon are summed directly instead of building the per-client
 // buckets the tables need.
 // ============================================================================
-async function mountCashflowPanel(supa, el) {
+async function mountCashflowPanel(supa, el, initFrom, initTo) {
   el.innerHTML = `<div id="cf-chart"><div style="padding:16px 18px">loading…</div></div>`;
 
-  const { pop, close } = makePopover(document.getElementById('cf-settings-btn'), `
-    <div class="editpop-body">
-      <div class="setrow"><span class="setlabel">Horizon</span>
-        <select class="cf-weeks">
-          <option value="6">3 months</option><option value="12">6 months</option>
-          <option value="18">9 months</option><option value="24">12 months</option>
-        </select></div>
-    </div>
-    <div class="editpop-foot"><button class="primary cf-done">Done</button></div>`);
-  const sel = pop.querySelector('.cf-weeks');
-  pop.querySelector('.cf-done').onclick = close;
+  // cashflow_forecast(periods) always starts from TODAY forward N half-month
+  // periods — it has no "start date" parameter, so it can't target the shared
+  // range's own start. Its SPAN is what carries over: a 3-month selection
+  // asks for a 3-month-forward projection, a 12-month one for 12 months, etc.
+  const monthSpan = (from, to) => {
+    const [y1, m1] = from.slice(0, 7).split('-').map(Number);
+    const [y2, m2] = to.slice(0, 7).split('-').map(Number);
+    return (y2 - y1) * 12 + (m2 - m1) + 1;
+  };
 
-  async function renderPeriods(periods) {
+  async function renderForRange(from, to) {
+    const periods = Math.max(2, Math.min(48, monthSpan(from, to) * 2));
     const { data: rows, error } = await supa.rpc('cashflow_forecast', { periods });
     if (error) throw error;
     bandChart(el.querySelector('#cf-chart'),
@@ -415,10 +402,8 @@ async function mountCashflowPanel(supa, el) {
        { name: 'conservative (p90)', color: '#d1453b', values: rows.map(r => r.position_conservative) }]);
   }
 
-  const periods = +(localStorage.getItem('cf_periods') || 12);
-  sel.value = String(periods);
-  sel.onchange = () => { localStorage.setItem('cf_periods', sel.value); renderPeriods(+sel.value); };
-  await renderPeriods(periods);
+  await renderForRange(initFrom, initTo);
+  return { refresh: renderForRange };
 }
 
 // ============================================================================
@@ -427,23 +412,19 @@ async function mountCashflowPanel(supa, el) {
 // per-client account table and deal editor stay on Forecast itself — this
 // is the trend, not the place to edit a deal's shaping.
 // ============================================================================
-async function mountForecastPanel(supa, el) {
+async function mountForecastPanel(supa, el, initFrom, initTo) {
   const MO = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const mLabel = d => MO[+d.slice(5, 7) - 1] + ' ' + d.slice(2, 4);
   const fmtM = c => (c < 0 ? '-$' : '$') + Math.abs(c / 100).toLocaleString(undefined, { maximumFractionDigits: 0 });
   const isoD = d => d.toISOString().slice(0, 10);
   const t0 = new Date(); t0.setUTCDate(1);
   const thisMonth = isoD(t0).slice(0, 8) + '01';
-  const shiftM = (m, n) => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
-    return new Date(Date.UTC(y, mm - 1 + n, 1)).toISOString().slice(0, 10); };
   const monthsBetween = (a, b) => { const out = [];
     let d = new Date(a.slice(0, 7) + '-01T00:00:00Z');
     const end = new Date(b.slice(0, 7) + '-01T00:00:00Z');
     while (d <= end && out.length < 48) { out.push(d.toISOString().slice(0, 10));
       d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)); } return out; };
   const past = m => m < thisMonth;
-
-  let rangeFrom = shiftM(thisMonth, -6), rangeTo = shiftM(thisMonth, 6);
 
   // ---- the chart system: combo — copied verbatim from forecast.html.
   // Six cost categories, five confirmed brand tokens (cogs and fixed share
@@ -582,15 +563,7 @@ async function mountForecastPanel(supa, el) {
 
   el.innerHTML = `<div id="fc-chart"></div>`;
 
-  const { pop, close } = makePopover(document.getElementById('fc-settings-btn'), `
-    <div class="editpop-body">
-      <div class="setrow"><span class="setlabel">From</span><input type="month" class="fc-from" value="${rangeFrom.slice(0, 7)}"></div>
-      <div class="setrow"><span class="setlabel">To</span><input type="month" class="fc-to" value="${rangeTo.slice(0, 7)}"></div>
-    </div>
-    <div class="editpop-foot"><button class="primary fc-done">Done</button></div>`);
-  pop.querySelector('.fc-done').onclick = close;
-
-  async function loadAll() {
+  async function renderForRange(rangeFrom, rangeTo) {
     if (rangeTo < rangeFrom) rangeTo = rangeFrom;
     const months = monthsBetween(rangeFrom, rangeTo);
     const [pg, st] = await Promise.all([
@@ -625,9 +598,8 @@ async function mountForecastPanel(supa, el) {
     comboChart(el.querySelector('#fc-chart'), plRows);
   }
 
-  pop.querySelector('.fc-from').onchange = e => { rangeFrom = e.target.value + '-01'; loadAll(); };
-  pop.querySelector('.fc-to').onchange = e => { rangeTo = e.target.value + '-01'; loadAll(); };
-  await loadAll();
+  await renderForRange(initFrom, initTo);
+  return { refresh: renderForRange };
 }
 
 // ============================================================================
@@ -636,21 +608,10 @@ async function mountForecastPanel(supa, el) {
 // pipeline chart (dealGP/tierOf/build/renderChart, copied verbatim). The
 // big per-client/deal ledger table stays on Sales Forecast itself.
 // ============================================================================
-async function mountSalesPanel(supa, el) {
-  const [pd, st, fc, promoted] = await Promise.all([
-    fetchAll(() => supa.from('pipeline_deals').select('*')),
-    supa.from('settings').select('key,value').in('key', ['sales_probability_threshold', 'programmatic_margin_default']),
-    fetchAll(() => supa.from('v_deal_month_forecast').select('month,gp')),
-    fetchAll(() => supa.from('deals').select('hubspot_deal_id,reviewed_at').eq('origin', 'hubspot').in('status', ['won', 'active']))
-  ]);
-  for (const r of [pd, st, fc, promoted]) if (r.error) { el.innerHTML = `<div class="err">${esc(r.error.message)}</div>`; return; }
-  const setting = k => (st.data || []).find(s => s.key === k)?.value;
-  const minProb = +(setting('sales_probability_threshold') ?? 10);
-  const PROG_MARGIN = +(setting('programmatic_margin_default') ?? 35);
-
-  const LEDGER = {};
-  (fc.data || []).forEach(r => LEDGER[r.month.slice(0, 7)] = (LEDGER[r.month.slice(0, 7)] || 0) + r.gp);
-
+async function mountSalesPanel(supa, el, initFrom, initTo) {
+  // ---- pure helpers first: none of these need the fetch below, so the
+  // panel shell, the Settings button, and its popover all get built and
+  // wired BEFORE that fetch even starts (see the note above the fetch) ----
   const money = c => (c < 0 ? '-' : '') + '$' + Math.round(Math.abs(c) / 100).toLocaleString();
   const mk = d => (d || '').slice(0, 7);
   const shift = (k, n) => { const [y, m] = k.split('-').map(Number);
@@ -704,13 +665,20 @@ async function mountSalesPanel(supa, el) {
 
   const CUTOFF = '2026-01-01';
   const touches2026 = d => !d.campaign_end || d.campaign_end >= CUTOFF;
-  const open = (pd.data || []).filter(d => !d.is_won && (d.probability ?? 0) > 0 && touches2026(d));
-  const promotedBy = {}; (promoted.data || []).forEach(x => promotedBy[x.hubspot_deal_id] = x);
-  const wonRecent = (pd.data || []).filter(d => d.is_won && touches2026(d));
-  const pipelines = [...new Set(open.map(d => d.pipeline).filter(Boolean))].sort();
-  let pipeline = pipelines.includes('agency') ? 'agency' : (pipelines[0] || '__all__');
+
+  // ---- state: real values arrive after the fetch further down, but every
+  // one of these starts at a safe empty default so the panel (and every
+  // control in its Settings popover) is fully functional the instant it
+  // mounts — a click during that fetch just renders an empty chart instead
+  // of doing nothing, rather than the button being unwired until data lands
+  let minProb = 10, PROG_MARGIN = 35;
+  let LEDGER = {}, open = [], promotedBy = {}, wonRecent = [], pipelines = [];
+  let pipeline = '__all__';
   let weighted = true, showAll = false;
-  let rangeFrom = TODAY.slice(0, 7), rangeTo = shift(rangeFrom, 5);
+  // dates come from Home's own shared range control now, not a control of
+  // this panel's own — converted from its 'YYYY-MM-01' to this panel's own
+  // 'YYYY-MM' convention (monthsRange/shift/label all expect exactly that)
+  let rangeFrom = initFrom.slice(0, 7), rangeTo = initTo.slice(0, 7);
   let coverageOpen = false;
 
   function build() {
@@ -733,31 +701,35 @@ async function mountSalesPanel(supa, el) {
       });
   }
 
-  el.innerHTML = `<div id="sf-chartwrap"></div>`;
+  // ---- the panel shell and its Settings button/popover, built now, before
+  // the fetch below — the pipeline list isn't known yet, so its <select>
+  // starts with just "all" and gets its real options filled in once the
+  // fetch resolves (see below); every OTHER control here needs no fetched
+  // data at all and is fully live from the moment this returns
+  el.innerHTML = `<div id="sf-chartwrap"><div style="padding:16px 18px" class="muted">loading…</div></div>`;
 
   const { pop, close } = makePopover(document.getElementById('sf-settings-btn'), `
     <div class="editpop-body">
       <div class="setrow"><span class="setlabel">Pipeline</span>
-        <select class="sf-pl">${pipelines.map(p => `<option ${p === pipeline ? 'selected' : ''}>${esc(p)}</option>`).join('')}<option value="__all__">all</option></select></div>
+        <select class="sf-pl"><option value="__all__">all</option></select></div>
       <div class="setrow"><span class="setlabel">Value</span>
         <span role="group" aria-label="Value" style="display:flex;gap:6px">
           <button class="seg on" data-w="1" aria-pressed="true">Weighted</button><button class="seg" data-w="0" aria-pressed="false">Total</button></span></div>
       <div class="setrow"><span class="setlabel">Show</span>
         <span role="group" aria-label="Show" style="display:flex;gap:6px">
           <button class="seg on" data-f="0" aria-pressed="true">Forecastable</button><button class="seg" data-f="1" aria-pressed="false">All deals</button></span></div>
-      <div class="setrow"><span class="setlabel">Range</span>
-        <input type="month" class="sf-from" aria-label="Range from">
-        <span class="rd">to</span>
-        <input type="month" class="sf-to" aria-label="Range to"></div>
-      <div class="setrow"><span class="setlabel">Span</span>
-        <span class="rp" role="group" aria-label="Span">
-          <button class="seg" data-span="3" aria-pressed="false">3mo</button>
-          <button class="seg on" data-span="6" aria-pressed="true">6mo</button>
-          <button class="seg" data-span="12" aria-pressed="false">12mo</button>
-          <button class="seg" data-span="18" aria-pressed="false">18mo</button></span></div>
     </div>
     <div class="editpop-foot"><button class="primary sf-done">Done</button></div>`);
   pop.querySelector('.sf-done').onclick = close;
+  pop.querySelector('.sf-pl').onchange = e => { pipeline = e.target.value; render(); };
+  pop.querySelectorAll('[data-w]').forEach(b => b.onclick = () => {
+    weighted = b.dataset.w === '1';
+    pop.querySelectorAll('[data-w]').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', String(x === b)); }); render();
+  });
+  pop.querySelectorAll('[data-f]').forEach(b => b.onclick = () => {
+    showAll = b.dataset.f === '1';
+    pop.querySelectorAll('[data-f]').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', String(x === b)); }); render();
+  });
 
   function renderChart(cols, shown, health) {
     const wrap = el.querySelector('#sf-chartwrap');
@@ -900,12 +872,6 @@ async function mountSalesPanel(supa, el) {
     const shown = rows.filter(r => showAll || r.forecastable);
     if (rangeTo < rangeFrom) rangeTo = rangeFrom;
     const cols = monthsRange(rangeFrom, rangeTo);
-    pop.querySelector('.sf-from').value = rangeFrom;
-    pop.querySelector('.sf-to').value = rangeTo;
-    pop.querySelectorAll('[data-span]').forEach(b => {
-      const on = +b.dataset.span === cols.length;
-      b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on));
-    });
 
     const nF = rows.filter(r => r.forecastable).length;
     const noLI = rows.filter(r => r.flags.includes('no line items')).length;
@@ -920,20 +886,41 @@ async function mountSalesPanel(supa, el) {
       { covCls, pct, totalRows: rows.length, coverageOpen, nF, noLI, stale, wonRecent, wonPromoted, wonReview, wonWaiting });
   }
 
-  pop.querySelector('.sf-pl').onchange = e => { pipeline = e.target.value; render(); };
-  pop.querySelector('.sf-from').onchange = e => { rangeFrom = e.target.value; render(); };
-  pop.querySelector('.sf-to').onchange = e => { rangeTo = e.target.value; render(); };
-  pop.querySelectorAll('[data-span]').forEach(b => b.onclick = () => {
-    rangeTo = shift(rangeFrom, +b.dataset.span - 1); render();
-  });
-  pop.querySelectorAll('[data-w]').forEach(b => b.onclick = () => {
-    weighted = b.dataset.w === '1';
-    pop.querySelectorAll('[data-w]').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', String(x === b)); }); render();
-  });
-  pop.querySelectorAll('[data-f]').forEach(b => b.onclick = () => {
-    showAll = b.dataset.f === '1';
-    pop.querySelectorAll('[data-f]').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', String(x === b)); }); render();
-  });
+  // ---- the fetch: pipeline_deals is a full, unfiltered mirror of every
+  // HubSpot deal ever synced and can be slow to page through — everything
+  // above this point already works without it, so a click on Settings
+  // during this wait renders an (empty, honest) chart rather than nothing
+  const [pd, st, fc, promoted] = await Promise.all([
+    fetchAll(() => supa.from('pipeline_deals').select('*')),
+    supa.from('settings').select('key,value').in('key', ['sales_probability_threshold', 'programmatic_margin_default']),
+    fetchAll(() => supa.from('v_deal_month_forecast').select('month,gp')),
+    fetchAll(() => supa.from('deals').select('hubspot_deal_id,reviewed_at').eq('origin', 'hubspot').in('status', ['won', 'active']))
+  ]);
+  for (const r of [pd, st, fc, promoted]) if (r.error) {
+    el.querySelector('#sf-chartwrap').innerHTML = `<div class="err">${esc(r.error.message)}</div>`; return;
+  }
+  const setting = k => (st.data || []).find(s => s.key === k)?.value;
+  minProb = +(setting('sales_probability_threshold') ?? 10);
+  PROG_MARGIN = +(setting('programmatic_margin_default') ?? 35);
+  (fc.data || []).forEach(r => LEDGER[r.month.slice(0, 7)] = (LEDGER[r.month.slice(0, 7)] || 0) + r.gp);
+  open = (pd.data || []).filter(d => !d.is_won && (d.probability ?? 0) > 0 && touches2026(d));
+  (promoted.data || []).forEach(x => promotedBy[x.hubspot_deal_id] = x);
+  wonRecent = (pd.data || []).filter(d => d.is_won && touches2026(d));
+  pipelines = [...new Set(open.map(d => d.pipeline).filter(Boolean))].sort();
+  pipeline = pipelines.includes('agency') ? 'agency' : (pipelines[0] || '__all__');
+
+  // now that the real pipeline list is known, replace the placeholder
+  // "all"-only <select> with it (keeping the resolved default selected)
+  pop.querySelector('.sf-pl').innerHTML =
+    pipelines.map(p => `<option ${p === pipeline ? 'selected' : ''}>${esc(p)}</option>`).join('') +
+    '<option value="__all__">all</option>';
+
   render();
+  return {
+    refresh(from, to) {
+      rangeFrom = from.slice(0, 7); rangeTo = to.slice(0, 7);
+      render();
+    }
+  };
 }
 </script></body></html>
