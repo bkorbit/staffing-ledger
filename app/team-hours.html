@@ -216,12 +216,13 @@ boot('teamhours', async (supa, el) => {
               ? stackSegments(r.assignedHours, [[r.clientHours > r.assignedHours ? 'seg-over' : 'seg-good', r.clientHours]])
               : null;
             return `<tr class="${r.profit<0?'risk-row':''}">
-                <td class="textleft">${esc(r.s.name)}<div class="summary-note">${esc(r.s.department||'')}</div></td>
+                <td class="textleft">${esc(r.s.name)}<div class="summary-note">${esc(r.s.department||'')}</div>
+                  ${util.overBy > 0.05 ? `<span class="pill bad" title="+${fmtHours(util.overBy)}h over capacity" style="margin-top:4px;display:inline-block">over capacity</span>` : ''}
+                </td>
                 <td>${fmtHours(r.cap)}h</td>
                 <td class="textleft">
                   <div class="mini-track split wide">${util.html}</div>
                   <div class="delta-note flat barcap">${fmtHours(r.clientHours)}h client · ${fmtHours(r.internalHours)}h int · ${fmtHours(r.ptoHours)}h PTO / ${fmtHours(r.cap)}h cap</div>
-                  ${util.overBy > 0.05 ? `<div class="delta-note neg">+${fmtHours(util.overBy)}h over capacity</div>` : ''}
                 </td>
                 <td class="textleft">
                   <div class="mini-track wide">${pacing.html}</div>
