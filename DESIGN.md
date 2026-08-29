@@ -261,10 +261,10 @@ Buttons, inputs, and cards read as **terminal-tactile**: small, precise, and den
 - **Bad:** Alert Rust Tint background, Alert Rust text and border.
 
 ### Utilization Mini-Bar
-Adapted from the original hour-tracking tool's roster view (Team Hours, Client Profitability, Project Hours) — a compact per-row progress track for "how much of X is used," re-tokened to this system's closed palette rather than carrying over any of that tool's own colors.
+A compact per-row progress track for "how much of X is used" — hours logged against capacity, on Team Hours, Client Profitability, and Project Hours.
 - **Track:** 5px tall, full-round, Hairline background, 130px wide.
-- **Fill:** Muted Ledger Green under/at capacity, Alert Rust over — no third color; a value with nothing to compare against renders no track at all, not an empty or grey one.
-- **Percent readout:** IBM Plex Mono 11px bold, colored by the same three-state rule as the pills (`.util-pct.under/.full/.over` — Slate / Deep Ledger Green / Alert Rust).
+- **Fill:** Muted Ledger Green under/at capacity, Alert Rust over — no third color.
+- **Caption:** a small mono line below the bar spelling out the breakdown in words (e.g. "38h client · 4.5h internal · 2h PTO / 60h avail") rather than adding more bar segments — text scales to as many categories as a person has that period; a bar segment per category didn't.
 - **Delta note:** a small mono caption ("vs N planned") that reads Muted Ledger Green (ahead), Alert Rust (behind), or Slate (nothing to compare — e.g. planned hours not entered yet). Placeholder states are always shown, never omitted — "not assigned yet" is real information, not a gap to hide.
 - **Risk row:** a flagged record (losing money, over scope) tints its whole row Alert Rust Tint rather than just one cell — one step louder than a colored figure, quiet enough to still read as a data row among others.
 

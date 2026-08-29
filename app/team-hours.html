@@ -2,29 +2,26 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EMG — Team Hours</title><link rel="stylesheet" href="./assets/style.css?v=3ddb014"></head><body>
 <script type="module">
-import { boot, esc, barChart } from './assets/shell.js?v=3ddb014';
+import { boot, esc } from './assets/shell.js?v=3ddb014';
 
-// This page's HTML structure and CSS classes are ported near-verbatim from
-// the original hour-tracking tool's Team tab (root index.html, #tab-team) at
-// Boris's explicit request — not a redesign. Colors/fonts resolve through
-// THIS app's own tokens (IBM Plex Mono, current --brand-2) rather than the
-// original's, per his call to keep one closed palette. See
-// app/assets/style.css's "Team page — ported near-verbatim" block.
-//
 // Read-only by design: this page is for GETTING information, not providing
 // it. Salary, capacity, department, and start/end dates are all managed on
-// the Team page (Setup) instead — the inline editors used to live here and
-// cluttered the capacity column specifically.
+// the Team page (Setup) instead.
+//
+// Per-deal detail (which project a person's hours went to) lives on Project
+// Hours, not here — same reasoning as Client Profitability vs. Project
+// Hours: each page answers one question, not one drilling into the other.
+// This one answers "how is each person doing," flat and plain, matching the
+// rest of the app rather than the original hour-tracking tool's own denser
+// roster layout (utilization-vs-plan, logged-vs-assigned, per-project
+// expand) — those columns depended entirely on assignments, which has no
+// data and no entry path, and made the table much harder to read for no
+// real information gained.
 //
 // Data: bottom-up from actual hours (time_entries) x each staff member's own
 // resolved comp rate (comp_periods), joined against forecast_page()'s own
 // rev_proj for revenue attribution — same method as Client Profitability and
 // Project Hours, kept deliberately separate from Forecast's QBO-COGS plan.
-//
-// Everything the original tool computed from PLANNED/assigned hours
-// (assignments table) is shown disabled/empty rather than omitted: that
-// entry mechanism doesn't exist yet and is being redesigned separately. Look
-// for "not assigned yet" — that's real information, not a bug.
 const fmtHours = h => (+h || 0).toLocaleString(undefined, { maximumFractionDigits: 1 });
 const fmt$0 = c => (c < 0 ? '-$' : '$') + Math.abs(Math.round((c || 0) / 100)).toLocaleString();
 
@@ -38,31 +35,24 @@ const endOfMonth = m => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
 boot('teamhours', async (supa, el) => {
   const thisMonth = monthOf(iso(new Date()));
   let rangeFrom = shiftM(thisMonth, -2), rangeTo = thisMonth;
-  let deptFilter = '', query = '', showInactive = false, clientHoursOnly = false;
-  let sortKey = 'name', sortDir = 1;
-  const openStaff = new Set();
+  let deptFilter = '', query = '', showInactive = false;
 
   el.innerHTML = `<div class="sc-panel" id="panel">loading…</div>`;
 
-  let H = {}, P = {}, dealsById = {}, clientsById = {};
-
   async function load() {
-    const [hp, fp, dl, cl] = await Promise.all([
+    const [hp, fp, dl] = await Promise.all([
       supa.rpc('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) }),
       supa.rpc('forecast_page', { p_from: rangeFrom, p_to: rangeTo }),
-      supa.from('deals').select('id,name,client_id,qbo_project_id'),
-      supa.from('clients').select('id,name')
+      supa.from('deals').select('id,qbo_project_id')
     ]);
-    if (hp.error) { el.innerHTML = `<div class="sc-panel err">${esc(hp.error.message)}</div>`; return; }
-    H = hp.data || {}; P = fp.data || {};
-    dealsById = {}; (dl.data || []).forEach(d => dealsById[d.id] = d);
-    clientsById = {}; (cl.data || []).forEach(c => clientsById[c.id] = c);
-    render();
+    for (const r of [hp, fp, dl]) if (r.error) {
+      el.innerHTML = `<div class="sc-panel err">${esc(r.error.message)}</div>`; return;
+    }
+    render(hp.data || {}, fp.data || {}, dl.data || []);
   }
 
-  function ind(key) { return sortKey === key ? (sortDir === 1 ? '▲' : '▼') : ''; }
-
-  function render() {
+  function render(H, P, deals) {
+    const dealsById = {}; deals.forEach(d => dealsById[d.id] = d);
     const compByStaff = {}; (H.comp_current || []).forEach(c => compByStaff[c.staff_id] = c);
     const hoursByStaff = {}; // staff_id -> { hours, cost }
     (H.staff_hours_month || []).forEach(r => {
@@ -74,10 +64,9 @@ boot('teamhours', async (supa, el) => {
       (dealHoursByStaff[r.staff_id] = dealHoursByStaff[r.staff_id] || []).push(r);
     });
 
-    // Bottom-up per-person profit and per-deal attribution — the original
-    // tool's personEconomics, rebuilt on actuals: a deal's revenue splits
-    // across whoever logged hours on it, proportional to their hours, then
-    // nets against their own resolved cost. No assignments needed.
+    // Bottom-up per-person profit: a deal's revenue splits across whoever
+    // logged hours on it, proportional to hours, netted against their own
+    // resolved cost. No assignments needed.
     const revByProj = {}; (P.rev_proj || []).forEach(r => revByProj[r.qbo_project_id] = r.total);
     const revPerHourByDeal = {};
     (H.deal_labor || []).forEach(r => {
@@ -91,10 +80,7 @@ boot('teamhours', async (supa, el) => {
     const weeksInRange = daysInRange / 7;
 
     // time_off.hours (db/032) is a RANGE total, not per-day — a range that
-    // only partially overlaps the selected window is prorated by day-overlap
-    // (assumes hours spread evenly across the range, which is exact for a
-    // plain multi-day PTO block and an approximation only when a half-day is
-    // mixed into an otherwise-full-day range).
+    // only partially overlaps the selected window is prorated by day-overlap.
     const ptoByStaff = {};
     (H.time_off || []).forEach(o => {
       const s0 = new Date(o.starts_on < rangeFrom ? rangeFrom : o.starts_on);
@@ -102,48 +88,35 @@ boot('teamhours', async (supa, el) => {
       const overlapDays = (e0 - s0) / 86400000 + 1;
       if (overlapDays <= 0) return;
       const totalDays = (new Date(o.ends_on) - new Date(o.starts_on)) / 86400000 + 1;
-      const prorated = +o.hours * (overlapDays / totalDays);
-      ptoByStaff[o.staff_id] = (ptoByStaff[o.staff_id] || 0) + prorated;
+      ptoByStaff[o.staff_id] = (ptoByStaff[o.staff_id] || 0) + (+o.hours * (overlapDays / totalDays));
     });
 
     const departments = [...new Set((H.staff || []).map(s => s.department).filter(Boolean))].sort();
     const q = query.trim().toLowerCase();
 
-    // one row of derived numbers per person, computed once so filter/sort/render agree
     let rows = (H.staff || []).map(s => {
       const comp = compByStaff[s.id];
       const hc = hoursByStaff[s.id] || { hours: 0, cost: 0 };
       const cap = comp ? comp.weekly_capacity * weeksInRange : 0;
       const ptoHours = ptoByStaff[s.id] || 0;
       const avail = Math.max(cap - ptoHours, 0);
-      const deals = (dealHoursByStaff[s.id] || []).slice().sort((a, b) => b.hours - a.hours);
-      const clientHours = deals.reduce((s2, d) => s2 + +d.hours, 0);
+      const deals2 = dealHoursByStaff[s.id] || [];
+      const clientHours = deals2.reduce((s2, d) => s2 + +d.hours, 0);
       const internalHours = Math.max(hc.hours - clientHours, 0);
-      const pct = avail > 0 ? (hc.hours / avail) * 100 : null;
       let attributed = 0;
-      deals.forEach(d => { const rph = revPerHourByDeal[d.deal_id]; if (rph) attributed += +d.hours * rph; });
+      deals2.forEach(d => { const rph = revPerHourByDeal[d.deal_id]; if (rph) attributed += +d.hours * rph; });
       const profit = attributed - hc.cost;
-      const coverage = hc.cost > 0 ? attributed / hc.cost : null;
-      return { s, comp, hc, cap, avail, ptoHours, deals, clientHours, internalHours, pct, attributed, profit, coverage };
+      return { s, hc, cap, avail, ptoHours, clientHours, internalHours, profit };
     });
 
     // Auto-hide anyone with no logged hours since the current QB Time import
-    // cutoff (has_recent_hours, db/033) — a stale roster entry from before
-    // the cutoff was last raised, not a real gap in someone's schedule. Purely
-    // computed, never touches the human-owned active flag; "show inactive"
-    // reveals both this and manually-inactive people together.
+    // cutoff (has_recent_hours, db/033) — a stale roster entry, not a real
+    // gap in someone's schedule. Purely computed, never touches the
+    // human-owned active flag; "show inactive" reveals both together.
     rows = rows.filter(r => (showInactive || (r.s.active && r.s.has_recent_hours))
       && (!deptFilter || r.s.department === deptFilter)
       && (!q || r.s.name.toLowerCase().includes(q)));
-
-    const sorters = {
-      name: r => r.s.name.toLowerCase(), department: r => (r.s.department || '').toLowerCase(),
-      weeklyCapacity: r => r.cap, loggedHrs: r => r.hc.hours, loggedUtil: r => r.pct ?? -1, profit: r => r.profit
-    };
-    if (sorters[sortKey]) rows.sort((a, b) => {
-      const av = sorters[sortKey](a), bv = sorters[sortKey](b);
-      return (av < bv ? -1 : av > bv ? 1 : 0) * sortDir;
-    });
+    rows.sort((a, b) => b.hc.hours - a.hc.hours);
 
     const totalHours = rows.reduce((s, r) => s + r.hc.hours, 0);
     const totalCost = rows.reduce((s, r) => s + r.hc.cost, 0);
@@ -151,6 +124,7 @@ boot('teamhours', async (supa, el) => {
     const overCount = rows.filter(r => r.avail > 0 && r.hc.hours / r.avail > 1.001).length;
 
     el.querySelector('#panel').innerHTML = `
+      <h1 style="font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--brand);margin:0 0 14px;letter-spacing:-.01em">Team Hours</h1>
       <div class="range">
         <span class="rl">Range</span>
         <input type="month" id="r-from" aria-label="Range from" value="${rangeFrom.slice(0,7)}">
@@ -168,128 +142,43 @@ boot('teamhours', async (supa, el) => {
         <div class="summary-cell"><div class="summary-label">Over capacity</div>
           <div class="summary-value ${overCount>0?'neg':'pos'}">${overCount}</div></div>
       </div>
-      <div class="sc-panel chartpanel"><div id="chart"></div></div>
-
-      <div class="tab-section" id="tab-team">
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Team</h2>
-          <div class="actions muted" style="font-family:var(--font-mono);font-size:11px">Salary, capacity, department, and dates are managed on <a href="./team.html" style="color:var(--brand-2)">Team</a>.</div>
-        </div>
-        <div class="filter-bar">
-          <input type="text" id="team-search" placeholder="Search name…" value="${esc(query)}">
-          <select id="team-dept-filter">
+      <div class="sc-panel" style="padding:0">
+        <div class="tbltools" style="padding:10px 14px;display:flex;gap:10px;flex-wrap:wrap">
+          <input id="q" placeholder="search name…" value="${esc(query)}" aria-label="Search name" style="width:180px">
+          <select id="dept-filter" aria-label="Filter by department">
             <option value="">All departments</option>
             ${departments.map(d=>`<option value="${esc(d)}" ${d===deptFilter?'selected':''}>${esc(d)}</option>`).join('')}
           </select>
-          <label class="disabled" title="Assignment picker not built yet — planned hours have no entry path"><input type="checkbox" disabled> include ended flights in assign list</label>
-          <label title="Hide internal hours from the logged-vs-capacity bar"><input type="checkbox" id="team-client-only" ${clientHoursOnly?'checked':''}> client hours only</label>
-          <label title="By default, inactive people and anyone with no hours logged since the current import cutoff are hidden"><input type="checkbox" id="team-show-inactive" ${showInactive?'checked':''}> show inactive this period</label>
-          <button class="ghost" id="team-report-btn" disabled title="Not built yet — see Client Profitability / Project Hours for reporting">Hours report</button>
+          <label class="mono" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--slate)">
+            <input type="checkbox" id="show-inactive" ${showInactive?'checked':''}> show inactive
+          </label>
         </div>
-        <table id="team-table">
-          <thead>
-            <tr id="team-head">
-              <th class="col-name sortable" data-sort="name">Name <span class="sort-ind" data-ind="name">${ind('name')}</span><span class="sub-sort" data-sort="department"> · dept<span class="sort-ind" data-ind="department">${ind('department')}</span></span></th>
-              <th class="col-capy sortable" data-sort="weeklyCapacity">Capacity <span class="sort-ind" data-ind="weeklyCapacity">${ind('weeklyCapacity')}</span></th>
-              <th class="col-bar">Utilization (plan)</th>
-              <th class="col-bar">Logged vs assigned</th>
-              <th class="sortable col-bar" data-sort="loggedUtil">Logged vs capacity <span class="sort-ind" data-ind="loggedUtil">${ind('loggedUtil')}</span></th>
-              <th class="col-profit sortable" data-sort="profit">Profit (period) <span class="sort-ind" data-ind="profit">${ind('profit')}</span></th>
-            </tr>
-          </thead>
-          <tbody id="staff-tbody">
-            ${!rows.length ? `<tr><td colspan="6" class="empty-note">No people match the current filters.</td></tr>` : rows.map(r => {
-              const { s, comp, hc, cap, avail, ptoHours, deals, clientHours, internalHours, pct, attributed, profit, coverage } = r;
-              const pctCls = pct === null ? 'under' : pct > 100.1 ? 'over' : pct >= 90 ? 'full' : 'under';
-              const open = openStaff.has(s.id);
-              return `<tr data-sid="${s.id}">
-                  <td class="col-name">
-                    <div class="name-cell"><button class="expand-btn" data-role="team-toggle" data-id="${s.id}">${deals.length?(open?'▾':'▸'):'·'}</button>${esc(s.name)}</div>
-                    <div class="computed-sub">${esc(s.department || '')}</div>
-                  </td>
-                  <td class="cap-readout">
-                    ${fmtHours(cap)}h/period ${comp ? `<span class="cap-tag">${comp.kind}</span>` : '<span class="muted">no comp set</span>'}
-                    <div class="computed-sub cap-int">${fmtHours(internalHours)}h int (actual)</div>
-                  </td>
-                  <td class="col-bar">
-                    <div class="mini-track split"><div class="seg seg-onplan" style="width:0%"></div></div>
-                    <span class="computed-sub">not assigned yet</span>
-                  </td>
-                  <td class="col-bar">
-                    <span class="util-pct under">${fmtHours(hc.hours)}h</span>
-                    <span class="computed-sub"> logged / not assigned yet</span>
-                    <div class="mini-track split"><div class="seg seg-onplan" style="width:0%"></div></div>
-                  </td>
-                  <td class="col-bar">${pct === null ? '<span class="computed-sub">no comp set</span>' : `
-                    <span class="util-pct ${pctCls}">${Math.round(pct)}%</span>
-                    <span class="computed-sub"> · ${fmtHours(clientHours)}h client${!clientHoursOnly&&internalHours>0?` · ${fmtHours(internalHours)}h int`:''}${ptoHours>0?` · ${fmtHours(ptoHours)}h PTO`:''} / ${fmtHours(avail)}h avail</span>
-                    <div class="mini-track split">
-                      ${(() => {
-                        const segPct = h => avail > 0 ? Math.min(h / avail * 100, 100) : 0;
-                        let used = 0; let segs = '';
-                        const add = (cls, hours) => { const w = Math.min(segPct(hours), Math.max(100 - used, 0)); if (w > 0) { used += w; segs += `<div class="seg ${cls}" style="width:${w}%"></div>`; } };
-                        add('seg-client', clientHours);
-                        if (!clientHoursOnly) add('seg-int', internalHours);
-                        add('seg-off', ptoHours);
-                        return segs;
-                      })()}
-                    </div>`}</td>
-                  <td class="col-profit" data-salary-col>${(hc.hours>0||hc.cost>0) ? `
-                    <span class="util-pct ${profit>=0?'full':'over'}">${fmt$0(profit)}</span>
-                    <div class="computed-sub">rev ${fmt$0(attributed)} · cost ${fmt$0(hc.cost)}${coverage!==null?` · ${coverage.toFixed(2)}×`:''}</div>` : '<span class="computed-sub">—</span>'}</td>
-                </tr>
-                ${open ? `<tr class="team-breakout"><td colspan="6">
-                  ${deals.length ? deals.map(d => {
-                    const deal = dealsById[d.deal_id]; const client = deal ? clientsById[deal.client_id] : null;
-                    const rph = revPerHourByDeal[d.deal_id];
-                    const lineProfit = rph ? (+d.hours * rph) - (+d.cost) : null;
-                    return `<div class="tm-row">
-                        <div><div class="tm-name">${esc(deal?deal.name:d.deal_id)}</div>
-                          <div class="tm-meta">${esc(client?client.name:'')}${lineProfit!==null?` · their profit: <span style="color:${lineProfit>=0?'var(--brand-2)':'var(--rust)'}">${fmt$0(lineProfit)}</span>`:''}</div></div>
-                        <div><input type="text" class="numfield" value="—" disabled title="Assigned hours/mo — not built yet"> <span class="tm-meta">hrs/mo</span></div>
-                        <div class="tm-meta">${fmt$0(+d.cost)} cost</div>
-                        <div class="tm-meta">logged ${fmtHours(d.hours)}h</div>
-                        <div class="delta-note flat">not assigned yet</div>
-                      </div>`;
-                  }).join('') : `<div class="tm-empty">No hours logged against a deal this period — internal/non-billable only.</div>`}
-                  <div class="tm-add">
-                    <div class="tm-picker"><input type="text" class="tm-picker-input" placeholder="Search account to assign…" disabled></div>
-                    <input type="text" class="numfield" placeholder="Hours" disabled>
-                    <select disabled><option>hrs / month</option></select>
-                    <button class="assign" disabled title="Assignment picker not built yet — planned-hours entry is being redesigned">Assign to project</button>
+        <table><tr><th>name</th><th>hours</th><th>labor cost</th><th>profit</th></tr>
+          ${!rows.length ? `<tr><td colspan="4" class="empty-note">No people match the current filters.</td></tr>` : rows.map(r => {
+            const over = r.avail > 0 && r.hc.hours > r.avail;
+            const pct = r.avail > 0 ? Math.min(r.hc.hours / r.avail * 100, 100) : 0;
+            const bits = [`${fmtHours(r.clientHours)}h client`];
+            if (r.internalHours > 0) bits.push(`${fmtHours(r.internalHours)}h int`);
+            if (r.ptoHours > 0) bits.push(`${fmtHours(r.ptoHours)}h PTO`);
+            return `<tr class="${r.profit<0?'risk-row':''}">
+                <td class="textleft">${esc(r.s.name)}<div class="summary-note">${esc(r.s.department||'')}</div></td>
+                <td>${fmtHours(r.hc.hours)}
+                  <div class="mini-track" title="hours logged vs. weekly-capacity-minus-time-off for this range">
+                    <div class="seg ${over?'seg-over':'seg-good'}" style="width:${pct}%"></div>
                   </div>
-                </td></tr>` : ''}`;
-            }).join('')}
-          </tbody>
+                  <div class="delta-note flat">${bits.join(' · ')} / ${fmtHours(r.avail)}h avail</div></td>
+                <td>${fmt$0(r.hc.cost)}</td>
+                <td class="${r.profit<0?'err':'ok'}">${(r.hc.hours>0||r.hc.cost>0)?fmt$0(r.profit):'<span class="muted">—</span>'}</td>
+              </tr>`;
+          }).join('')}
         </table>
-      </section>
       </div>`;
-
-    const deptCost = {};
-    rows.forEach(r => { const d = r.s.department || '(none)'; deptCost[d] = (deptCost[d] || 0) + r.hc.cost; });
-    const deptRows = Object.entries(deptCost).sort((a, b) => b[1] - a[1]);
-    if (deptRows.length) {
-      barChart(el.querySelector('#chart'), deptRows.map(r => r[0]), [
-        { name: 'labor cost', color: 'var(--brand)', values: deptRows.map(r => r[1]) }
-      ]);
-    }
 
     el.querySelector('#r-from').onchange = e => { rangeFrom = monthOf(e.target.value); load(); };
     el.querySelector('#r-to').onchange = e => { rangeTo = monthOf(e.target.value); load(); };
-    el.querySelector('#team-dept-filter').onchange = e => { deptFilter = e.target.value; render(); };
-    el.querySelector('#team-search').oninput = e => { query = e.target.value; render(); };
-    el.querySelector('#team-show-inactive').onchange = e => { showInactive = e.target.checked; render(); };
-    el.querySelector('#team-client-only').onchange = e => { clientHoursOnly = e.target.checked; render(); };
-    el.querySelectorAll('th.sortable, .sub-sort').forEach(th => th.onclick = () => {
-      const key = th.dataset.sort; if (!key) return;
-      sortDir = sortKey === key ? -sortDir : 1; sortKey = key; render();
-    });
-    el.querySelectorAll('[data-role="team-toggle"]').forEach(btn => btn.onclick = () => {
-      const sid = btn.dataset.id;
-      openStaff.has(sid) ? openStaff.delete(sid) : openStaff.add(sid);
-      render();
-    });
+    el.querySelector('#dept-filter').onchange = e => { deptFilter = e.target.value; render(H, P, deals); };
+    el.querySelector('#q').oninput = e => { query = e.target.value; render(H, P, deals); };
+    el.querySelector('#show-inactive').onchange = e => { showInactive = e.target.checked; render(H, P, deals); };
   }
 
   await load();
