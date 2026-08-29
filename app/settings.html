@@ -66,6 +66,12 @@ boot('settings', async (supa, el) => {
       return { ...d, reason };
     });
 
+    // Recruiting is a separate HubSpot pipeline (see db/008) that must never be
+    // promotable — filtered out of the picker entirely rather than just
+    // unchecked, so it can't clutter the list or be turned on by accident.
+    const allPipelines = [...new Set((pipelineDeals.data || []).map(d => d.pipeline).filter(Boolean))]
+      .filter(p => !/recruit/i.test(p)).sort();
+
     const pdByHsId = new Map((pipelineDeals.data || []).map(d => [d.hubspot_deal_id, d]));
     const clientName = new Map((clientsList.data || []).map(c => [c.id, c.name]));
     // flight_locked deals are excluded outright, never just warned about — once a
@@ -79,7 +85,14 @@ boot('settings', async (supa, el) => {
     }).filter(Boolean);
 
     document.getElementById('hsreview').innerHTML = `<div class="muted" style="margin-bottom:8px">HubSpot reconciliation</div>
-      <div class="sc-eyebrow" style="margin-top:0">Won in HubSpot, not yet promoted (${notPromoted.length})</div>
+      <div class="sc-eyebrow" style="margin-top:0">Pipelines allowed to promote</div>
+      ${allPipelines.length ? `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-bottom:12px">
+        ${allPipelines.map(p => `<label class="mono" style="display:flex;align-items:center;gap:6px">
+          <input type="checkbox" data-pipeline="${esc(p)}" ${allowedPipelines.has(nameKey(p)) ? 'checked' : ''}>${esc(p)}</label>`).join('')}
+        <button class="primary" id="pipeline-save">Save</button>
+        <span id="pipeline-msg" class="ok" style="font-size:12px"></span>
+      </div>` : `<div class="muted" style="padding:8px 0 4px">No pipelines seen yet — run the HubSpot sync at least once.</div>`}
+      <div class="sc-eyebrow">Won in HubSpot, not yet promoted (${notPromoted.length})</div>
       ${notPromoted.length ? `<table><tr><th>deal</th><th>company</th><th>pipeline</th><th>why it's blocked</th><th></th></tr>
         ${notPromoted.map(d => `<tr><td class="textleft">${esc(d.name)}</td><td class="textleft">${esc(d.company || '')}</td>
           <td class="textleft muted">${esc(d.pipeline || '')}</td>
@@ -93,6 +106,14 @@ boot('settings', async (supa, el) => {
           <td>${d.hsStart} → ${d.hsEnd}</td>
           <td><button class="primary" data-apply="${i}">Apply</button> <a href="${esc(d.hsUrl)}" target="_blank" rel="noopener">HubSpot ↗</a></td></tr>`).join('')}</table>`
         : `<div class="muted" style="padding:8px 0 4px">Nothing to reconcile — flight-locked deals excluded.</div>`}`;
+    if (document.getElementById('pipeline-save')) document.getElementById('pipeline-save').onclick = async () => {
+      const selected = [...document.querySelectorAll('input[data-pipeline]:checked')].map(cb => cb.dataset.pipeline);
+      const { error } = await supa.from('settings').upsert(
+        [{ key: 'hubspot_promote_pipelines', value: selected, set_by: window.__email, set_at: new Date().toISOString() }],
+        { onConflict: 'key' });
+      document.getElementById('pipeline-msg').textContent = error ? error.message : 'saved — takes effect on the next HubSpot sync run';
+      if (!error) load();
+    };
     document.querySelectorAll('button[data-apply]').forEach(btn => btn.onclick = async () => {
       const d = staleDiffs[+btn.dataset.apply];
       btn.disabled = true; btn.textContent = '…';
