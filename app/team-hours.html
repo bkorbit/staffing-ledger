@@ -227,8 +227,11 @@ boot('teamhours', async (supa, el) => {
               : null;
             const open = openStaff.has(r.s.id);
             return `<tr class="${r.profit<0?'risk-row':''} namerow" data-sid="${r.s.id}" role="button" tabindex="0" aria-expanded="${open}" style="cursor:pointer">
-                <td class="textleft">${open?'▾':'▸'} ${esc(r.s.name)}<div class="summary-note">${esc(r.s.department||'')}</div>
-                  ${util.overBy > 0.05 ? `<span class="pill bad" title="+${fmtHours(util.overBy)}h over capacity" style="margin-top:4px;display:inline-block">over capacity</span>` : ''}
+                <td class="textleft">
+                  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                    <div>${open?'▾':'▸'} ${esc(r.s.name)}<div class="summary-note">${esc(r.s.department||'')}</div></div>
+                    ${util.overBy > 0.05 ? `<span class="pill bad" title="+${fmtHours(util.overBy)}h over capacity">over capacity</span>` : ''}
+                  </div>
                 </td>
                 <td>${fmtHours(r.cap)}h</td>
                 <td class="textleft">
