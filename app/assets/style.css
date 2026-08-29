@@ -10,6 +10,8 @@
   --font-mono:'IBM Plex Mono',monospace;
 }
 * { box-sizing:border-box; }
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
+  clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 html { font-size: clamp(13px, 0.55vw + 11.2px, 16px); }   /* fluid type: small screens shrink, large grow */
 body { margin:0; font-family:var(--font-body); background:var(--paper); color:var(--ink); }
 .layout { display:flex; min-height:100vh; }
@@ -82,6 +84,10 @@ td.textleft { text-align:left; font-family:var(--font-body); }
 .placeholder { border:1px dashed var(--line); border-radius:6px; padding:44px; text-align:center;
   color:var(--slate); background:var(--paper-raised); }
 svg.chart { width:100%; height:240px; display:block; }
+/* the bandChart per-period keyboard focus stops (shell.js) are invisible
+   hit-targets until focused — same brand-2 ring the combo chart's own
+   per-column focus uses on forecast.html */
+svg.chart .bandcol:focus-visible { outline:2px solid var(--brand-2); outline-offset:-2px; }
 .chart-tip { position:absolute; pointer-events:none; z-index:5; opacity:0;
   transition:opacity .1s ease; background:var(--paper-raised); border:1px solid var(--line);
   border-radius:4px; padding:5px 9px; font-family:var(--font-mono); font-size:11px;
@@ -253,8 +259,26 @@ table.acct td { font-variant-numeric: tabular-nums; }
   padding:0 10px; font-family:var(--font-mono); font-size:0.82rem; background:var(--paper-raised);
   color:var(--ink); }
 .setrow select, .setrow input.dname { flex:1; min-width:120px; }
-.setrow input.qpsearch { width:150px; flex:none; }
 .setrow .use-achieved { height:auto; padding:3px 9px; margin-left:6px; }
+
+/* the small combobox used wherever a bare <select> would otherwise have to
+   hold hundreds of options with no way to filter them — the deal-editor's
+   QB-project link and the account table's project-to-deal link both use it */
+.qbpicker { position:relative; display:inline-flex; align-items:center; gap:6px; }
+.qbpicker .qpclear { height:32px; padding:0 10px; font-size:0.72rem; }
+.setrow .qbpicker { flex:1; min-width:200px; }
+.setrow .qbpicker .qpsearch { flex:1; min-width:0; }
+.qpmenu { position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:20;
+  background:var(--paper-raised); border:1px solid var(--line); border-radius:6px;
+  max-height:260px; overflow-y:auto; }
+.qpmenu .qp-group { font-family:var(--font-mono); font-size:9px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--slate); padding:6px 10px 4px; background:#f6f6f6; }
+.qpmenu .qp-row { display:flex; align-items:center; justify-content:space-between; gap:8px;
+  padding:6px 10px; font-family:var(--font-mono); font-size:11px; cursor:pointer; }
+.qpmenu .qp-row:hover, .qpmenu .qp-row.active { background:var(--mint); }
+.qpmenu .qp-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.qpmenu .qp-badges { flex:none; display:flex; gap:4px; }
+.qpmenu .qp-hint, .qpmenu .qp-empty { padding:8px 10px; color:var(--slate); font-size:10.5px; font-family:var(--font-mono); }
 .editorbar { display:flex; align-items:center; gap:8px; margin:10px 0; flex-wrap:wrap; }
 .lockednote { font-size:0.66rem; margin-top:4px; }
 .kbadge { font-family:var(--font-mono); font-size:0.66rem; letter-spacing:.06em; text-transform:uppercase;

@@ -305,6 +305,65 @@ boot('forecast', async (supa, el) => {
     }
   }
 
+  // A small combobox — type to filter, click/arrow+Enter to pick — replacing
+  // a bare <select> wherever the option list can run into the hundreds (the
+  // QB-project link and the deal-link picker both hit this: "many X to match"
+  // in one flat, unfiltered dropdown is what "confusing, unusable" describes).
+  // root must already contain .qpsearch (visible text input), .qp (hidden
+  // value input), .qpmenu (floating results div). spec(query) returns
+  // { groups: [{label, items}], hint: string|null }; getLabel/getBadges format
+  // one item; onPick fires after every pick or clear.
+  function mountCombobox(root, { spec, getLabel, getBadges, initialId, initialLabel, onPick }) {
+    const search = root.querySelector('.qpsearch'), hidden = root.querySelector('.qp'),
+          menu = root.querySelector('.qpmenu');
+    let flat = [], active = -1;
+    let confirmedLabel = initialId ? (initialLabel || String(initialId)) : '';
+    hidden.value = initialId || '';
+    search.value = confirmedLabel;
+
+    const paint = () => [...menu.querySelectorAll('.qp-row')]
+      .forEach((el, i) => el.classList.toggle('active', i === active));
+    const scrollActive = () => { const el = menu.querySelectorAll('.qp-row')[active]; if (el) el.scrollIntoView({ block:'nearest' }); };
+
+    function render(q) {
+      const { groups, hint } = spec(q);
+      flat = groups.flatMap(g => g.items);
+      active = flat.length ? 0 : -1;
+      menu.innerHTML = groups.map(g => `<div class="qp-group">${esc(g.label)}</div>` +
+          g.items.map(it => `<div class="qp-row" data-flat="${flat.indexOf(it)}">
+            <span class="qp-name">${esc(getLabel(it))}</span>
+            <span class="qp-badges">${(getBadges(it)||[]).map(b=>`<span class="pill warn">${esc(b)}</span>`).join('')}</span>
+          </div>`).join('')).join('')
+        + (!groups.length ? `<div class="qp-empty">No matches${q?` for "${esc(q)}"`:''}.</div>` : '')
+        + (hint ? `<div class="qp-hint">${esc(hint)}</div>` : '');
+      paint();
+      menu.hidden = false;
+    }
+    const close = () => { menu.hidden = true; active = -1; };
+    function pick(it) {
+      hidden.value = it ? String(it.id) : '';
+      confirmedLabel = it ? getLabel(it) : '';
+      search.value = confirmedLabel;
+      close();
+      onPick(it);
+    }
+    search.addEventListener('focus', () => { search.select(); render(''); });
+    search.addEventListener('input', () => render(search.value));
+    search.addEventListener('keydown', e => {
+      if (menu.hidden) return;
+      if (e.key === 'ArrowDown') { e.preventDefault(); active = Math.min(active+1, flat.length-1); paint(); scrollActive(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); active = Math.max(active-1, 0); paint(); scrollActive(); }
+      else if (e.key === 'Enter') { e.preventDefault(); if (flat[active]) pick(flat[active]); }
+      else if (e.key === 'Escape') { close(); search.value = confirmedLabel; }
+    });
+    menu.addEventListener('mousedown', e => {
+      const row = e.target.closest('.qp-row'); if (!row) return;
+      e.preventDefault(); pick(flat[+row.dataset.flat]);
+    });
+    search.addEventListener('blur', () => { close(); search.value = confirmedLabel; });
+    return { clear: () => pick(null), refresh: () => { if (!menu.hidden) render(search.value); } };
+  }
+
   let months, clientsById, dealsByClient, planByM, planBillByM, revByM, costByCM, openEditor = null;
   let projects = [], projTakenBy = {}, fixedCosts = [], runrate = { payroll:0, overhead:0, misc:0 };
   let acctTotals = [], fullProjects = null;
@@ -696,15 +755,34 @@ boot('forecast', async (supa, el) => {
           .flatMap(([k, arr]) => arr.map(x => ({ ...x, _cn: (clientsById[k]||{}).name||'' })))
           .sort((a,b)=>a._cn.localeCompare(b._cn) || a.name.localeCompare(b.name));
         const cell = tr.querySelector('.linkcell');
-        if (cell.querySelector('select')) return;   // already open
-        const opt = x => `<option value="${x.id}">${esc(x.name)}${x._cn?` — ${esc(x._cn)}`:''}${x.qbo_project_id?' · already linked':''}</option>`;
-        cell.innerHTML = `<select style="height:26px;max-width:300px">
-            <option value="">— choose the deal that owns this project (must already exist — deals always come from HubSpot) —</option>
-            ${ds.length?`<optgroup label="this client's deals">${ds.map(d=>opt({...d,_cn:''})).join('')}</optgroup>`:''}
-            ${others.length?`<optgroup label="other clients' deals">${others.map(opt).join('')}</optgroup>`:''}
-          </select> <button class="dolink primary" style="padding:2px 10px">Link</button>
+        if (cell.querySelector('.qbpicker')) return;   // already open
+        cell.innerHTML = `<div class="qbpicker">
+            <input class="qpsearch" placeholder="search deals to link…" autocomplete="off"
+              style="height:26px;width:220px" title="Deals always come from HubSpot — pick an existing one.">
+            <input type="hidden" class="qp">
+            <div class="qpmenu" hidden></div>
+          </div>
+          <button class="dolink primary" style="padding:2px 10px">Link</button>
           <button class="dohide danger" style="padding:2px 10px" title="remove this project from every list — its money still rolls up to the client">Hide project</button>`;
         cell.onclick = ev => ev.stopPropagation();
+        mountCombobox(cell.querySelector('.qbpicker'), {
+          getLabel: x => x._cn ? `${x.name} — ${x._cn}` : x.name,
+          getBadges: x => x.qbo_project_id ? ['already linked'] : [],
+          onPick: () => {},
+          spec: q => {
+            const needle = q.trim().toLowerCase();
+            const match = x => !needle || x.name.toLowerCase().includes(needle) ||
+              (x._cn && x._cn.toLowerCase().includes(needle));
+            const mine = ds.filter(match), rest = others.filter(match);
+            const CAP = 40, shown = rest.slice(0, CAP);
+            const groups = [];
+            if (mine.length) groups.push({ label: "this client's deals", items: mine });
+            if ((needle || !mine.length) && shown.length) groups.push({ label: "other clients' deals", items: shown });
+            const hint = !needle ? 'Type to search all deals'
+              : (rest.length > CAP ? `+${rest.length-CAP} more — narrow the search` : null);
+            return { groups, hint };
+          }
+        });
         cell.querySelector('.dohide').onclick = async () => {
           const pj = projects.find(p=>p.id===pid)||{};
           if (!confirm(`Hide "${pj.name||pid}" from every list and picker?\n\nIts invoices and costs still count toward the client. Survives syncs; unhide any time from SQL.`)) return;
@@ -715,7 +793,7 @@ boot('forecast', async (supa, el) => {
           loadAll();
         };
         cell.querySelector('.dolink').onclick = async () => {
-          const val = cell.querySelector('select').value;
+          const val = cell.querySelector('.qp').value;
           if (!val) return;
           // deals only ever come from HubSpot — no manual creation path here.
           // If no deal fits, the deal itself is missing or not-yet-promotable
@@ -971,8 +1049,12 @@ boot('forecast', async (supa, el) => {
             <span class="muted">→</span>
             <input type="date" class="month fend" value="${flight.end.slice(0,10)}"></div>
           <div class="setrow wide"><span class="setlabel">QB Project</span>
-            <input class="qpsearch" placeholder="search projects…">
-            <select class="qp"></select></div>
+            <div class="qbpicker">
+              <input class="qpsearch" placeholder="search projects…" autocomplete="off">
+              <input type="hidden" class="qp">
+              <button type="button" class="ghost qpclear" hidden>Clear</button>
+              <div class="qpmenu" hidden></div>
+            </div></div>
         </div>
         <div class="editorbar"><span class="totals"></span></div>
         <div class="gridwrap">
@@ -1110,33 +1192,46 @@ boot('forecast', async (supa, el) => {
         if (!error) loadAll();
       };
 
-      // the project picker: page-relevant projects immediately, full list lazily
-      const qpSel = box.querySelector('.qp'), qpSearch = box.querySelector('.qpsearch');
+      // the project picker: page-relevant projects immediately, full list lazily.
+      // Includes hidden projects (unlike the old .eq('hidden', false) fetch) —
+      // a hidden project must never be silently invisible here; it's badged
+      // instead, since a deal already linked to a hidden project needs its
+      // real name shown, not a blank field pretending nothing is linked.
+      const qpRoot = box.querySelector('.qbpicker');
       if (!fullProjects) {
-        fetchAll(() => supa.from('qbo_projects').select('id,name,parent_id,jobcode')
-          .eq('hidden', false).order('name'))
-          .then(r => { if (!r.error) { fullProjects = r.data;
-            if (document.contains(qpSel)) drawPicker(qpSearch.value); } });
+        fetchAll(() => supa.from('qbo_projects').select('id,name,parent_id,jobcode,hidden').order('name'))
+          .then(r => { if (!r.error) { fullProjects = r.data; qpCombo.refresh(); } });
       }
-      const drawPicker = (q = '') => {
-        const pool = fullProjects || projects;
-        const needle = q.trim().toLowerCase();
-        const client = clientsById[d.client_id] || {};
-        const match = p => !needle || p.name.toLowerCase().includes(needle);
-        const label = p => esc(p.name) +
-          (projTakenBy[p.id] && p.id !== d.qbo_project_id ? ` — linked to: ${esc(projTakenBy[p.id])}` : '');
-        const mine = pool.filter(p => client.qbo_customer_id &&
-          (p.parent_id === client.qbo_customer_id || p.id === client.qbo_customer_id) && match(p));
-        const rest = pool.filter(p => !mine.includes(p) && match(p));
-        const opt = p => `<option value="${p.id}" ${p.id===d.qbo_project_id?'selected':''}>${label(p)}</option>`;
-        qpSel.innerHTML = `<option value="">— none —</option>` +
-          (mine.length?`<optgroup label="this client's projects">${mine.map(opt).join('')}</optgroup>`:'') +
-          `<optgroup label="${needle?'matching':'all'} projects">${rest.slice(0,400).map(opt).join('')}</optgroup>` +
-          (rest.length>400?`<option disabled>… ${rest.length-400} more — narrow the search</option>`:'') +
-          (fullProjects?'':'<option disabled>… full list loading</option>');
-      };
-      drawPicker();
-      qpSearch.oninput = () => drawPicker(qpSearch.value);
+      const linkedProject = d.qbo_project_id && (fullProjects||projects).find(p=>p.id===d.qbo_project_id);
+      const qpCombo = mountCombobox(qpRoot, {
+        initialId: d.qbo_project_id,
+        initialLabel: d.qbo_project_id ? (linkedProject ? linkedProject.name : `(project ${d.qbo_project_id})`) : '',
+        getLabel: p => p.name,
+        getBadges: p => [p.hidden ? 'hidden' : null,
+          (projTakenBy[p.id] && p.id !== d.qbo_project_id) ? `linked: ${projTakenBy[p.id]}` : null].filter(Boolean),
+        onPick: () => { box.querySelector('.qpclear').hidden = !box.querySelector('.qp').value; },
+        spec: q => {
+          const pool = fullProjects || projects;
+          const needle = q.trim().toLowerCase();
+          const client = clientsById[d.client_id] || {};
+          const match = p => !needle || p.name.toLowerCase().includes(needle);
+          const mine = pool.filter(p => client.qbo_customer_id &&
+            (p.parent_id === client.qbo_customer_id || p.id === client.qbo_customer_id) && match(p));
+          const mineIds = new Set(mine.map(p=>p.id));
+          const rest = pool.filter(p => !mineIds.has(p.id) && match(p));
+          const CAP = 40, shown = rest.slice(0, CAP);
+          const groups = [];
+          if (mine.length) groups.push({ label: "this client's projects", items: mine });
+          if ((needle || !mine.length) && shown.length)
+            groups.push({ label: mine.length ? 'other projects' : 'matching projects', items: shown });
+          const hint = !needle
+            ? (fullProjects ? 'Type to search all projects' : 'Type to search — full list loading…')
+            : (rest.length > CAP ? `+${rest.length-CAP} more — narrow the search` : null);
+          return { groups, hint };
+        }
+      });
+      box.querySelector('.qpclear').hidden = !d.qbo_project_id;
+      box.querySelector('.qpclear').onclick = () => qpCombo.clear();
       preview();
 
       function preview() {
