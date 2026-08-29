@@ -36,6 +36,7 @@ eq(m.promotionBlocker({company:'Other Co',campaign_start:'2026-08-01',campaign_e
 console.log('jobcode');
 eq(m.jobcodeFromName('26akrn260101 Visit Akron World Cup'),'26akrn260101','extracts');
 eq(m.jobcodeFromName('Visit Akron AOR'),null,'absent -> null');
+eq(m.jobcodeFromName('24o2kl1107240 O2KL - Analytics Retainer'),'24o2kl1107240','short code with an embedded digit (o2kl) still extracts');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 

@@ -265,9 +265,13 @@ export function classifyAccount(type, subType, name) {
 
 // The jobcode embedded in a QuickBooks project name, e.g. '26hawt260810'. It is the
 // shared key with HubSpot deals, and the most reliable non-manual way to match a
-// QuickBooks project to a deal.
+// QuickBooks project to a deal. The short-code segment normally reads as pure
+// letters, but some real client codes (e.g. 'o2kl') carry a digit — so it's matched
+// lazily as a leading letter plus a short alnum run, which finds the shortest split
+// that still leaves a valid digit suffix, agreeing with the letters-only form when
+// there's no digit to disambiguate.
 export function jobcodeFromName(name) {
-  const m = String(name || '').match(/\b\d{2}[a-z]{3,6}\d{5,8}\b/i);
+  const m = String(name || '').match(/\b\d{2}[a-z][a-z0-9]{2,5}?\d{5,8}\b/i);
   return m ? m[0] : null;
 }
 

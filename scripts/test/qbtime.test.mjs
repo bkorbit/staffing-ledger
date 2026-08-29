@@ -15,6 +15,8 @@ eq(m.jobcodeFromName(''),null,'empty -> null');
 eq(m.jobcodeFromName(null),null,'null -> null');
 eq(m.jobcodeFromName('26h1234'),null,'letters run too short (min 3) -> null');
 eq(m.jobcodeFromName('2024ab12345'),null,'a contiguous run with no internal word boundary never matches, even though a substring looks right -> null');
+eq(m.jobcodeFromName('24o2kl1107240'),'24o2kl1107240','short code with an embedded digit (o2kl) still matches, shortest split wins');
+eq(m.jobcodeFromName('O2KL - Analytics Retainer (24o2kl1107240)'),'24o2kl1107240','digit-in-code, embedded in a longer name');
 
 console.log('jobcodeChain');
 const jobcodes = {

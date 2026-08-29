@@ -233,8 +233,11 @@ export function nameKey(name) {
 }
 
 // Same jobcode convention as QuickBooks project names — the automatic join key.
+// Matched lazily (leading letter + short alnum run) so a short code that itself
+// carries a digit, like 'o2kl', still finds the shortest valid split. See
+// sync-qbo.mjs's jobcodeFromName for the full rationale.
 export function jobcodeFromName(name) {
-  const m = String(name || '').match(/\b\d{2}[a-z]{3,6}\d{5,8}\b/i);
+  const m = String(name || '').match(/\b\d{2}[a-z][a-z0-9]{2,5}?\d{5,8}\b/i);
   return m ? m[0] : null;
 }
 

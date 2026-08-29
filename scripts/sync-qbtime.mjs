@@ -83,9 +83,11 @@ function isoDate(d) { return d.toISOString().slice(0, 10); }
 // Same regex as sync-qbo.mjs/sync-hubspot.mjs — the shared jobcode convention.
 // Kept as a local copy rather than a shared import: the two QuickBooks syncs
 // already each carry their own copy, and a shared module is a bigger refactor
-// than this rewrite calls for.
+// than this rewrite calls for. Matched lazily (leading letter + short alnum run)
+// so a short code that itself carries a digit, like 'o2kl', still finds the
+// shortest valid split — see sync-qbo.mjs's jobcodeFromName for the rationale.
 export function jobcodeFromName(name) {
-  const m = String(name || '').match(/\b\d{2}[a-z]{3,6}\d{5,8}\b/i);
+  const m = String(name || '').match(/\b\d{2}[a-z][a-z0-9]{2,5}?\d{5,8}\b/i);
   return m ? m[0] : null;
 }
 

@@ -47,5 +47,10 @@ eq(m.lineProject({AccountBasedExpenseLineDetail:{CustomerRef:{value:'77'}}}),'77
 eq(m.lineProject({ItemBasedExpenseLineDetail:{CustomerRef:{value:'88'}}}),'88','item-based');
 eq(m.lineProject({AccountBasedExpenseLineDetail:{}}),null,'none -> null');
 
+console.log('jobcodeFromName');
+eq(m.jobcodeFromName('26hawt260810'),'26hawt260810','bare code');
+eq(m.jobcodeFromName('Internal'),null,'no code -> null');
+eq(m.jobcodeFromName('24o2kl1107240'),'24o2kl1107240','short code with an embedded digit (o2kl) still matches');
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail?1:0);
