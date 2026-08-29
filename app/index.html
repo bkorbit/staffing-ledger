@@ -4,14 +4,9 @@
 <style>
 /* Sales Forecast panel — carried over from sales.html's own local overrides
    (its chart isn't drawn through the shared barChart/bandChart helpers, so
-   its bespoke classes have to come along too). Margins/paddings trimmed
-   slightly from the source page's since this sits inside a sub-panel, not
-   a full page. */
-.bar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:14px;padding:0 18px}
-.toggroup{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
-.tog{display:flex;align-items:center;gap:6px}
-.tog>span{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--slate)}
-.bardiv{width:1px;align-self:stretch;background:var(--line)}
+   its bespoke classes have to come along too). The top control bar's own
+   classes (.bar/.toggroup/.tog) aren't needed here — those controls moved
+   into the Settings popover's shared .setrow layout instead. */
 .cfg{font-family:var(--font-mono);font-size:10px;color:var(--slate)}
 .seg{font-family:var(--font-mono);font-size:10px;padding:0 11px;height:34px;display:inline-flex;
   align-items:center;border:1px solid var(--line);
@@ -21,6 +16,7 @@
 .chart-legend a.iconbtn:hover{color:var(--brand)}
 .chart-legend a.iconbtn:focus-visible{outline:2px solid var(--brand-2);outline-offset:3px;border-radius:4px}
 .chart-legend a.iconbtn svg{width:12px;height:12px}
+.rd{font-family:var(--font-mono);font-size:10px;color:var(--slate)}
 .rp{display:inline-flex;margin-left:10px;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--paper-raised)}
 .rp .seg{border:none;border-radius:0;border-left:1px solid var(--line)}
 .rp .seg:first-child{border-left:none}
@@ -40,7 +36,7 @@ svg.chart .colgroup{outline:none}
 svg.chart .colgroup:focus-visible{outline:2px solid var(--brand-2);outline-offset:-2px}
 </style></head><body>
 <script type="module">
-import { boot, esc, fmt$, fetchAll, barChart, bandChart, donutChart } from './assets/shell.js?v=a8269e0';
+import { boot, esc, fetchAll, barChart, bandChart, donutChart } from './assets/shell.js?v=a8269e0';
 
 // The Hour-tracking Dashboard, back on Home — bottom-up from actual hours
 // (time_entries) x each staff member's own resolved comp rate, joined
@@ -77,6 +73,42 @@ const weekStart = s => { const d = new Date(s + 'T00:00:00Z'); const day = d.get
 const wLabel = s => new Date(s + 'T00:00:00Z')
   .toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
+// One shared click-to-open popover mechanism (a single .editpop instance per
+// trigger, appended to document.body so a panel re-render never touches it),
+// used by Home's own range control and every copied panel's "Settings"
+// button below — the same pattern Team's row-edit popover established,
+// applied consistently instead of each control inventing its own menu.
+function makePopover(trigger, innerHTML) {
+  const pop = document.createElement('div');
+  pop.className = 'editpop';
+  pop.hidden = true;
+  pop.innerHTML = innerHTML;
+  document.body.appendChild(pop);
+  const onOutsideClick = e => { if (!pop.contains(e.target) && e.target !== trigger) close(); };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  function close() {
+    pop.hidden = true;
+    document.removeEventListener('mousedown', onOutsideClick, true);
+    document.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('scroll', close, true);
+  }
+  function open() {
+    pop.hidden = false;
+    const r = trigger.getBoundingClientRect();
+    const top = Math.max(8, Math.min(r.bottom + 6, window.innerHeight - pop.offsetHeight - 8));
+    // right-aligned to the trigger when the trigger sits on the right of its
+    // row (every "Settings" button here) rather than left-aligned like a
+    // dropdown, so the menu never overhangs the viewport's right edge
+    const left = Math.max(8, Math.min(r.right - pop.offsetWidth, window.innerWidth - pop.offsetWidth - 8));
+    pop.style.top = top + 'px'; pop.style.left = left + 'px';
+    document.addEventListener('mousedown', onOutsideClick, true);
+    document.addEventListener('keydown', onKey, true);
+    window.addEventListener('scroll', close, true);
+  }
+  trigger.onclick = () => pop.hidden ? open() : close();
+  return { pop, open, close };
+}
+
 boot('home', async (supa, el) => {
   const thisMonth = monthOf(iso(new Date()));
   let rangeFrom = shiftM(thisMonth, -2), rangeTo = thisMonth;
@@ -87,47 +119,53 @@ boot('home', async (supa, el) => {
     <div id="kpi-panel">loading…</div>
     <div class="chart-grid">
       <div class="sc-panel chartpanel">
-        <div style="padding:14px 18px 0"><div class="sc-eyebrow" style="margin-bottom:0">Department hours — actual</div></div>
-        <div id="chart-dept"></div>
+        <div class="chart-head"><div class="sc-eyebrow" style="margin-bottom:0">Department hours — actual</div></div>
+        <div class="chart-body"><div id="chart-dept"></div></div>
       </div>
       <div class="sc-panel chartpanel">
-        <div style="padding:14px 18px 0"><div class="sc-eyebrow" style="margin-bottom:0">Revenue &amp; labor cost — trend</div></div>
-        <div id="chart-trend"></div>
+        <div class="chart-head"><div class="sc-eyebrow" style="margin-bottom:0">Revenue &amp; labor cost — trend</div></div>
+        <div class="chart-body"><div id="chart-trend"></div></div>
       </div>
       <div class="sc-panel chartpanel">
-        <div style="padding:14px 18px 0"><div class="sc-eyebrow" style="margin-bottom:0">Time allocation</div></div>
-        <div class="pie-pair">
+        <div class="chart-head"><div class="sc-eyebrow" style="margin-bottom:0">Time allocation</div></div>
+        <div class="chart-body"><div class="pie-pair">
           <div class="pie-cell"><div class="sc-eyebrow">Of hours logged</div><div id="chart-split"></div></div>
           <div class="pie-cell"><div class="sc-eyebrow">Of total capacity</div><div id="chart-split-cap"></div></div>
+        </div></div>
+      </div>
+      <div class="sc-panel chartpanel">
+        <div class="chart-head"><div class="sc-eyebrow" style="margin-bottom:0">Hours logged by week — by project</div></div>
+        <div class="chart-body"><div id="chart-weekly"></div></div>
+      </div>
+      <div class="sc-panel chartpanel">
+        <div class="chart-head">
+          <div class="sc-eyebrow" style="margin-bottom:0">Cashflow</div>
+          <button class="ghost chart-settings-btn" id="cf-settings-btn">Settings ▾</button>
         </div>
+        <div class="chart-body"><div id="panel-cashflow">loading…</div></div>
       </div>
       <div class="sc-panel chartpanel">
-        <div style="padding:14px 18px 0"><div class="sc-eyebrow" style="margin-bottom:0">Hours logged by week — by project</div></div>
-        <div id="chart-weekly"></div>
+        <div class="chart-head">
+          <div class="sc-eyebrow" style="margin-bottom:0">Forecast</div>
+          <button class="ghost chart-settings-btn" id="fc-settings-btn">Settings ▾</button>
+        </div>
+        <div class="chart-body"><div id="panel-forecast">loading…</div></div>
       </div>
       <div class="sc-panel chartpanel">
-        <div style="padding:14px 18px 0"><div class="sc-eyebrow" style="margin-bottom:0">Cashflow</div></div>
-        <div id="panel-cashflow">loading…</div>
-      </div>
-      <div class="sc-panel chartpanel">
-        <div style="padding:14px 18px 0"><div class="sc-eyebrow" style="margin-bottom:0">Forecast</div></div>
-        <div id="panel-forecast">loading…</div>
-      </div>
-      <div class="sc-panel chartpanel">
-        <div style="padding:14px 18px 0"><div class="sc-eyebrow" style="margin-bottom:0">Sales Forecast</div></div>
-        <div id="panel-sales">loading…</div>
+        <div class="chart-head">
+          <div class="sc-eyebrow" style="margin-bottom:0">Sales Forecast</div>
+          <button class="ghost chart-settings-btn" id="sf-settings-btn">Settings ▾</button>
+        </div>
+        <div class="chart-body"><div id="panel-sales"></div></div>
       </div>
     </div>`;
 
   // ---- range popover: click-to-open instead of two permanently-visible
-  // date-input boxes sitting on the page — same pattern as Team's row-edit
-  // popover (.editpop), not a new one invented for this page. Governs only
-  // the four hours-tracking charts above; the three copied panels below
-  // keep their own source pages' own range controls.
-  const pop = document.createElement('div');
-  pop.className = 'editpop';
-  pop.hidden = true;
-  pop.innerHTML = `
+  // date-input boxes sitting on the page. Governs only the four
+  // hours-tracking charts above; the three copied panels below keep their
+  // own source pages' own range/settings, behind their own "Settings" button.
+  const trigger = document.getElementById('range-trigger');
+  const { pop, close: closePop } = makePopover(trigger, `
     <div class="editpop-body">
       <div class="editorbar" style="padding:0 14px;margin-top:14px">
         <button class="ghost rp-preset" data-n="0">This month</button>
@@ -138,32 +176,7 @@ boot('home', async (supa, el) => {
       <div class="setrow"><span class="setlabel">From</span><input class="rp-from" type="month"></div>
       <div class="setrow"><span class="setlabel">To</span><input class="rp-to" type="month"></div>
     </div>
-    <div class="editpop-foot"><button class="primary rp-done">Done</button></div>`;
-  document.body.appendChild(pop);
-
-  const trigger = document.getElementById('range-trigger');
-  const onOutsideClick = e => { if (!pop.contains(e.target) && e.target !== trigger) closePop(); };
-  const onKey = e => { if (e.key === 'Escape') closePop(); };
-  function closePop() {
-    pop.hidden = true;
-    document.removeEventListener('mousedown', onOutsideClick, true);
-    document.removeEventListener('keydown', onKey, true);
-    window.removeEventListener('scroll', closePop, true);
-  }
-  function openPop() {
-    pop.querySelector('.rp-from').value = rangeFrom.slice(0, 7);
-    pop.querySelector('.rp-to').value = rangeTo.slice(0, 7);
-    pop.hidden = false;
-    const r = trigger.getBoundingClientRect();
-    const top = Math.max(8, Math.min(r.bottom + 6, window.innerHeight - pop.offsetHeight - 8));
-    const left = Math.max(8, Math.min(r.left, window.innerWidth - pop.offsetWidth - 8));
-    pop.style.top = top + 'px'; pop.style.left = left + 'px';
-    document.addEventListener('mousedown', onOutsideClick, true);
-    document.addEventListener('keydown', onKey, true);
-    window.addEventListener('scroll', closePop, true);
-  }
-  const setTriggerLabel = () => { trigger.textContent = `${mLabel(rangeFrom)} – ${mLabel(rangeTo)} ▾`; };
-  trigger.onclick = () => pop.hidden ? openPop() : closePop();
+    <div class="editpop-foot"><button class="primary rp-done">Done</button></div>`);
   pop.querySelector('.rp-from').onchange = e => { rangeFrom = monthOf(e.target.value); setTriggerLabel(); load(); };
   pop.querySelector('.rp-to').onchange = e => { rangeTo = monthOf(e.target.value); setTriggerLabel(); load(); };
   pop.querySelectorAll('.rp-preset').forEach(btn => btn.onclick = () => {
@@ -173,6 +186,7 @@ boot('home', async (supa, el) => {
     setTriggerLabel(); load();
   });
   pop.querySelector('.rp-done').onclick = closePop;
+  const setTriggerLabel = () => { trigger.textContent = `${mLabel(rangeFrom)} – ${mLabel(rangeTo)} ▾`; };
   setTriggerLabel();
 
   async function load() {
@@ -377,65 +391,23 @@ boot('home', async (supa, el) => {
 // buckets the tables need.
 // ============================================================================
 async function mountCashflowPanel(supa, el) {
-  el.innerHTML = `<div class="toolbar" style="margin-bottom:10px">
-      <label class="mono" for="cf-weeks">Horizon</label>
-      <select id="cf-weeks">
-        <option value="6">3 months</option><option value="12">6 months</option>
-        <option value="18">9 months</option><option value="24">12 months</option>
-      </select>
+  el.innerHTML = `<div id="cf-chart"><div style="padding:16px 18px">loading…</div></div>`;
+
+  const { pop, close } = makePopover(document.getElementById('cf-settings-btn'), `
+    <div class="editpop-body">
+      <div class="setrow"><span class="setlabel">Horizon</span>
+        <select class="cf-weeks">
+          <option value="6">3 months</option><option value="12">6 months</option>
+          <option value="18">9 months</option><option value="24">12 months</option>
+        </select></div>
     </div>
-    <div class="summary-strip" id="cf-kpis" aria-live="polite"></div>
-    <div id="cf-chart"><div style="padding:16px 18px">loading…</div></div>`;
-
-  const sel = el.querySelector('#cf-weeks');
-
-  const [ar, ap, bk] = await Promise.all([
-    fetchAll(() => supa.from('invoices').select('due_on,issued_on,balance').gt('balance', 0)),
-    fetchAll(() => supa.from('bills').select('due_on,issued_on,balance').gt('balance', 0)),
-    supa.from('qbo_accounts').select('balance,is_operating,as_of').eq('account_type', 'Bank')
-  ]);
-  for (const r of [ar, ap, bk]) if (r.error) { el.innerHTML = `<div class="err" style="padding:16px 18px">${esc(r.error.message)}</div>`; return; }
-
-  const banksOperatingSet = (bk.data || []).some(b => b.is_operating);
-  const cashToday = (bk.data || []).filter(b => !banksOperatingSet || b.is_operating).reduce((s, b) => s + b.balance, 0);
-  const cashAsOf = (bk.data || [])[0]?.as_of || '—';
-
-  // same "Current vs. overdue" split agingTable() uses on Cashflow itself —
-  // just the two totals the KPI ribbon needs, without building per-client buckets
-  const today = new Date().toISOString().slice(0, 10);
-  const daysPast = due => Math.floor((new Date(today) - new Date(due)) / 86400000);
-  const sumAging = items => {
-    const grand = items.reduce((s, r) => s + r.balance, 0);
-    const overdue = items.reduce((s, r) => s + (daysPast(r.due_on || r.issued_on) > 0 ? r.balance : 0), 0);
-    return { grand, overduePct: grand ? Math.round(100 * overdue / grand) : 0 };
-  };
-  const arSummary = sumAging(ar.data || []);
-  const apSummary = sumAging(ap.data || []);
+    <div class="editpop-foot"><button class="primary cf-done">Done</button></div>`);
+  const sel = pop.querySelector('.cf-weeks');
+  pop.querySelector('.cf-done').onclick = close;
 
   async function renderPeriods(periods) {
     const { data: rows, error } = await supa.rpc('cashflow_forecast', { periods });
     if (error) throw error;
-    const months = periods / 2;
-    const endExpected = rows[rows.length - 1].position_expected;
-    const trough = Math.min(...rows.map(r => r.position_conservative));
-    const runrate = Math.round((endExpected - cashToday) / months);
-    el.querySelector('#cf-kpis').innerHTML = `
-      <div class="summary-cell"><div class="summary-label">In the bank</div>
-        <div class="summary-value">${fmt$(cashToday)}</div>
-        <div class="summary-note">as of ${cashAsOf}</div></div>
-      <div class="summary-cell"><div class="summary-label">Monthly cash runrate</div>
-        <div class="summary-value ${runrate < 0 ? 'neg' : 'pos'}">${runrate < 0 ? '-' : '+'}${fmt$(Math.abs(runrate))}</div>
-        <div class="summary-note">avg net flow over the ${months}-month horizon</div></div>
-      <div class="summary-cell"><div class="summary-label">Projected position, ${months} months</div>
-        <div class="summary-value ${endExpected < 0 ? 'neg' : 'pos'}">${fmt$(endExpected)}</div>
-        <div class="summary-note">${fmt$(trough)} conservative trough</div></div>
-      <div class="summary-cell"><div class="summary-label">Open AR</div>
-        <div class="summary-value">${fmt$(arSummary.grand)}</div>
-        <div class="summary-note">${arSummary.overduePct}% overdue</div></div>
-      <div class="summary-cell"><div class="summary-label">Open AP</div>
-        <div class="summary-value">${fmt$(apSummary.grand)}</div>
-        <div class="summary-note">${apSummary.overduePct}% overdue</div></div>`;
-
     bandChart(el.querySelector('#cf-chart'),
       rows.map(r => r.period_label.replace(/ \d\d$/, '')),
       [{ name: 'optimistic (p25)', color: '#67706d', values: rows.map(r => r.position_optimistic) },
@@ -490,7 +462,9 @@ async function mountForecastPanel(supa, el) {
     const hidden = new Set(JSON.parse(localStorage.getItem('fc_hidden') || '[]'));
     const on = k => !hidden.has(k);
     const INK = 'var(--ink)', GRID = 'var(--line)';
-    const W = 960, H = 280, P = { l: 64, r: 12, t: 16, b: 26 };
+    // H matches the shared barChart/bandChart aspect ratio (240/940) at this
+    // chart's own W, so every panel in the grid renders the same height
+    const W = 960, H = 245, P = { l: 64, r: 12, t: 16, b: 26 };
     const fmtC = c => { const d = c / 100, a = Math.abs(d);
       return (d < 0 ? '-$' : '$') + (a >= 1e6 ? (a / 1e6).toFixed(1) + 'M' : a >= 1e3 ? Math.round(a / 1e3) + 'k' : Math.round(a)); };
     const opexOf = r => (on('labour') ? r.labour : 0) + (on('other') ? r.other : 0)
@@ -606,15 +580,15 @@ async function mountForecastPanel(supa, el) {
     });
   }
 
-  el.innerHTML = `
-    <div class="range" style="margin-bottom:10px">
-      <span class="rl">Range</span>
-      <input type="month" id="fc-from" aria-label="Range from" value="${rangeFrom.slice(0, 7)}">
-      <span class="muted">→</span>
-      <input type="month" id="fc-to" aria-label="Range to" value="${rangeTo.slice(0, 7)}">
+  el.innerHTML = `<div id="fc-chart"></div>`;
+
+  const { pop, close } = makePopover(document.getElementById('fc-settings-btn'), `
+    <div class="editpop-body">
+      <div class="setrow"><span class="setlabel">From</span><input type="month" class="fc-from" value="${rangeFrom.slice(0, 7)}"></div>
+      <div class="setrow"><span class="setlabel">To</span><input type="month" class="fc-to" value="${rangeTo.slice(0, 7)}"></div>
     </div>
-    <div class="summary-strip" id="fc-kpis"></div>
-    <div id="fc-chart"></div>`;
+    <div class="editpop-foot"><button class="primary fc-done">Done</button></div>`);
+  pop.querySelector('.fc-done').onclick = close;
 
   async function loadAll() {
     if (rangeTo < rangeFrom) rangeTo = rangeFrom;
@@ -649,28 +623,10 @@ async function mountForecastPanel(supa, el) {
     };
     const plRows = months.map(rowFor);
     comboChart(el.querySelector('#fc-chart'), plRows);
-
-    const netTotal = plRows.reduce((s, r) => s + r.net, 0);
-    const revTotal = plRows.reduce((s, r) => s + r.revenue, 0);
-    const gpTotal = plRows.reduce((s, r) => s + (r.measured ? r.actualGP : r.forecastGP), 0);
-    const measuredCount = plRows.filter(r => r.measured).length;
-    el.querySelector('#fc-kpis').innerHTML = `
-      <div class="summary-cell"><div class="summary-label">Net profit</div>
-        <div class="summary-value ${netTotal < 0 ? 'neg' : 'pos'}">${fmtM(netTotal)}</div>
-        <div class="summary-note">${plRows.length} months, ${mLabel(rangeFrom)}–${mLabel(rangeTo)}</div></div>
-      <div class="summary-cell"><div class="summary-label">Revenue</div>
-        <div class="summary-value">${fmtM(revTotal)}</div>
-        <div class="summary-note">billed + planned, this range</div></div>
-      <div class="summary-cell"><div class="summary-label">Gross profit</div>
-        <div class="summary-value ${gpTotal < 0 ? 'neg' : 'pos'}">${fmtM(gpTotal)}</div>
-        <div class="summary-note">actual + forecast, this range</div></div>
-      <div class="summary-cell"><div class="summary-label">Measured</div>
-        <div class="summary-value">${measuredCount} / ${plRows.length}</div>
-        <div class="summary-note">months fully closed</div></div>`;
   }
 
-  el.querySelector('#fc-from').onchange = e => { rangeFrom = e.target.value + '-01'; loadAll(); };
-  el.querySelector('#fc-to').onchange = e => { rangeTo = e.target.value + '-01'; loadAll(); };
+  pop.querySelector('.fc-from').onchange = e => { rangeFrom = e.target.value + '-01'; loadAll(); };
+  pop.querySelector('.fc-to').onchange = e => { rangeTo = e.target.value + '-01'; loadAll(); };
   await loadAll();
 }
 
@@ -777,32 +733,31 @@ async function mountSalesPanel(supa, el) {
       });
   }
 
-  el.innerHTML = `
-    <div class="bar">
-      <div class="toggroup">
-        <div class="tog"><label for="sf-pl">Pipeline</label>
-          <select id="sf-pl">${pipelines.map(p => `<option ${p === pipeline ? 'selected' : ''}>${esc(p)}</option>`).join('')}<option value="__all__">all</option></select></div>
-        <div class="tog"><span id="sf-lbl-value">Value</span>
-          <span role="group" aria-labelledby="sf-lbl-value" style="display:flex;gap:6px">
-            <button class="seg on" data-w="1" aria-pressed="true">Weighted</button><button class="seg" data-w="0" aria-pressed="false">Total</button></span></div>
-        <div class="tog"><span id="sf-lbl-show">Show</span>
-          <span role="group" aria-labelledby="sf-lbl-show" style="display:flex;gap:6px">
-            <button class="seg on" data-f="0" aria-pressed="true">Forecastable</button><button class="seg" data-f="1" aria-pressed="false">All deals</button></span></div>
-        <span class="bardiv"></span>
-        <div class="tog">
-          <span class="rl" id="sf-lbl-range">Range</span>
-          <input type="month" id="sf-r-from" aria-label="Range from">
-          <span class="rd">to</span>
-          <input type="month" id="sf-r-to" aria-label="Range to">
-          <span class="rp" role="group" aria-labelledby="sf-lbl-range">
-            <button class="seg" data-span="3" aria-pressed="false">3mo</button>
-            <button class="seg on" data-span="6" aria-pressed="true">6mo</button>
-            <button class="seg" data-span="12" aria-pressed="false">12mo</button>
-            <button class="seg" data-span="18" aria-pressed="false">18mo</button></span></div>
-      </div>
+  el.innerHTML = `<div id="sf-chartwrap"></div>`;
+
+  const { pop, close } = makePopover(document.getElementById('sf-settings-btn'), `
+    <div class="editpop-body">
+      <div class="setrow"><span class="setlabel">Pipeline</span>
+        <select class="sf-pl">${pipelines.map(p => `<option ${p === pipeline ? 'selected' : ''}>${esc(p)}</option>`).join('')}<option value="__all__">all</option></select></div>
+      <div class="setrow"><span class="setlabel">Value</span>
+        <span role="group" aria-label="Value" style="display:flex;gap:6px">
+          <button class="seg on" data-w="1" aria-pressed="true">Weighted</button><button class="seg" data-w="0" aria-pressed="false">Total</button></span></div>
+      <div class="setrow"><span class="setlabel">Show</span>
+        <span role="group" aria-label="Show" style="display:flex;gap:6px">
+          <button class="seg on" data-f="0" aria-pressed="true">Forecastable</button><button class="seg" data-f="1" aria-pressed="false">All deals</button></span></div>
+      <div class="setrow"><span class="setlabel">Range</span>
+        <input type="month" class="sf-from" aria-label="Range from">
+        <span class="rd">to</span>
+        <input type="month" class="sf-to" aria-label="Range to"></div>
+      <div class="setrow"><span class="setlabel">Span</span>
+        <span class="rp" role="group" aria-label="Span">
+          <button class="seg" data-span="3" aria-pressed="false">3mo</button>
+          <button class="seg on" data-span="6" aria-pressed="true">6mo</button>
+          <button class="seg" data-span="12" aria-pressed="false">12mo</button>
+          <button class="seg" data-span="18" aria-pressed="false">18mo</button></span></div>
     </div>
-    <div class="summary-strip" id="sf-kpis"></div>
-    <div id="sf-chartwrap"></div>`;
+    <div class="editpop-foot"><button class="primary sf-done">Done</button></div>`);
+  pop.querySelector('.sf-done').onclick = close;
 
   function renderChart(cols, shown, health) {
     const wrap = el.querySelector('#sf-chartwrap');
@@ -816,7 +771,10 @@ async function mountSalesPanel(supa, el) {
       return { c, ledger: LEDGER[c] || 0, byTier, pipe: byTier.reduce((a, b) => a + b, 0) };
     });
     const totals = data.reduce((a, d) => ({ l: a.l + d.ledger, p: a.p + d.pipe }), { l: 0, p: 0 });
-    const W = Math.max(960, Math.round(60 * n) + 90), H = 210, PL = 70, PR = 18, PT = 20, PB = 40, IW = W - PL - PR, IH = H - PT - PB;
+    // H matches the shared chart aspect ratio at the default (non-dense) W;
+    // dense/very-dense ranges grow W for horizontal scroll instead, same as
+    // before — only the base height needed to line up with the other panels
+    const W = Math.max(960, Math.round(60 * n) + 90), H = 245, PL = 70, PR = 18, PT = 20, PB = 40, IW = W - PL - PR, IH = H - PT - PB;
     const dense = n > 10, verydense = n > 16;
     const max = Math.max(1, ...data.map(d => d.ledger + d.pipe));
     const stepC = max > 120000000 ? 40000000 : max > 60000000 ? 20000000 : max > 20000000 ? 10000000 : max > 6000000 ? 2000000 : 1000000;
@@ -942,9 +900,9 @@ async function mountSalesPanel(supa, el) {
     const shown = rows.filter(r => showAll || r.forecastable);
     if (rangeTo < rangeFrom) rangeTo = rangeFrom;
     const cols = monthsRange(rangeFrom, rangeTo);
-    el.querySelector('#sf-r-from').value = rangeFrom;
-    el.querySelector('#sf-r-to').value = rangeTo;
-    el.querySelectorAll('[data-span]').forEach(b => {
+    pop.querySelector('.sf-from').value = rangeFrom;
+    pop.querySelector('.sf-to').value = rangeTo;
+    pop.querySelectorAll('[data-span]').forEach(b => {
       const on = +b.dataset.span === cols.length;
       b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on));
     });
@@ -958,37 +916,23 @@ async function mountSalesPanel(supa, el) {
     const wonWaiting = wonRecent.length - wonPromoted.length;
     const covCls = rows.length ? (pct >= 70 ? 'good' : pct >= 40 ? 'warn' : 'bad') : 'good';
 
-    const chartTotals = renderChart(cols, shown,
+    renderChart(cols, shown,
       { covCls, pct, totalRows: rows.length, coverageOpen, nF, noLI, stale, wonRecent, wonPromoted, wonReview, wonWaiting });
-
-    el.querySelector('#sf-kpis').innerHTML = `
-      <div class="summary-cell"><div class="summary-label">Committed GP</div>
-        <div class="summary-value pos">${money(chartTotals.l)}</div>
-        <div class="summary-note">shaped deals, this range</div></div>
-      <div class="summary-cell"><div class="summary-label">${weighted ? 'Weighted' : 'Total'} pipeline</div>
-        <div class="summary-value">${money(Math.round(chartTotals.p))}</div>
-        <div class="summary-note">${label(cols[0])}–${label(cols[cols.length - 1])}</div></div>
-      <div class="summary-cell"><div class="summary-label">Forecastable</div>
-        <div class="summary-value">${pct}%</div>
-        <div class="summary-note">${nF} of ${rows.length} deals</div></div>
-      <div class="summary-cell"><div class="summary-label">Closed won</div>
-        <div class="summary-value">${wonPromoted.length}</div>
-        <div class="summary-note">${wonReview.length ? wonReview.length + ' awaiting review' : wonWaiting ? wonWaiting + ' pending next sync' : 'all reviewed'}</div></div>`;
   }
 
-  el.querySelector('#sf-pl').onchange = e => { pipeline = e.target.value; render(); };
-  el.querySelector('#sf-r-from').onchange = e => { rangeFrom = e.target.value; render(); };
-  el.querySelector('#sf-r-to').onchange = e => { rangeTo = e.target.value; render(); };
-  el.querySelectorAll('[data-span]').forEach(b => b.onclick = () => {
+  pop.querySelector('.sf-pl').onchange = e => { pipeline = e.target.value; render(); };
+  pop.querySelector('.sf-from').onchange = e => { rangeFrom = e.target.value; render(); };
+  pop.querySelector('.sf-to').onchange = e => { rangeTo = e.target.value; render(); };
+  pop.querySelectorAll('[data-span]').forEach(b => b.onclick = () => {
     rangeTo = shift(rangeFrom, +b.dataset.span - 1); render();
   });
-  el.querySelectorAll('[data-w]').forEach(b => b.onclick = () => {
+  pop.querySelectorAll('[data-w]').forEach(b => b.onclick = () => {
     weighted = b.dataset.w === '1';
-    el.querySelectorAll('[data-w]').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', String(x === b)); }); render();
+    pop.querySelectorAll('[data-w]').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', String(x === b)); }); render();
   });
-  el.querySelectorAll('[data-f]').forEach(b => b.onclick = () => {
+  pop.querySelectorAll('[data-f]').forEach(b => b.onclick = () => {
     showAll = b.dataset.f === '1';
-    el.querySelectorAll('[data-f]').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', String(x === b)); }); render();
+    pop.querySelectorAll('[data-f]').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', String(x === b)); }); render();
   });
   render();
 }

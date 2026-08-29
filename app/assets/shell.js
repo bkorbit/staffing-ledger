@@ -182,7 +182,10 @@ export async function boot(pageId, main) {
 // Monthly bars: two stacked meanings on one axis — past (invoiced) and forward
 // (planned GP) — drawn as one bar per month in its own colour.
 export function barChart(el, labels, series) {
-  const W = 940, H = 220, P = { l: 68, r: 10, t: 14, b: 26 };
+  // H matches bandChart's own 940x240 exactly — every chart in the app now
+  // shares one aspect ratio, so a row of equal-width panels renders at equal
+  // heights instead of each chart's own ratio deciding its panel's height.
+  const W = 940, H = 240, P = { l: 68, r: 10, t: 14, b: 26 };
   const totals = labels.map((_, i) => series.reduce((s, sr) => s + (sr.values[i] || 0), 0));
   const max = Math.max(...totals, 1);
   const bw = (W - P.l - P.r) / labels.length;
