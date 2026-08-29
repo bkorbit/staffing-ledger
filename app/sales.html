@@ -8,28 +8,27 @@
 .toggroup{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
 .tog{display:flex;align-items:center;gap:6px}
 .tog>span{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--slate)}
+.bardiv{width:1px;align-self:stretch;background:var(--line)}
 .cfg{font-family:var(--font-mono);font-size:10px;color:var(--slate)}
 .seg{font-family:var(--font-mono);font-size:10px;padding:6px 11px;border:1px solid var(--line);
   background:var(--paper-raised);border-radius:5px;cursor:pointer;color:var(--slate)}
 .seg.on{background:var(--brand);color:#fff;border-color:var(--brand)}
 .chartpanel{padding:0;overflow:visible}
-.range{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:15px 22px;border-bottom:1px solid var(--line)}
-.chartpanel.collapsed .range{border-bottom:none}
 .rl{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.09em;color:var(--slate)}
 .rd{font-family:var(--font-mono);font-size:10px;color:var(--slate)}
 .rp{display:inline-flex;margin-left:10px;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--paper-raised)}
 .rp .seg{border:none;border-radius:0;border-left:1px solid var(--line)}
 .rp .seg:first-child{border-left:none}
-.chead{padding:18px 22px 0}
+.chead{padding:12px 22px 0}
 .chead h3{margin:0 0 5px;font-size:14px;color:var(--brand)}
 .csum{font-family:var(--font-mono);font-size:10px;color:var(--slate);margin:0 0 4px}
-.csvg{padding:6px 12px 0}
+.csvg{padding:4px 12px 0}
 .csvg.scroll{overflow-x:auto;padding-bottom:6px}
 svg.sfchart{width:100%;height:auto;display:block}
 svg.sfchart .ax{font-family:var(--font-mono);font-size:10px;fill:var(--slate)}
 svg.sfchart .bt{font-family:var(--font-mono);font-size:10.5px;font-weight:500;fill:var(--brand)}
 svg.sfchart .pl{font-family:var(--font-mono);font-size:9px;fill:var(--slate)}
-.legend{display:flex;flex-wrap:wrap;gap:8px 20px;margin:14px 0 0;padding:14px 22px 18px;
+.legend{display:flex;flex-wrap:wrap;gap:8px 20px;margin:8px 0 0;padding:10px 22px 12px;
   border-top:1px solid var(--line);background:#f2f2f2;border-radius:0 0 6px 6px}
 .legend span{display:flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:10px;color:var(--ink)}
 .legend i{width:11px;height:11px;border-radius:2px;display:inline-block;flex:none}
@@ -211,6 +210,7 @@ boot('sales', async (supa, el) => {
 
   /* --------------------------------------------------------------- render */
   el.innerHTML = `
+    <div class="summary-strip" id="kpis"></div>
     <div class="bar">
       <div class="toggroup">
         <div class="tog"><label for="pl">Pipeline</label>
@@ -221,25 +221,25 @@ boot('sales', async (supa, el) => {
         <div class="tog"><span id="lbl-show">Show</span>
           <span role="group" aria-labelledby="lbl-show" style="display:flex;gap:6px">
             <button class="seg on" data-f="0" aria-pressed="true">Forecastable</button><button class="seg" data-f="1" aria-pressed="false">All deals</button></span></div>
+        <span class="bardiv"></span>
+        <div class="tog">
+          <span class="rl" id="lbl-range">Range</span>
+          <input type="month" id="r-from" aria-label="Range from">
+          <span class="rd">to</span>
+          <input type="month" id="r-to" aria-label="Range to">
+          <span class="rp" role="group" aria-labelledby="lbl-range">
+            <button class="seg" data-span="3" aria-pressed="false">3mo</button>
+            <button class="seg on" data-span="6" aria-pressed="true">6mo</button>
+            <button class="seg" data-span="12" aria-pressed="false">12mo</button>
+            <button class="seg" data-span="18" aria-pressed="false">18mo</button></span></div>
       </div>
       <div style="flex:1"></div>
+      <button class="seg" id="chart-toggle" aria-expanded="true" aria-controls="chartwrap"></button>
       <div class="cfg">min probability ${minProb}% · programmatic margin ${PROG_MARGIN}% ·
         <a href="./settings.html">settings</a></div>
     </div>
     <div id="coverage"></div>
     <div class="sc-panel chartpanel" style="padding:0">
-      <div class="range">
-        <span class="rl" id="lbl-range">Range</span>
-        <input type="month" id="r-from" aria-label="Range from">
-        <span class="rd">to</span>
-        <input type="month" id="r-to" aria-label="Range to">
-        <span class="rp" role="group" aria-labelledby="lbl-range">
-          <button class="seg" data-span="3" aria-pressed="false">3mo</button>
-          <button class="seg on" data-span="6" aria-pressed="true">6mo</button>
-          <button class="seg" data-span="12" aria-pressed="false">12mo</button>
-          <button class="seg" data-span="18" aria-pressed="false">18mo</button></span>
-        <button class="seg" id="chart-toggle" style="margin-left:auto" aria-expanded="true" aria-controls="chartwrap"></button>
-      </div>
       <div id="chartwrap"></div>
     </div>
     <div class="sc-panel" style="padding:4px;overflow-x:auto"><div id="tbl"></div></div>`;
@@ -249,11 +249,10 @@ boot('sales', async (supa, el) => {
     const btn = el.querySelector('#chart-toggle');
     btn.textContent = chartOn ? 'Hide chart' : 'Show chart';
     btn.setAttribute('aria-expanded', String(chartOn));
-    el.querySelector('.chartpanel').classList.toggle('collapsed', !chartOn);
-    if(!chartOn){ wrap.innerHTML=''; return; }
+    el.querySelector('.chartpanel').style.display = chartOn ? '' : 'none';
     const n=cols.length;
-    const W=Math.max(960,Math.round(60*n)+90), H=300,PL=70,PR=18,PT=26,PB=54,IW=W-PL-PR,IH=H-PT-PB;
-    const dense=n>10, verydense=n>16;
+    // ledger/pipeline totals are computed unconditionally — the KPI ribbon
+    // needs them even when the chart itself is collapsed
     const data=cols.map(c=>{
       const byTier=[0,0,0,0,0];
       shown.forEach(r=>{
@@ -262,6 +261,13 @@ boot('sales', async (supa, el) => {
       });
       return { c, ledger:LEDGER[c]||0, byTier, pipe:byTier.reduce((a,b)=>a+b,0) };
     });
+    const totals=data.reduce((a,d)=>({l:a.l+d.ledger,p:a.p+d.pipe}),{l:0,p:0});
+    if(!chartOn){ wrap.innerHTML=''; return totals; }
+    // shrunk from the original 300/26/54: the KPI ribbon now carries the
+    // headline committed/pipeline numbers, so the chart's job is the trend
+    // shape, not the primary read — it doesn't need the vertical room it had
+    const W=Math.max(960,Math.round(60*n)+90), H=210,PL=70,PR=18,PT=20,PB=40,IW=W-PL-PR,IH=H-PT-PB;
+    const dense=n>10, verydense=n>16;
     const max=Math.max(1,...data.map(d=>d.ledger+d.pipe));
     const stepC=max>120000000?40000000:max>60000000?20000000:max>20000000?10000000:max>6000000?2000000:1000000;
     const top=Math.ceil(max/stepC)*stepC;
@@ -289,7 +295,6 @@ boot('sales', async (supa, el) => {
     });
     const tiersPresent=[...new Set(shown.filter(r=>r.gp&&r.months.length).map(r=>r.tier))].sort();
     const tierLabel=t=>[...new Set(shown.filter(r=>r.tier===t).map(r=>r.stage))].join(' / ');
-    const totals=data.reduce((a,d)=>({l:a.l+d.ledger,p:a.p+d.pipe}),{l:0,p:0});
     const chartSummary=`Committed GP plus pipeline by month, ${weighted?'weighted by stage':'total value'}, `+
       `${n} months from ${label(cols[0])} to ${label(cols[n-1])}: committed ${money(totals.l)}, `+
       `pipeline ${money(Math.round(totals.p))}, total ${money(Math.round(totals.l+totals.p))}.`;
@@ -302,6 +307,7 @@ boot('sales', async (supa, el) => {
        <div class="csvg${dense?' scroll':''}"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" class="sfchart" role="img" aria-label="${esc(chartSummary)}"${svgStyle}><title>${esc(chartSummary)}</title>${g}</svg></div>
        <div class="legend"><span><i style="background:${LEDGER_COLOR}"></i>Committed GP (shaped deals)</span>` +
        tiersPresent.map(t=>`<span><i style="background:${TIER_COLORS[t]}"></i>${esc(tierLabel(t))}</span>`).join('') + `</div>`;
+    return totals;
   }
 
   function render(){
@@ -341,7 +347,22 @@ boot('sales', async (supa, el) => {
     const covBtn = el.querySelector('#covtoggle');
     if (covBtn) covBtn.onclick = () => { coverageOpen = !coverageOpen; render(); };
 
-    renderChart(cols, shown);
+    const chartTotals = renderChart(cols, shown);
+    // headline numbers, sourced from the exact same totals the chart draws
+    // from — so the ribbon and the chart's own summary line can never disagree
+    el.querySelector('#kpis').innerHTML = `
+      <div class="summary-cell"><div class="summary-label">Committed GP</div>
+        <div class="summary-value pos">${money(chartTotals.l)}</div>
+        <div class="summary-note">shaped deals, this range</div></div>
+      <div class="summary-cell"><div class="summary-label">${weighted?'Weighted':'Total'} pipeline</div>
+        <div class="summary-value">${money(Math.round(chartTotals.p))}</div>
+        <div class="summary-note">${label(cols[0])}–${label(cols[cols.length-1])}</div></div>
+      <div class="summary-cell"><div class="summary-label">Forecastable</div>
+        <div class="summary-value">${pct}%</div>
+        <div class="summary-note">${nF} of ${rows.length} deals</div></div>
+      <div class="summary-cell"><div class="summary-label">Closed won</div>
+        <div class="summary-value">${wonPromoted.length}</div>
+        <div class="summary-note">${wonReview.length ? wonReview.length+' awaiting review' : wonWaiting ? wonWaiting+' pending next sync' : 'all reviewed'}</div></div>`;
 
     const by={}; shown.forEach(r=>(by[r.client]=by[r.client]||[]).push(r));
     const clients=Object.keys(by).sort((a,b)=>{
