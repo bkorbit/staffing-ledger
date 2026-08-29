@@ -11,7 +11,7 @@ boot('settings', async (supa, el) => {
 
   async function load() {
     const [syncs, banks, knobs] = await Promise.all([
-      supa.from('sync_state').select('id,last_run_at,last_run_log'),
+      supa.from('sync_state').select('id,last_run_at,last_run_log,import_from,import_from_set_by,import_from_set_at'),
       supa.from('qbo_accounts').select('id,name,balance,is_operating,as_of').eq('account_type','Bank').order('balance',{ascending:false}),
       supa.from('settings').select('key,value,set_by').order('key')
     ]);
@@ -25,7 +25,16 @@ boot('settings', async (supa, el) => {
           : `${log.stage||''}: ${log.error||''}`.slice(0,140);
         return `<tr><td>${esc(s.id)}</td><td>${s.last_run_at?new Date(s.last_run_at).toLocaleString():'never'}</td>
           <td>${ok?'<span class="pill good">ok</span>':'<span class="pill bad">failed</span>'}</td>
-          <td class="muted" style="text-align:left">${esc(detail)}</td></tr>`;}).join('')}</table>`;
+          <td class="muted" style="text-align:left">${esc(detail)}</td></tr>`;}).join('')}</table>
+      ${(()=>{const qbt=(syncs.data||[]).find(s=>s.id==='qbtime'); return `
+      <div style="display:flex;gap:12px;align-items:flex-end;margin-top:12px;flex-wrap:wrap">
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">
+          QuickBooks Time import cutoff — hours before this date are never pulled, and are purged from already-synced data
+          <input id="qbtime-cutoff" type="date" style="width:160px" value="${qbt&&qbt.import_from?qbt.import_from:''}"></label>
+        <button class="primary" id="cutoff-save">Save</button>
+        <span id="cutoff-msg" class="ok" style="font-size:12px"></span>
+        ${qbt&&qbt.import_from_set_by?`<span class="muted" style="font-size:11px">last set by ${esc(qbt.import_from_set_by)}, ${new Date(qbt.import_from_set_at).toLocaleString()}</span>`:''}
+      </div>`;})()}`;
 
     document.getElementById('banks').innerHTML = `<div class="muted" style="margin-bottom:8px">Bank accounts
       <span class="muted">— operating accounts form the cashflow opening position</span></div>
@@ -36,6 +45,14 @@ boot('settings', async (supa, el) => {
     document.querySelectorAll('input[data-bank]').forEach(cb => cb.onchange = async () => {
       await supa.from('qbo_accounts').update({ is_operating: cb.checked }).eq('id', cb.dataset.bank);
     });
+    document.getElementById('cutoff-save').onclick = async () => {
+      const v = document.getElementById('qbtime-cutoff').value;
+      const { error } = await supa.from('sync_state').update({
+        import_from: v || null, import_from_set_by: window.__email, import_from_set_at: new Date().toISOString()
+      }).eq('id', 'qbtime');
+      document.getElementById('cutoff-msg').textContent = error ? error.message : 'saved — takes effect on the next sync run';
+      if (!error) load();
+    };
 
     document.getElementById('knobs').innerHTML = `<div class="sc-eyebrow">Settings</div>
       <div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:12px">
@@ -62,7 +79,7 @@ boot('settings', async (supa, el) => {
         { key:'sales_probability_threshold', value:+document.getElementById('k-threshold').value||40,
           set_by:window.__email, set_at:new Date().toISOString() },
         { key:'programmatic_cogs_due_days', value:+document.getElementById('k-cogsdue').value||45,
-          set_by:userEmail(), set_at:new Date().toISOString() },
+          set_by:window.__email, set_at:new Date().toISOString() },
         { key:'programmatic_margin_default', value:+document.getElementById('k-margin').value||35,
           set_by:window.__email, set_at:new Date().toISOString() }];
       const { error } = await supa.from('settings').upsert(rows, { onConflict:'key' });

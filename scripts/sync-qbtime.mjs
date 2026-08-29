@@ -398,6 +398,10 @@ async function main() {
 
   // ---- time_entries: SYNC-OWNED, day grain. Replace the whole synced window. ----
   await sbDelete(`time_entries?source=eq.qbtime&worked_on=gte.${startDate}&worked_on=lte.${endDate}`);
+  // Raising import_from (Settings) means "don't trust hours before this date at
+  // all", not just "stop pulling new ones" — so anything already synced before
+  // the current cutoff is purged too, every run, not only the day it moves.
+  await sbDelete(`time_entries?source=eq.qbtime&worked_on=lt.${startDate}`);
   const teRows = [...dayEntries.values()].map(d => ({
     id: `qbtime:${d.staffId}:${d.dealId || 'internal'}:${d.date}`,
     staff_id: d.staffId, deal_id: d.dealId, client_id: d.clientId,
@@ -408,8 +412,14 @@ async function main() {
   console.log(`  Wrote ${teRows.length} time_entries rows (${startDate}→${endDate}).`);
 
   // ---- time_off: merge consecutive days per staff+kind into ranges, replace window ----
-  const existingOff = await sbGet(`time_off?starts_on=lte.${endDate}&ends_on=gte.${startDate}&select=id`);
+  // Scoped to set_by='qbtime-sync' throughout — time_off has no source column
+  // like time_entries does, so this is what keeps a future human-entered
+  // time-off row (a different set_by) from ever being touched by this sync.
+  const existingOff = await sbGet(`time_off?set_by=eq.qbtime-sync&starts_on=lte.${endDate}&ends_on=gte.${startDate}&select=id`);
   if (existingOff.length) await sbDelete(`time_off?id=in.(${existingOff.map(r => r.id).join(',')})`);
+  // Same cutoff-purge reasoning as time_entries above.
+  const staleOff = await sbGet(`time_off?set_by=eq.qbtime-sync&ends_on=lt.${startDate}&select=id`);
+  if (staleOff.length) await sbDelete(`time_off?id=in.(${staleOff.map(r => r.id).join(',')})`);
   const offRows = [];
   for (const [key, daySet] of timeOffDays) {
     const [staffId, kind] = key.split('|');
