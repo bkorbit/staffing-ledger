@@ -1,8 +1,8 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Home</title><link rel="stylesheet" href="./assets/style.css?v=fa9d24e"></head><body>
+<title>EMG — Home</title><link rel="stylesheet" href="./assets/style.css?v=5c73f15"></head><body>
 <script type="module">
-import { boot, esc, fetchAll, barChart, bandChart, donutChart } from './assets/shell.js?v=fa9d24e';
+import { boot, esc, fetchAll, barChart, bandChart, donutChart } from './assets/shell.js?v=5c73f15';
 
 // The Hour-tracking Dashboard, back on Home after a stint as a plain table —
 // bottom-up from actual hours (time_entries) x each staff member's own
@@ -37,7 +37,8 @@ boot('home', async (supa, el) => {
   const openClients = new Set();
   let deptQuery = '', dealQuery = '';
 
-  el.innerHTML = `<div class="range"><div class="range-wrap" style="position:relative">
+  el.innerHTML = `<h1 style="font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--brand);margin:0 0 14px;letter-spacing:-.01em">Home</h1>
+    <div class="range"><div class="range-wrap" style="position:relative">
       <button class="ghost" id="range-trigger" style="min-width:170px"></button>
     </div></div>
     <div id="panel">loading…</div>`;
