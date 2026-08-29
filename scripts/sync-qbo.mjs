@@ -340,6 +340,20 @@ async function main() {
   const nJob = customers.filter(c => jobcodeFromName(c.FullyQualifiedName || '')).length;
   console.log(`  ${customers.length} customers (${nProjects} projects, ${nJob} carrying a jobcode)`);
 
+  // A project whose name never parsed to a jobcode (and has no manual override)
+  // fails silently downstream — it can't auto-match a deal, and QuickBooks Time
+  // hours logged against it can't attribute either, with no warning anywhere else
+  // in either sync. Surfacing it here is what replaces "someone happens to notice
+  // a client shows zero hours" with a name in tonight's run log.
+  const unparsed = await sbGet(
+    `qbo_projects?is_project=eq.true&active=eq.true&effective_jobcode=is.null&select=name`);
+  if (unparsed.length) {
+    console.log(`  ⚠ ${unparsed.length} active project(s) have no jobcode and won't auto-match a ` +
+      `deal or attribute QuickBooks Time hours — set qbo_projects.jobcode_override for: ` +
+      unparsed.slice(0, 10).map(p => p.name).join(', ') +
+      (unparsed.length > 10 ? ` +${unparsed.length - 10} more` : ''));
+  }
+
   // ---- chart of accounts ----
   // Every account, not just banks. QuickBooks types them itself, which is the same
   // COGS-versus-overhead judgement the old system kept in hand-built rule tables.

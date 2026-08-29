@@ -350,17 +350,18 @@ async function main() {
   );
 
   // ---- jobcode -> qbo_project_id -> deal_id -> client_id lookup ----
-  // qbo_projects.jobcode is the source of truth (parsed off every QBO project's
-  // name — see sync-qbo.mjs); deals.jobcode is only a partial mirror of it, so
+  // qbo_projects.effective_jobcode is the source of truth (jobcode_override where
+  // a human set one, else jobcodeFromName()'s parse of the QuickBooks name — see
+  // db/037 and sync-qbo.mjs); deals.jobcode is only a partial mirror of it, so
   // this goes through the real claim, deals.qbo_project_id, instead. Only
   // won/active deals receive new actual hours — a pipeline, closed, or lost
   // deal shouldn't accumulate logged time against it going forward.
-  const projects = await sbGet(`qbo_projects?jobcode=not.is.null&select=id,jobcode`);
+  const projects = await sbGet(`qbo_projects?effective_jobcode=not.is.null&select=id,effective_jobcode`);
   const projectIdByJobcode = new Map();
   for (const p of projects) {
-    const code = p.jobcode.toLowerCase();
+    const code = p.effective_jobcode.toLowerCase();
     if (projectIdByJobcode.has(code)) {
-      console.log(`  ⚠ jobcode '${p.jobcode}' matches more than one QuickBooks project — keeping the first, check qbo_projects.jobcode for a duplicate.`);
+      console.log(`  ⚠ jobcode '${p.effective_jobcode}' matches more than one QuickBooks project — keeping the first, check qbo_projects.jobcode/jobcode_override for a duplicate.`);
       continue;
     }
     projectIdByJobcode.set(code, p.id);
