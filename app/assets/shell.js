@@ -46,10 +46,13 @@ const loadedVer = (() => {
   catch { return ''; }
 })();
 
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const fmtUTC = iso => {
-  const d = new Date(iso), pad = n => String(n).padStart(2, '0');
-  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`;
+// Viewer's own local time zone (unlike scripts/stamp.mjs's UTC build id,
+// which has to line up with UTC-timestamped CI logs) — this is a plain
+// "when", read by whoever's looking at it, so it should read in their zone.
+const fmtLocal = iso => {
+  const d = new Date(iso);
+  return `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })} ` +
+    d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
 };
 
 // Live-repo timestamp for the nav footer: the latest commit that touched
@@ -63,7 +66,7 @@ const VER_CACHE_MS = 5 * 60 * 1000;
 async function loadVerTag(el) {
   const render = (sha, date) => {
     const stale = loadedVer && !sha.startsWith(loadedVer);
-    el.textContent = `live ${fmtUTC(date)}${stale ? ' · reload for latest' : ''}`;
+    el.textContent = `live ${fmtLocal(date)}${stale ? ' · reload for latest' : ''}`;
     el.classList.toggle('stale', stale);
     el.href = `https://github.com/bkorbit/staffing-ledger/commit/${sha}`;
   };
