@@ -24,7 +24,7 @@ const mLabel = s => new Date(s + 'T00:00:00Z')
 boot('hourrep', async (supa, el) => {
   const thisMonth = monthOf(iso(new Date()));
   let rangeFrom = shiftM(thisMonth, -2), rangeTo = thisMonth;
-  const openClients = new Set();
+  let viewMode = 'client'; // 'client' = rolled up, no per-project detail. 'project' = flat, one row per deal.
 
   el.innerHTML = `<div class="sc-panel" id="panel">loading…</div>`;
 
@@ -66,7 +66,6 @@ boot('hourrep', async (supa, el) => {
     dealRows.forEach(r => (byClient[r.clientId] = byClient[r.clientId] || []).push(r));
     const clientRows = Object.entries(byClient).map(([cid, deals]) => ({
       clientId: cid, name: (clientsById[cid] || {}).name || '(unknown client)',
-      deals: deals.sort((a, b) => b.revenue - a.revenue),
       hours: deals.reduce((s, d) => s + d.hours, 0),
       cost: deals.reduce((s, d) => s + d.cost, 0),
       planned: deals.reduce((s, d) => s + d.planned, 0),
@@ -99,30 +98,31 @@ boot('hourrep', async (supa, el) => {
           <div class="summary-note">${mLabel(rangeFrom)}–${mLabel(rangeTo)} · revenue is measured-to-date, same number Forecast shows</div></div>
       </div>
       <div class="sc-panel" style="padding:0">
-        <table><tr><th>client / deal</th><th>hours</th><th>planned</th><th>labor cost</th><th>revenue</th><th>profit</th></tr>
-          ${clientRows.map(c => {
-            const open = openClients.has(c.clientId);
-            return `<tr class="clientrow" data-cid="${c.clientId}" style="cursor:pointer;font-weight:600;background:var(--client-row-tint,#fafaf8)">
-                <td class="textleft">${open?'▾':'▸'} ${esc(c.name)}</td>
-                <td>${fmtHours(c.hours)}</td><td class="muted">${fmtHours(c.planned)}</td>
-                <td>${fmt$0(c.cost)}</td><td>${fmt$0(c.revenue)}</td>
-                <td class="${c.profit<0?'err':'ok'}">${fmt$0(c.profit)}</td></tr>
-              ${open ? c.deals.map(d => `<tr>
-                  <td class="textleft" style="padding-left:26px">${esc(d.name)}</td>
-                  <td>${fmtHours(d.hours)}</td><td class="muted">${fmtHours(d.planned)}</td>
-                  <td>${fmt$0(d.cost)}</td><td>${fmt$0(d.revenue)}</td>
-                  <td class="${d.profit<0?'err':'ok'}">${fmt$0(d.profit)}</td></tr>`).join('') : ''}`;
-          }).join('')}
-        </table>
+        <div style="display:flex;gap:6px;padding:10px 14px">
+          <button class="view-btn ${viewMode==='client'?'primary':'ghost'}" data-mode="client">By client</button>
+          <button class="view-btn ${viewMode==='project'?'primary':'ghost'}" data-mode="project">By project</button>
+        </div>
+        ${viewMode === 'client' ? `
+        <table><tr><th>client</th><th>hours</th><th>planned</th><th>labor cost</th><th>revenue</th><th>profit</th></tr>
+          ${clientRows.map(c => `<tr>
+              <td class="textleft">${esc(c.name)}</td>
+              <td>${fmtHours(c.hours)}</td><td class="muted">${fmtHours(c.planned)}</td>
+              <td>${fmt$0(c.cost)}</td><td>${fmt$0(c.revenue)}</td>
+              <td class="${c.profit<0?'err':'ok'}">${fmt$0(c.profit)}</td></tr>`).join('')}
+        </table>` : `
+        <table><tr><th>project / deal</th><th>client</th><th>hours</th><th>planned</th><th>labor cost</th><th>revenue</th><th>profit</th></tr>
+          ${dealRows.slice().sort((a,b)=>b.revenue-a.revenue).map(d => `<tr>
+              <td class="textleft">${esc(d.name)}</td>
+              <td class="textleft muted">${esc((clientsById[d.clientId]||{}).name||'')}</td>
+              <td>${fmtHours(d.hours)}</td><td class="muted">${fmtHours(d.planned)}</td>
+              <td>${fmt$0(d.cost)}</td><td>${fmt$0(d.revenue)}</td>
+              <td class="${d.profit<0?'err':'ok'}">${fmt$0(d.profit)}</td></tr>`).join('')}
+        </table>`}
       </div>`;
 
     el.querySelector('#r-from').onchange = e => { rangeFrom = monthOf(e.target.value); load(); };
     el.querySelector('#r-to').onchange = e => { rangeTo = monthOf(e.target.value); load(); };
-    el.querySelectorAll('tr.clientrow').forEach(tr => tr.onclick = () => {
-      const cid = tr.dataset.cid;
-      openClients.has(cid) ? openClients.delete(cid) : openClients.add(cid);
-      load();
-    });
+    el.querySelectorAll('.view-btn').forEach(btn => btn.onclick = () => { viewMode = btn.dataset.mode; load(); });
   }
 
   await load();
