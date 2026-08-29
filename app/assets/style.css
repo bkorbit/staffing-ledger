@@ -439,7 +439,17 @@ table.acct td { font-variant-numeric: tabular-nums; }
    popover — a first pass opened on the side at popover size and buried
    compensation history behind a second toggle; centering it at a normal
    modal's width, with history inline in the same dialog, was the fix. */
-.modal.modal-sm { width:min(640px,94vw); }
+.modal.modal-sm { width:min(760px,94vw); }
+
+/* Every modal's Cancel/Save pair belongs at the true bottom of the dialog,
+   not wherever the form happened to end — Team's edit modal used to put
+   them right after the settings grid, ABOVE the compensation-history table,
+   so "Save" sat in the middle of the dialog instead of the bottom-right
+   corner a user expects. Plain flow (not position:sticky): it's the last
+   child of .modal, right-aligned, separated by one hairline — same
+   footer-bar idea as .editpop-foot below, just for the full-size modal. */
+.modal-foot { display:flex; align-items:center; gap:10px; justify-content:flex-end;
+  padding:14px 18px; border-top:1px solid var(--line); }
 
 /* A small anchored popover (position:fixed, sized to its trigger's own rect
    in JS) — still very much in use: Home's range control and every copied
