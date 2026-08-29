@@ -109,6 +109,27 @@ const NAV = [
   { id: 'settings',  label: 'Settings',        href: './settings.html' },
 ];
 
+// One glyph per nav id, shown only in the collapsed rail (nav.side .icon is
+// display:none until .layout.nav-collapsed) — the expanded rail reads by
+// label text same as before. Plain stroke lines so currentColor picks up
+// the item's own text colour (default / hover / current all keep working).
+const NAV_ICON_ATTRS = 'viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"';
+const NAV_ICONS = {
+  home: `<path d="M3 9.5 10 3l7 6.5"/><path d="M5 8.5V17h10V8.5"/><path d="M8 17v-5h4v5"/>`,
+  forecast: `<path d="M3 15 8 10l3 3 6-7"/><path d="M13 6h4v4"/>`,
+  cashflow: `<path d="M8 3.5c0 1-.8 1.8-1.8 2.6C4.8 7.4 3.5 9.4 3.5 12a6.5 6.5 0 0 0 13 0c0-2.6-1.3-4.6-2.7-5.9C12.8 5.3 12 4.5 12 3.5"/><path d="M8 3.5h4"/><path d="M10 9v6M8.5 10.3c0-.7.7-1.3 1.5-1.3s1.5.5 1.5 1.1c0 1.6-3 1-3 2.6 0 .6.7 1.1 1.5 1.1s1.5-.5 1.5-1.1"/>`,
+  sales: `<path d="M3.5 4h13l-5 6.5v4.5l-3 1.5v-6L3.5 4Z"/>`,
+  scoping: `<rect x="4.6" y="4.6" width="3.6" height="6" rx="1.2"/><rect x="11.8" y="4.6" width="3.6" height="6" rx="1.2"/><path d="M8.2 6.3h3.6"/><circle cx="6.4" cy="13" r="3"/><circle cx="13.6" cy="13" r="3"/>`,
+  hourplan: `<circle cx="10" cy="10.5" r="7"/><path d="M10 6.5V11l3 2"/><path d="M8 2.5h4"/>`,
+  clientprofit: `<path d="M8.5 3.5c0 1-.7 1.7-1.6 2.4C5.3 7 4.2 8.8 4.2 11.2a5.8 5.8 0 0 0 11.6 0c0-2.4-1.1-4.2-2.7-5.3-.9-.7-1.6-1.4-1.6-2.4"/><path d="M8.5 3.5h3"/><path d="M1 8 3.6 9.6 1 11.2"/><path d="M19 8l-2.6 1.6L19 11.2"/>`,
+  projhours: `<path d="M2.5 6a1 1 0 0 1 1-1h3.6l1.2 1.5H16a1 1 0 0 1 1 1V15a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V6Z"/><circle cx="13.3" cy="13" r="3.1"/><path d="M13.3 11.2v1.8l1.4 1.1"/>`,
+  teamhours: `<circle cx="10" cy="6.5" r="3"/><path d="M4 17c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/>`,
+  clients: `<rect x="3" y="7" width="14" height="9" rx="1.5"/><path d="M7.5 7V5.5a1.5 1.5 0 0 1 1.5-1.5h2a1.5 1.5 0 0 1 1.5 1.5V7"/><path d="M3 11h14"/>`,
+  team: `<circle cx="7" cy="6.5" r="2.3"/><circle cx="14" cy="7.5" r="2"/><path d="M2.5 16c0-2.8 2-4.7 4.5-4.7s4.5 1.9 4.5 4.7"/><path d="M12.5 12.2c2 .2 3.5 1.8 3.5 3.8"/>`,
+  settings: `<circle cx="10" cy="10" r="3"/>${[0,45,90,135,180,225,270,315].map(a =>
+    `<rect x="9.25" y="4.8" width="1.5" height="2.4" rx="0.3" fill="currentColor" stroke="none" transform="rotate(${a} 10 10)"/>`).join('')}`,
+};
+
 function renderShell(current) {
   document.body.innerHTML = `
     <div class="layout ${localStorage.getItem('nav_collapsed')==='1'?'nav-collapsed':''}">
@@ -123,6 +144,7 @@ function renderShell(current) {
         ${NAV.map(n => n.sect
           ? `<div class="sect">${n.sect}</div>`
           : `<a class="item ${n.id === current ? 'current' : ''}" href="${n.href}">
+               <span class="icon"><svg ${NAV_ICON_ATTRS}>${NAV_ICONS[n.id] || ''}</svg></span>
                <span class="lbl">${n.label}</span>${n.soon ? '<span class="soon">soon</span>' : ''}</a>`).join('')}
         <div class="side-foot">
           <div class="who">${esc(window.__email || '')}</div>
