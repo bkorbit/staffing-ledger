@@ -1,10 +1,130 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Hours Reporting</title><link rel="stylesheet" href="./assets/style.css?v=21e933a"></head><body>
+<title>EMG — Hours Reporting</title><link rel="stylesheet" href="./assets/style.css?v=510ac2f"></head><body>
 <script type="module">
-import { boot } from './assets/shell.js?v=21e933a';
+import { boot, esc } from './assets/shell.js?v=510ac2f';
+
+// Bottom-up: actual hours x each staff member's own resolved cost rate,
+// joined against the SAME rev_proj forecast.html already reads (via
+// forecast_page) — this page and Forecast must never disagree about what
+// counts as revenue, only about what "cost" means (hours here, QBO COGS
+// there). See db/031_hours_page.sql.
+const fmtHours = h => (+h || 0).toLocaleString(undefined, { maximumFractionDigits: 1 });
+const fmt$0 = c => (c < 0 ? '-$' : '$') + Math.abs(Math.round((c || 0) / 100)).toLocaleString();
+
+const iso = d => d.toISOString().slice(0, 10);
+const monthOf = s => s.slice(0, 7) + '-01';
+const shiftM = (m, n) => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
+  return iso(new Date(Date.UTC(y, mm - 1 + n, 1))); };
+const endOfMonth = m => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
+  return iso(new Date(Date.UTC(y, mm, 0))); };
+const mLabel = s => new Date(s + 'T00:00:00Z')
+  .toLocaleDateString(undefined, { month: 'short', year: '2-digit', timeZone: 'UTC' });
+
 boot('hourrep', async (supa, el) => {
-  el.innerHTML = `<div class="placeholder"><div style="font-size:15px;margin-bottom:6px">Not built yet</div>
-    Waits on the QB Time sync rewrite.</div>`;
+  const thisMonth = monthOf(iso(new Date()));
+  let rangeFrom = shiftM(thisMonth, -2), rangeTo = thisMonth;
+  const openClients = new Set();
+
+  el.innerHTML = `<div class="sc-panel" id="panel">loading…</div>`;
+
+  async function load() {
+    const [hp, fp, dl, cl] = await Promise.all([
+      supa.rpc('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) }),
+      supa.rpc('forecast_page', { p_from: rangeFrom, p_to: rangeTo }),
+      supa.from('deals').select('id,name,client_id,qbo_project_id'),
+      supa.from('clients').select('id,name')
+    ]);
+    for (const r of [hp, fp, dl, cl]) if (r.error) {
+      el.innerHTML = `<div class="sc-panel err">${esc(r.error.message)}</div>`; return;
+    }
+    const H = hp.data || {}, P = fp.data || {};
+    const dealsById = {}; (dl.data || []).forEach(d => dealsById[d.id] = d);
+    const clientsById = {}; (cl.data || []).forEach(c => clientsById[c.id] = c);
+    const revByProj = {}; (P.rev_proj || []).forEach(r => revByProj[r.qbo_project_id] = r.total);
+    const laborByDeal = {}; (H.deal_labor || []).forEach(r => laborByDeal[r.deal_id] = r);
+    const plannedByDeal = {}; (H.deal_planned || []).forEach(r => plannedByDeal[r.deal_id] = +r.planned_hours);
+
+    // one row per deal that has EITHER actual labor hours or a claimed QBO
+    // project (so a deal with revenue but zero hours still shows, flagging
+    // that its labor was never logged against it)
+    const dealRows = Object.keys(laborByDeal)
+      .concat(Object.values(dealsById).filter(d => d.qbo_project_id).map(d => d.id))
+      .filter((id, i, a) => a.indexOf(id) === i)
+      .map(id => {
+        const deal = dealsById[id]; if (!deal) return null;
+        const labor = laborByDeal[id] || { hours: 0, cost: 0 };
+        const revenue = deal.qbo_project_id ? (revByProj[deal.qbo_project_id] || 0) : 0;
+        return {
+          dealId: id, name: deal.name, clientId: deal.client_id,
+          hours: +labor.hours, cost: +labor.cost, planned: plannedByDeal[id] || 0,
+          revenue, profit: revenue - (+labor.cost)
+        };
+      }).filter(Boolean);
+
+    const byClient = {};
+    dealRows.forEach(r => (byClient[r.clientId] = byClient[r.clientId] || []).push(r));
+    const clientRows = Object.entries(byClient).map(([cid, deals]) => ({
+      clientId: cid, name: (clientsById[cid] || {}).name || '(unknown client)',
+      deals: deals.sort((a, b) => b.revenue - a.revenue),
+      hours: deals.reduce((s, d) => s + d.hours, 0),
+      cost: deals.reduce((s, d) => s + d.cost, 0),
+      planned: deals.reduce((s, d) => s + d.planned, 0),
+      revenue: deals.reduce((s, d) => s + d.revenue, 0),
+      profit: deals.reduce((s, d) => s + d.profit, 0)
+    })).sort((a, b) => b.revenue - a.revenue);
+
+    const totalHours = clientRows.reduce((s, c) => s + c.hours, 0);
+    const totalPlanned = clientRows.reduce((s, c) => s + c.planned, 0);
+    const totalCost = clientRows.reduce((s, c) => s + c.cost, 0);
+    const totalRevenue = clientRows.reduce((s, c) => s + c.revenue, 0);
+    const totalProfit = totalRevenue - totalCost;
+
+    el.querySelector('#panel').innerHTML = `
+      <div class="range">
+        <span class="rl">Range</span>
+        <input type="month" id="r-from" aria-label="Range from" value="${rangeFrom.slice(0,7)}">
+        <span class="muted">→</span>
+        <input type="month" id="r-to" aria-label="Range to" value="${rangeTo.slice(0,7)}">
+      </div>
+      <div class="summary-strip">
+        <div class="summary-cell"><div class="summary-label">Revenue</div>
+          <div class="summary-value">${fmt$0(totalRevenue)}</div></div>
+        <div class="summary-cell"><div class="summary-label">Labor cost</div>
+          <div class="summary-value">${fmt$0(totalCost)}</div></div>
+        <div class="summary-cell"><div class="summary-label">Profit (hours-based)</div>
+          <div class="summary-value ${totalProfit<0?'neg':'pos'}">${fmt$0(totalProfit)}</div></div>
+        <div class="summary-cell"><div class="summary-label">Hours (actual vs planned)</div>
+          <div class="summary-value">${fmtHours(totalHours)}<span class="muted" style="font-size:11px"> / ${fmtHours(totalPlanned)}</span></div>
+          <div class="summary-note">${mLabel(rangeFrom)}–${mLabel(rangeTo)} · revenue is measured-to-date, same number Forecast shows</div></div>
+      </div>
+      <div class="sc-panel" style="padding:0">
+        <table><tr><th>client / deal</th><th>hours</th><th>planned</th><th>labor cost</th><th>revenue</th><th>profit</th></tr>
+          ${clientRows.map(c => {
+            const open = openClients.has(c.clientId);
+            return `<tr class="clientrow" data-cid="${c.clientId}" style="cursor:pointer;font-weight:600;background:var(--client-row-tint,#fafaf8)">
+                <td class="textleft">${open?'▾':'▸'} ${esc(c.name)}</td>
+                <td>${fmtHours(c.hours)}</td><td class="muted">${fmtHours(c.planned)}</td>
+                <td>${fmt$0(c.cost)}</td><td>${fmt$0(c.revenue)}</td>
+                <td class="${c.profit<0?'err':'ok'}">${fmt$0(c.profit)}</td></tr>
+              ${open ? c.deals.map(d => `<tr>
+                  <td class="textleft" style="padding-left:26px">${esc(d.name)}</td>
+                  <td>${fmtHours(d.hours)}</td><td class="muted">${fmtHours(d.planned)}</td>
+                  <td>${fmt$0(d.cost)}</td><td>${fmt$0(d.revenue)}</td>
+                  <td class="${d.profit<0?'err':'ok'}">${fmt$0(d.profit)}</td></tr>`).join('') : ''}`;
+          }).join('')}
+        </table>
+      </div>`;
+
+    el.querySelector('#r-from').onchange = e => { rangeFrom = monthOf(e.target.value); load(); };
+    el.querySelector('#r-to').onchange = e => { rangeTo = monthOf(e.target.value); load(); };
+    el.querySelectorAll('tr.clientrow').forEach(tr => tr.onclick = () => {
+      const cid = tr.dataset.cid;
+      openClients.has(cid) ? openClients.delete(cid) : openClients.add(cid);
+      load();
+    });
+  }
+
+  await load();
 });
 </script></body></html>
