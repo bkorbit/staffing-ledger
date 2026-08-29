@@ -299,7 +299,7 @@ Built for `forecast.html`'s combo chart, this is the reusable pattern for every 
 - **Do** render settled data at full color strength and projected/forecast data visually lighter, everywhere the distinction applies — not just in the flagship chart.
 
 ### Don't:
-- **Don't** add `box-shadow` anywhere; this system is flat by rule. Bring the modal and line-card's current shadows to border-based separation next time either is touched.
+- **Don't** add `box-shadow` anywhere; this system is flat by rule (the modal and line cards once drifted here — both are already border-based now).
 - **Don't** introduce a new accent color outside this closed palette (two greens, one gold, one teal, functional red/amber).
 - **Don't** use Logo Teal in the app chrome for anything beyond the current-nav-item indicator and the sidebar toggle icon — it is a wayfinding mark there, not a decorative accent. (The sales pipeline ramp is a confirmed, separate exception.)
 - **Don't** use Signal Gold in the forecast chart for anything but the net line — not a pill border, not a warning state, not a highlight. (The sales pipeline ramp is a confirmed, separate exception.)
