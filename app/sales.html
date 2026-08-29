@@ -13,10 +13,13 @@
 .seg{font-family:var(--font-mono);font-size:10px;padding:6px 11px;border:1px solid var(--line);
   background:var(--paper-raised);border-radius:5px;cursor:pointer;color:var(--slate)}
 .seg.on{background:var(--brand);color:#fff;border-color:var(--brand)}
-.iconbtn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;flex:none;
-  border:1px solid var(--line);border-radius:5px;background:var(--paper-raised);color:var(--slate);cursor:pointer}
-.iconbtn:hover{border-color:var(--ink);color:var(--ink)}
-.iconbtn svg{width:14px;height:14px}
+/* the settings link now lives in the chart's grey footer, sized to sit flush
+   with its lg-item neighbors (the swatches, the pipeline-health toggle)
+   rather than the boxed toolbar-button treatment it started with */
+.chart-legend a.iconbtn{display:flex;align-items:center;color:inherit}
+.chart-legend a.iconbtn:hover{color:var(--brand)}
+.chart-legend a.iconbtn:focus-visible{outline:2px solid var(--brand-2);outline-offset:3px;border-radius:4px}
+.chart-legend a.iconbtn svg{width:12px;height:12px}
 .rl{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.09em;color:var(--slate)}
 .rd{font-family:var(--font-mono);font-size:10px;color:var(--slate)}
 .rp{display:inline-flex;margin-left:10px;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--paper-raised)}
@@ -227,13 +230,6 @@ boot('sales', async (supa, el) => {
       </div>
       <div style="flex:1"></div>
       <button class="seg" id="chart-toggle" aria-expanded="true" aria-controls="chartwrap"></button>
-      <div class="cfg">min probability ${minProb}% · programmatic margin ${PROG_MARGIN}%</div>
-      <a class="iconbtn" href="./settings.html" title="Settings" aria-label="Settings">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-        </svg>
-      </a>
     </div>
     <div class="sc-panel chartpanel">
       <div id="chartwrap"></div>
@@ -324,9 +320,16 @@ boot('sales', async (supa, el) => {
        <div class="chart-legend">
          <span class="lg-item"><i class="lg-dot" style="background:${LEDGER_COLOR}"></i>Committed GP (shaped deals)</span>` +
        tiersPresent.map(t=>`<span class="lg-item"><i class="lg-dot" style="background:${TIER_COLORS[t]}"></i>${esc(tierLabel(t))}</span>`).join('') +
-       (showHealth ? `<span style="flex:1"></span>
-         <button class="lg-item toggle" id="covtoggle" aria-expanded="${coverageOpen}" aria-controls="health-detail">
+       `<span style="flex:1"></span>` +
+       (showHealth ? `<button class="lg-item toggle" id="covtoggle" aria-expanded="${coverageOpen}" aria-controls="health-detail">
            <i class="lg-dot" style="background:${healthColor}"></i>pipeline health${totalRows?` — ${pct}% forecastable`:''}${coverageOpen?' ▾':' ▸'}</button>` : '') +
+       `<span class="cfg">min probability ${minProb}% · programmatic margin ${PROG_MARGIN}%</span>
+         <a class="iconbtn" href="./settings.html" title="Settings" aria-label="Settings">
+           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+             <circle cx="12" cy="12" r="3"/>
+             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+           </svg>
+         </a>` +
        `</div>${detailHtml}`;
 
     // real hover tooltip, same pattern as the other charts: the per-rect
