@@ -322,7 +322,10 @@ boot('sales', async (supa, el) => {
        tiersPresent.map(t=>`<span class="lg-item"><i class="lg-dot" style="background:${TIER_COLORS[t]}"></i>${esc(tierLabel(t))}</span>`).join('') +
        `<span style="flex:1"></span>` +
        (showHealth ? `<button class="lg-item toggle" id="covtoggle" aria-expanded="${coverageOpen}" aria-controls="health-detail">
-           <i class="lg-dot" style="background:${healthColor}"></i>pipeline health${totalRows?` — ${pct}% forecastable`:''}${coverageOpen?' ▾':' ▸'}</button>` : '') +
+           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex:none;color:${healthColor}">
+             <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+           </svg>
+           pipeline health${totalRows?` — ${pct}% forecastable`:''}${coverageOpen?' ▾':' ▸'}</button>` : '') +
        `<span class="cfg">min probability ${minProb}% · programmatic margin ${PROG_MARGIN}%</span>
          <a class="iconbtn" href="./settings.html" title="Settings" aria-label="Settings">
            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
