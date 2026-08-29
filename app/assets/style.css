@@ -351,18 +351,12 @@ table.acct td { font-variant-numeric: tabular-nums; }
 .pie-pair { display:flex; gap:20px; flex-wrap:wrap; justify-content:center; padding:6px 18px 16px; }
 .pie-cell { flex:1 1 160px; min-width:150px; text-align:center; }
 
-/* ---- row-edit popover (Team): an explicitly-opened editing surface,
-   positioned like the qbpicker menu above but anchored via JS to a trigger
-   button's own rect (position:fixed) instead of a relatively-positioned
-   parent, so it can float free of any table's own overflow:auto clipping.
-   Flat by rule, same as everywhere else — a hairline border carries the
-   edge, no box-shadow. */
-.editpop { position:fixed; z-index:50; width:340px; max-width:92vw;
-  background:var(--paper-raised); border:1px solid var(--line); border-radius:6px; }
-.editpop .setrow { padding:0 14px; margin-bottom:10px; }
-.editpop .setrow:first-child { margin-top:14px; }
-.editpop-foot { display:flex; align-items:center; gap:10px; justify-content:flex-end;
-  padding:12px 14px; border-top:1px solid var(--line); }
+/* Team's row editor reuses the deal-editor's own focus-overlay modal
+   (.modal-back/.modal/.modal-head/.settings) rather than a small anchored
+   popover — a first pass opened on the side at popover size and buried
+   compensation history behind a second toggle; centering it at a normal
+   modal's width, with history inline in the same dialog, was the fix. */
+.modal.modal-sm { width:min(640px,94vw); }
 .editorbar { display:flex; align-items:center; gap:8px; margin:10px 0; flex-wrap:wrap; }
 .lockednote { font-size:0.66rem; margin-top:4px; }
 .kbadge { font-family:var(--font-mono); font-size:0.66rem; letter-spacing:.06em; text-transform:uppercase;

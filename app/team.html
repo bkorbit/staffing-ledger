@@ -1,8 +1,8 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Team</title><link rel="stylesheet" href="./assets/style.css?v=fa9d24e"></head><body>
+<title>EMG — Team</title><link rel="stylesheet" href="./assets/style.css?v=5c8f293"></head><body>
 <script type="module">
-import { boot, esc } from './assets/shell.js?v=fa9d24e';
+import { boot, esc } from './assets/shell.js?v=5c8f293';
 
 // Where salary, capacity, department, and employment dates are MANAGED —
 // Team Hours (Delivery) is for reading that information back, not editing
@@ -22,10 +22,11 @@ import { boot, esc } from './assets/shell.js?v=fa9d24e';
 // The roster row itself (name/department/dates/active) reads as plain
 // ledger text, not a permanent row of input boxes — matching the table
 // language cashflow.html established (table.ledger: no per-cell gridlines,
-// a brand header rule, hover-tint rows). Editing opens a small floating
-// popover (one shared instance, positioned on click) instead of writing on
-// every keystroke; comp-period history keeps its own existing expand-row,
-// since that was already click-to-reveal rather than always-on.
+// a brand header rule, hover-tint rows). Editing opens the same centered
+// focus-overlay modal forecast.html's deal editor uses (real focus trap,
+// backdrop click, Escape, focus restored to the opener on close) — one
+// place for name/department/dates/active AND compensation history together,
+// rather than a small popover that hid the history behind a second toggle.
 const toCents = dollars => Math.round((+dollars || 0) * 100);
 const fromCents = cents => ((cents || 0) / 100).toFixed(2);
 const iso = d => d.toISOString().slice(0, 10);
@@ -37,94 +38,187 @@ const fmtDate = s => s ? new Date(s + 'T00:00:00Z')
 boot('team', async (supa, el) => {
   let query = '', deptFilter = '', showInactive = true;
   let tableSort = { key: 'active', dir: -1 };
-  const openHistory = new Set();
+  let editState = null; // { mode: 'edit'|'create', id }
+  let modalOpener = null;
+  let compAllByStaffLive = {}; // staff_id -> comp_periods[], refreshed every load()
 
   el.innerHTML = `<div class="sc-panel" id="panel">loading…</div>`;
 
-  // ---- row-edit popover: one shared floating surface for both "+ Add
-  // person" and every row's "Edit" button. Lives in document.body (outside
-  // #panel, and outside .gridwrap's overflow-x:auto) so re-rendering the
-  // table never touches it and it's never clipped by the table's own
-  // scroll container. Positioned like the chart tooltip in shell.js:
-  // anchored to the trigger's own rect, clamped to the viewport.
-  const pop = document.createElement('div');
-  pop.className = 'editpop';
-  pop.hidden = true;
-  pop.innerHTML = `
-    <div class="editpop-body">
-      <div class="setrow"><span class="setlabel">Name</span><input class="ep-name" type="text"></div>
-      <div class="setrow"><span class="setlabel">Department</span><input class="ep-dept" type="text" placeholder="department"></div>
-      <div class="setrow"><span class="setlabel">Start date</span><input class="ep-start" type="date"></div>
-      <div class="setrow"><span class="setlabel">End date</span><input class="ep-end" type="date"></div>
-      <div class="setrow"><span class="setlabel">Active</span>
-        <label class="mono" style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:normal;font-size:12.5px;font-family:var(--font-body);color:var(--ink)">
-          <input class="ep-active" type="checkbox"> active</label></div>
-    </div>
-    <div class="editpop-foot">
-      <span class="err ep-msg" style="flex:1"></span>
-      <button class="ghost ep-cancel">Cancel</button>
-      <button class="primary ep-save">Save</button>
-    </div>`;
-  document.body.appendChild(pop);
-  let editState = null; // { mode: 'edit'|'create', id }
-
-  const onOutsideClick = e => {
-    if (!pop.contains(e.target) && !e.target.closest('.edit-btn, #add-staff-btn')) closePopover();
-  };
-  const onPopoverKeydown = e => { if (e.key === 'Escape') closePopover(); };
-
-  function closePopover() {
-    pop.hidden = true;
+  function closeModal() {
+    document.querySelector('.modal-back')?.remove();
+    document.onkeydown = null;
     editState = null;
-    document.removeEventListener('mousedown', onOutsideClick, true);
-    document.removeEventListener('keydown', onPopoverKeydown, true);
-    window.removeEventListener('scroll', closePopover, true);
+    if (modalOpener && document.contains(modalOpener)) modalOpener.focus();
+    modalOpener = null;
   }
 
-  function openPopover(anchorEl, mode, person) {
-    document.removeEventListener('mousedown', onOutsideClick, true);
-    document.removeEventListener('keydown', onPopoverKeydown, true);
-    window.removeEventListener('scroll', closePopover, true);
-
-    editState = { mode, id: person ? person.id : null };
-    pop.querySelector('.ep-name').value = person ? person.name : '';
-    pop.querySelector('.ep-dept').value = person ? (person.department || '') : '';
-    pop.querySelector('.ep-start').value = person ? (person.start_date || '') : '';
-    pop.querySelector('.ep-end').value = person ? (person.end_date || '') : '';
-    pop.querySelector('.ep-active').checked = person ? person.active : true;
-    pop.querySelector('.ep-msg').textContent = '';
-    pop.hidden = false;
-
-    const r = anchorEl.getBoundingClientRect();
-    const top = Math.max(8, Math.min(r.bottom + 6, window.innerHeight - pop.offsetHeight - 8));
-    const left = Math.max(8, Math.min(r.left, window.innerWidth - pop.offsetWidth - 8));
-    pop.style.top = top + 'px';
-    pop.style.left = left + 'px';
-
-    pop.querySelector('.ep-name').focus();
-    document.addEventListener('mousedown', onOutsideClick, true);
-    document.addEventListener('keydown', onPopoverKeydown, true);
-    window.addEventListener('scroll', closePopover, true);
+  function periodsHtml(periods) {
+    return !periods.length
+      ? `<tr><td colspan="6" class="muted" style="text-align:left">No comp periods yet.</td></tr>`
+      : periods.map(p => `
+        <tr data-period="${p.id}">
+          <td><input type="date" class="cp-start" value="${p.starts_on}" style="height:26px;width:130px"></td>
+          <td><input type="date" class="cp-end" value="${p.ends_on||''}" style="height:26px;width:130px" title="Blank = current, ongoing period"></td>
+          <td><select class="cp-kind" style="height:26px">
+            <option value="salary" ${p.kind==='salary'?'selected':''}>salary/yr</option>
+            <option value="hourly" ${p.kind==='hourly'?'selected':''}>hourly</option>
+          </select></td>
+          <td><input type="text" class="cp-cost" value="${p.kind==='hourly'?fromCents(p.hourly_cost):fromCents(p.annual_cost)}" style="height:26px;width:80px"></td>
+          <td><input type="text" class="cp-cap" value="${p.weekly_capacity}" style="height:26px;width:56px"></td>
+          <td style="white-space:nowrap">
+            <button class="ghost cp-save" data-id="${p.id}" style="padding:3px 8px;font-size:11px">Save</button>
+            <button class="ghost cp-delete" data-id="${p.id}" style="padding:3px 8px;font-size:11px;color:var(--rust)" title="Delete this period" aria-label="Delete this comp period">×</button>
+          </td>
+        </tr>`).join('');
   }
 
-  pop.querySelector('.ep-cancel').onclick = closePopover;
-  pop.querySelector('.ep-save').onclick = async () => {
-    const name = pop.querySelector('.ep-name').value.trim();
-    if (!name) { pop.querySelector('.ep-msg').textContent = 'name is required'; return; }
-    const payload = {
-      name,
-      department: pop.querySelector('.ep-dept').value.trim() || null,
-      start_date: pop.querySelector('.ep-start').value || null,
-      end_date: pop.querySelector('.ep-end').value || null,
-      active: pop.querySelector('.ep-active').checked
+  function wirePeriodHandlers(sid, box) {
+    box.querySelectorAll('.cp-save').forEach(btn => btn.onclick = async () => {
+      const row = btn.closest('tr');
+      const kind = row.querySelector('.cp-kind').value;
+      const cost = toCents(row.querySelector('.cp-cost').value);
+      const cap = +row.querySelector('.cp-cap').value || 40;
+      const starts_on = row.querySelector('.cp-start').value;
+      const ends_on = row.querySelector('.cp-end').value || null;
+      if (ends_on && ends_on < starts_on) { alert('End date is before start date.'); return; }
+      const { error } = await supa.from('comp_periods').update({
+        starts_on, ends_on, kind,
+        annual_cost: kind === 'salary' ? cost : 0,
+        hourly_cost: kind === 'hourly' ? cost : 0,
+        weekly_capacity: cap
+      }).eq('id', btn.dataset.id);
+      if (error) { alert(error.message); return; }
+      load();
+    });
+    box.querySelectorAll('.cp-delete').forEach(btn => btn.onclick = async () => {
+      if (!confirm('Delete this comp period? This cannot be undone.')) return;
+      const { error } = await supa.from('comp_periods').delete().eq('id', btn.dataset.id);
+      if (error) { alert(error.message); return; }
+      load();
+    });
+    const npAdd = box.querySelector('.np-add');
+    if (npAdd) npAdd.onclick = async () => {
+      const msg = box.querySelector('.np-msg');
+      const newStart = box.querySelector('.np-start').value;
+      if (!newStart) { msg.textContent = 'pick a start date'; return; }
+      const kind = box.querySelector('.np-kind').value;
+      const cost = toCents(box.querySelector('.np-cost').value);
+      const cap = +box.querySelector('.np-cap').value || 40;
+      const periods = compAllByStaffLive[sid] || [];
+      const covering = periods.find(p => p.starts_on <= newStart && (!p.ends_on || p.ends_on >= newStart));
+      if (covering) {
+        const closeAt = dayBefore(newStart);
+        if (closeAt < covering.starts_on) { msg.textContent = 'starts before an existing period even begins'; return; }
+        const { error } = await supa.from('comp_periods').update({ ends_on: closeAt }).eq('id', covering.id);
+        if (error) { msg.textContent = error.message; return; }
+      }
+      const { error } = await supa.from('comp_periods').insert({
+        staff_id: sid, starts_on: newStart, kind,
+        annual_cost: kind === 'salary' ? cost : 0,
+        hourly_cost: kind === 'hourly' ? cost : 0,
+        weekly_capacity: cap, set_by: window.__email
+      });
+      if (error) { msg.textContent = error.message; return; }
+      load();
     };
-    const { error } = editState.mode === 'create'
-      ? await supa.from('staff').insert({ ...payload, set_by: window.__email })
-      : await supa.from('staff').update(payload).eq('id', editState.id);
-    if (error) { pop.querySelector('.ep-msg').textContent = error.message; return; }
-    closePopover();
-    load();
-  };
+  }
+
+  function openModal(anchorEl, mode, person) {
+    const opener = document.activeElement !== document.body ? document.activeElement : null;
+    closeModal();
+    modalOpener = anchorEl || opener;
+    editState = { mode, id: person ? person.id : null };
+
+    const periods = mode === 'edit'
+      ? (compAllByStaffLive[person.id] || []).slice().sort((a, b) => b.starts_on.localeCompare(a.starts_on))
+      : [];
+
+    const back = document.createElement('div');
+    back.className = 'modal-back';
+    back.innerHTML = `<div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-head">
+        <span class="modal-title" id="modal-title">${mode==='create'?'Add person':esc(person.name)}</span>
+        <button class="mclose">Close ✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="settings">
+          <div class="setrow wide"><span class="setlabel">Name</span><input class="ep-name" type="text" value="${mode==='edit'?esc(person.name):''}"></div>
+          <div class="setrow"><span class="setlabel">Department</span><input class="ep-dept" type="text" placeholder="department" value="${mode==='edit'?esc(person.department||''):''}"></div>
+          <div class="setrow"><span class="setlabel">Active</span>
+            <label class="mono" style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:normal;font-size:12.5px;font-family:var(--font-body);color:var(--ink)">
+              <input class="ep-active" type="checkbox" ${mode==='create'||person.active?'checked':''}> active</label></div>
+          <div class="setrow"><span class="setlabel">Start date</span><input class="ep-start" type="date" value="${mode==='edit'?(person.start_date||''):''}"></div>
+          <div class="setrow"><span class="setlabel">End date</span><input class="ep-end" type="date" value="${mode==='edit'?(person.end_date||''):''}"></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;justify-content:flex-end;margin:4px 0 18px">
+          <span class="err ep-msg" style="flex:1;font-size:11px"></span>
+          <button class="ghost ep-cancel">Cancel</button>
+          <button class="primary ep-save">Save</button>
+        </div>
+        ${mode === 'edit' ? `
+          <div class="sc-eyebrow">Compensation history</div>
+          <div class="gridwrap">
+            <table class="ledger" id="modal-periods-tbl">
+              <thead><tr><th scope="col">start</th><th scope="col">end</th><th scope="col">kind</th><th scope="col">cost</th><th scope="col">hrs/wk</th><th scope="col"></th></tr></thead>
+              <tbody>${periodsHtml(periods)}</tbody>
+            </table>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+            <span class="mono muted" style="font-size:11px">+ new period starting</span>
+            <input type="date" class="np-start" value="${iso(new Date())}" style="height:26px">
+            <select class="np-kind" style="height:26px">
+              <option value="salary">salary/yr</option>
+              <option value="hourly">hourly</option>
+            </select>
+            <input type="text" class="np-cost" placeholder="$" style="height:26px;width:80px">
+            <input type="text" class="np-cap" placeholder="hrs/wk" value="40" style="height:26px;width:56px">
+            <button class="primary np-add" style="padding:2px 8px">Add period</button>
+            <span class="np-msg err" style="font-size:11px"></span>
+          </div>` : `<p class="muted" style="font-size:12px">Save this person first to add compensation history.</p>`}
+      </div>
+    </div>`;
+    document.body.appendChild(back);
+    back.onclick = e => { if (e.target === back) closeModal(); };
+    back.querySelector('.mclose').onclick = closeModal;
+    back.querySelector('.ep-cancel').onclick = closeModal;
+    const modal = back.querySelector('.modal');
+
+    // a simple focus trap: Escape closes, Tab/Shift+Tab cycles within the
+    // dialog instead of escaping to the page behind it — same pattern as
+    // forecast.html's deal editor.
+    document.onkeydown = e => {
+      if (e.key === 'Escape') { closeModal(); return; }
+      if (e.key !== 'Tab') return;
+      const focusable = [...modal.querySelectorAll(
+        'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+      )].filter(fe => fe.offsetParent !== null);
+      if (!focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    back.querySelector('.ep-name').focus();
+
+    back.querySelector('.ep-save').onclick = async () => {
+      const name = back.querySelector('.ep-name').value.trim();
+      if (!name) { back.querySelector('.ep-msg').textContent = 'name is required'; return; }
+      const payload = {
+        name,
+        department: back.querySelector('.ep-dept').value.trim() || null,
+        start_date: back.querySelector('.ep-start').value || null,
+        end_date: back.querySelector('.ep-end').value || null,
+        active: back.querySelector('.ep-active').checked
+      };
+      const { error } = mode === 'create'
+        ? await supa.from('staff').insert({ ...payload, set_by: window.__email })
+        : await supa.from('staff').update(payload).eq('id', person.id);
+      if (error) { back.querySelector('.ep-msg').textContent = error.message; return; }
+      closeModal();
+      load();
+    };
+
+    if (mode === 'edit') wirePeriodHandlers(person.id, back.querySelector('.modal-body'));
+  }
 
   async function load() {
     const [st, cp] = await Promise.all([
@@ -148,8 +242,8 @@ boot('team', async (supa, el) => {
   ];
 
   function render(staff, comp) {
-    const compAllByStaff = {};
-    comp.forEach(c => (compAllByStaff[c.staff_id] = compAllByStaff[c.staff_id] || []).push(c));
+    compAllByStaffLive = {};
+    comp.forEach(c => (compAllByStaffLive[c.staff_id] = compAllByStaffLive[c.staff_id] || []).push(c));
     const compCurrentByStaff = {};
     comp.forEach(c => { if (c.ends_on === null) compCurrentByStaff[c.staff_id] = c; });
 
@@ -192,8 +286,7 @@ boot('team', async (supa, el) => {
           <tbody>
           ${!rows.length ? `<tr><td colspan="7" class="empty-note">No people match the current filters.</td></tr>` : rows.map(s => {
             const comp = compCurrentByStaff[s.id];
-            const periods = (compAllByStaff[s.id] || []).slice().sort((a, b) => b.starts_on.localeCompare(a.starts_on));
-            const open = openHistory.has(s.id);
+            const periodCount = (compAllByStaffLive[s.id] || []).length;
             return `<tr class="${!s.active?'muted':''}">
                 <td>${esc(s.name)}</td>
                 <td>${s.department ? esc(s.department) : '<span class="muted">—</span>'}</td>
@@ -202,7 +295,7 @@ boot('team', async (supa, el) => {
                       ? `$${(comp.hourly_cost/100).toLocaleString()}/hr · ${comp.weekly_capacity}h/wk`
                       : `$${(comp.annual_cost/100).toLocaleString()}/yr · ${comp.weekly_capacity}h/wk`)
                   : '<span class="muted">not set</span>'}
-                  <button class="ghost history-toggle" data-sid="${s.id}" style="padding:3px 8px;font-size:11px;margin-left:6px">${open?'hide':'history'} (${periods.length})</button></td>
+                  ${periodCount ? `<span class="muted" style="font-size:10.5px"> (${periodCount} period${periodCount===1?'':'s'})</span>` : ''}</td>
                 <td>${fmtDate(s.start_date)}</td>
                 <td>${fmtDate(s.end_date)}</td>
                 <td><span class="pill ${s.active?'good':'bad'}">${s.active?'active':'inactive'}</span></td>
@@ -210,41 +303,7 @@ boot('team', async (supa, el) => {
                   <button class="ghost edit-btn" data-id="${s.id}">Edit</button>
                   <button class="ghost toggle-active-btn" data-id="${s.id}">${s.active?'Deactivate':'Reactivate'}</button>
                 </td>
-              </tr>
-              ${open ? `<tr><td colspan="7" style="background:#f2f2f2;padding:8px 14px">
-                <table class="ledger" style="width:auto;min-width:560px">
-                  <thead><tr><th scope="col">start</th><th scope="col">end</th><th scope="col">kind</th><th scope="col">cost</th><th scope="col">hrs/wk</th><th scope="col"></th></tr></thead>
-                  <tbody>
-                  ${!periods.length ? `<tr><td colspan="6" class="muted" style="text-align:left">No comp periods yet.</td></tr>` : periods.map(p => `
-                    <tr data-period="${p.id}">
-                      <td><input type="date" class="cp-start" value="${p.starts_on}" style="height:26px;width:130px"></td>
-                      <td><input type="date" class="cp-end" value="${p.ends_on||''}" style="height:26px;width:130px" title="Blank = current, ongoing period"></td>
-                      <td><select class="cp-kind" style="height:26px">
-                        <option value="salary" ${p.kind==='salary'?'selected':''}>salary/yr</option>
-                        <option value="hourly" ${p.kind==='hourly'?'selected':''}>hourly</option>
-                      </select></td>
-                      <td><input type="text" class="cp-cost" value="${p.kind==='hourly'?fromCents(p.hourly_cost):fromCents(p.annual_cost)}" style="height:26px;width:80px"></td>
-                      <td><input type="text" class="cp-cap" value="${p.weekly_capacity}" style="height:26px;width:56px"></td>
-                      <td style="white-space:nowrap">
-                        <button class="ghost cp-save" data-id="${p.id}" style="padding:3px 8px;font-size:11px">Save</button>
-                        <button class="ghost cp-delete" data-id="${p.id}" style="padding:3px 8px;font-size:11px;color:var(--rust)" title="Delete this period" aria-label="Delete this comp period">×</button>
-                      </td>
-                    </tr>`).join('')}
-                  </tbody>
-                </table>
-                <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
-                  <span class="mono muted" style="font-size:11px">+ new period starting</span>
-                  <input type="date" class="np-start" data-sid="${s.id}" value="${iso(new Date())}" style="height:26px">
-                  <select class="np-kind" data-sid="${s.id}" style="height:26px">
-                    <option value="salary">salary/yr</option>
-                    <option value="hourly">hourly</option>
-                  </select>
-                  <input type="text" class="np-cost" data-sid="${s.id}" placeholder="$" style="height:26px;width:80px">
-                  <input type="text" class="np-cap" data-sid="${s.id}" placeholder="hrs/wk" value="40" style="height:26px;width:56px">
-                  <button class="primary np-add" data-sid="${s.id}" style="padding:2px 8px">Add period</button>
-                  <span class="np-msg err" data-sid="${s.id}" style="font-size:11px"></span>
-                </div>
-              </td></tr>` : ''}`;
+              </tr>`;
           }).join('')}
           </tbody>
         </table>
@@ -264,10 +323,10 @@ boot('team', async (supa, el) => {
       th.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); } };
     });
     el.querySelector('#add-staff-btn').onclick = () => {
-      openPopover(el.querySelector('#add-staff-btn'), 'create', null);
+      openModal(el.querySelector('#add-staff-btn'), 'create', null);
     };
     el.querySelectorAll('.edit-btn').forEach(btn => btn.onclick = () => {
-      openPopover(btn, 'edit', staffById[btn.dataset.id]);
+      openModal(btn, 'edit', staffById[btn.dataset.id]);
     });
     el.querySelectorAll('.toggle-active-btn').forEach(btn => btn.onclick = async () => {
       const s = staffById[btn.dataset.id];
@@ -276,59 +335,19 @@ boot('team', async (supa, el) => {
       if (error) { alert(error.message); return; }
       load();
     });
-    el.querySelectorAll('.history-toggle').forEach(btn => btn.onclick = () => {
-      const sid = btn.dataset.sid;
-      openHistory.has(sid) ? openHistory.delete(sid) : openHistory.add(sid);
-      render(staff, comp);
-    });
-    el.querySelectorAll('.cp-save').forEach(btn => btn.onclick = async () => {
-      const row = btn.closest('tr');
-      const kind = row.querySelector('.cp-kind').value;
-      const cost = toCents(row.querySelector('.cp-cost').value);
-      const cap = +row.querySelector('.cp-cap').value || 40;
-      const starts_on = row.querySelector('.cp-start').value;
-      const ends_on = row.querySelector('.cp-end').value || null;
-      if (ends_on && ends_on < starts_on) { alert('End date is before start date.'); return; }
-      const { error } = await supa.from('comp_periods').update({
-        starts_on, ends_on, kind,
-        annual_cost: kind === 'salary' ? cost : 0,
-        hourly_cost: kind === 'hourly' ? cost : 0,
-        weekly_capacity: cap
-      }).eq('id', btn.dataset.id);
-      if (error) { alert(error.message); return; }
-      load();
-    });
-    el.querySelectorAll('.cp-delete').forEach(btn => btn.onclick = async () => {
-      if (!confirm('Delete this comp period? This cannot be undone.')) return;
-      const { error } = await supa.from('comp_periods').delete().eq('id', btn.dataset.id);
-      if (error) { alert(error.message); return; }
-      load();
-    });
-    el.querySelectorAll('.np-add').forEach(btn => btn.onclick = async () => {
-      const sid = btn.dataset.sid;
-      const msg = el.querySelector(`.np-msg[data-sid="${sid}"]`);
-      const newStart = el.querySelector(`.np-start[data-sid="${sid}"]`).value;
-      if (!newStart) { msg.textContent = 'pick a start date'; return; }
-      const kind = el.querySelector(`.np-kind[data-sid="${sid}"]`).value;
-      const cost = toCents(el.querySelector(`.np-cost[data-sid="${sid}"]`).value);
-      const cap = +el.querySelector(`.np-cap[data-sid="${sid}"]`).value || 40;
-      const periods = compAllByStaff[sid] || [];
-      const covering = periods.find(p => p.starts_on <= newStart && (!p.ends_on || p.ends_on >= newStart));
-      if (covering) {
-        const closeAt = dayBefore(newStart);
-        if (closeAt < covering.starts_on) { msg.textContent = 'starts before an existing period even begins'; return; }
-        const { error } = await supa.from('comp_periods').update({ ends_on: closeAt }).eq('id', covering.id);
-        if (error) { msg.textContent = error.message; return; }
+
+    // if a person's edit modal is open across this (re)render — e.g. after
+    // saving a comp period from inside it — refresh just its history table
+    // with the freshly loaded periods rather than closing the modal
+    if (editState && editState.mode === 'edit') {
+      const back = document.querySelector('.modal-back');
+      const tbody = back && back.querySelector('#modal-periods-tbl tbody');
+      if (tbody) {
+        const periods = (compAllByStaffLive[editState.id] || []).slice().sort((a, b) => b.starts_on.localeCompare(a.starts_on));
+        tbody.innerHTML = periodsHtml(periods);
+        wirePeriodHandlers(editState.id, back.querySelector('.modal-body'));
       }
-      const { error } = await supa.from('comp_periods').insert({
-        staff_id: sid, starts_on: newStart, kind,
-        annual_cost: kind === 'salary' ? cost : 0,
-        hourly_cost: kind === 'hourly' ? cost : 0,
-        weekly_capacity: cap, set_by: window.__email
-      });
-      if (error) { msg.textContent = error.message; return; }
-      load();
-    });
+    }
   }
 
   await load();
