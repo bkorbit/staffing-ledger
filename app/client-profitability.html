@@ -1,27 +1,30 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Client Profitability</title><link rel="stylesheet" href="./assets/style.css?v=5e794d8"></head><body>
+<title>EMG — Client Profitability</title><link rel="stylesheet" href="./assets/style.css?v=244cb02"></head><body>
 <script type="module">
-import { boot, esc, barChart } from './assets/shell.js?v=5e794d8';
+import { boot, esc, barChart, makePopover } from './assets/shell.js?v=244cb02';
 
 // Client-level evaluation — is this account healthy? For per-project detail
 // (scoping, tracking how much work is going into a specific deal), see
 // Project Hours instead; the two answer different questions and are kept as
 // separate pages rather than one view drilling into the other.
 //
-// Bottom-up: actual hours x each staff member's own resolved cost rate,
-// joined against the SAME rev_proj forecast.html already reads (via
-// forecast_page) — this page and Forecast must never disagree about what
-// counts as revenue, only about what "cost" means (hours here, QBO COGS
-// there). See db/031_hours_page.sql.
-//
-// Hours vs. planned reuses Team Hours' pacing-bar pattern exactly: a
-// two-tone track (green under/at plan, red over) once planned hours exist,
-// an explicit "not assigned yet" empty state when they don't — the
-// mechanism for entering planned hours is being reworked, but the
-// comparison stays wired and ready the moment that data exists.
+// Every dollar column here blends two sources exactly the way Forecast
+// itself does, per deal: for months already closed, the ACTUAL figure
+// (forecast_page()'s own rev_proj/cogs_proj — invoices netted against
+// contra, same numbers Forecast and Cashflow read); for months still ahead,
+// the PLANNED/shaped figure (v_deal_month_forecast, via forecast_page()'s
+// plan_deal — gp_all/gp_settled/bill_future). forecastGP = gp_all -
+// gp_settled (the settled portion is already counted in the actual side);
+// forecastCogs is derived the same way forecast.html derives a forecast
+// month's COGS: billable minus GP. The Settings toggle drops the planned
+// half entirely for a strict actuals-only read. Labor cost is hours-based
+// (db/031_hours_page.sql) and is always actual — assignments has no entry
+// mechanism yet (db/034/035), so there is no "planned labor cost" to add.
 const fmtHours = h => (+h || 0).toLocaleString(undefined, { maximumFractionDigits: 1 });
 const fmt$0 = c => (c < 0 ? '-$' : '$') + Math.abs(Math.round((c || 0) / 100)).toLocaleString();
+const fmtDate = s => s ? new Date(s + 'T00:00:00Z')
+  .toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—';
 
 // Stacks segments left-to-right, capped so the running total never exceeds
 // 100% of the track — a real over-plan condition is reported as text (the
@@ -44,21 +47,39 @@ const shiftM = (m, n) => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
   return iso(new Date(Date.UTC(y, mm - 1 + n, 1))); };
 const endOfMonth = m => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
   return iso(new Date(Date.UTC(y, mm, 0))); };
-const mLabel = s => new Date(s + 'T00:00:00Z')
-  .toLocaleDateString(undefined, { month: 'short', year: '2-digit', timeZone: 'UTC' });
 
 boot('clientprofit', async (supa, el) => {
   const thisMonth = monthOf(iso(new Date()));
   let rangeFrom = shiftM(thisMonth, -2), rangeTo = thisMonth;
   let query = '';
+  let historicalOnly = false;
+  let allClientRows = []; // cached between load() (network) and render() (local re-filter/toggle)
 
-  el.innerHTML = `<div id="panel">loading…</div>`;
+  el.innerHTML = `<div class="range">
+      <span class="rl">Range</span>
+      <input type="month" id="r-from" aria-label="Range from" value="${rangeFrom.slice(0, 7)}">
+      <span class="muted">→</span>
+      <input type="month" id="r-to" aria-label="Range to" value="${rangeTo.slice(0, 7)}">
+      <button class="ghost" id="cp-settings-btn" style="margin-left:auto">Settings ▾</button>
+    </div>
+    <div id="panel">loading…</div>`;
+
+  const { pop, close } = makePopover(document.getElementById('cp-settings-btn'), `
+    <div class="editpop-body">
+      <div class="setrow">
+        <label class="mono" style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:normal;font-size:12.5px;font-family:var(--font-body);color:var(--ink)">
+          <input type="checkbox" class="cp-historical"> Historical only — exclude forecasted months</label>
+      </div>
+    </div>
+    <div class="editpop-foot"><button class="primary cp-done">Done</button></div>`);
+  pop.querySelector('.cp-done').onclick = close;
+  pop.querySelector('.cp-historical').onchange = e => { historicalOnly = e.target.checked; render(); };
 
   async function load() {
     const [hp, fp, dl, cl] = await Promise.all([
       supa.rpc('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) }),
       supa.rpc('forecast_page', { p_from: rangeFrom, p_to: rangeTo }),
-      supa.from('deals').select('id,name,client_id,qbo_project_id'),
+      supa.from('deals').select('id,name,client_id,qbo_project_id,flight_start,flight_end'),
       supa.from('clients').select('id,name')
     ]);
     for (const r of [hp, fp, dl, cl]) if (r.error) {
@@ -67,108 +88,165 @@ boot('clientprofit', async (supa, el) => {
     const H = hp.data || {}, P = fp.data || {};
     const dealsById = {}; (dl.data || []).forEach(d => dealsById[d.id] = d);
     const clientsById = {}; (cl.data || []).forEach(c => clientsById[c.id] = c);
-    const revByProj = {}; (P.rev_proj || []).forEach(r => revByProj[r.qbo_project_id] = r.total);
+    const revProjByProj = {}; (P.rev_proj || []).forEach(r => revProjByProj[r.qbo_project_id] = +r.total);
+    const cogsProjByProj = {}; (P.cogs_proj || []).forEach(r => cogsProjByProj[r.qbo_project_id] = +r.total);
+    const planByDeal = {}; (P.plan_deal || []).forEach(r => planByDeal[r.deal_id] =
+      { gpAll: +r.gp_all, gpSettled: +r.gp_settled, billFuture: +r.bill_future });
     const laborByDeal = {}; (H.deal_labor || []).forEach(r => laborByDeal[r.deal_id] = r);
     const plannedByDeal = {}; (H.deal_planned || []).forEach(r => plannedByDeal[r.deal_id] = +r.planned_hours);
 
-    // one row per deal that has EITHER actual labor hours or a claimed QBO
-    // project (so a deal with revenue but zero hours still counts toward its
-    // client, flagging that its labor was never logged against it)
+    // one row per deal that has EITHER actual labor hours, a claimed QBO
+    // project, or a plan entry — so a deal that's all-forecast (no hours
+    // logged yet, nothing invoiced yet) still counts toward its client
     const dealRows = Object.keys(laborByDeal)
       .concat(Object.values(dealsById).filter(d => d.qbo_project_id).map(d => d.id))
+      .concat(Object.keys(planByDeal))
       .filter((id, i, a) => a.indexOf(id) === i)
       .map(id => {
         const deal = dealsById[id]; if (!deal) return null;
         const labor = laborByDeal[id] || { hours: 0, cost: 0 };
-        const revenue = deal.qbo_project_id ? (revByProj[deal.qbo_project_id] || 0) : 0;
+        const plan = planByDeal[id] || { gpAll: 0, gpSettled: 0, billFuture: 0 };
+        const actualRevenue = deal.qbo_project_id ? (revProjByProj[deal.qbo_project_id] || 0) : 0;
+        const actualCogs = deal.qbo_project_id ? (cogsProjByProj[deal.qbo_project_id] || 0) : 0;
+        // forecast* covers only the months in range still ahead of today —
+        // gp_settled is the slice of gp_all that's already past, so the
+        // remainder is what's still planned rather than measured
+        const forecastGP = plan.gpAll - plan.gpSettled;
+        const forecastRevenue = plan.billFuture;
+        const forecastCogs = Math.max(0, forecastRevenue - forecastGP);
         return {
-          clientId: deal.client_id, hours: +labor.hours, cost: +labor.cost,
-          planned: plannedByDeal[id] || 0, revenue, profit: revenue - (+labor.cost)
+          dealId: id, clientId: deal.client_id, flightStart: deal.flight_start, flightEnd: deal.flight_end,
+          actualHours: +labor.hours, laborCost: +labor.cost, plannedHours: plannedByDeal[id] || 0,
+          actualRevenue, actualCogs, actualGP: actualRevenue - actualCogs,
+          forecastRevenue, forecastCogs, forecastGP
         };
       }).filter(Boolean);
 
     const byClient = {};
     dealRows.forEach(r => (byClient[r.clientId] = byClient[r.clientId] || []).push(r));
-    const allClientRows = Object.entries(byClient).map(([cid, deals]) => ({
-      clientId: cid, name: (clientsById[cid] || {}).name || '(unknown client)',
-      hours: deals.reduce((s, d) => s + d.hours, 0),
-      cost: deals.reduce((s, d) => s + d.cost, 0),
-      planned: deals.reduce((s, d) => s + d.planned, 0),
-      revenue: deals.reduce((s, d) => s + d.revenue, 0),
-      profit: deals.reduce((s, d) => s + d.profit, 0)
-    })).sort((a, b) => b.revenue - a.revenue);
+    const sum = (deals, k) => deals.reduce((s, d) => s + d[k], 0);
+    allClientRows = Object.entries(byClient).map(([cid, deals]) => {
+      const starts = deals.map(d => d.flightStart).filter(Boolean).sort();
+      const ends = deals.map(d => d.flightEnd).filter(Boolean).sort();
+      return {
+        clientId: cid, name: (clientsById[cid] || {}).name || '(unknown client)',
+        flightStart: starts[0] || null, flightEnd: ends[ends.length - 1] || null,
+        actualHours: sum(deals, 'actualHours'), plannedHours: sum(deals, 'plannedHours'), laborCost: sum(deals, 'laborCost'),
+        actualRevenue: sum(deals, 'actualRevenue'), actualCogs: sum(deals, 'actualCogs'), actualGP: sum(deals, 'actualGP'),
+        forecastRevenue: sum(deals, 'forecastRevenue'), forecastCogs: sum(deals, 'forecastCogs'), forecastGP: sum(deals, 'forecastGP')
+      };
+    });
 
+    render();
+  }
+
+  // blended figures for one client row, honoring the Historical-only toggle
+  function blend(c) {
+    const revenue = c.actualRevenue + (historicalOnly ? 0 : c.forecastRevenue);
+    const cogs = c.actualCogs + (historicalOnly ? 0 : c.forecastCogs);
+    const gp = c.actualGP + (historicalOnly ? 0 : c.forecastGP);
+    const profitAfterLabor = gp - c.laborCost;
+    const profitPerHour = c.actualHours > 0 ? profitAfterLabor / c.actualHours : null;
+    return { revenue, cogs, gp, profitAfterLabor, profitPerHour };
+  }
+
+  function render() {
     const q = query.trim().toLowerCase();
-    const clientRows = !q ? allClientRows : allClientRows.filter(c => c.name.toLowerCase().includes(q));
+    const clientRows = (!q ? allClientRows : allClientRows.filter(c => c.name.toLowerCase().includes(q)))
+      .map(c => ({ ...c, b: blend(c) }))
+      .sort((a, b) => b.b.revenue - a.b.revenue);
+    const allBlended = allClientRows.map(blend);
 
-    const totalHours = allClientRows.reduce((s, c) => s + c.hours, 0);
-    const totalPlanned = allClientRows.reduce((s, c) => s + c.planned, 0);
-    const totalCost = allClientRows.reduce((s, c) => s + c.cost, 0);
-    const totalRevenue = allClientRows.reduce((s, c) => s + c.revenue, 0);
-    const totalProfit = totalRevenue - totalCost;
-    const atRisk = allClientRows.filter(c => c.profit < 0).length;
+    const totalHours = allClientRows.reduce((s, c) => s + c.actualHours, 0);
+    const totalPlanned = allClientRows.reduce((s, c) => s + c.plannedHours, 0);
+    const totalLabor = allClientRows.reduce((s, c) => s + c.laborCost, 0);
+    const totalRevenue = allBlended.reduce((s, b) => s + b.revenue, 0);
+    const totalGP = allBlended.reduce((s, b) => s + b.gp, 0);
+    const totalProfit = totalGP - totalLabor;
+    const atRisk = allBlended.filter(b => b.profitAfterLabor < 0).length;
 
-    el.querySelector('#panel').innerHTML = `
-      <div class="range">
-        <span class="rl">Range</span>
-        <input type="month" id="r-from" aria-label="Range from" value="${rangeFrom.slice(0,7)}">
-        <span class="muted">→</span>
-        <input type="month" id="r-to" aria-label="Range to" value="${rangeTo.slice(0,7)}">
-      </div>
+    document.getElementById('panel').innerHTML = `
       <div class="summary-strip">
         <div class="summary-cell"><div class="summary-label">Revenue</div>
-          <div class="summary-value">${fmt$0(totalRevenue)}</div></div>
+          <div class="summary-value">${fmt$0(totalRevenue)}</div>
+          <div class="summary-note">${historicalOnly ? 'actuals only' : 'invoiced + planned'}</div></div>
+        <div class="summary-cell"><div class="summary-label">Gross profit</div>
+          <div class="summary-value ${totalGP < 0 ? 'neg' : 'pos'}">${fmt$0(totalGP)}</div></div>
         <div class="summary-cell"><div class="summary-label">Labor cost</div>
-          <div class="summary-value">${fmt$0(totalCost)}</div></div>
-        <div class="summary-cell"><div class="summary-label">Profit (hours-based)</div>
-          <div class="summary-value ${totalProfit<0?'neg':'pos'}">${fmt$0(totalProfit)}</div></div>
+          <div class="summary-value">${fmt$0(totalLabor)}</div></div>
+        <div class="summary-cell"><div class="summary-label">Profit after labor</div>
+          <div class="summary-value ${totalProfit < 0 ? 'neg' : 'pos'}">${fmt$0(totalProfit)}</div></div>
         <div class="summary-cell"><div class="summary-label">Hours logged</div>
           <div class="summary-value">${fmtHours(totalHours)}</div>
           <div class="delta-note flat">vs ${fmtHours(totalPlanned)}h planned — not assigned yet</div></div>
         <div class="summary-cell"><div class="summary-label">Clients at risk</div>
-          <div class="summary-value ${atRisk>0?'neg':'pos'}">${atRisk} / ${allClientRows.length}</div>
-          <div class="summary-note">losing money on hours-based cost</div></div>
+          <div class="summary-value ${atRisk > 0 ? 'neg' : 'pos'}">${atRisk} / ${allClientRows.length}</div>
+          <div class="summary-note">losing money after labor</div></div>
       </div>
       <div class="sc-panel chartpanel"><div id="chart"></div></div>
       <div class="sc-panel" style="padding:0">
         <div class="tbltools" style="padding:10px 14px">
           <input id="q" placeholder="search client…" value="${esc(query)}" style="width:220px">
         </div>
-        <table class="ledger"><tr><th>client</th><th class="textleft">hours</th><th>labor cost</th><th>revenue</th><th>profit</th></tr>
-          ${!clientRows.length ? `<tr><td colspan="5" class="empty-note">No clients match the current search.</td></tr>` : clientRows.map(c => {
-              const hasPlan = c.planned > 0;
+        <div class="gridwrap" style="margin-top:0">
+        <table class="ledger"><tr>
+            <th class="textleft">client</th>
+            <th class="textleft">start → end</th>
+            <th class="textleft">hours vs planned</th>
+            <th>planned hrs</th>
+            <th>actual hrs</th>
+            <th>revenue</th>
+            <th>cogs</th>
+            <th>gross profit</th>
+            <th>labor cost</th>
+            <th>profit after labor</th>
+            <th>profit / hr</th>
+          </tr>
+          ${!clientRows.length ? `<tr><td colspan="11" class="empty-note">No clients match the current search.</td></tr>` : clientRows.map(c => {
+              const hasPlan = c.plannedHours > 0;
               const bar = hasPlan
-                ? stackSegments(c.planned, [[c.hours > c.planned ? 'seg-over' : 'seg-good', c.hours]])
+                ? stackSegments(c.plannedHours, [[c.actualHours > c.plannedHours ? 'seg-over' : 'seg-good', c.actualHours]])
                 : null;
-              return `<tr class="${c.profit<0?'risk-row':''}">
+              const b = c.b;
+              return `<tr class="${b.profitAfterLabor < 0 ? 'risk-row' : ''}">
                   <td class="textleft">${esc(c.name)}</td>
+                  <td class="textleft">${fmtDate(c.flightStart)} → ${fmtDate(c.flightEnd)}</td>
                   <td class="textleft">
-                    ${hasPlan ? `<div class="mini-track">${bar.html}</div>
-                      <div class="delta-note flat">${fmtHours(c.hours)}h logged / ${fmtHours(c.planned)}h planned</div>
+                    ${hasPlan ? `<div class="mini-track wide">${bar.html}</div>
+                      <div class="delta-note flat">${fmtHours(c.actualHours)}h / ${fmtHours(c.plannedHours)}h planned</div>
                       ${bar.overBy > 0.05 ? `<div class="delta-note neg">+${fmtHours(bar.overBy)}h over plan</div>` : ''}`
-                      : `<div class="mini-track"></div><div class="delta-note flat">${fmtHours(c.hours)}h logged — not assigned yet</div>`}
+                      : `<div class="mini-track wide"></div><div class="delta-note flat">not assigned yet</div>`}
                   </td>
-                  <td>${fmt$0(c.cost)}</td><td>${fmt$0(c.revenue)}</td>
-                  <td class="${c.profit<0?'err':'pos'}">${fmt$0(c.profit)}</td></tr>`;
+                  <td>${fmtHours(c.plannedHours)}</td>
+                  <td>${fmtHours(c.actualHours)}</td>
+                  <td>${fmt$0(b.revenue)}</td>
+                  <td>${fmt$0(b.cogs)}</td>
+                  <td class="${b.gp < 0 ? 'err' : 'ok'}">${fmt$0(b.gp)}</td>
+                  <td>${fmt$0(c.laborCost)}</td>
+                  <td class="${b.profitAfterLabor < 0 ? 'err' : 'ok'}">${fmt$0(b.profitAfterLabor)}</td>
+                  <td class="${b.profitPerHour === null ? 'muted' : b.profitPerHour < 0 ? 'err' : 'ok'}">${b.profitPerHour === null ? '—' : fmt$0(b.profitPerHour) + '/h'}</td>
+                </tr>`;
             }).join('')}
         </table>
+        </div>
       </div>`;
 
-    const top = allClientRows.slice(0, 10);
+    const top = clientRows.slice(0, 10);
     if (top.length) {
       // profit floored at 0 for the chart only (a stacked bar can't draw a
       // negative segment) — the exact figure, negative or not, is in the
       // table above; the chart is a shape, not the source of truth.
       barChart(el.querySelector('#chart'), top.map(c => c.name), [
-        { name: 'labor cost', color: 'var(--slate)', values: top.map(c => c.cost) },
-        { name: 'profit', color: 'var(--brand)', values: top.map(c => Math.max(c.profit, 0)) }
+        { name: 'labor cost', color: 'var(--slate)', values: top.map(c => c.laborCost) },
+        { name: 'profit after labor', color: 'var(--brand)', values: top.map(c => Math.max(c.b.profitAfterLabor, 0)) }
       ]);
     }
 
-    el.querySelector('#r-from').onchange = e => { rangeFrom = monthOf(e.target.value); load(); };
-    el.querySelector('#r-to').onchange = e => { rangeTo = monthOf(e.target.value); load(); };
-    el.querySelector('#q').oninput = e => { query = e.target.value; load(); };
+    document.getElementById('q').oninput = e => { query = e.target.value; render(); };
   }
+
+  document.getElementById('r-from').onchange = e => { rangeFrom = monthOf(e.target.value); load(); };
+  document.getElementById('r-to').onchange = e => { rangeTo = monthOf(e.target.value); load(); };
 
   await load();
 });

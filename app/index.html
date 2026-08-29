@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Home</title><link rel="stylesheet" href="./assets/style.css?v=5e794d8">
+<title>EMG — Home</title><link rel="stylesheet" href="./assets/style.css?v=244cb02">
 <style>
 /* Sales Forecast panel — carried over from sales.html's own local overrides
    (its chart isn't drawn through the shared barChart/bandChart helpers, so
@@ -29,7 +29,7 @@ svg.chart .colgroup{outline:none}
 svg.chart .colgroup:focus-visible{outline:2px solid var(--brand-2);outline-offset:-2px}
 </style></head><body>
 <script type="module">
-import { boot, esc, fetchAll, barChart, bandChart, donutChart } from './assets/shell.js?v=5e794d8';
+import { boot, esc, fetchAll, barChart, bandChart, donutChart, makePopover } from './assets/shell.js?v=244cb02';
 
 // The Hour-tracking Dashboard, back on Home — bottom-up from actual hours
 // (time_entries) x each staff member's own resolved comp rate, joined
@@ -65,42 +65,6 @@ const weekStart = s => { const d = new Date(s + 'T00:00:00Z'); const day = d.get
   d.setUTCDate(d.getUTCDate() + (day === 0 ? -6 : 1) - day); return iso(d); };
 const wLabel = s => new Date(s + 'T00:00:00Z')
   .toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
-
-// One shared click-to-open popover mechanism (a single .editpop instance per
-// trigger, appended to document.body so a panel re-render never touches it),
-// used by Home's own range control and every copied panel's "Settings"
-// button below — the same pattern Team's row-edit popover established,
-// applied consistently instead of each control inventing its own menu.
-function makePopover(trigger, innerHTML) {
-  const pop = document.createElement('div');
-  pop.className = 'editpop';
-  pop.hidden = true;
-  pop.innerHTML = innerHTML;
-  document.body.appendChild(pop);
-  const onOutsideClick = e => { if (!pop.contains(e.target) && e.target !== trigger) close(); };
-  const onKey = e => { if (e.key === 'Escape') close(); };
-  function close() {
-    pop.hidden = true;
-    document.removeEventListener('mousedown', onOutsideClick, true);
-    document.removeEventListener('keydown', onKey, true);
-    window.removeEventListener('scroll', close, true);
-  }
-  function open() {
-    pop.hidden = false;
-    const r = trigger.getBoundingClientRect();
-    const top = Math.max(8, Math.min(r.bottom + 6, window.innerHeight - pop.offsetHeight - 8));
-    // right-aligned to the trigger when the trigger sits on the right of its
-    // row (every "Settings" button here) rather than left-aligned like a
-    // dropdown, so the menu never overhangs the viewport's right edge
-    const left = Math.max(8, Math.min(r.right - pop.offsetWidth, window.innerWidth - pop.offsetWidth - 8));
-    pop.style.top = top + 'px'; pop.style.left = left + 'px';
-    document.addEventListener('mousedown', onOutsideClick, true);
-    document.addEventListener('keydown', onKey, true);
-    window.addEventListener('scroll', close, true);
-  }
-  trigger.onclick = () => pop.hidden ? open() : close();
-  return { pop, open, close };
-}
 
 boot('home', async (supa, el) => {
   const thisMonth = monthOf(iso(new Date()));

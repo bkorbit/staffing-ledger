@@ -179,6 +179,42 @@ export async function boot(pageId, main) {
   }
 }
 
+// A single click-to-open popover (a lone .editpop instance per trigger,
+// appended to document.body so a panel re-render never touches it) —
+// originated on Home for its own range control and every copied panel's
+// "Settings" button, promoted here once Client Profitability needed the
+// exact same pattern rather than a second copy of it.
+export function makePopover(trigger, innerHTML) {
+  const pop = document.createElement('div');
+  pop.className = 'editpop';
+  pop.hidden = true;
+  pop.innerHTML = innerHTML;
+  document.body.appendChild(pop);
+  const onOutsideClick = e => { if (!pop.contains(e.target) && e.target !== trigger) close(); };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  function close() {
+    pop.hidden = true;
+    document.removeEventListener('mousedown', onOutsideClick, true);
+    document.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('scroll', close, true);
+  }
+  function open() {
+    pop.hidden = false;
+    const r = trigger.getBoundingClientRect();
+    const top = Math.max(8, Math.min(r.bottom + 6, window.innerHeight - pop.offsetHeight - 8));
+    // right-aligned to the trigger when the trigger sits on the right of its
+    // row (every "Settings" button here) rather than left-aligned like a
+    // dropdown, so the menu never overhangs the viewport's right edge
+    const left = Math.max(8, Math.min(r.right - pop.offsetWidth, window.innerWidth - pop.offsetWidth - 8));
+    pop.style.top = top + 'px'; pop.style.left = left + 'px';
+    document.addEventListener('mousedown', onOutsideClick, true);
+    document.addEventListener('keydown', onKey, true);
+    window.addEventListener('scroll', close, true);
+  }
+  trigger.onclick = () => pop.hidden ? open() : close();
+  return { pop, open, close };
+}
+
 // Monthly bars: two stacked meanings on one axis — past (invoiced) and forward
 // (planned GP) — drawn as one bar per month in its own colour.
 // opts lets a call site with many dense columns (Home's weekly-by-project
