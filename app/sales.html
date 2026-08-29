@@ -5,6 +5,7 @@
 /* Layout and chart styling carried over from sales-forecast-draft.html — the design
    the page is modelled on — trimmed to what the shell doesn't already provide. */
 .bar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:12px}
+.toggroup{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
 .tog{display:flex;align-items:center;gap:6px}
 .tog>span{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--slate)}
 .cfg{font-family:var(--font-mono);font-size:10px;color:var(--slate)}
@@ -32,19 +33,28 @@ svg.sfchart .pl{font-family:var(--font-mono);font-size:9px;fill:var(--slate)}
   border-top:1px solid var(--line);background:#f2f2f2;border-radius:0 0 6px 6px}
 .legend span{display:flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:10px;color:var(--ink)}
 .legend i{width:11px;height:11px;border-radius:2px;display:inline-block;flex:none}
-.cover{font-family:var(--font-mono);font-size:11px;padding:10px 13px;border-radius:6px;margin-bottom:12px;line-height:1.6}
+.cover{font-family:var(--font-mono);font-size:11px;padding:10px 13px;border-radius:6px;margin-bottom:4px;margin-top:8px;line-height:1.6}
 .cover.good{background:var(--mint)} .cover.warn{background:var(--amber-bg)} .cover.bad{background:var(--rust-bg)}
-table.fc{width:100%;border-collapse:collapse;min-width:900px;background:var(--paper-raised)}
+.infobtn{font-family:var(--font-mono);font-size:10px;padding:2px 8px;border-radius:99px;
+  border:1px solid var(--line);cursor:pointer;white-space:nowrap}
+.infobtn.good{color:var(--brand);border-color:var(--brand-2);background:var(--mint)}
+.infobtn.warn{color:var(--amber);border-color:var(--amber);background:var(--amber-bg)}
+.infobtn.bad{color:var(--rust);border-color:var(--rust);background:var(--rust-bg)}
+table.fc{width:100%;border-collapse:collapse;background:var(--paper-raised)}
 table.fc th{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.07em;
   color:var(--slate);text-align:left;padding:9px 8px;border:none;border-bottom:1px solid var(--line);background:transparent}
 table.fc td{padding:7px 8px;border:none;border-bottom:1px solid #efefef;font-family:var(--font-mono);font-size:11.5px;vertical-align:top}
 table.fc th.n,table.fc td.n{text-align:right;white-space:nowrap}
 table.fc th.cl,table.fc td.cl{min-width:230px} table.fc td.cl{font-family:var(--font-body)}
 table.fc th.pr,table.fc td.pr{min-width:120px} table.fc th.fl,table.fc td.fl{min-width:150px}
+.crow{cursor:pointer}
 .crow td{background:#fafaf8;font-weight:700;font-family:var(--font-display);font-size:12.5px;border-top:1px solid var(--line)}
 .crow td.n{font-family:var(--font-mono);font-size:11.5px}
+.crow:focus-visible,.drow.hasitems:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--brand-2),inset 0 0 0 4px var(--mint)}
 .drow td.cl{padding-left:22px}
 .drow.dim td{opacity:.55}
+.drow.hasitems{cursor:pointer}
+.disc{display:inline-block;width:12px;color:var(--slate)}
 .parts{font-size:9px;color:var(--slate);margin-top:2px;font-family:var(--font-mono)}
 td.pr{font-size:10px;color:var(--slate)}
 td.pr .p{display:inline-block;margin-left:5px;background:var(--brand);color:#fff;border-radius:5px;padding:0 4px;font-size:9px}
@@ -153,6 +163,9 @@ boot('sales', async (supa, el) => {
   let weighted=true, showAll=false, chartOn=true;
   try { chartOn = localStorage.getItem('sf-chart')!=='0'; } catch(e) {}
   let rangeFrom = TODAY.slice(0,7), rangeTo = shift(rangeFrom,5);
+  // collapsed by default — a client shows its deals, a deal shows its line
+  // items, only once clicked open
+  let openClients = new Set(), openDeals = new Set(), coverageOpen = false;
 
   function build(){
     return open
@@ -172,7 +185,7 @@ boot('sales', async (supa, el) => {
           : (d.close_date ? [mk(d.close_date)] : []);
         const client = d.company || String(d.name||'').split(' - ')[0].trim();
         const rest = d.company ? d.name : (String(d.name||'').split(' - ').slice(1).join(' - ') || d.name);
-        return { client, rest, name:d.name, amount:d.amount||0, stage:d.stage,
+        return { id:d.hubspot_deal_id, client, rest, name:d.name, amount:d.amount||0, stage:d.stage,
                  prob:d.probability||0, tier:tierOf(d.probability||0), close:d.close_date,
                  items:d.line_items||[],
                  gp, parts, flags:f, months, forecastable: gp>0 && months.length>0 };
@@ -182,14 +195,16 @@ boot('sales', async (supa, el) => {
   /* --------------------------------------------------------------- render */
   el.innerHTML = `
     <div class="bar">
-      <div class="tog"><label for="pl">Pipeline</label>
-        <select id="pl" style="height:30px">${pipelines.map(p=>`<option ${p===pipeline?'selected':''}>${esc(p)}</option>`).join('')}<option value="__all__">all</option></select></div>
-      <div class="tog"><span id="lbl-value">Value</span>
-        <span role="group" aria-labelledby="lbl-value" style="display:flex;gap:6px">
-          <button class="seg on" data-w="1" aria-pressed="true">Weighted</button><button class="seg" data-w="0" aria-pressed="false">Total</button></span></div>
-      <div class="tog"><span id="lbl-show">Show</span>
-        <span role="group" aria-labelledby="lbl-show" style="display:flex;gap:6px">
-          <button class="seg on" data-f="0" aria-pressed="true">Forecastable</button><button class="seg" data-f="1" aria-pressed="false">All deals</button></span></div>
+      <div class="toggroup">
+        <div class="tog"><label for="pl">Pipeline</label>
+          <select id="pl" style="height:30px">${pipelines.map(p=>`<option ${p===pipeline?'selected':''}>${esc(p)}</option>`).join('')}<option value="__all__">all</option></select></div>
+        <div class="tog"><span id="lbl-value">Value</span>
+          <span role="group" aria-labelledby="lbl-value" style="display:flex;gap:6px">
+            <button class="seg on" data-w="1" aria-pressed="true">Weighted</button><button class="seg" data-w="0" aria-pressed="false">Total</button></span></div>
+        <div class="tog"><span id="lbl-show">Show</span>
+          <span role="group" aria-labelledby="lbl-show" style="display:flex;gap:6px">
+            <button class="seg on" data-f="0" aria-pressed="true">Forecastable</button><button class="seg" data-f="1" aria-pressed="false">All deals</button></span></div>
+      </div>
       <div style="flex:1"></div>
       <div class="cfg">min probability ${minProb}% · programmatic margin ${PROG_MARGIN}% ·
         <a href="./settings.html">settings</a></div>
@@ -291,13 +306,23 @@ boot('sales', async (supa, el) => {
     const wonPromoted = wonRecent.filter(d=>promotedBy[d.hubspot_deal_id]);
     const wonReview = wonPromoted.filter(d=>!promotedBy[d.hubspot_deal_id].reviewed_at);
     const wonWaiting = wonRecent.length - wonPromoted.length;
-    el.querySelector('#coverage').innerHTML = (rows.length ? `<div class="cover ${pct>=70?'good':pct>=40?'warn':'bad'}">
-      ${nF} of ${rows.length} deals forecastable (${pct}%) —
-      ${noLI} without line items, ${stale} past their close date.
-      GP needs line items and campaign dates in HubSpot; fixing them there brings deals in on the next sync.</div>` : '') +
-      (wonRecent.length ? `<div class="cover good">Closed won: ${wonPromoted.length} passed to the
-      <a href="./forecast.html">Forecast</a> automatically${wonReview.length?` — ${wonReview.length} still awaiting review there`:''}${wonWaiting?`; ${wonWaiting} will pass on the next sync`:''}.
-      Mappable line items are flighted out on arrival; the rest get a skeleton and a reason.</div>` : '');
+    // both banners collapse behind one info pill — its color still carries the
+    // at-a-glance health signal even while the detail text is hidden
+    const covCls = rows.length ? (pct>=70?'good':pct>=40?'warn':'bad') : 'good';
+    el.querySelector('#coverage').innerHTML =
+      (rows.length || wonRecent.length ? `<button class="infobtn ${covCls}" id="covtoggle" aria-expanded="${coverageOpen}">`+
+        `ⓘ pipeline health${rows.length?` — ${pct}% forecastable`:''}${coverageOpen?' ▾':' ▸'}</button>` : '') +
+      (coverageOpen ? (
+        (rows.length ? `<div class="cover ${covCls}">
+          ${nF} of ${rows.length} deals forecastable (${pct}%) —
+          ${noLI} without line items, ${stale} past their close date.
+          GP needs line items and campaign dates in HubSpot; fixing them there brings deals in on the next sync.</div>` : '') +
+        (wonRecent.length ? `<div class="cover good">Closed won: ${wonPromoted.length} passed to the
+          <a href="./forecast.html">Forecast</a> automatically${wonReview.length?` — ${wonReview.length} still awaiting review there`:''}${wonWaiting?`; ${wonWaiting} will pass on the next sync`:''}.
+          Mappable line items are flighted out on arrival; the rest get a skeleton and a reason.</div>` : '')
+      ) : '');
+    const covBtn = el.querySelector('#covtoggle');
+    if (covBtn) covBtn.onclick = () => { coverageOpen = !coverageOpen; render(); };
 
     renderChart(cols, shown);
 
@@ -315,7 +340,12 @@ boot('sales', async (supa, el) => {
       ds.forEach(r=>{ const per=r.months.length? r.gp*(weighted?r.prob:1)/r.months.length : 0;
         r.months.forEach(m=>{ if(cols.includes(m)) cTot[m]=(cTot[m]||0)+per; });
         cSum+=r.gp*(weighted?r.prob:1); });
-      h+=`<tr class="crow"><td class="cl">${esc(cn)}</td><td></td><td></td>`+
+      // totals above are for EVERY deal regardless of collapse state — only
+      // the row markup below is conditional, so collapsing a client can
+      // never change the grand total at the bottom of the table
+      const clientOpen = openClients.has(cn);
+      h+=`<tr class="crow" data-client="${esc(cn)}" tabindex="0" role="button" aria-expanded="${clientOpen}">`+
+        `<td class="cl"><span class="disc">${clientOpen?'▾':'▸'}</span>${esc(cn)}</td><td></td><td></td>`+
         cols.map(c=>`<td class="n">${cTot[c]?money(Math.round(cTot[c])):'<span class=z>·</span>'}</td>`).join('')+
         `<td class="n tot">${money(Math.round(cSum))}</td><td></td></tr>`;
       ds.sort((a,b)=>b.gp*(weighted?b.prob:1)-a.gp*(weighted?a.prob:1)).forEach(r=>{
@@ -323,17 +353,28 @@ boot('sales', async (supa, el) => {
         const tot=r.gp*(weighted?r.prob:1);
         cols.forEach(c=>{ if(r.months.includes(c)) colTot[c]=(colTot[c]||0)+per; });
         grand+=tot;
-        h+=`<tr class="drow${r.forecastable?'':' dim'}"><td class="cl"><span class="ellip" title="${esc(r.rest)}">${esc(r.rest)}</span>`+
+        if (!clientOpen) return;
+        const hasItems = r.items.length > 0;
+        const dealOpen = hasItems && openDeals.has(r.id);
+        h+=`<tr class="drow${r.forecastable?'':' dim'}${hasItems?' hasitems':''}" data-deal="${hasItems?esc(r.id||''):''}" `+
+          `${hasItems?`tabindex="0" role="button" aria-expanded="${dealOpen}"`:''}>`+
+          `<td class="cl"><span class="disc">${hasItems?(dealOpen?'▾':'▸'):''}</span><span class="ellip" title="${esc(r.rest)}">${esc(r.rest)}</span>`+
           (r.parts.length?`<div class="parts">${esc(r.parts.join(' · '))}</div>`:'')+`</td>`+
           `<td class="pr">${esc(r.stage)}<span class="p">${Math.round(r.prob*100)}%</span></td>`+
           `<td class="n">${r.close?label(mk(r.close)):'<span class=z>·</span>'}</td>`+
           cols.map(c=>`<td class="n">${r.months.includes(c)&&per?money(Math.round(per)):'<span class=z>·</span>'}</td>`).join('')+
           `<td class="n tot">${tot?money(Math.round(tot)):'—'}</td>`+
           `<td class="fl">${r.flags.map(f=>`<span class="flag ${/passed|before/.test(f)?'t':/no line|unmapped/.test(f)?'w':'i'}">${esc(f)}</span>`).join('')}</td></tr>`;
-        (r.items||[]).forEach(li2=>{
+        if (dealOpen) r.items.forEach(li2=>{
+          // flighted: the raw HubSpot line-item amount spread evenly across
+          // the DEAL's own campaign months — the same spread the deal-level
+          // row above uses for its GP, just applied to this item's own amount
+          const amt = Math.round(parseFloat(li2.amount||0)*100);
+          const iper = r.months.length ? amt/r.months.length : 0;
           h+=`<tr class="drow dim li"><td class="cl" style="padding-left:38px;font-size:9.5px;color:var(--slate)">↳ ${esc(li2.name||'?')}</td>`+
-            `<td></td><td></td>`+cols.map(()=>'<td class="n"><span class=z>·</span></td>').join('')+
-            `<td class="n" style="font-size:9.5px;color:var(--slate)">${money(Math.round(parseFloat(li2.amount||0)*100))}</td><td></td></tr>`;
+            `<td></td><td></td>`+
+            cols.map(c=>`<td class="n" style="font-size:9.5px;color:var(--slate)">${r.months.includes(c)&&iper?money(Math.round(iper)):'<span class=z>·</span>'}</td>`).join('')+
+            `<td class="n" style="font-size:9.5px;color:var(--slate)">${amt?money(amt):''}</td><td></td></tr>`;
         });
       });
     });
@@ -342,6 +383,25 @@ boot('sales', async (supa, el) => {
       `<td class="n tot">${money(Math.round(grand))}</td><td></td></tr></tbody></table>`;
     el.querySelector('#tbl').innerHTML = shown.length ? h :
       '<div class="empty">No forecastable deals in this pipeline above the threshold. Switch to “All deals” to see what is blocking them.</div>';
+
+    el.querySelectorAll('tr.crow').forEach(tr => {
+      const activate = () => {
+        const cn = tr.dataset.client;
+        openClients.has(cn) ? openClients.delete(cn) : openClients.add(cn);
+        render();
+      };
+      tr.onclick = activate;
+      tr.onkeydown = e => { if (e.target!==tr) return; if (e.key==='Enter'||e.key===' ') { e.preventDefault(); activate(); } };
+    });
+    el.querySelectorAll('tr.drow.hasitems').forEach(tr => {
+      const activate = () => {
+        const id = tr.dataset.deal;
+        openDeals.has(id) ? openDeals.delete(id) : openDeals.add(id);
+        render();
+      };
+      tr.onclick = activate;
+      tr.onkeydown = e => { if (e.target!==tr) return; if (e.key==='Enter'||e.key===' ') { e.preventDefault(); activate(); } };
+    });
   }
 
   /* --------------------------------------------------------------- wiring */
