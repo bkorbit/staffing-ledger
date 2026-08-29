@@ -167,6 +167,9 @@ const fmtCondensed = c => {
 
 // A light-theme SVG band chart. bands = [{name,color,values}]. Hoverable: the
 // nearest period's crosshair and a tooltip with every band's exact value.
+// Each period is also its own tabindex="0" focus stop (mirroring forecast.html's
+// combo chart), so the same breakdown is reachable by keyboard, not just
+// mouse/touch.
 export function bandChart(el, labels, bands) {
   const W = 940, H = 240, P = { l: 60, r: 10, t: 14, b: 24 };
   const all = bands.flatMap(b => b.values);
@@ -185,10 +188,10 @@ export function bandChart(el, labels, bands) {
   // without it a gridline that lands exactly on zero prints "$-0"
   for (let v = (Math.ceil(min / step) * step) || 0; v <= max; v += step) {
     grid += `<line x1="${P.l}" y1="${y(v)}" x2="${W - P.r}" y2="${y(v)}" stroke="var(--line)"/>
-      <text x="${P.l - 6}" y="${y(v) + 4}" fill="#67706d" font-size="10" font-family="IBM Plex Mono" text-anchor="end">${fmtCondensed(v)}</text>`;
+      <text x="${P.l - 6}" y="${y(v) + 4}" fill="var(--slate)" font-size="10" font-family="IBM Plex Mono" text-anchor="end">${fmtCondensed(v)}</text>`;
   }
   const zero = (min < 0 && max > 0)
-    ? `<line x1="${P.l}" y1="${y(0)}" x2="${W - P.r}" y2="${y(0)}" stroke="#d1453b" stroke-dasharray="4 3"/>` : '';
+    ? `<line x1="${P.l}" y1="${y(0)}" x2="${W - P.r}" y2="${y(0)}" stroke="var(--rust)" stroke-dasharray="4 3"/>` : '';
   // Catmull-Rom -> cubic Bezier: an interpolating spline that still passes
   // through every real data point, so the curve reads smoother without
   // bending what the numbers actually say.
@@ -208,7 +211,20 @@ export function bandChart(el, labels, bands) {
     `<path fill="none" stroke="${b.color}" stroke-width="2"
        d="${smoothPath(b.values.map((v, i) => [x(i), y(v)]))}"/>`).join('');
   const xlabels = labels.map((l, i) => i % 2 ? '' :
-    `<text x="${x(i)}" y="${H - 6}" fill="#67706d" font-size="10" font-family="IBM Plex Mono" text-anchor="middle">${l}</text>`).join('');
+    `<text x="${x(i)}" y="${H - 6}" fill="var(--slate)" font-size="10" font-family="IBM Plex Mono" text-anchor="middle">${l}</text>`).join('');
+  // one plain-text summary per period, shared by the keyboard focus label
+  // and the mouse/touch tooltip below — same pattern as the combo chart
+  const periodSummary = idx => `${labels[idx]}: ` +
+    bands.map(b => `${b.name} ${fmt$(b.values[idx])}`).join(', ');
+  // an invisible full-height hit target per period — real focus stops, not
+  // decorative, so Tab reaches every period in the same left-to-right order
+  // a mouse sweep would
+  const stepX = labels.length > 1 ? (W - P.l - P.r) / (labels.length - 1) : (W - P.l - P.r);
+  const cols = labels.map((l, i) => {
+    const left = Math.max(P.l, x(i) - stepX / 2), right = Math.min(W - P.r, x(i) + stepX / 2);
+    return `<rect x="${left}" y="${P.t}" width="${right - left}" height="${H - P.t - P.b}"
+      fill="transparent" tabindex="0" role="img" aria-label="${esc(periodSummary(i))}" class="bandcol" data-idx="${i}"/>`;
+  }).join('');
   // legend lives in the shared grey chart-legend footer below the SVG, not
   // drawn inline — the app-wide standard established on sales.html
   const legend = bands.map(b =>
@@ -218,34 +234,51 @@ export function bandChart(el, labels, bands) {
   el.style.position = 'relative';
   el.innerHTML = `<svg class="chart" role="img" aria-label="${esc(summary)}" viewBox="0 0 ${W} ${H}">
     <title>${esc(summary)}</title>
-    ${grid}${zero}${lines}<g class="hoverlayer"></g>${xlabels}</svg>
+    ${grid}${zero}${lines}<g class="hoverlayer"></g>${xlabels}${cols}</svg>
     <div class="chart-tip"></div>
     <div class="chart-legend">${legend}</div>`;
 
-  // ---- hover: nearest-period crosshair, highlighted points, and a tooltip
-  // with every band's exact value (the axis itself only has room to condense)
+  // ---- hover/focus: nearest-period crosshair, highlighted points, and a
+  // tooltip with every band's exact value (the axis itself only has room to
+  // condense). Mouse/touch look up the period from cursor position; keyboard
+  // focus on a .bandcol already knows its own index.
   const svg = el.querySelector('svg'), hoverLayer = el.querySelector('.hoverlayer'), tip = el.querySelector('.chart-tip');
-  const stepX = labels.length > 1 ? (W - P.l - P.r) / (labels.length - 1) : 0;
-  const showAt = (clientX, clientY) => {
-    const svgBox = el.getBoundingClientRect();
-    const scale = W / svgBox.width;
-    const vx = (clientX - svgBox.left) * scale;
-    let idx = stepX ? Math.round((vx - P.l) / stepX) : 0;
-    idx = Math.max(0, Math.min(labels.length - 1, idx));
+  const renderAt = idx => {
     const cx = x(idx);
     hoverLayer.innerHTML = `<line x1="${cx}" y1="${P.t}" x2="${cx}" y2="${H - P.b}" stroke="var(--slate)" stroke-dasharray="2 3"/>` +
       bands.map(b => `<circle cx="${cx}" cy="${y(b.values[idx])}" r="4" fill="${b.color}" stroke="var(--paper-raised)" stroke-width="1.5"/>`).join('');
     tip.innerHTML = `<div class="tip-label">${esc(labels[idx])}</div>` +
       bands.map(b => `<div class="tip-row"><span class="tip-dot" style="background:${b.color}"></span>${esc(b.name)} <b>${fmt$(b.values[idx])}</b></div>`).join('');
     tip.style.opacity = '1';
+  };
+  const positionNear = (clientX, clientY) => {
+    const svgBox = el.getBoundingClientRect();
     tip.style.top = (clientY - svgBox.top - 10) + 'px';
     // clamp so the tooltip can't poke past the chart's own left/right edge
     const left = Math.min(svgBox.width - tip.offsetWidth, Math.max(0, clientX - svgBox.left + 12));
     tip.style.left = left + 'px';
   };
+  const idxAtClientX = clientX => {
+    const svgBox = el.getBoundingClientRect();
+    const scale = W / svgBox.width;
+    const vx = (clientX - svgBox.left) * scale;
+    const step = labels.length > 1 ? (W - P.l - P.r) / (labels.length - 1) : 0;
+    let idx = step ? Math.round((vx - P.l) / step) : 0;
+    return Math.max(0, Math.min(labels.length - 1, idx));
+  };
+  const showAt = (clientX, clientY) => { renderAt(idxAtClientX(clientX)); positionNear(clientX, clientY); };
   const hide = () => { tip.style.opacity = '0'; hoverLayer.innerHTML = ''; };
   svg.onmousemove = e => showAt(e.clientX, e.clientY);
   svg.onmouseleave = hide;
   svg.ontouchstart = svg.ontouchmove = e => { if (e.touches[0]) showAt(e.touches[0].clientX, e.touches[0].clientY); };
   svg.ontouchend = hide;
+  el.querySelectorAll('.bandcol').forEach(colEl => {
+    const idx = +colEl.dataset.idx;
+    colEl.onfocus = () => {
+      renderAt(idx);
+      const r = colEl.getBoundingClientRect();
+      positionNear(r.left + r.width / 2, r.top);
+    };
+    colEl.onblur = hide;
+  });
 }

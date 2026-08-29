@@ -426,7 +426,6 @@ boot('forecast', async (supa, el) => {
   /* ---------------------------------------------------------------- render */
   function render() {
     el.innerHTML = `
-      <div class="summary-strip" id="kpis"></div>
       <div class="range">
         <span class="rl">Range</span>
         <input type="month" id="r-from" aria-label="Range from" value="${rangeFrom.slice(0,7)}">
@@ -451,6 +450,7 @@ boot('forecast', async (supa, el) => {
           reclassifies an account everywhere at once.</div>
         <div id="how-table" style="margin-top:10px;max-height:340px;overflow-y:auto"></div>
       </div>
+      <div class="summary-strip" id="kpis"></div>
       <div class="sc-panel chartpanel"><div id="chart"></div></div>
       <div class="sc-panel" style="padding:0">
         <div class="tbltools">

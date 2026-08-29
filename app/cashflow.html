@@ -11,11 +11,12 @@ boot('cashflow', async (supa, el) => {
         <option value="6">3 months</option><option value="12">6 months</option>
         <option value="18">9 months</option><option value="24">12 months</option>
       </select>
-      <span class="muted" style="font-size:10.5px">half-month periods — H1 is the 1st–15th,
+      <span class="muted" style="font-size:10.5px;background:var(--paper-raised);border:1px solid var(--line);
+      border-radius:4px;padding:5px 9px">half-month periods — H1 is the 1st–15th,
       H2 the 16th to month end. Programmatic pays its media in the spend half; the client
       pays on their curve, usually two to three halves later.</span>
     </div>
-    <div class="summary-strip" id="kpis"></div>
+    <div class="summary-strip" id="kpis" aria-live="polite"></div>
     <div class="sc-panel chartpanel"><div id="chart"><div style="padding:16px 18px">loading…</div></div></div>
     <div class="sc-panel" style="overflow-x:auto">
       <div class="sc-eyebrow">Cash position by period</div>
@@ -26,7 +27,7 @@ boot('cashflow', async (supa, el) => {
     <div class="sc-panel" style="overflow-x:auto">
       <div class="sc-eyebrow">AP aging — what EMG owes, by how late</div>
       <table id="ap-aging" class="ledger"></table></div>
-    <div class="muted">Tail caution: beyond the reach of open invoices and shaped deals,
+    <div class="sc-panel muted">Tail caution: beyond the reach of open invoices and shaped deals,
     the model has no revenue and both lines sink. That is missing data, not a prophecy.</div>`;
 
   const sel = document.getElementById('cf-weeks');
@@ -81,6 +82,7 @@ boot('cashflow', async (supa, el) => {
     return d <= 0 ? 0 : d <= 30 ? 1 : d <= 60 ? 2 : d <= 90 ? 3 : 4;
   };
   function agingTable(elId, items, nameKey, limit = 15) {
+    const rowLabel = nameKey === 'vendor_name' ? 'Vendor' : 'Client';
     const byName = {};
     items.forEach(r => {
       const n = r[nameKey] || '(unnamed)';
@@ -106,7 +108,7 @@ boot('cashflow', async (supa, el) => {
       <td style="font-weight:600">${fmt$(e.total)}</td></tr>`;
     const overduePct = grand ? Math.round(100*overdue/grand) : 0;
     document.getElementById(elId).innerHTML =
-      `<tr><th style="text-align:left"></th>${BUCKETS.map(b=>`<th>${b}</th>`).join('')}<th>total</th></tr>` +
+      `<tr><th style="text-align:left"><span class="sr-only">${rowLabel}</span></th>${BUCKETS.map(b=>`<th>${b}</th>`).join('')}<th>total</th></tr>` +
       top.map(line).join('') + (restRow ? line(restRow) : '') +
       `<tr class="gp"><td style="text-align:left">total${grand ? ` — ${overduePct}% overdue` : ''}</td>
         ${totals.map(v=>`<td>${cell(v)}</td>`).join('')}
@@ -132,7 +134,7 @@ boot('cashflow', async (supa, el) => {
       <div class="summary-cell"><div class="summary-label">Monthly cash runrate</div>
         <div class="summary-value ${runrate<0?'neg':'pos'}">${runrate<0?'-':'+'}${fmt$(Math.abs(runrate))}</div>
         <div class="summary-note">avg net flow over the ${months}-month horizon</div></div>
-      <div class="summary-cell"><div class="summary-label">Projected position, ${months} mo</div>
+      <div class="summary-cell"><div class="summary-label">Projected position, ${months} months</div>
         <div class="summary-value ${endExpected<0?'neg':'pos'}">${fmt$(endExpected)}</div>
         <div class="summary-note">${fmt$(trough)} conservative trough</div></div>
       <div class="summary-cell"><div class="summary-label">Open AR</div>
@@ -150,7 +152,7 @@ boot('cashflow', async (supa, el) => {
 
     document.getElementById('tbl').innerHTML =
       `<tr><th>period</th><th>AR in</th><th>contracted in</th><th>bills</th><th>payroll</th>
-       <th>overhead</th><th>agency media</th><th>fcst COGS</th><th>position</th><th>worst</th></tr>` +
+       <th>overhead</th><th>agency media</th><th>forecast COGS</th><th>expected</th><th>worst (p90)</th></tr>` +
       rows.map(r=>`<tr><td style="white-space:nowrap">${r.period_label}</td>
         <td>${fmt$(r.cash_in_expected)}</td><td>${fmt$(r.in_contracted_expected)}</td>
         <td>${fmt$(r.out_bills)}</td><td>${fmt$(r.out_payroll)}</td>

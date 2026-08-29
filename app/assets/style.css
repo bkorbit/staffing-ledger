@@ -35,9 +35,15 @@ nav.side .side-foot { margin-top:auto; padding:14px 18px 0; border-top:1px solid
 .who { font-family:var(--font-mono); font-size:10px; color:var(--slate); overflow:hidden; text-overflow:ellipsis; }
 main.content { flex:1; padding:20px 22px 80px; max-width:none; min-width:0; overflow-x:hidden; }
 
-.summary-strip { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:1px;
+/* flex, not grid: a grid's column tracks stay aligned across rows, which
+   left an orphaned grey hole in the last row whenever the cell count didn't
+   evenly divide the wrapped column count (5 cells at tablet/phone widths,
+   invisible at the wide desktop width this ribbon is normally seen at,
+   where all 5 always fit on one row). Flex-wrap lets a short last row grow
+   to fill the full width instead of leaving empty track behind. */
+.summary-strip { display:flex; flex-wrap:wrap; gap:1px;
   background:var(--line); border:1px solid var(--line); margin-bottom:22px; border-radius:6px; overflow:hidden; }
-.summary-cell { background:var(--paper-raised); padding:12px 14px; }
+.summary-cell { background:var(--paper-raised); padding:12px 14px; flex:1 1 170px; min-width:0; }
 .summary-label { font-family:var(--font-mono); font-size:9px; color:var(--slate); letter-spacing:.08em; text-transform:uppercase; }
 .summary-value { font-family:var(--font-mono); font-size:18px; font-weight:700; margin-top:4px; }
 .summary-value.pos { color:var(--brand); } .summary-value.neg { color:var(--rust); }

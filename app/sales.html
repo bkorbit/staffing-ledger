@@ -213,7 +213,6 @@ boot('sales', async (supa, el) => {
 
   /* --------------------------------------------------------------- render */
   el.innerHTML = `
-    <div class="summary-strip" id="kpis"></div>
     <div class="bar">
       <div class="toggroup">
         <div class="tog"><label for="pl">Pipeline</label>
@@ -239,6 +238,7 @@ boot('sales', async (supa, el) => {
       <div style="flex:1"></div>
       <button class="seg" id="chart-toggle" aria-expanded="true" aria-controls="chartwrap">Hide chart</button>
     </div>
+    <div class="summary-strip" id="kpis"></div>
     <div class="sc-panel chartpanel">
       <div id="chartwrap"></div>
     </div>
