@@ -266,6 +266,14 @@ Buttons, inputs, and cards read as **terminal-tactile**: small, precise, and den
 - **Disabled:** light gray background, slate text, hairline-light border, not-allowed cursor.
 - **Settings form (the deal editor):** a label-beside-control row laid out on a real grid (`auto-fit, minmax(260px,1fr)`), not a stack of full-width rows — the two fields that benefit from room (deal name, QB project) span the full width, the rest pair up. A wide modal only reads as spacious when its form actually uses the width; a stack of capped-width rows against a wide container is what "small box" complaints are usually about.
 
+### Search Combobox
+Replaces a bare `<select>` anywhere its option list can run into the hundreds — a flat, unfiltered dropdown is unusable past a handful of items, and native `<select>` has no way to search. Built for the Forecast page's project-link and deal-link pickers (`mountCombobox()`), the pattern for every future one.
+- **Structure:** a visible text input (`.qpsearch`, styled as a standard Input/Field above) plus a hidden input carrying the real value, plus a floating results panel (`.qpmenu`) anchored directly under the input — raised-paper background, hairline border, 6px radius, `max-height:260px` with its own scroll.
+- **Default view:** empty query shows only "this client's" (or equivalent narrow, task-relevant) candidates, not the full catalog — typing is what reaches into the rest, capped at 40 matches with a "+N more — narrow the search" hint beyond that.
+- **Rows:** IBM Plex Mono, name truncates with ellipsis rather than wrapping; a secondary flag (already linked to another record, hidden from every other list) renders as a Warn status pill on the row, never as plain trailing text — the same pill vocabulary as everywhere else in the system, not a one-off annotation style.
+- **States:** hover and keyboard-active rows both tint Mint, matching every other hover-selectable row in the system; `Escape` or blur without picking reverts the input to the last confirmed selection rather than leaving a stray, unresolved search string sitting in the field.
+- **Never hide a linked-but-flagged record from itself:** a record already linked to the thing being edited, or already hidden elsewhere in the app, still appears here — badged, not excluded. Exclusion is what caused the original confusion (a hidden project simply never showing up in its own picker); a badge keeps ground truth visible while still surfacing the caution.
+
 ### Navigation
 - **Style:** 184px fixed sidebar, raised-paper background, hairline right border, sticky with independent scroll. Section labels are uppercase IBM Plex Mono at 9px. Nav items are 13px medium-weight Montserrat.
 - **States:** default ink text; hover and current both tint to Mint background with Deep-Ledger-Green text; current additionally gets a 3px Logo-Teal right border as the "you are here" mark.
