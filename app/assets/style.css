@@ -121,7 +121,7 @@ td.textleft { text-align:left; font-family:var(--font-body); }
 .mini-track.split { gap:1px; }
 .mini-track.split .seg-client   { background:var(--brand-2); }
 .mini-track.split .seg-internal { background:var(--brand); }
-.mini-track.split .seg-pto      { background:var(--slate); }
+.mini-track.split .seg-pto      { background:var(--gold); }
 
 /* Plan -> actual delta note, e.g. "+3.2h vs plan" — mono, colored by direction. */
 .delta-note { font-family:var(--font-mono); font-size:10.5px; line-height:1.35; }
