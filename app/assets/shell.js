@@ -337,3 +337,29 @@ export function bandChart(el, labels, bands) {
     colEl.onblur = hide;
   });
 }
+
+// A single flat ring for "what share of X is this" — slices = [{name,color,value}].
+// Stroke-dasharray/-dashoffset rings, not wedge paths: flat by rule (no depth
+// cue needed), and the segment math stays simple percentage-of-circumference
+// arithmetic instead of trig for arc endpoints. Legend below carries the exact
+// percentage per slice since the ring itself only has room for the biggest.
+export function donutChart(el, slices) {
+  const size = 148, cx = size / 2, cy = size / 2, r = 54, sw = 20;
+  const circumference = 2 * Math.PI * r;
+  const total = slices.reduce((s, x) => s + Math.max(x.value, 0), 0);
+  const pct = v => total > 0 ? Math.round(v / total * 100) : 0;
+  let acc = 0;
+  const rings = total <= 0
+    ? `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--line)" stroke-width="${sw}"/>`
+    : slices.filter(s => s.value > 0).map(s => {
+        const dash = s.value / total * circumference;
+        const el = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${sw}"
+          stroke-dasharray="${dash} ${circumference - dash}" stroke-dashoffset="${-acc}"
+          transform="rotate(-90 ${cx} ${cy})"><title>${esc(s.name)}: ${pct(s.value)}%</title></circle>`;
+        acc += dash; return el;
+      }).join('');
+  const legend = slices.map(s =>
+    `<span class="lg-item"><i class="lg-dot" style="background:${s.color}"></i>${esc(s.name)} <b>${pct(s.value)}%</b></span>`).join('');
+  el.innerHTML = `<svg class="chart" viewBox="0 0 ${size} ${size}" style="max-width:${size}px;margin:0 auto;display:block">${rings}</svg>
+    <div class="chart-legend" style="justify-content:center;border-top:none;background:none;padding:10px 0 0">${legend}</div>`;
+}

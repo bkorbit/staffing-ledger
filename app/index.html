@@ -2,13 +2,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EMG — Home</title><link rel="stylesheet" href="./assets/style.css?v=edf19d4"></head><body>
 <script type="module">
-import { boot, esc } from './assets/shell.js?v=edf19d4';
+import { boot, esc, fetchAll, barChart, bandChart, donutChart } from './assets/shell.js?v=edf19d4';
 
-// Bottom-up: actual hours x each staff member's own resolved cost rate,
-// joined against the SAME rev_proj forecast.html already reads (via
-// forecast_page) — this page and Forecast must never disagree about what
-// counts as revenue, only about what "cost" means (hours here, QBO COGS
-// there). See db/031_hours_page.sql.
+// The Hour-tracking Dashboard, back on Home after a stint as a plain table —
+// bottom-up from actual hours (time_entries) x each staff member's own
+// resolved comp rate, joined against forecast_page()'s own rev_proj for
+// revenue attribution, same as Team Hours/Client Profitability/Project Hours.
+// See db/031_hours_page.sql. "Planned" hours stay out of every chart/KPI
+// here on purpose — assignments has no entry mechanism yet (db/034), so a
+// plan-vs-actual comparison would be comparing actuals against a permanent
+// zero. Capacity (comp_periods.weekly_capacity) is real and stands in for it.
 const fmtHours = h => (+h || 0).toLocaleString(undefined, { maximumFractionDigits: 1 });
 const fmt$0 = c => (c < 0 ? '-$' : '$') + Math.abs(Math.round((c || 0) / 100)).toLocaleString();
 
@@ -20,34 +23,102 @@ const endOfMonth = m => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
   return iso(new Date(Date.UTC(y, mm, 0))); };
 const mLabel = s => new Date(s + 'T00:00:00Z')
   .toLocaleDateString(undefined, { month: 'short', year: '2-digit', timeZone: 'UTC' });
+const monthsBetween = (from, to) => { const out = []; let m = from, guard = 0;
+  while (m <= to && guard < 60) { out.push(m); m = shiftM(m, 1); guard++; } return out; };
+const addDays = (s, n) => { const d = new Date(s + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return iso(d); };
+const weekStart = s => { const d = new Date(s + 'T00:00:00Z'); const day = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() + (day === 0 ? -6 : 1) - day); return iso(d); };
+const wLabel = s => new Date(s + 'T00:00:00Z')
+  .toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
 boot('home', async (supa, el) => {
   const thisMonth = monthOf(iso(new Date()));
   let rangeFrom = shiftM(thisMonth, -2), rangeTo = thisMonth;
   const openClients = new Set();
+  let deptQuery = '', dealQuery = '';
 
-  el.innerHTML = `<div class="sc-panel" id="panel">loading…</div>`;
+  el.innerHTML = `<div class="range"><div class="range-wrap" style="position:relative">
+      <button class="ghost" id="range-trigger" style="min-width:170px"></button>
+    </div></div>
+    <div id="panel">loading…</div>`;
+
+  // ---- range popover: click-to-open instead of two permanently-visible
+  // date-input boxes sitting on the page — same pattern as Team's row-edit
+  // popover (.editpop), not a new one invented for this page.
+  const pop = document.createElement('div');
+  pop.className = 'editpop';
+  pop.hidden = true;
+  pop.innerHTML = `
+    <div class="editpop-body">
+      <div class="editorbar" style="padding:0 14px;margin-top:14px">
+        <button class="ghost rp-preset" data-n="0">This month</button>
+        <button class="ghost rp-preset" data-n="-2">Last 3 months</button>
+        <button class="ghost rp-preset" data-n="-5">Last 6 months</button>
+        <button class="ghost rp-preset" data-n="-11">Last 12 months</button>
+      </div>
+      <div class="setrow"><span class="setlabel">From</span><input class="rp-from" type="month"></div>
+      <div class="setrow"><span class="setlabel">To</span><input class="rp-to" type="month"></div>
+    </div>
+    <div class="editpop-foot"><button class="primary rp-done">Done</button></div>`;
+  document.body.appendChild(pop);
+
+  const trigger = document.getElementById('range-trigger');
+  const onOutsideClick = e => { if (!pop.contains(e.target) && e.target !== trigger) closePop(); };
+  const onKey = e => { if (e.key === 'Escape') closePop(); };
+  function closePop() {
+    pop.hidden = true;
+    document.removeEventListener('mousedown', onOutsideClick, true);
+    document.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('scroll', closePop, true);
+  }
+  function openPop() {
+    pop.querySelector('.rp-from').value = rangeFrom.slice(0, 7);
+    pop.querySelector('.rp-to').value = rangeTo.slice(0, 7);
+    pop.hidden = false;
+    const r = trigger.getBoundingClientRect();
+    const top = Math.max(8, Math.min(r.bottom + 6, window.innerHeight - pop.offsetHeight - 8));
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - pop.offsetWidth - 8));
+    pop.style.top = top + 'px'; pop.style.left = left + 'px';
+    document.addEventListener('mousedown', onOutsideClick, true);
+    document.addEventListener('keydown', onKey, true);
+    window.addEventListener('scroll', closePop, true);
+  }
+  const setTriggerLabel = () => { trigger.textContent = `${mLabel(rangeFrom)} – ${mLabel(rangeTo)} ▾`; };
+  trigger.onclick = () => pop.hidden ? openPop() : closePop();
+  pop.querySelector('.rp-from').onchange = e => { rangeFrom = monthOf(e.target.value); setTriggerLabel(); load(); };
+  pop.querySelector('.rp-to').onchange = e => { rangeTo = monthOf(e.target.value); setTriggerLabel(); load(); };
+  pop.querySelectorAll('.rp-preset').forEach(btn => btn.onclick = () => {
+    rangeFrom = shiftM(thisMonth, +btn.dataset.n); rangeTo = thisMonth;
+    pop.querySelector('.rp-from').value = rangeFrom.slice(0, 7);
+    pop.querySelector('.rp-to').value = rangeTo.slice(0, 7);
+    setTriggerLabel(); load();
+  });
+  pop.querySelector('.rp-done').onclick = closePop;
+  setTriggerLabel();
 
   async function load() {
-    const [hp, fp, dl, cl] = await Promise.all([
+    const panel = document.getElementById('panel');
+    const [hp, fp, dl, cl, te] = await Promise.all([
       supa.rpc('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) }),
       supa.rpc('forecast_page', { p_from: rangeFrom, p_to: rangeTo }),
       supa.from('deals').select('id,name,client_id,qbo_project_id'),
-      supa.from('clients').select('id,name')
+      supa.from('clients').select('id,name'),
+      fetchAll(() => supa.from('time_entries').select('worked_on,deal_id,hours')
+        .gte('worked_on', rangeFrom).lte('worked_on', endOfMonth(rangeTo)).not('deal_id', 'is', null))
     ]);
-    for (const r of [hp, fp, dl, cl]) if (r.error) {
-      el.innerHTML = `<div class="sc-panel err">${esc(r.error.message)}</div>`; return;
+    for (const r of [hp, fp, dl, cl, te]) if (r.error) {
+      panel.innerHTML = `<div class="sc-panel err">${esc(r.error.message)}</div>`; return;
     }
     const H = hp.data || {}, P = fp.data || {};
     const dealsById = {}; (dl.data || []).forEach(d => dealsById[d.id] = d);
     const clientsById = {}; (cl.data || []).forEach(c => clientsById[c.id] = c);
-    const revByProj = {}; (P.rev_proj || []).forEach(r => revByProj[r.qbo_project_id] = r.total);
+    const revByProj = {}; (P.rev_proj || []).forEach(r => revByProj[r.qbo_project_id] = +r.total);
+    const revByMonth = {}; (P.rev_month || []).forEach(r => revByMonth[r.month] = +r.total);
     const laborByDeal = {}; (H.deal_labor || []).forEach(r => laborByDeal[r.deal_id] = r);
-    const plannedByDeal = {}; (H.deal_planned || []).forEach(r => plannedByDeal[r.deal_id] = +r.planned_hours);
 
-    // one row per deal that has EITHER actual labor hours or a claimed QBO
-    // project (so a deal with revenue but zero hours still shows, flagging
-    // that its labor was never logged against it)
+    // ---- client / deal rows: one per deal with either actual labor hours or
+    // a claimed QBO project, so a deal with revenue but zero logged hours
+    // still counts toward its client instead of silently disappearing
     const dealRows = Object.keys(laborByDeal)
       .concat(Object.values(dealsById).filter(d => d.qbo_project_id).map(d => d.id))
       .filter((id, i, a) => a.indexOf(id) === i)
@@ -55,11 +126,8 @@ boot('home', async (supa, el) => {
         const deal = dealsById[id]; if (!deal) return null;
         const labor = laborByDeal[id] || { hours: 0, cost: 0 };
         const revenue = deal.qbo_project_id ? (revByProj[deal.qbo_project_id] || 0) : 0;
-        return {
-          dealId: id, name: deal.name, clientId: deal.client_id,
-          hours: +labor.hours, cost: +labor.cost, planned: plannedByDeal[id] || 0,
-          revenue, profit: revenue - (+labor.cost)
-        };
+        return { dealId: id, name: deal.name, clientId: deal.client_id,
+          hours: +labor.hours, cost: +labor.cost, revenue, profit: revenue - (+labor.cost) };
       }).filter(Boolean);
 
     const byClient = {};
@@ -69,60 +137,231 @@ boot('home', async (supa, el) => {
       deals: deals.sort((a, b) => b.revenue - a.revenue),
       hours: deals.reduce((s, d) => s + d.hours, 0),
       cost: deals.reduce((s, d) => s + d.cost, 0),
-      planned: deals.reduce((s, d) => s + d.planned, 0),
       revenue: deals.reduce((s, d) => s + d.revenue, 0),
       profit: deals.reduce((s, d) => s + d.profit, 0)
     })).sort((a, b) => b.revenue - a.revenue);
 
     const totalHours = clientRows.reduce((s, c) => s + c.hours, 0);
-    const totalPlanned = clientRows.reduce((s, c) => s + c.planned, 0);
     const totalCost = clientRows.reduce((s, c) => s + c.cost, 0);
     const totalRevenue = clientRows.reduce((s, c) => s + c.revenue, 0);
     const totalProfit = totalRevenue - totalCost;
+    const clientsAtRisk = clientRows.filter(c => c.profit < 0).length;
 
-    el.querySelector('#panel').innerHTML = `
-      <div class="range">
-        <span class="rl">Range</span>
-        <input type="month" id="r-from" aria-label="Range from" value="${rangeFrom.slice(0,7)}">
-        <span class="muted">→</span>
-        <input type="month" id="r-to" aria-label="Range to" value="${rangeTo.slice(0,7)}">
-      </div>
-      <div class="summary-strip">
-        <div class="summary-cell"><div class="summary-label">Revenue</div>
-          <div class="summary-value">${fmt$0(totalRevenue)}</div></div>
-        <div class="summary-cell"><div class="summary-label">Labor cost</div>
-          <div class="summary-value">${fmt$0(totalCost)}</div></div>
-        <div class="summary-cell"><div class="summary-label">Profit (hours-based)</div>
-          <div class="summary-value ${totalProfit<0?'neg':'pos'}">${fmt$0(totalProfit)}</div></div>
-        <div class="summary-cell"><div class="summary-label">Hours (actual vs planned)</div>
-          <div class="summary-value">${fmtHours(totalHours)}<span class="muted" style="font-size:11px"> / ${fmtHours(totalPlanned)}</span></div>
-          <div class="summary-note">${mLabel(rangeFrom)}–${mLabel(rangeTo)} · revenue is measured-to-date, same number Forecast shows</div></div>
-      </div>
-      <div class="sc-panel" style="padding:0">
-        <table><tr><th>client / deal</th><th>hours</th><th>planned</th><th>labor cost</th><th>revenue</th><th>profit</th></tr>
-          ${clientRows.map(c => {
-            const open = openClients.has(c.clientId);
-            return `<tr class="clientrow" data-cid="${c.clientId}" style="cursor:pointer;font-weight:600;background:var(--client-row-tint,#fafaf8)">
-                <td class="textleft">${open?'▾':'▸'} ${esc(c.name)}</td>
-                <td>${fmtHours(c.hours)}</td><td class="muted">${fmtHours(c.planned)}</td>
-                <td>${fmt$0(c.cost)}</td><td>${fmt$0(c.revenue)}</td>
-                <td class="${c.profit<0?'err':'ok'}">${fmt$0(c.profit)}</td></tr>
-              ${open ? c.deals.map(d => `<tr>
-                  <td class="textleft" style="padding-left:26px">${esc(d.name)}</td>
-                  <td>${fmtHours(d.hours)}</td><td class="muted">${fmtHours(d.planned)}</td>
-                  <td>${fmt$0(d.cost)}</td><td>${fmt$0(d.revenue)}</td>
-                  <td class="${d.profit<0?'err':'ok'}">${fmt$0(d.profit)}</td></tr>`).join('') : ''}`;
-          }).join('')}
-        </table>
-      </div>`;
-
-    el.querySelector('#r-from').onchange = e => { rangeFrom = monthOf(e.target.value); load(); };
-    el.querySelector('#r-to').onchange = e => { rangeTo = monthOf(e.target.value); load(); };
-    el.querySelectorAll('tr.clientrow').forEach(tr => tr.onclick = () => {
-      const cid = tr.dataset.cid;
-      openClients.has(cid) ? openClients.delete(cid) : openClients.add(cid);
-      load();
+    // ---- per-staff derived numbers: department rollup + time allocation +
+    // revenue attribution, same technique Team Hours uses — a deal's revenue
+    // splits across whoever logged hours on it, proportional to their hours
+    const revPerHourByDeal = {};
+    (H.deal_labor || []).forEach(r => {
+      const deal = dealsById[r.deal_id];
+      const rev = deal && deal.qbo_project_id ? (revByProj[deal.qbo_project_id] || 0) : 0;
+      if (+r.hours > 0 && rev) revPerHourByDeal[r.deal_id] = rev / +r.hours;
     });
+    const compByStaff = {}; (H.comp_current || []).forEach(c => compByStaff[c.staff_id] = c);
+    const hoursByStaff = {};
+    (H.staff_hours_month || []).forEach(r => {
+      const s = hoursByStaff[r.staff_id] = hoursByStaff[r.staff_id] || { hours: 0, cost: 0 };
+      s.hours += +r.hours; s.cost += +r.cost;
+    });
+    const dealHoursByStaff = {};
+    (H.staff_hours_deal || []).forEach(r => (dealHoursByStaff[r.staff_id] = dealHoursByStaff[r.staff_id] || []).push(r));
+
+    const daysInRange = (new Date(endOfMonth(rangeTo)) - new Date(rangeFrom)) / 86400000 + 1;
+    const weeksInRange = daysInRange / 7;
+    const ptoByStaff = {};
+    (H.time_off || []).forEach(o => {
+      const s0 = new Date(o.starts_on < rangeFrom ? rangeFrom : o.starts_on);
+      const e0 = new Date(o.ends_on > endOfMonth(rangeTo) ? endOfMonth(rangeTo) : o.ends_on);
+      const overlapDays = (e0 - s0) / 86400000 + 1;
+      if (overlapDays <= 0) return;
+      const totalDays = (new Date(o.ends_on) - new Date(o.starts_on)) / 86400000 + 1;
+      ptoByStaff[o.staff_id] = (ptoByStaff[o.staff_id] || 0) + (+o.hours * (overlapDays / totalDays));
+    });
+
+    // stale roster entries (no logged hours since the current import cutoff)
+    // stay out of capacity/department math the same way Team Hours hides them
+    const activeStaff = (H.staff || []).filter(s => s.active && s.has_recent_hours);
+    const staffRows = activeStaff.map(s => {
+      const comp = compByStaff[s.id];
+      const hc = hoursByStaff[s.id] || { hours: 0, cost: 0 };
+      const cap = comp ? comp.weekly_capacity * weeksInRange : 0;
+      const ptoHours = ptoByStaff[s.id] || 0;
+      const deals = dealHoursByStaff[s.id] || [];
+      const clientHours = deals.reduce((s2, d) => s2 + +d.hours, 0);
+      const internalHours = Math.max(hc.hours - clientHours, 0);
+      let attributed = 0;
+      deals.forEach(d => { const rph = revPerHourByDeal[d.deal_id]; if (rph) attributed += +d.hours * rph; });
+      return { dept: s.department || '(none)', cap, ptoHours, clientHours, internalHours,
+        cost: hc.cost, attributed };
+    });
+
+    const byDept = {};
+    staffRows.forEach(r => {
+      const d = byDept[r.dept] = byDept[r.dept] ||
+        { dept: r.dept, members: 0, capacity: 0, client: 0, internal: 0, off: 0, cost: 0, revenue: 0 };
+      d.members++; d.capacity += r.cap; d.client += r.clientHours; d.internal += r.internalHours;
+      d.off += r.ptoHours; d.cost += r.cost; d.revenue += r.attributed;
+    });
+    const allDeptRows = Object.values(byDept).map(d => ({ ...d, profit: d.revenue - d.cost,
+      unused: Math.max(d.capacity - (d.client + d.internal + d.off), 0) }))
+      .sort((a, b) => b.capacity - a.capacity);
+    const totalCapacity = allDeptRows.reduce((s, d) => s + d.capacity, 0);
+
+    const totClient = staffRows.reduce((s, r) => s + r.clientHours, 0);
+    const totInternal = staffRows.reduce((s, r) => s + r.internalHours, 0);
+    const totOff = staffRows.reduce((s, r) => s + r.ptoHours, 0);
+    const totUnused = Math.max(totalCapacity - (totClient + totInternal + totOff), 0);
+
+    // ---- trend: revenue (netted, forecast_page's own rev_month) & labor
+    // cost, one point per month across the range
+    const months = monthsBetween(rangeFrom, rangeTo);
+    const costByMonth = {};
+    (H.staff_hours_month || []).forEach(r => { costByMonth[r.month] = (costByMonth[r.month] || 0) + +r.cost; });
+
+    // ---- weekly hours by project: top 4 deals by logged hours + everyone else
+    const teRows = te.data || [];
+    const hoursByWeekDeal = {}, weekTotalAll = {}, dealTotals = {};
+    teRows.forEach(r => {
+      const wk = weekStart(r.worked_on), key = wk + '|' + r.deal_id;
+      hoursByWeekDeal[key] = (hoursByWeekDeal[key] || 0) + +r.hours;
+      weekTotalAll[wk] = (weekTotalAll[wk] || 0) + +r.hours;
+      dealTotals[r.deal_id] = (dealTotals[r.deal_id] || 0) + +r.hours;
+    });
+    const topDealIds = Object.entries(dealTotals).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([id]) => id);
+    const weeks = []; { let w = weekStart(rangeFrom); const last = weekStart(endOfMonth(rangeTo)); let guard = 0;
+      while (w <= last && guard < 60) { weeks.push(w); w = addDays(w, 7); guard++; } }
+    const weekColors = ['var(--brand)', 'var(--brand-2)', '#19a789', '#3bc9ac'];
+    const weekSeries = topDealIds.map((id, i) => ({
+      name: (dealsById[id] || {}).name || '(untitled)', color: weekColors[i],
+      values: weeks.map(wk => hoursByWeekDeal[wk + '|' + id] || 0)
+    }));
+    const restValues = weeks.map(wk => {
+      const topSum = topDealIds.reduce((s, id) => s + (hoursByWeekDeal[wk + '|' + id] || 0), 0);
+      return Math.max((weekTotalAll[wk] || 0) - topSum, 0);
+    });
+    if (restValues.some(v => v > 0)) weekSeries.push({ name: 'everyone else', color: 'var(--slate)', values: restValues });
+
+    function renderAll() {
+      const dq = deptQuery.trim().toLowerCase();
+      const deptRows = !dq ? allDeptRows : allDeptRows.filter(d => d.dept.toLowerCase().includes(dq));
+      const bq = dealQuery.trim().toLowerCase();
+      const shownClients = !bq ? clientRows : clientRows.filter(c =>
+        c.name.toLowerCase().includes(bq) || c.deals.some(d => d.name.toLowerCase().includes(bq)));
+
+      panel.innerHTML = `
+        <div class="summary-strip">
+          <div class="summary-cell"><div class="summary-label">Revenue</div>
+            <div class="summary-value">${fmt$0(totalRevenue)}</div></div>
+          <div class="summary-cell"><div class="summary-label">Labor cost</div>
+            <div class="summary-value">${fmt$0(totalCost)}</div></div>
+          <div class="summary-cell"><div class="summary-label">Profit (hours-based)</div>
+            <div class="summary-value ${totalProfit < 0 ? 'neg' : 'pos'}">${fmt$0(totalProfit)}</div></div>
+          <div class="summary-cell"><div class="summary-label">Hours logged</div>
+            <div class="summary-value">${fmtHours(totalHours)}</div>
+            <div class="summary-note">of ${fmtHours(totalCapacity)}h capacity</div></div>
+          <div class="summary-cell"><div class="summary-label">Clients at risk</div>
+            <div class="summary-value ${clientsAtRisk > 0 ? 'neg' : 'pos'}">${clientsAtRisk} / ${clientRows.length}</div>
+            <div class="summary-note">losing money on hours-based cost</div></div>
+        </div>
+        <div class="chart-grid">
+          <div class="sc-panel chartpanel">
+            <div style="padding:14px 18px 0"><div class="sc-eyebrow" style="margin-bottom:0">Department hours — actual</div></div>
+            <div id="chart-dept"></div>
+          </div>
+          <div class="sc-panel chartpanel">
+            <div style="padding:14px 18px 0"><div class="sc-eyebrow" style="margin-bottom:0">Revenue &amp; labor cost — trend</div></div>
+            <div id="chart-trend"></div>
+          </div>
+          <div class="sc-panel chartpanel">
+            <div style="padding:14px 18px 0"><div class="sc-eyebrow" style="margin-bottom:0">Time allocation</div></div>
+            <div class="pie-pair">
+              <div class="pie-cell"><div class="sc-eyebrow">Of hours logged</div><div id="chart-split"></div></div>
+              <div class="pie-cell"><div class="sc-eyebrow">Of total capacity</div><div id="chart-split-cap"></div></div>
+            </div>
+          </div>
+          <div class="sc-panel chartpanel">
+            <div style="padding:14px 18px 0"><div class="sc-eyebrow" style="margin-bottom:0">Hours logged by week — by project</div></div>
+            <div id="chart-weekly"></div>
+          </div>
+        </div>
+        <div class="sc-panel" style="padding:0">
+          <div class="tbltools"><input id="q-dept" placeholder="search department…" value="${esc(deptQuery)}" style="width:220px"></div>
+          <table class="ledger"><tr><th>department</th><th>headcount</th><th>capacity</th><th>hours</th><th>labor cost</th><th>profit</th></tr>
+            ${!deptRows.length ? `<tr><td colspan="6" class="empty-note">No departments match.</td></tr>` : deptRows.map(d => {
+              const segPct = h => d.capacity > 0 ? Math.min(h / d.capacity * 100, 100) : 0;
+              return `<tr class="${d.profit < 0 ? 'risk-row' : ''}">
+                  <td class="textleft">${esc(d.dept)}</td>
+                  <td>${d.members}</td>
+                  <td>${fmtHours(d.capacity)}</td>
+                  <td>${fmtHours(d.client + d.internal + d.off)}
+                    <div class="mini-track split">
+                      <div class="seg seg-client" style="width:${segPct(d.client)}%"></div>
+                      <div class="seg seg-internal" style="width:${segPct(d.internal)}%"></div>
+                      <div class="seg seg-pto" style="width:${segPct(d.off)}%"></div>
+                    </div>
+                    <div class="delta-note flat">${fmtHours(d.client)}h client · ${fmtHours(d.internal)}h internal${d.off > 0 ? ` · ${fmtHours(d.off)}h off` : ''}</div></td>
+                  <td>${fmt$0(d.cost)}</td>
+                  <td class="${d.profit < 0 ? 'err' : 'ok'}">${fmt$0(d.profit)}</td>
+                </tr>`;
+            }).join('')}
+          </table>
+        </div>
+        <div class="sc-panel" style="padding:0">
+          <div class="tbltools"><input id="q-deal" placeholder="search client or project…" value="${esc(dealQuery)}" style="width:220px"></div>
+          <table class="ledger"><tr><th>client / project</th><th>hours</th><th>labor cost</th><th>revenue</th><th>profit</th></tr>
+            ${!shownClients.length ? `<tr><td colspan="5" class="empty-note">No clients match.</td></tr>` : shownClients.map(c => {
+              const open = openClients.has(c.clientId);
+              return `<tr class="clientrow${c.profit < 0 ? ' risk-row' : ''}" data-cid="${c.clientId}" style="cursor:pointer;font-weight:600">
+                  <td class="textleft">${open ? '▾' : '▸'} ${esc(c.name)}</td>
+                  <td>${fmtHours(c.hours)}</td>
+                  <td>${fmt$0(c.cost)}</td><td>${fmt$0(c.revenue)}</td>
+                  <td class="${c.profit < 0 ? 'err' : 'ok'}">${fmt$0(c.profit)}</td></tr>
+                ${open ? c.deals.map(d => `<tr class="${d.profit < 0 ? 'risk-row' : ''}">
+                    <td class="textleft" style="padding-left:26px">${esc(d.name)}</td>
+                    <td>${fmtHours(d.hours)}</td>
+                    <td>${fmt$0(d.cost)}</td><td>${fmt$0(d.revenue)}</td>
+                    <td class="${d.profit < 0 ? 'err' : 'ok'}">${fmt$0(d.profit)}</td></tr>`).join('') : ''}`;
+            }).join('')}
+          </table>
+        </div>`;
+
+      if (allDeptRows.length) barChart(document.getElementById('chart-dept'), allDeptRows.map(d => d.dept), [
+        { name: 'client hours', color: 'var(--brand-2)', values: allDeptRows.map(d => d.client) },
+        { name: 'internal hours', color: 'var(--brand)', values: allDeptRows.map(d => d.internal) },
+        { name: 'time off', color: 'var(--slate)', values: allDeptRows.map(d => d.off) },
+        { name: 'unused capacity', color: 'var(--line)', values: allDeptRows.map(d => d.unused) }
+      ]);
+      else document.getElementById('chart-dept').innerHTML = '<div style="padding:16px 18px" class="muted">No staff with logged hours in this range.</div>';
+
+      bandChart(document.getElementById('chart-trend'), months.map(mLabel), [
+        { name: 'revenue', color: 'var(--brand)', values: months.map(m => revByMonth[m] || 0) },
+        { name: 'labor cost', color: 'var(--slate)', values: months.map(m => costByMonth[m] || 0) }
+      ]);
+
+      donutChart(document.getElementById('chart-split'), [
+        { name: 'Client', color: 'var(--brand-2)', value: totClient },
+        { name: 'Internal', color: 'var(--brand)', value: totInternal },
+        { name: 'Time off', color: 'var(--slate)', value: totOff }
+      ]);
+      donutChart(document.getElementById('chart-split-cap'), [
+        { name: 'Client', color: 'var(--brand-2)', value: totClient },
+        { name: 'Internal', color: 'var(--brand)', value: totInternal },
+        { name: 'Time off', color: 'var(--slate)', value: totOff },
+        { name: 'Unused', color: 'var(--line)', value: totUnused }
+      ]);
+
+      if (weeks.length && weekSeries.length) barChart(document.getElementById('chart-weekly'), weeks.map(wLabel), weekSeries);
+      else document.getElementById('chart-weekly').innerHTML = '<div style="padding:16px 18px" class="muted">No hours logged against a project in this range.</div>';
+
+      document.getElementById('q-dept').oninput = e => { deptQuery = e.target.value; renderAll(); };
+      document.getElementById('q-deal').oninput = e => { dealQuery = e.target.value; renderAll(); };
+      panel.querySelectorAll('tr.clientrow').forEach(tr => tr.onclick = () => {
+        const cid = tr.dataset.cid;
+        openClients.has(cid) ? openClients.delete(cid) : openClients.add(cid);
+        renderAll();
+      });
+    }
+
+    renderAll();
   }
 
   await load();

@@ -334,6 +334,16 @@ table.acct td { font-variant-numeric: tabular-nums; }
 .qpmenu .qp-badges { flex:none; display:flex; gap:4px; }
 .qpmenu .qp-hint, .qpmenu .qp-empty { padding:8px 10px; color:var(--slate); font-size:10.5px; font-family:var(--font-mono); }
 
+/* ---- Home dashboard: a multi-chart grid and a time-allocation donut pair.
+   .chart-grid holds several .sc-panel.chartpanel cards side by side (Laptop
+   Discipline Rule: wraps to one column rather than forcing horizontal
+   scroll). .pie-pair sits two donutChart() calls side by side inside one
+   chartpanel, same padding rhythm as everywhere else (18px horizontal). */
+.chart-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(420px,1fr)); gap:12px; margin-bottom:14px; }
+.chart-grid > .sc-panel { min-width:0; margin-bottom:0; }
+.pie-pair { display:flex; gap:20px; flex-wrap:wrap; justify-content:center; padding:6px 18px 16px; }
+.pie-cell { flex:1 1 160px; min-width:150px; text-align:center; }
+
 /* ---- row-edit popover (Team): an explicitly-opened editing surface,
    positioned like the qbpicker menu above but anchored via JS to a trigger
    button's own rect (position:fixed) instead of a relatively-positioned
