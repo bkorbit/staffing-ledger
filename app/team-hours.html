@@ -170,6 +170,10 @@ boot('teamhours', async (supa, el) => {
       const clientHours = deals2.reduce((s2, d) => s2 + +d.hours, 0);
       const internalHours = Math.max(hc.hours - clientHours, 0);
       const ptoHours = ptoByStaff[s.id] || 0;
+      // The capacity column's headline figure: everything that counts against
+      // capacity — client work, internal work, AND time off — not just hours
+      // actually worked. Same total the utilization bar already scales by.
+      const totalLoggedHours = clientHours + internalHours + ptoHours;
       const assignedHours = plannedByStaff[s.id] || 0;
       let attributed = 0;
       deals2.forEach(d => { const rph = revPerHourByDeal[d.deal_id]; if (rph) attributed += +d.hours * rph; });
@@ -182,7 +186,7 @@ boot('teamhours', async (supa, el) => {
         const planned = plannedByStaffDeal[`${s.id}|${d.deal_id}`] || 0;
         return { name: deal ? deal.name : '(unknown deal)', client: client ? client.name : '(no client)', hours: +d.hours, planned };
       }).sort((a, b) => b.hours - a.hours);
-      return { s, hc, cap, clientHours, internalHours, ptoHours, assignedHours, profit, assignments };
+      return { s, hc, cap, clientHours, internalHours, ptoHours, totalLoggedHours, assignedHours, profit, assignments };
     });
 
     // Auto-hide anyone with no logged hours since the current QB Time import
@@ -229,9 +233,9 @@ boot('teamhours', async (supa, el) => {
           </label>
         </div>
         <table class="ledger" style="table-layout:fixed">
-          <colgroup><col style="width:20%"><col style="width:6%">
-            <col style="width:23%"><col style="width:22%"><col style="width:22%"><col style="width:7%"></colgroup>
-          <tr><th>name</th><th>capacity</th><th class="textleft">utilization</th><th class="textleft">pacing (assigned)</th><th class="textleft">plan vs. logged</th><th>profit</th></tr>
+          <colgroup><col style="width:20%"><col style="width:9%">
+            <col style="width:22%"><col style="width:21%"><col style="width:21%"><col style="width:7%"></colgroup>
+          <tr><th>name</th><th>logged / cap</th><th class="textleft">utilization</th><th class="textleft">pacing (assigned)</th><th class="textleft">plan vs. logged</th><th>profit</th></tr>
           ${!rows.length ? `<tr><td colspan="6" class="empty-note">No people match the current filters.</td></tr>` : rows.map(r => {
             // Utilization: client + internal + time-off, all against capacity.
             const util = utilizationBar(r.cap, r.internalHours, r.ptoHours, r.clientHours);
@@ -252,7 +256,7 @@ boot('teamhours', async (supa, el) => {
                     ${util.overBy > 0.05 ? `<span class="pill bad" title="+${fmtHours(util.overBy)}h over capacity">over capacity</span>` : ''}
                   </div>
                 </td>
-                <td>${fmtHours(r.cap)}h</td>
+                <td title="${fmtHours(r.totalLoggedHours)}h logged (client + internal + PTO) of ${fmtHours(r.cap)}h capacity">${fmtHours(r.totalLoggedHours)}/${fmtHours(r.cap)}h</td>
                 <td class="textleft">
                   <div class="mini-track split wide">${util.html}</div>
                   <div class="delta-note flat barcap">${fmtHours(r.clientHours)}h client · ${fmtHours(r.internalHours)}h int · ${fmtHours(r.ptoHours)}h PTO / ${fmtHours(r.cap)}h cap</div>
