@@ -132,10 +132,19 @@ input.p { width:64px; height:28px; text-align:right; }
   { -webkit-appearance:none; margin:0; }
 .total-match { color:var(--brand-2); font-weight:600; font-family:var(--font-mono); }
 .total-off { color:var(--amber); font-weight:600; font-family:var(--font-mono); }
-.toolbar { display:flex; gap:10px; align-items:center; margin:0 0 16px; flex-wrap:wrap; }
+/* every bare toolbar/range row shares .sc-panel's own 18px horizontal inset
+   (padding:16px 18px) so a borderless control row's leftmost control lines
+   up with the bordered panels' inner content below it, and the same 22px
+   bottom margin as .summary-strip so the vertical rhythm reads as one
+   consistent gap everywhere, not a different one per row */
+.toolbar { display:flex; gap:10px; align-items:center; margin:0 0 22px; padding:0 18px; flex-wrap:wrap; }
 /* base control-row pattern; forecast.html and sales.html layer page-specific
    overrides in their own <style> blocks, which win on source order */
-.range { display:flex; align-items:center; gap:9px; flex-wrap:wrap; margin-bottom:12px; }
+.range { display:flex; align-items:center; gap:9px; flex-wrap:wrap; margin-bottom:22px; padding:0 18px; }
+/* a bare button sitting inline with input/select siblings (both 34px, see
+   above) should match their height instead of falling back to its own
+   smaller padding-derived height — the mismatch reads as misaligned rows */
+.range button, .toolbar button { height:34px; display:inline-flex; align-items:center; }
 .rl { font-family:var(--font-mono); font-size:9px; text-transform:uppercase; letter-spacing:.09em; color:var(--slate); }
 @media (max-width:760px){ .layout{flex-direction:column;} nav.side{width:100%;height:auto;position:static;} }
 
