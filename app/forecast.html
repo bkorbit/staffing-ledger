@@ -855,6 +855,10 @@ boot('forecast', async (supa, el) => {
           ? `<div class="cardnote">margin blank = default ${marginDefault}%${achieved!==null
               ? ` · client achieved <b>${achieved}%</b> <button class="use-achieved-one" data-li="${li}">use</button>` : ''}</div>`
           : '';
+        // a tag right on the card, not just buried in the callout sentence —
+        // updated live in preview() as margin%/fee% change
+        const marginTag = l.kind==='programmatic'
+          ? `<span class="pill margintag" data-li="${li}" title="expected margin: margin % (default when blank) plus this line's fee %"></span>` : '';
         // the total box (budget kinds & hourly get a spreadable total)
         const useTotal = isBudgetL(l) || isHourlyL(l);
         const curTotal = openM.reduce((s,m)=>s+(+l.cells[m]||0),0);
@@ -867,7 +871,7 @@ boot('forecast', async (supa, el) => {
             <input class="cell" type="number" step="any" inputmode="decimal" data-li="${li}" data-m="${m}" value="${l.cells[m] ?? ''}"></label>`).join('');
         return `<div class="linecard" data-li="${li}">
           <div class="cardhead">
-            <span class="kbadge">${kindLabelOf(l)}</span>${structSel}${fundSel}
+            <span class="kbadge">${kindLabelOf(l)}</span>${structSel}${fundSel}${marginTag}
             <span style="flex:1"></span>
             <span class="lgp" data-li="${li}"></span>
             <button class="danger delline" data-li="${li}" title="remove line">✕</button>
@@ -1076,6 +1080,11 @@ boot('forecast', async (supa, el) => {
           // card title GP + the greyed callout under the entry box
           const lg = box.querySelector(`.lgp[data-li="${li}"]`);
           if (lg) lg.textContent = lt ? `line GP $${fmtN(lt)}` : '';
+          const mt = box.querySelector(`.margintag[data-li="${li}"]`);
+          if (mt) {
+            const mgn = l.params.margin_pct ?? marginDefault;
+            mt.textContent = `${(mgn + (l.params.fee_pct||0)).toFixed(1)}% margin`;
+          }
           const co = box.querySelector(`.gpcallout[data-li="${li}"]`);
           if (co) {
             const lrev = fm.reduce((s,m)=>s+revMonth(l,m,l.media_funding,flight),0);
