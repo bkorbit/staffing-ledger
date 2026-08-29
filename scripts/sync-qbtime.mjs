@@ -14,11 +14,21 @@
 // Attribution: QuickBooks Time's jobcodes are two levels — a parent (the
 // overarching customer) and a child (the sub-customer / project). The child
 // jobcode's own name is expected to carry the same embedded code QuickBooks
-// Online project names do ('26hawt260810' — see jobcodeFromName below), which is
-// also the code already stamped onto deals.jobcode by sync-qbo.mjs/sync-hubspot.mjs.
-// Matching tries the child level first, then falls back to the parent level, then
-// falls back to the internal/time-off name lists for anything that still isn't a
-// real client jobcode.
+// Online project names do ('26hawt260810' — see jobcodeFromName below). Matching
+// tries the child level first, then falls back to the parent level, then falls
+// back to the internal/time-off name lists for anything that still isn't a real
+// client jobcode.
+//
+// That code is looked up against qbo_projects.jobcode, NOT deals.jobcode — QBO
+// data is project-based (a customer's actual sub-customer/"project" is what
+// carries invoices, bills, and the jobcode), and deals.jobcode is only a partial,
+// human-data-entry-dependent mirror of it (backfilled at promotion time from
+// HubSpot's job_code field, or left null). The real deal <-> project claim is
+// deals.qbo_project_id, set by match_deals_to_projects() (db/010) — which also
+// matches some deals via an exact QB-link id with no jobcode involved at all.
+// Going straight to deals.jobcode would silently under-match every deal claimed
+// via that QB-link rung, or any deal whose jobcode was never backfilled, even
+// though its QBO project is already correctly claimed.
 //
 // Env: QBTIME_TOKEN, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 // State: sync_state where id='qbtime' — import_from, last_run_at, last_run_log.
@@ -83,6 +93,10 @@ export function jobcodeFromName(name) {
 // where its hours belong. Pure and exported so adversarial fixtures can pin
 // down the priority order without a live QuickBooks Time connection: type
 // beats name, child beats parent, a real jobcode beats the internal bucket.
+// `dealByJobcode` maps a lowercased jobcode to the deal that CLAIMS the QBO
+// project carrying it (see the join built in main()) — matching is
+// case-insensitive to agree with match_deals_to_projects()'s own
+// `lower(q.jobcode) = lower(d.jobcode)` equality.
 export function classifyEntry(e, dealByJobcode) {
   const lowerChild = (e.childName || '').toLowerCase(), lowerParent = (e.parentName || '').toLowerCase();
   const childIsTimeoffType = !!(e.childType && TIMEOFF_JOBCODE_TYPES.has(e.childType));
@@ -97,7 +111,7 @@ export function classifyEntry(e, dealByJobcode) {
   if (!INTERNAL_NAMES.includes(lowerChild) && !INTERNAL_NAMES.includes(lowerParent)) {
     const code = jobcodeFromName(e.childName) || jobcodeFromName(e.parentName);
     if (code) {
-      const deal = dealByJobcode.get(code);
+      const deal = dealByJobcode.get(code.toLowerCase());
       if (deal) return { type: 'billable', dealId: deal.id, clientId: deal.client_id };
       return { type: 'unmatched', code };
     }
@@ -325,17 +339,28 @@ async function main() {
       .filter(s => s.qbtime_user_id).map(s => [s.qbtime_user_id, s])
   );
 
-  // ---- deals: the jobcode -> deal_id -> client_id lookup ----
-  // Only won/active deals receive new actual hours — a pipeline, closed, or lost
+  // ---- jobcode -> qbo_project_id -> deal_id -> client_id lookup ----
+  // qbo_projects.jobcode is the source of truth (parsed off every QBO project's
+  // name — see sync-qbo.mjs); deals.jobcode is only a partial mirror of it, so
+  // this goes through the real claim, deals.qbo_project_id, instead. Only
+  // won/active deals receive new actual hours — a pipeline, closed, or lost
   // deal shouldn't accumulate logged time against it going forward.
-  const deals = await sbGet(`deals?jobcode=not.is.null&status=in.(won,active)&select=id,client_id,jobcode`);
-  const dealByJobcode = new Map();
-  for (const d of deals) {
-    if (dealByJobcode.has(d.jobcode)) {
-      console.log(`  ⚠ jobcode '${d.jobcode}' matches more than one active deal — keeping the first, check deals.jobcode for a duplicate.`);
+  const projects = await sbGet(`qbo_projects?jobcode=not.is.null&select=id,jobcode`);
+  const projectIdByJobcode = new Map();
+  for (const p of projects) {
+    const code = p.jobcode.toLowerCase();
+    if (projectIdByJobcode.has(code)) {
+      console.log(`  ⚠ jobcode '${p.jobcode}' matches more than one QuickBooks project — keeping the first, check qbo_projects.jobcode for a duplicate.`);
       continue;
     }
-    dealByJobcode.set(d.jobcode, d);
+    projectIdByJobcode.set(code, p.id);
+  }
+  const deals = await sbGet(`deals?qbo_project_id=not.is.null&status=in.(won,active)&select=id,client_id,qbo_project_id`);
+  const dealByProjectId = new Map(deals.map(d => [d.qbo_project_id, d]));
+  const dealByJobcode = new Map();
+  for (const [code, projectId] of projectIdByJobcode) {
+    const deal = dealByProjectId.get(projectId);
+    if (deal) dealByJobcode.set(code, deal);
   }
 
   // ---- classify + aggregate to one row per staff+deal(or bucket)+day ----
@@ -365,7 +390,7 @@ async function main() {
   }
 
   if (unmatchedJobcodes.size) {
-    console.log(`  ⚠ ${unmatchedJobcodes.size} jobcode(s) looked like a real project code but matched no won/active deal:`);
+    console.log(`  ⚠ ${unmatchedJobcodes.size} jobcode(s) looked like a real project code but matched no won/active deal's claimed QBO project:`);
     [...unmatchedJobcodes.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20)
       .forEach(([code, hrs]) => console.log(`      ${code}: ${hrs.toFixed(2)}h`));
   }
