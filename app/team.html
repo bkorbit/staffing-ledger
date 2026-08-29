@@ -1,8 +1,8 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Team</title><link rel="stylesheet" href="./assets/style.css?v=c92780f"></head><body>
+<title>EMG — Team</title><link rel="stylesheet" href="./assets/style.css?v=89cf765"></head><body>
 <script type="module">
-import { boot, esc, barChart } from './assets/shell.js?v=c92780f';
+import { boot, esc, barChart } from './assets/shell.js?v=89cf765';
 
 // Money in comp_periods is BIGINT cents, same convention as everywhere else —
 // this page is the one place a human types dollars, so the two conversions
@@ -10,7 +10,7 @@ import { boot, esc, barChart } from './assets/shell.js?v=c92780f';
 const toCents = dollars => Math.round((+dollars || 0) * 100);
 const fromCents = cents => ((cents || 0) / 100).toFixed(2);
 const fmtHours = h => (+h || 0).toLocaleString(undefined, { maximumFractionDigits: 1 });
-const fmt$0 = c => '$' + Math.round((c || 0) / 100).toLocaleString();
+const fmt$0 = c => (c < 0 ? '-$' : '$') + Math.abs(Math.round((c || 0) / 100)).toLocaleString();
 
 const iso = d => d.toISOString().slice(0, 10);
 const monthOf = s => s.slice(0, 7) + '-01';
@@ -24,21 +24,22 @@ const mLabel = s => new Date(s + 'T00:00:00Z')
 boot('team', async (supa, el) => {
   const thisMonth = monthOf(iso(new Date()));
   let rangeFrom = shiftM(thisMonth, -2), rangeTo = thisMonth;
-  let deptFilter = '', query = '';
+  let deptFilter = '', query = '', showInactive = false;
   const openStaff = new Set();
 
   el.innerHTML = `<div class="sc-panel" id="panel">loading…</div>`;
 
-  let H = {}, dealsById = {}, clientsById = {};
+  let H = {}, P = {}, dealsById = {}, clientsById = {};
 
   async function load() {
-    const [hp, dl, cl] = await Promise.all([
+    const [hp, fp, dl, cl] = await Promise.all([
       supa.rpc('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) }),
-      supa.from('deals').select('id,name,client_id'),
+      supa.rpc('forecast_page', { p_from: rangeFrom, p_to: rangeTo }),
+      supa.from('deals').select('id,name,client_id,qbo_project_id'),
       supa.from('clients').select('id,name')
     ]);
     if (hp.error) { el.innerHTML = `<div class="sc-panel err">${esc(hp.error.message)}</div>`; return; }
-    H = hp.data || {};
+    H = hp.data || {}; P = fp.data || {};
     dealsById = {}; (dl.data || []).forEach(d => dealsById[d.id] = d);
     clientsById = {}; (cl.data || []).forEach(c => clientsById[c.id] = c);
     render();
@@ -56,16 +57,35 @@ boot('team', async (supa, el) => {
       (dealHoursByStaff[r.staff_id] = dealHoursByStaff[r.staff_id] || []).push(r);
     });
 
+    // Bottom-up per-person profit: same method as the old tool's
+    // personEconomics, rebuilt on actuals — a deal's revenue splits across
+    // whoever logged hours on it, in proportion to their hours, then nets
+    // against their own resolved cost. No assignments needed; this is 100%
+    // derived from real logged hours and real revenue.
+    const revByProj = {}; (P.rev_proj || []).forEach(r => revByProj[r.qbo_project_id] = r.total);
+    const revPerHourByDeal = {};
+    (H.deal_labor || []).forEach(r => {
+      const deal = dealsById[r.deal_id]; if (!deal || !deal.qbo_project_id) return;
+      const rev = revByProj[deal.qbo_project_id] || 0;
+      if (rev > 0 && +r.hours > 0) revPerHourByDeal[r.deal_id] = rev / +r.hours;
+    });
+    const attributedByStaff = {};
+    (H.staff_hours_deal || []).forEach(r => {
+      const rph = revPerHourByDeal[r.deal_id]; if (!rph) return;
+      attributedByStaff[r.staff_id] = (attributedByStaff[r.staff_id] || 0) + (+r.hours * rph);
+    });
+
     // capacity for the selected range, from each person's own current weekly
-    // capacity — real data (comp_periods), not a placeholder. Assignment
-    // (planned hours per project) is the piece still being reworked, shown
-    // below as an explicit empty state instead of a number.
+    // capacity — real data (comp_periods). Assignment (planned/scoped hours
+    // per project) is the piece still being reworked: shown below as an
+    // explicit empty state rather than a number.
     const daysInRange = (new Date(endOfMonth(rangeTo)) - new Date(rangeFrom)) / 86400000 + 1;
     const weeksInRange = daysInRange / 7;
 
     const departments = [...new Set((H.staff || []).map(s => s.department).filter(Boolean))].sort();
     const q = query.trim().toLowerCase();
     const staff = (H.staff || [])
+      .filter(s => showInactive || s.active)
       .filter(s => !deptFilter || s.department === deptFilter)
       .filter(s => !q || s.name.toLowerCase().includes(q))
       .sort((a, b) => (b.active - a.active) || a.name.localeCompare(b.name));
@@ -82,6 +102,10 @@ boot('team', async (supa, el) => {
     }).length;
 
     el.querySelector('#panel').innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+        <h1 style="font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--brand);margin:0;letter-spacing:-.01em">Team</h1>
+        <button class="primary" id="add-person">+ Add person</button>
+      </div>
       <div class="range">
         <span class="rl">Range</span>
         <input type="month" id="r-from" aria-label="Range from" value="${rangeFrom.slice(0,7)}">
@@ -103,43 +127,57 @@ boot('team', async (supa, el) => {
       </div>
       <div class="sc-panel chartpanel"><div id="chart"></div></div>
       <div class="sc-panel" style="padding:0">
-        <div class="tbltools" style="padding:10px 14px;display:flex;gap:10px;flex-wrap:wrap">
+        <div class="tbltools" style="padding:10px 14px;display:flex;gap:14px;flex-wrap:wrap;align-items:center">
           <input id="q" placeholder="search name…" value="${esc(query)}" style="width:180px">
           <select id="dept-filter">
             <option value="">All departments</option>
             ${departments.map(d=>`<option value="${esc(d)}" ${d===deptFilter?'selected':''}>${esc(d)}</option>`).join('')}
           </select>
+          <label class="mono" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--slate)">
+            <input type="checkbox" id="show-inactive" ${showInactive?'checked':''}> show inactive
+          </label>
         </div>
-        <table><tr><th>name</th><th>department</th><th>active</th><th>comp</th>
-          <th>utilization</th><th>labor cost</th><th></th></tr>
+        <table><tr><th>name · dept</th><th>capacity</th><th>utilization</th>
+          <th>assigned vs logged</th><th>profit (period)</th><th></th></tr>
           ${staff.map(s => {
             const comp = compByStaff[s.id];
             const hc = hoursByStaff[s.id] || { hours: 0, cost: 0 };
             const cap = comp ? comp.weekly_capacity * weeksInRange : 0;
             const pct = cap > 0 ? (hc.hours / cap) * 100 : null;
             const pctCls = pct === null ? 'under' : pct > 100.1 ? 'over' : pct >= 90 ? 'full' : 'under';
-            const open = openStaff.has(s.id);
             const deals = (dealHoursByStaff[s.id] || []).slice().sort((a,b)=>b.hours-a.hours);
-            return `<tr class="staffrow" data-sid="${s.id}" style="cursor:pointer">
-                <td class="textleft">${esc(s.name)}</td>
-                <td class="textleft muted">${esc(s.department || '')}</td>
-                <td><input type="checkbox" class="active-cb" data-sid="${s.id}" ${s.active?'checked':''}></td>
+            const clientHours = deals.reduce((s2,d)=>s2+ +d.hours, 0);
+            const internalHours = Math.max(hc.hours - clientHours, 0);
+            const attributed = attributedByStaff[s.id] || 0;
+            const profit = attributed - hc.cost;
+            const coverage = hc.cost > 0 ? attributed / hc.cost : null;
+            const open = openStaff.has(s.id);
+            return `<tr class="staffrow${!s.active?' muted':''}" data-sid="${s.id}" style="cursor:pointer">
+                <td class="textleft">${esc(s.name)}<div class="summary-note">${esc(s.department || '')}</div></td>
                 <td class="textleft comp-cell" data-sid="${s.id}">${comp
                   ? (comp.kind === 'hourly'
                       ? `${fmt$0(comp.hourly_cost)}/hr · ${comp.weekly_capacity}h/wk`
                       : `${fmt$0(comp.annual_cost)}/yr · ${comp.weekly_capacity}h/wk`)
-                  : '<span class="muted">not set</span>'}
-                  <button class="ghost comp-edit" data-sid="${s.id}" style="padding:1px 7px;font-size:9.5px;margin-left:6px">edit</button></td>
+                  : '<span class="muted">not set</span>'}</td>
                 <td>${pct === null ? '<span class="muted">no comp set</span>' : `
                   <span class="util-pct ${pctCls}">${Math.round(pct)}%</span>
-                  <div class="summary-note">${fmtHours(hc.hours)} / ${fmtHours(cap)}h</div>
-                  <div class="mini-track" title="hours logged vs weekly capacity for this range">
-                    <div class="seg ${pctCls==='over'?'seg-over':'seg-good'}" style="width:${Math.min(pct,100)}%"></div>
+                  <div class="summary-note">${fmtHours(clientHours)}h client · ${fmtHours(internalHours)}h int / ${fmtHours(cap)}h avail</div>
+                  <div class="mini-track" title="client hours + internal hours vs weekly capacity for this range">
+                    <div class="seg seg-good" style="width:${cap>0?Math.min(clientHours/cap*100,100):0}%"></div>
+                    <div class="seg seg-plan" style="width:${cap>0?Math.min(internalHours/cap*100,100-Math.min(clientHours/cap*100,100)):0}%"></div>
                   </div>`}</td>
-                <td>${fmt$0(hc.cost)}</td>
-                <td class="muted">${deals.length ? (open?'▾':'▸') : ''}</td>
+                <td>
+                  <div class="mini-track" title="no assigned/scoped hours to compare against yet"><div class="seg" style="width:0%"></div></div>
+                  <div class="delta-note flat">${fmtHours(hc.hours)}h logged · not assigned yet</div>
+                </td>
+                <td class="${profit<0?'err':'ok'}">${hc.hours>0||hc.cost>0?fmt$0(profit):'<span class="muted">—</span>'}
+                  ${hc.hours>0||hc.cost>0?`<div class="summary-note">rev ${fmt$0(attributed)} · cost ${fmt$0(hc.cost)}${coverage!==null?` · ${coverage.toFixed(2)}×`:''}</div>`:''}</td>
+                <td style="white-space:nowrap">
+                  <button class="ghost comp-edit" data-sid="${s.id}" title="Edit comp" style="padding:3px 8px">✎</button>
+                  <button class="ghost toggle-active" data-sid="${s.id}" data-active="${s.active}" title="${s.active?'Mark inactive':'Mark active'}" style="padding:3px 8px">${s.active?'Archive':'Restore'}</button>
+                </td>
               </tr>
-              ${open ? `<tr><td colspan="7" style="background:#f6f6f6;padding:8px 14px">
+              ${open ? `<tr><td colspan="6" style="background:#f6f6f6;padding:8px 14px">
                 ${deals.length ? `<table style="width:auto;min-width:420px">
                   <tr><th>deal</th><th>client</th><th>logged</th><th>scoped</th><th>cost</th></tr>
                   ${deals.map(d => {
@@ -171,6 +209,14 @@ boot('team', async (supa, el) => {
     el.querySelector('#r-to').onchange = e => { rangeTo = monthOf(e.target.value); load(); };
     el.querySelector('#dept-filter').onchange = e => { deptFilter = e.target.value; render(); };
     el.querySelector('#q').oninput = e => { query = e.target.value; render(); };
+    el.querySelector('#show-inactive').onchange = e => { showInactive = e.target.checked; render(); };
+    el.querySelector('#add-person').onclick = async () => {
+      const name = prompt('Name for the new person:');
+      if (!name) return;
+      const { error } = await supa.from('staff').insert({ name: name.trim(), active: true, set_by: window.__email });
+      if (error) { alert(error.message); return; }
+      load();
+    };
 
     el.querySelectorAll('tr.staffrow').forEach(tr => tr.onclick = e => {
       if (e.target.closest('input,button')) return;
@@ -178,9 +224,9 @@ boot('team', async (supa, el) => {
       openStaff.has(sid) ? openStaff.delete(sid) : openStaff.add(sid);
       render();
     });
-    el.querySelectorAll('.active-cb').forEach(cb => cb.onclick = e => e.stopPropagation());
-    el.querySelectorAll('.active-cb').forEach(cb => cb.onchange = async () => {
-      await supa.from('staff').update({ active: cb.checked }).eq('id', cb.dataset.sid);
+    el.querySelectorAll('.toggle-active').forEach(btn => btn.onclick = async e => {
+      e.stopPropagation();
+      await supa.from('staff').update({ active: btn.dataset.active !== 'true' }).eq('id', btn.dataset.sid);
       load();
     });
     el.querySelectorAll('.comp-edit').forEach(btn => btn.onclick = e => {

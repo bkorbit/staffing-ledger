@@ -196,7 +196,7 @@ Pre-existing, not invented this session: `sales.html`'s pipeline chart colors st
 **Character:** A single humanist sans carries the system's voice; a monospace face carries its arithmetic. The split is total and load-bearing — it's the fastest way to tell, at a glance, whether you're reading prose or a figure.
 
 ### Hierarchy
-- **Title** (700, 14.5px, 1.2 line-height): Client names, modal titles, brand-name mark — section-level identifiers. No page in the app currently renders a page-title heading above this weight; the sidebar's highlighted nav item is the only "where am I" signal today.
+- **Title** (700, 14.5px, 1.2 line-height): Client names, modal titles, brand-name mark — section-level identifiers. Team, Client Profitability, and Project Hours additionally lead with a page-title heading (700, 22px, Deep Ledger Green) above their range picker — a denser, richer page benefits from the "where am I" reinforcement a bare nav highlight doesn't give; other pages still rely on the sidebar alone and aren't required to add one.
 - **Body** (400, 12.5px, 1.65 line-height): Running prose — page subtitles, hints, descriptive text. Sized via a fluid `clamp(13px, 0.55vw + 11.2px, 16px)` root that shrinks slightly on small screens and grows slightly on large ones.
 - **Label** (500, 9px, uppercase, 0.12em tracking, IBM Plex Mono): Eyebrows, summary-strip labels, table headers, mono form labels — the small-caps mono vocabulary that appears on almost every screen.
 - **Data** (400, 11px, IBM Plex Mono, tabular numerals): Every table cell, badge, and numeric input. `font-variant-numeric: tabular-nums` is set wherever figures line up in a column, so digits never jitter as they change.
