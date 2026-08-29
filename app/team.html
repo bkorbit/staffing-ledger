@@ -9,26 +9,41 @@ import { boot, esc } from './assets/shell.js?v=3ddb014';
 // it; the capacity column there was getting cluttered by an inline editor
 // that belongs here instead. Money is BIGINT cents in comp_periods; this is
 // the one place a human types dollars, converted at the edges.
+//
+// Comp is FULL history, not just the current period — staff_hourly_cost()
+// resolves a person's rate by date, so a past raise or rate change has to be
+// enterable (and correctable) with its own real start date, not just "today
+// replaces whatever was current." Every period, past or current, is directly
+// editable; "+ add period" finds whichever existing period covers the new
+// start date and closes it there, rather than always assuming "the currently
+// open one" — that assumption breaks the moment you backfill or schedule a
+// future change out of chronological order.
 const toCents = dollars => Math.round((+dollars || 0) * 100);
 const fromCents = cents => ((cents || 0) / 100).toFixed(2);
 const iso = d => d.toISOString().slice(0, 10);
+const dayBefore = dateStr => iso(new Date(new Date(dateStr + 'T00:00:00Z').getTime() - 86400000));
 
 boot('team', async (supa, el) => {
   let query = '', deptFilter = '', showInactive = true;
+  const openHistory = new Set();
 
   el.innerHTML = `<div class="sc-panel" id="panel">loading…</div>`;
 
   async function load() {
     const [st, cp] = await Promise.all([
       supa.from('staff').select('id,name,department,active,start_date,end_date').order('name'),
-      supa.from('comp_periods').select('staff_id,kind,annual_cost,hourly_cost,weekly_capacity').is('ends_on', null)
+      supa.from('comp_periods').select('id,staff_id,starts_on,ends_on,kind,annual_cost,hourly_cost,weekly_capacity').order('starts_on')
     ]);
     if (st.error) { el.innerHTML = `<div class="sc-panel err">${esc(st.error.message)}</div>`; return; }
     render(st.data || [], cp.data || []);
   }
 
   function render(staff, comp) {
-    const compByStaff = {}; comp.forEach(c => compByStaff[c.staff_id] = c);
+    const compAllByStaff = {};
+    comp.forEach(c => (compAllByStaff[c.staff_id] = compAllByStaff[c.staff_id] || []).push(c));
+    const compCurrentByStaff = {};
+    comp.forEach(c => { if (c.ends_on === null) compCurrentByStaff[c.staff_id] = c; });
+
     const departments = [...new Set(staff.map(s => s.department).filter(Boolean))].sort();
     const q = query.trim().toLowerCase();
     const rows = staff
@@ -55,20 +70,54 @@ boot('team', async (supa, el) => {
         </div>
         <table><tr><th>name</th><th>department</th><th>comp</th><th>start date</th><th>end date</th><th>active</th></tr>
           ${!rows.length ? `<tr><td colspan="6" class="empty-note">No people match the current filters.</td></tr>` : rows.map(s => {
-            const comp = compByStaff[s.id];
+            const comp = compCurrentByStaff[s.id];
+            const periods = (compAllByStaff[s.id] || []).slice().sort((a, b) => b.starts_on.localeCompare(a.starts_on));
+            const open = openHistory.has(s.id);
             return `<tr class="${!s.active?'muted':''}">
                 <td class="textleft"><input type="text" value="${esc(s.name)}" data-role="name" data-id="${s.id}" style="height:28px"></td>
                 <td class="textleft"><input type="text" value="${esc(s.department||'')}" placeholder="department" data-role="dept" data-id="${s.id}" style="height:28px;width:140px"></td>
-                <td class="textleft comp-cell" data-sid="${s.id}">${comp
+                <td class="textleft">${comp
                   ? (comp.kind === 'hourly'
                       ? `$${(comp.hourly_cost/100).toLocaleString()}/hr · ${comp.weekly_capacity}h/wk`
                       : `$${(comp.annual_cost/100).toLocaleString()}/yr · ${comp.weekly_capacity}h/wk`)
                   : '<span class="muted">not set</span>'}
-                  <button class="ghost comp-edit" data-sid="${s.id}" style="padding:1px 7px;font-size:9.5px;margin-left:6px">edit</button></td>
+                  <button class="ghost history-toggle" data-sid="${s.id}" style="padding:1px 7px;font-size:9.5px;margin-left:6px">${open?'hide':'history'} (${periods.length})</button></td>
                 <td><input type="date" value="${s.start_date||''}" data-role="start" data-id="${s.id}" style="height:28px"></td>
                 <td><input type="date" value="${s.end_date||''}" data-role="end" data-id="${s.id}" style="height:28px"></td>
                 <td><input type="checkbox" data-role="active" data-id="${s.id}" ${s.active?'checked':''}></td>
-              </tr>`;
+              </tr>
+              ${open ? `<tr><td colspan="6" style="background:#f6f6f6;padding:8px 14px">
+                <table style="width:auto;min-width:560px">
+                  <tr><th>start</th><th>end</th><th>kind</th><th>cost</th><th>hrs/wk</th><th></th></tr>
+                  ${!periods.length ? `<tr><td colspan="6" class="muted" style="text-align:left">No comp periods yet.</td></tr>` : periods.map(p => `
+                    <tr data-period="${p.id}">
+                      <td><input type="date" class="cp-start" value="${p.starts_on}" style="height:26px;width:130px"></td>
+                      <td><input type="date" class="cp-end" value="${p.ends_on||''}" style="height:26px;width:130px" title="Blank = current, ongoing period"></td>
+                      <td><select class="cp-kind" style="height:26px">
+                        <option value="salary" ${p.kind==='salary'?'selected':''}>salary/yr</option>
+                        <option value="hourly" ${p.kind==='hourly'?'selected':''}>hourly</option>
+                      </select></td>
+                      <td><input type="text" class="cp-cost" value="${p.kind==='hourly'?fromCents(p.hourly_cost):fromCents(p.annual_cost)}" style="height:26px;width:80px"></td>
+                      <td><input type="text" class="cp-cap" value="${p.weekly_capacity}" style="height:26px;width:56px"></td>
+                      <td style="white-space:nowrap">
+                        <button class="ghost cp-save" data-id="${p.id}" style="padding:2px 7px;font-size:10px">Save</button>
+                        <button class="ghost cp-delete" data-id="${p.id}" style="padding:2px 7px;font-size:10px;color:var(--rust)" title="Delete this period">×</button>
+                      </td>
+                    </tr>`).join('')}
+                </table>
+                <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+                  <span class="mono muted" style="font-size:10px">+ new period starting</span>
+                  <input type="date" class="np-start" data-sid="${s.id}" value="${iso(new Date())}" style="height:26px">
+                  <select class="np-kind" data-sid="${s.id}" style="height:26px">
+                    <option value="salary">salary/yr</option>
+                    <option value="hourly">hourly</option>
+                  </select>
+                  <input type="text" class="np-cost" data-sid="${s.id}" placeholder="$" style="height:26px;width:80px">
+                  <input type="text" class="np-cap" data-sid="${s.id}" placeholder="hrs/wk" value="40" style="height:26px;width:56px">
+                  <button class="primary np-add" data-sid="${s.id}" style="padding:2px 8px">Add period</button>
+                  <span class="np-msg err" data-sid="${s.id}" style="font-size:10px"></span>
+                </div>
+              </td></tr>` : ''}`;
           }).join('')}
         </table>
       </div>`;
@@ -103,38 +152,58 @@ boot('team', async (supa, el) => {
       await supa.from('staff').update({ active: cb.checked }).eq('id', cb.dataset.id);
       load();
     });
-    el.querySelectorAll('.comp-edit').forEach(btn => btn.onclick = () => {
-      const sid = btn.dataset.sid, comp = compByStaff[sid];
-      const cell = btn.closest('td');
-      cell.innerHTML = `<select class="ce-kind" style="height:26px">
-          <option value="salary" ${(!comp||comp.kind==='salary')?'selected':''}>salary/yr</option>
-          <option value="hourly" ${comp&&comp.kind==='hourly'?'selected':''}>hourly</option>
-        </select>
-        <input class="ce-cost" style="height:26px;width:80px" placeholder="$"
-          value="${comp ? fromCents(comp.kind==='hourly'?comp.hourly_cost:comp.annual_cost) : ''}">
-        <input class="ce-cap" style="height:26px;width:56px" placeholder="hrs/wk"
-          value="${comp ? comp.weekly_capacity : 40}">
-        <button class="primary ce-save" style="padding:2px 8px">Save</button>
-        <span class="ce-msg err" style="font-size:10px"></span>`;
-      cell.querySelector('.ce-save').onclick = async () => {
-        const kind = cell.querySelector('.ce-kind').value;
-        const cost = toCents(cell.querySelector('.ce-cost').value);
-        const cap = +cell.querySelector('.ce-cap').value || 40;
-        const today = iso(new Date());
-        if (comp) {
-          const { error } = await supa.from('comp_periods')
-            .update({ ends_on: today }).eq('staff_id', sid).is('ends_on', null);
-          if (error) { cell.querySelector('.ce-msg').textContent = error.message; return; }
-        }
-        const { error } = await supa.from('comp_periods').insert({
-          staff_id: sid, starts_on: today, kind,
-          annual_cost: kind === 'salary' ? cost : 0,
-          hourly_cost: kind === 'hourly' ? cost : 0,
-          weekly_capacity: cap, set_by: window.__email
-        });
-        if (error) { cell.querySelector('.ce-msg').textContent = error.message; return; }
-        load();
-      };
+    el.querySelectorAll('.history-toggle').forEach(btn => btn.onclick = () => {
+      const sid = btn.dataset.sid;
+      openHistory.has(sid) ? openHistory.delete(sid) : openHistory.add(sid);
+      render(staff, comp);
+    });
+    el.querySelectorAll('.cp-save').forEach(btn => btn.onclick = async () => {
+      const row = btn.closest('tr');
+      const kind = row.querySelector('.cp-kind').value;
+      const cost = toCents(row.querySelector('.cp-cost').value);
+      const cap = +row.querySelector('.cp-cap').value || 40;
+      const starts_on = row.querySelector('.cp-start').value;
+      const ends_on = row.querySelector('.cp-end').value || null;
+      if (ends_on && ends_on < starts_on) { alert('End date is before start date.'); return; }
+      const { error } = await supa.from('comp_periods').update({
+        starts_on, ends_on, kind,
+        annual_cost: kind === 'salary' ? cost : 0,
+        hourly_cost: kind === 'hourly' ? cost : 0,
+        weekly_capacity: cap
+      }).eq('id', btn.dataset.id);
+      if (error) { alert(error.message); return; }
+      load();
+    });
+    el.querySelectorAll('.cp-delete').forEach(btn => btn.onclick = async () => {
+      if (!confirm('Delete this comp period? This cannot be undone.')) return;
+      const { error } = await supa.from('comp_periods').delete().eq('id', btn.dataset.id);
+      if (error) { alert(error.message); return; }
+      load();
+    });
+    el.querySelectorAll('.np-add').forEach(btn => btn.onclick = async () => {
+      const sid = btn.dataset.sid;
+      const msg = el.querySelector(`.np-msg[data-sid="${sid}"]`);
+      const newStart = el.querySelector(`.np-start[data-sid="${sid}"]`).value;
+      if (!newStart) { msg.textContent = 'pick a start date'; return; }
+      const kind = el.querySelector(`.np-kind[data-sid="${sid}"]`).value;
+      const cost = toCents(el.querySelector(`.np-cost[data-sid="${sid}"]`).value);
+      const cap = +el.querySelector(`.np-cap[data-sid="${sid}"]`).value || 40;
+      const periods = compAllByStaff[sid] || [];
+      const covering = periods.find(p => p.starts_on <= newStart && (!p.ends_on || p.ends_on >= newStart));
+      if (covering) {
+        const closeAt = dayBefore(newStart);
+        if (closeAt < covering.starts_on) { msg.textContent = 'starts before an existing period even begins'; return; }
+        const { error } = await supa.from('comp_periods').update({ ends_on: closeAt }).eq('id', covering.id);
+        if (error) { msg.textContent = error.message; return; }
+      }
+      const { error } = await supa.from('comp_periods').insert({
+        staff_id: sid, starts_on: newStart, kind,
+        annual_cost: kind === 'salary' ? cost : 0,
+        hourly_cost: kind === 'hourly' ? cost : 0,
+        weekly_capacity: cap, set_by: window.__email
+      });
+      if (error) { msg.textContent = error.message; return; }
+      load();
     });
   }
 
