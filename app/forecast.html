@@ -13,7 +13,7 @@ table.sum td .pct.bad{color:var(--rust)} table.sum td .pct.good{color:var(--bran
 tr.deallist td{cursor:pointer}
 tr.clientrow:focus-visible,tr.deallist:focus-visible,tr.projrow:focus-visible,th[data-sort]:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--brand-2),inset 0 0 0 4px var(--mint)}
 </style></head><body>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script type="module">
 import { boot, esc, fmt$, barChart, fetchAll } from './assets/shell.js?v=c92780f';
 /*
@@ -429,6 +429,8 @@ boot('forecast', async (supa, el) => {
   // template, not a report: blank cells mean "no forecast data past here" so
   // gaps are visible at a glance. Revenue only (GP is derived, not entered).
   const FEE_KINDS = ['search','social','programmatic'];
+  const MONEY_FMT = '"$"#,##0;-"$"#,##0';
+  const GREY_FILL = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFDCDCDC' } };
   async function exportForecast() {
     const btn = el.querySelector('#export-fc');
     if (!btn || btn.disabled) return;
@@ -459,12 +461,39 @@ boot('forecast', async (supa, el) => {
         if (d.flight_end >= cutoff && d.flight_end > maxEnd) maxEnd = d.flight_end;
       }));
       const cols = monthsBetween(thisMonth, maxEnd);
+      const FIRST_MONTH_COL = 7; // Client, Deal, Start, End, Channel, Fee % — then months
 
       const kindLabelOf = l => l.kind === 'creative'
         ? `creative · ${(l.label||'').startsWith('creative:hourly') ? 'hourly' : 'retainer'}`
         : l.kind;
 
-      const rows = [];
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Revenue Forecast');
+      ws.columns = [
+        { header:'Client', width:24 }, { header:'Deal', width:28 },
+        { header:'Start Date', width:12 }, { header:'End Date', width:12 },
+        { header:'Channel', width:16 }, { header:'Fee %', width:9 },
+        ...cols.map(m => ({ header: mLabel(m), width:11 })),
+      ];
+      ws.getRow(1).eachCell(cell => {
+        cell.font = { bold:true, color:{ argb:'FFFFFFFF' } };
+        cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF0A493C' } };
+      });
+
+      // a month cell greys out when it falls outside this row's flight — that's
+      // "nothing to fill here", distinct from a plain blank (in-flight, just
+      // not entered yet, e.g. every month of an ADD CHANNELS row)
+      function addRow(c, d, flight, start, channel, feePct, valueOf) {
+        const row = ws.addRow([c.name, d.name, flight.start, flight.end, channel, feePct,
+          ...cols.map(valueOf)]);
+        if (typeof feePct === 'number') row.getCell(6).numFmt = '0.0"%"';
+        cols.forEach((m, i) => {
+          const cell = row.getCell(FIRST_MONTH_COL + i);
+          if (m < start || m > flight.end) cell.fill = GREY_FILL;
+          else if (typeof cell.value === 'number') cell.numFmt = MONEY_FMT;
+        });
+      }
+
       clientIds.map(cid => clientsById[cid]).filter(Boolean)
         .sort((a,b) => a.name.localeCompare(b.name))
         .forEach(c => {
@@ -476,7 +505,7 @@ boot('forecast', async (supa, el) => {
               const start = startMonth > thisMonth ? startMonth : thisMonth;
               const lines = linesByDeal[d.id] || [];
               if (!lines.length) {
-                rows.push([c.name, d.name, 'ADD CHANNELS', '', ...cols.map(() => '')]);
+                addRow(c, d, flight, start, 'ADD CHANNELS', '', () => null);
                 return;
               }
               lines.forEach(l => {
@@ -485,40 +514,31 @@ boot('forecast', async (supa, el) => {
                   || (l.kind==='creative' && (l.label||'').startsWith('creative:hourly'));
                 const cellCol = cfg.cells==='budget' ? 'budget'
                   : (cfg.cells==='hours' || isHourly) ? 'hours' : 'amount';
-                const cells = {};
+                const cellsMap = {};
                 (l.deal_line_months||[]).forEach(o => {
                   const v = cellCol==='hours' ? o.hours : o[cellCol];
-                  if (v!=null) cells[o.month] = cellCol==='hours' ? +v : v/100;
+                  if (v!=null) cellsMap[o.month] = cellCol==='hours' ? +v : v/100;
                 });
                 const model = { kind:l.kind, label:l.label,
                   params: { amount:l.amount?l.amount/100:0, fee_pct:l.fee_pct||0,
                             margin_pct:l.margin_pct, rate:l.rate?l.rate/100:0,
                             hours_per_month:+l.hours_per_month||0 },
-                  cells };
+                  cells: cellsMap };
                 const mediaFunding = l.media_funding || 'client';
                 const feePct = FEE_KINDS.includes(l.kind) ? (+l.fee_pct || 0) : '';
-                const row = [c.name, d.name, kindLabelOf(l), feePct];
-                cols.forEach(m => row.push(
-                  m < start || m > flight.end ? '' : revMonth(model, m, mediaFunding, flight)/100));
-                rows.push(row);
+                addRow(c, d, flight, start, kindLabelOf(l), feePct, m =>
+                  m < start || m > flight.end ? null : revMonth(model, m, mediaFunding, flight)/100);
               });
             });
         });
 
-      const header = ['Client','Deal','Channel','Fee %', ...cols.map(mLabel)];
-      const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
-      ws['!cols'] = [{wch:24},{wch:28},{wch:16},{wch:9}, ...cols.map(()=>({wch:11}))];
-      for (let r = 1; r <= rows.length; r++) {
-        const feeRef = XLSX.utils.encode_cell({ r, c: 3 });
-        if (ws[feeRef] && typeof ws[feeRef].v === 'number') ws[feeRef].z = '0.0"%"';
-        for (let c = 4; c < header.length; c++) {
-          const ref = XLSX.utils.encode_cell({ r, c });
-          if (ws[ref] && typeof ws[ref].v === 'number') ws[ref].z = '#,##0';
-        }
-      }
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Revenue Forecast');
-      XLSX.writeFile(wb, `emg-forecast_${thisMonth.slice(0,7)}.xlsx`);
+      const buf = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `emg-forecast_${thisMonth.slice(0,7)}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
     } catch (err) {
       alert('Export failed: ' + (err.message || err));
     } finally {
