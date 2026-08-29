@@ -81,6 +81,20 @@ function utilizationBar(cap, internalHours, ptoHours, clientHours) {
   return { html, overBy: Math.max(total - cap, 0) };
 }
 
+// Same rescale-to-fit approach as utilizationBar, for a single planned-vs-
+// logged comparison: logged hours up to the planned amount are green, any
+// excess is red. No plan set (planned = 0) isn't a blank bar — every logged
+// hour is, by definition, hours beyond a zero plan, so the whole bar reads
+// red until a real plan exists.
+function planBar(planned, logged) {
+  const scale = Math.max(planned, logged);
+  if (scale <= 0) return { html: '', overBy: 0 };
+  const green = Math.min(logged, planned);
+  const over = Math.max(logged - planned, 0);
+  const seg = (cls, hours) => hours > 0.05 ? `<div class="seg ${cls}" style="width:${hours / scale * 100}%"></div>` : '';
+  return { html: seg('seg-good', green) + seg('seg-over', over), overBy: over };
+}
+
 boot('teamhours', async (supa, el) => {
   const thisMonth = monthOf(iso(new Date()));
   let rangeFrom = shiftM(thisMonth, -2), rangeTo = thisMonth;
@@ -258,7 +272,7 @@ boot('teamhours', async (supa, el) => {
                     <div>
                       <div class="sc-eyebrow" style="margin-bottom:10px">Assigned to — planned vs. logged</div>
                       ${!r.assignments.length ? `<div class="muted" style="font-size:11px">No logged hours against a client project in this range.</div>` : r.assignments.map(a => {
-                        const bar = stackSegments(a.planned, [[a.hours > a.planned ? 'seg-over' : 'seg-good', a.hours]]);
+                        const bar = planBar(a.planned, a.hours);
                         return `<div class="assign-line">
                             <div class="assign-label">${esc(a.client)} <span class="muted">— ${esc(a.name)}</span></div>
                             <div class="mini-track wide">${bar.html}</div>
