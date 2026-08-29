@@ -37,6 +37,51 @@ export async function fetchAll(build) {
   }
 }
 
+// This page's own cache-bust stamp (the ?v=<short-sha> on its shell.js import,
+// per CLAUDE.md habit #5) — compared against the live repo's latest app/
+// commit so a stale stamp (the thing that's bitten us before) is visible
+// instead of silently serving an old cached shell/page.
+const loadedVer = (() => {
+  try { return new URL(import.meta.url).searchParams.get('v') || ''; }
+  catch { return ''; }
+})();
+
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const fmtUTC = iso => {
+  const d = new Date(iso), pad = n => String(n).padStart(2, '0');
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`;
+};
+
+// Live-repo timestamp for the nav footer: the latest commit that touched
+// app/ on main, fetched from the public GitHub API and cached for 5 minutes
+// (60 unauthenticated requests/hour is easy to burn through across ~50 staff
+// otherwise). Falls back to a stale cache, then hides itself, rather than
+// ever blocking or erroring the shell.
+const VER_CACHE_KEY = 'live_ver_cache';
+const VER_CACHE_MS = 5 * 60 * 1000;
+
+async function loadVerTag(el) {
+  const render = (sha, date) => {
+    const stale = loadedVer && !sha.startsWith(loadedVer);
+    el.textContent = `live ${fmtUTC(date)}${stale ? ' · reload for latest' : ''}`;
+    el.classList.toggle('stale', stale);
+    el.href = `https://github.com/bkorbit/staffing-ledger/commit/${sha}`;
+  };
+  const cached = JSON.parse(localStorage.getItem(VER_CACHE_KEY) || 'null');
+  if (cached && Date.now() - cached.at < VER_CACHE_MS) { render(cached.sha, cached.date); return; }
+  try {
+    const res = await fetch('https://api.github.com/repos/bkorbit/staffing-ledger/commits?path=app&sha=main&per_page=1');
+    if (!res.ok) throw new Error(String(res.status));
+    const [commit] = await res.json();
+    const sha = commit.sha, date = commit.commit.committer.date;
+    localStorage.setItem(VER_CACHE_KEY, JSON.stringify({ sha, date, at: Date.now() }));
+    render(sha, date);
+  } catch {
+    if (cached) render(cached.sha, cached.date);
+    else el.remove();
+  }
+}
+
 // Sidebar navigation, grouped by domain. `soon` marks honest placeholders.
 const NAV = [
   { sect: 'Overview' },
@@ -74,6 +119,7 @@ function renderShell(current) {
         <div class="side-foot">
           <div class="who">${esc(window.__email || '')}</div>
           <button class="ghost" id="signout">Sign out</button>
+          <a class="ver-tag" id="ver-tag" href="https://github.com/bkorbit/staffing-ledger" target="_blank" rel="noopener">checking live version…</a>
         </div>
       </nav>
       <main class="content" id="content"></main>
@@ -86,6 +132,7 @@ function renderShell(current) {
     const now = layout.classList.toggle('nav-collapsed');
     localStorage.setItem('nav_collapsed', now ? '1' : '0');
   };
+  loadVerTag(document.getElementById('ver-tag'));
 }
 
 function renderLogin(onDone) {
