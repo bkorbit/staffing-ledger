@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Forecast</title><link rel="stylesheet" href="./assets/style.css?v=996fe20">
+<title>EMG — Forecast</title><link rel="stylesheet" href="./assets/style.css?v=c92780f">
 <style>
 /* .range and .rl are now fully covered by the shared style.css rules (22px
    margin, 18px horizontal inset to match .sc-panel, 34px buttons) — no
@@ -13,8 +13,9 @@ table.sum td .pct.bad{color:var(--rust)} table.sum td .pct.good{color:var(--bran
 tr.deallist td{cursor:pointer}
 tr.clientrow:focus-visible,tr.deallist:focus-visible,tr.projrow:focus-visible,th[data-sort]:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--brand-2),inset 0 0 0 4px var(--mint)}
 </style></head><body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script type="module">
-import { boot, esc, fmt$, barChart } from './assets/shell.js?v=996fe20';
+import { boot, esc, fmt$, barChart, fetchAll } from './assets/shell.js?v=c92780f';
 /*
   The Forecast, remodelled on the v1 ledger's Forecast view, recovered from git:
   months as ROWS in a P&L ledger — Revenue billed, COGS, Forecast GP, Actual GP,
@@ -423,6 +424,93 @@ boot('forecast', async (supa, el) => {
     render();
   }
 
+  /* ---------------------------------------------------------- export (xlsx) */
+  // rows = client/deal/channel, columns = months from now onward — a fill-in
+  // template, not a report: blank cells mean "no forecast data past here" so
+  // gaps are visible at a glance. Revenue only (GP is derived, not entered).
+  async function exportForecast() {
+    const btn = el.querySelector('#export-fc');
+    if (!btn || btn.disabled) return;
+    const label = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Exporting…';
+    try {
+      const clientIds = Object.keys(dealsByClient)
+        .filter(cid => dealsByClient[cid].some(d => d.flight_end >= thisMonth));
+      if (!clientIds.length) { alert('No deals have a forecast from the current month onward.'); return; }
+
+      const dealIds = clientIds.flatMap(cid =>
+        dealsByClient[cid].filter(d => d.flight_end >= thisMonth).map(d => d.id));
+      const chunks = [];
+      for (let i = 0; i < dealIds.length; i += 200) chunks.push(dealIds.slice(i, i + 200));
+      const pages = await Promise.all(chunks.map(chunk => fetchAll(() =>
+        supa.from('deal_lines').select('*, deal_line_months(*)').in('deal_id', chunk).order('set_at'))));
+      for (const p of pages) if (p.error) throw p.error;
+      const linesByDeal = {};
+      pages.forEach(p => (p.data||[]).forEach(l =>
+        (linesByDeal[l.deal_id] = linesByDeal[l.deal_id]||[]).push(l)));
+
+      let maxEnd = thisMonth;
+      clientIds.forEach(cid => dealsByClient[cid].forEach(d => {
+        if (d.flight_end >= thisMonth && d.flight_end > maxEnd) maxEnd = d.flight_end;
+      }));
+      const cols = monthsBetween(thisMonth, maxEnd);
+
+      const kindLabelOf = l => l.kind === 'creative'
+        ? `creative · ${(l.label||'').startsWith('creative:hourly') ? 'hourly' : 'retainer'}`
+        : l.kind;
+
+      const rows = [];
+      clientIds.map(cid => clientsById[cid]).filter(Boolean)
+        .sort((a,b) => a.name.localeCompare(b.name))
+        .forEach(c => {
+          dealsByClient[c.id].filter(d => d.flight_end >= thisMonth)
+            .sort((a,b) => a.name.localeCompare(b.name))
+            .forEach(d => {
+              const flight = { start: d.flight_start, end: d.flight_end };
+              const startMonth = flight.start.slice(0,8) + '01';
+              const start = startMonth > thisMonth ? startMonth : thisMonth;
+              (linesByDeal[d.id]||[]).forEach(l => {
+                const cfg = KIND[l.kind] || KIND.custom;
+                const isHourly = l.kind==='hourly'
+                  || (l.kind==='creative' && (l.label||'').startsWith('creative:hourly'));
+                const cellCol = cfg.cells==='budget' ? 'budget'
+                  : (cfg.cells==='hours' || isHourly) ? 'hours' : 'amount';
+                const cells = {};
+                (l.deal_line_months||[]).forEach(o => {
+                  const v = cellCol==='hours' ? o.hours : o[cellCol];
+                  if (v!=null) cells[o.month] = cellCol==='hours' ? +v : v/100;
+                });
+                const model = { kind:l.kind, label:l.label,
+                  params: { amount:l.amount?l.amount/100:0, fee_pct:l.fee_pct||0,
+                            margin_pct:l.margin_pct, rate:l.rate?l.rate/100:0,
+                            hours_per_month:+l.hours_per_month||0 },
+                  cells };
+                const mediaFunding = l.media_funding || 'client';
+                const row = [c.name, d.name, kindLabelOf(l)];
+                cols.forEach(m => row.push(
+                  m < start || m > flight.end ? '' : revMonth(model, m, mediaFunding, flight)/100));
+                rows.push(row);
+              });
+            });
+        });
+
+      const header = ['Client','Deal','Channel', ...cols.map(mLabel)];
+      const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+      ws['!cols'] = [{wch:24},{wch:28},{wch:16}, ...cols.map(()=>({wch:11}))];
+      for (let r = 1; r <= rows.length; r++) for (let c = 3; c < header.length; c++) {
+        const ref = XLSX.utils.encode_cell({ r, c });
+        if (ws[ref] && typeof ws[ref].v === 'number') ws[ref].z = '#,##0';
+      }
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Revenue Forecast');
+      XLSX.writeFile(wb, `emg-forecast_${thisMonth.slice(0,7)}.xlsx`);
+    } catch (err) {
+      alert('Export failed: ' + (err.message || err));
+    } finally {
+      btn.disabled = false; btn.textContent = label;
+    }
+  }
+
   /* ---------------------------------------------------------------- render */
   function render() {
     el.innerHTML = `
@@ -432,6 +520,7 @@ boot('forecast', async (supa, el) => {
         <span class="rd">to</span>
         <input type="month" id="r-to" aria-label="Range to" value="${rangeTo.slice(0,7)}">
         <span style="flex:1"></span>
+        <button id="export-fc">Export forecast</button>
         <button id="costs-how" aria-expanded="false" aria-controls="how-panel">How costs are counted ▸</button>
       </div>
       <div id="how-panel" class="sc-panel" style="display:none">
@@ -462,6 +551,7 @@ boot('forecast', async (supa, el) => {
 
     el.querySelector('#r-from').onchange = e => { rangeFrom = e.target.value+'-01'; loadAll(); };
     el.querySelector('#r-to').onchange   = e => { rangeTo   = e.target.value+'-01'; loadAll(); };
+    el.querySelector('#export-fc').onclick = exportForecast;
 
     // ---- fixed costs still feed the projected net line; edited on Settings ----
     const fixedTotal = () => fixedCosts.reduce((s,f)=>s+(f.amount||0),0);
