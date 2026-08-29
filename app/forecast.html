@@ -428,18 +428,23 @@ boot('forecast', async (supa, el) => {
   // rows = client/deal/channel, columns = months from now onward — a fill-in
   // template, not a report: blank cells mean "no forecast data past here" so
   // gaps are visible at a glance. Revenue only (GP is derived, not entered).
+  const FEE_KINDS = ['search','social','programmatic'];
   async function exportForecast() {
     const btn = el.querySelector('#export-fc');
     if (!btn || btn.disabled) return;
     const label = btn.textContent;
     btn.disabled = true; btn.textContent = 'Exporting…';
     try {
+      // a deal that ended last month still needs a row — its client is active
+      // and has nothing forecast going forward, which is exactly the gap this
+      // export is for. Anything older than that is a stale deal, not a gap.
+      const cutoff = shiftM(thisMonth, -1);
       const clientIds = Object.keys(dealsByClient)
-        .filter(cid => dealsByClient[cid].some(d => d.flight_end >= thisMonth));
-      if (!clientIds.length) { alert('No deals have a forecast from the current month onward.'); return; }
+        .filter(cid => dealsByClient[cid].some(d => d.flight_end >= cutoff));
+      if (!clientIds.length) { alert('No deals have a forecast from last month onward.'); return; }
 
       const dealIds = clientIds.flatMap(cid =>
-        dealsByClient[cid].filter(d => d.flight_end >= thisMonth).map(d => d.id));
+        dealsByClient[cid].filter(d => d.flight_end >= cutoff).map(d => d.id));
       const chunks = [];
       for (let i = 0; i < dealIds.length; i += 200) chunks.push(dealIds.slice(i, i + 200));
       const pages = await Promise.all(chunks.map(chunk => fetchAll(() =>
@@ -451,7 +456,7 @@ boot('forecast', async (supa, el) => {
 
       let maxEnd = thisMonth;
       clientIds.forEach(cid => dealsByClient[cid].forEach(d => {
-        if (d.flight_end >= thisMonth && d.flight_end > maxEnd) maxEnd = d.flight_end;
+        if (d.flight_end >= cutoff && d.flight_end > maxEnd) maxEnd = d.flight_end;
       }));
       const cols = monthsBetween(thisMonth, maxEnd);
 
@@ -463,13 +468,18 @@ boot('forecast', async (supa, el) => {
       clientIds.map(cid => clientsById[cid]).filter(Boolean)
         .sort((a,b) => a.name.localeCompare(b.name))
         .forEach(c => {
-          dealsByClient[c.id].filter(d => d.flight_end >= thisMonth)
+          dealsByClient[c.id].filter(d => d.flight_end >= cutoff)
             .sort((a,b) => a.name.localeCompare(b.name))
             .forEach(d => {
               const flight = { start: d.flight_start, end: d.flight_end };
               const startMonth = flight.start.slice(0,8) + '01';
               const start = startMonth > thisMonth ? startMonth : thisMonth;
-              (linesByDeal[d.id]||[]).forEach(l => {
+              const lines = linesByDeal[d.id] || [];
+              if (!lines.length) {
+                rows.push([c.name, d.name, 'ADD CHANNELS', '', ...cols.map(() => '')]);
+                return;
+              }
+              lines.forEach(l => {
                 const cfg = KIND[l.kind] || KIND.custom;
                 const isHourly = l.kind==='hourly'
                   || (l.kind==='creative' && (l.label||'').startsWith('creative:hourly'));
@@ -486,7 +496,8 @@ boot('forecast', async (supa, el) => {
                             hours_per_month:+l.hours_per_month||0 },
                   cells };
                 const mediaFunding = l.media_funding || 'client';
-                const row = [c.name, d.name, kindLabelOf(l)];
+                const feePct = FEE_KINDS.includes(l.kind) ? (+l.fee_pct || 0) : '';
+                const row = [c.name, d.name, kindLabelOf(l), feePct];
                 cols.forEach(m => row.push(
                   m < start || m > flight.end ? '' : revMonth(model, m, mediaFunding, flight)/100));
                 rows.push(row);
@@ -494,12 +505,16 @@ boot('forecast', async (supa, el) => {
             });
         });
 
-      const header = ['Client','Deal','Channel', ...cols.map(mLabel)];
+      const header = ['Client','Deal','Channel','Fee %', ...cols.map(mLabel)];
       const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
-      ws['!cols'] = [{wch:24},{wch:28},{wch:16}, ...cols.map(()=>({wch:11}))];
-      for (let r = 1; r <= rows.length; r++) for (let c = 3; c < header.length; c++) {
-        const ref = XLSX.utils.encode_cell({ r, c });
-        if (ws[ref] && typeof ws[ref].v === 'number') ws[ref].z = '#,##0';
+      ws['!cols'] = [{wch:24},{wch:28},{wch:16},{wch:9}, ...cols.map(()=>({wch:11}))];
+      for (let r = 1; r <= rows.length; r++) {
+        const feeRef = XLSX.utils.encode_cell({ r, c: 3 });
+        if (ws[feeRef] && typeof ws[feeRef].v === 'number') ws[feeRef].z = '0.0"%"';
+        for (let c = 4; c < header.length; c++) {
+          const ref = XLSX.utils.encode_cell({ r, c });
+          if (ws[ref] && typeof ws[ref].v === 'number') ws[ref].z = '#,##0';
+        }
       }
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Revenue Forecast');
