@@ -390,9 +390,15 @@ boot('sales', async (supa, el) => {
           const amt = Math.round(parseFloat(li2.amount||0)*100);
           const iper = r.months.length ? amt/r.months.length : 0;
           const key2 = String(li2.name||'').split(':').pop().trim().toLowerCase();
-          const isProg = (MAP[key2]||[])[0]==='programmatic';
-          const rateTag = isProg && progRate!=null
-            ? ` <span class="pill" title="expected margin: the configured default${(progRate-PROG_MARGIN)>0.05?' plus this deal’s own buying fee':''}">${progRate.toFixed(1)}% margin</span>` : '';
+          const mapped2 = MAP[key2];
+          // only the media/budget line earns a margin — the buying fee is
+          // already the dollar fee itself, passed through at 100%, not a
+          // rate applied on top of something else
+          const isProgBudget = mapped2 && mapped2[0]==='programmatic' && mapped2[1]==='budget';
+          const isProgFee = mapped2 && mapped2[0]==='programmatic' && mapped2[1]==='fee';
+          const rateTag = isProgBudget && progRate!=null
+            ? ` <span class="pill" title="expected margin: the configured default${(progRate-PROG_MARGIN)>0.05?' plus this deal’s own buying fee':''}">${progRate.toFixed(1)}% margin</span>`
+            : isProgFee ? ` <span class="pill" title="the buying fee is passed through in full — it isn't marked up on top of itself">100% billed</span>` : '';
           h+=`<tr class="drow dim li"><td class="cl" style="padding-left:38px;font-size:9.5px;color:var(--slate)">↳ ${esc(li2.name||'?')}${rateTag}</td>`+
             `<td></td><td></td>`+
             cols.map(c=>`<td class="n" style="font-size:9.5px;color:var(--slate)">${r.months.includes(c)&&iper?money(Math.round(iper)):'<span class=z>·</span>'}</td>`).join('')+
