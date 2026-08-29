@@ -2,7 +2,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EMG — Client Profitability</title><link rel="stylesheet" href="./assets/style.css?v=ca82584"></head><body>
 <script type="module">
-import { boot, esc, makePopover } from './assets/shell.js?v=ca82584';
+import { boot, esc } from './assets/shell.js?v=ca82584';
 
 // Client-level evaluation — is this account healthy? For per-project detail
 // (scoping, tracking how much work is going into a specific deal), see
@@ -60,20 +60,12 @@ boot('clientprofit', async (supa, el) => {
       <input type="month" id="r-from" aria-label="Range from" value="${rangeFrom.slice(0, 7)}">
       <span class="muted">→</span>
       <input type="month" id="r-to" aria-label="Range to" value="${rangeTo.slice(0, 7)}">
-      <button class="ghost" id="cp-settings-btn" style="margin-left:auto">Settings ▾</button>
+      <label class="mono" style="display:flex;align-items:center;gap:6px;margin-left:auto">
+        <input type="checkbox" id="cp-historical" style="height:auto"> historical only — exclude forecasted</label>
     </div>
     <div id="panel">loading…</div>`;
 
-  const { pop, close } = makePopover(document.getElementById('cp-settings-btn'), `
-    <div class="editpop-body">
-      <div class="setrow">
-        <label class="mono" style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:normal;font-size:12.5px;font-family:var(--font-body);color:var(--ink)">
-          <input type="checkbox" class="cp-historical"> Historical only — exclude forecasted months</label>
-      </div>
-    </div>
-    <div class="editpop-foot"><button class="primary cp-done">Done</button></div>`);
-  pop.querySelector('.cp-done').onclick = close;
-  pop.querySelector('.cp-historical').onchange = e => { historicalOnly = e.target.checked; render(); };
+  document.getElementById('cp-historical').onchange = e => { historicalOnly = e.target.checked; render(); };
 
   async function load() {
     const [hp, fp, dl, cl] = await Promise.all([
@@ -125,6 +117,11 @@ boot('clientprofit', async (supa, el) => {
     const byClient = {};
     dealRows.forEach(r => (byClient[r.clientId] = byClient[r.clientId] || []).push(r));
     const sum = (deals, k) => deals.reduce((s, d) => s + d[k], 0);
+    // hours_page/forecast_page are both queried scoped to [rangeFrom, rangeTo],
+    // so any nonzero on booked revenue, logged hours, forecasted revenue, or
+    // assigned hours already means it happened in a month within range. A
+    // client with nothing on any of those four fronts has nothing to show
+    // for this range and is dropped rather than rendered as a row of zeros.
     allClientRows = Object.entries(byClient).map(([cid, deals]) => {
       const starts = deals.map(d => d.flightStart).filter(Boolean).sort();
       const ends = deals.map(d => d.flightEnd).filter(Boolean).sort();
@@ -135,7 +132,7 @@ boot('clientprofit', async (supa, el) => {
         actualRevenue: sum(deals, 'actualRevenue'), actualCogs: sum(deals, 'actualCogs'), actualGP: sum(deals, 'actualGP'),
         forecastRevenue: sum(deals, 'forecastRevenue'), forecastCogs: sum(deals, 'forecastCogs'), forecastGP: sum(deals, 'forecastGP')
       };
-    });
+    }).filter(c => c.actualRevenue !== 0 || c.actualHours !== 0 || c.forecastRevenue !== 0 || c.plannedHours !== 0);
 
     render();
   }
