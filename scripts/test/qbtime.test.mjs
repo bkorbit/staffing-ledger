@@ -1,0 +1,64 @@
+process.env.NODE_ENV='test';
+process.env.QBTIME_TOKEN='x';
+process.env.SUPABASE_SERVICE_ROLE_KEY='x'; process.env.SUPABASE_URL='http://x';
+const m = await import('../sync-qbtime.mjs');
+let pass=0, fail=0;
+const eq=(a,b,n)=>{const A=JSON.stringify(a),B=JSON.stringify(b);
+  if(A===B){pass++;} else {fail++;console.log(`  FAIL ${n}\n    got ${A}\n    want ${B}`);}};
+
+console.log('jobcodeFromName');
+eq(m.jobcodeFromName('26hawt260810'),'26hawt260810','bare code');
+eq(m.jobcodeFromName('Client Name (26hawt260810)'),'26hawt260810','embedded in a longer name');
+eq(m.jobcodeFromName('EMG:26hawt260810'),'26hawt260810','embedded after a colon');
+eq(m.jobcodeFromName('Internal'),null,'no code -> null');
+eq(m.jobcodeFromName(''),null,'empty -> null');
+eq(m.jobcodeFromName(null),null,'null -> null');
+eq(m.jobcodeFromName('26h1234'),null,'letters run too short (min 3) -> null');
+eq(m.jobcodeFromName('2024ab12345'),null,'a contiguous run with no internal word boundary never matches, even though a substring looks right -> null');
+
+console.log('jobcodeChain');
+const jobcodes = {
+  1: { id: 1, name: 'Acme Corp', parent_id: 0, type: 'regular' },
+  2: { id: 2, name: 'Acme Corp:26acme260101', parent_id: 1, type: 'regular' },
+  3: { id: 3, name: 'PTO', parent_id: 0, type: 'pto' },
+  4: { id: 4, name: 'Internal', parent_id: 0, type: 'regular' },
+  5: { id: 5, name: 'Design', parent_id: 4, type: 'regular' },
+};
+eq(m.jobcodeChain(2, jobcodes), { child: 'Acme Corp:26acme260101', parent: 'Acme Corp', childType: 'regular' }, 'project under a customer');
+eq(m.jobcodeChain(1, jobcodes), { child: 'Acme Corp', parent: '', childType: 'regular' }, 'top-level customer, no parent');
+eq(m.jobcodeChain(3, jobcodes), { child: 'Time off', parent: '', childType: 'pto' }, 'pto-typed jobcode substitutes the placeholder name');
+eq(m.jobcodeChain(5, jobcodes), { child: 'Design', parent: 'Internal', childType: 'regular' }, 'sub-jobcode under Internal');
+eq(m.jobcodeChain(999, jobcodes), { child: '', parent: '', childType: '' }, 'unknown id -> all blank, never throws');
+
+console.log('classifyEntry');
+const dealByJobcode = new Map([['26acme260101', { id: 'deal-1', client_id: 'client-1' }]]);
+eq(m.classifyEntry({ childName: 'Acme Corp:26acme260101', parentName: 'Acme Corp', childType: 'regular' }, dealByJobcode),
+  { type: 'billable', dealId: 'deal-1', clientId: 'client-1' }, 'child jobcode carries the code, matches a deal');
+eq(m.classifyEntry({ childName: 'Acme Corp', parentName: '', childType: 'regular' }, dealByJobcode),
+  { type: 'internal' }, 'a real customer name with no embedded code at all -> internal, not unmatched');
+eq(m.classifyEntry({ childName: '26acme260101', parentName: 'Acme Corp', childType: 'regular' }, new Map()),
+  { type: 'unmatched', code: '26acme260101' }, 'real-looking code but no deal carries it — flagged, not silently dropped');
+eq(m.classifyEntry({ childName: 'Time off', parentName: '', childType: 'pto' }, dealByJobcode),
+  { type: 'timeoff', kind: 'pto' }, 'typed time-off prefers the QuickBooks Time type over the placeholder name');
+eq(m.classifyEntry({ childName: 'Sick Day', parentName: 'Acme Corp', childType: 'regular' }, dealByJobcode),
+  { type: 'timeoff', kind: 'Sick Day' }, 'name-matched time-off with no special type uses the child name');
+eq(m.classifyEntry({ childName: 'Planning', parentName: 'Vacation', childType: 'regular' }, dealByJobcode),
+  { type: 'timeoff', kind: 'Vacation' }, 'parent name matches time-off even though the child name does not');
+eq(m.classifyEntry({ childName: 'Design', parentName: 'Internal', childType: 'regular' }, dealByJobcode),
+  { type: 'internal' }, 'parent name matches the internal list');
+eq(m.classifyEntry({ childName: 'Admin', parentName: '', childType: 'regular' }, dealByJobcode),
+  { type: 'internal' }, 'child name matches the internal list directly (no jobcode to even try)');
+eq(m.classifyEntry({ childName: '', parentName: '', childType: '' }, dealByJobcode),
+  { type: 'internal' }, 'unresolvable jobcode (id not found upstream) falls back to internal, never throws');
+
+console.log('mergeIntoRanges');
+eq(m.mergeIntoRanges([]), [], 'empty -> no ranges');
+eq(m.mergeIntoRanges(['2026-03-10']), [['2026-03-10','2026-03-10']], 'single day -> one one-day range');
+eq(m.mergeIntoRanges(['2026-03-10','2026-03-11','2026-03-12']), [['2026-03-10','2026-03-12']], 'three consecutive days merge into one range');
+eq(m.mergeIntoRanges(['2026-03-12','2026-03-10','2026-03-11']), [['2026-03-10','2026-03-12']], 'unsorted input still merges correctly');
+eq(m.mergeIntoRanges(['2026-03-10','2026-03-11','2026-03-14']), [['2026-03-10','2026-03-11'],['2026-03-14','2026-03-14']], 'a real gap starts a new range');
+eq(m.mergeIntoRanges(['2026-02-27','2026-02-28','2026-03-01']), [['2026-02-27','2026-03-01']], 'a range spanning a month boundary (28-day Feb) merges correctly');
+eq(m.mergeIntoRanges(['2026-03-10','2026-03-10','2026-03-11']), [['2026-03-10','2026-03-11']], 'duplicate day is de-duplicated, not counted as its own range');
+
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail?1:0);

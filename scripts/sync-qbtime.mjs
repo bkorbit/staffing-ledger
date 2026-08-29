@@ -1,50 +1,161 @@
-// Sync QuickBooks Time (TSheets) hours into the EMG Staffing Assignments ledger.
+// QuickBooks Time (TSheets) -> Postgres.
 //
-// Runs nightly via GitHub Actions (.github/workflows/sync-qbtime.yml).
-// Pulls timesheets for the current month plus the two previous months,
-// aggregates them by person + customer + month, and REPLACES those months'
-// actuals in the Supabase ledger_state row — mirroring what the manual
-// "Import hour tracking data" flow does, including internal-hours mapping
-// and auto-creating unknown people/projects.
+// Writes the effort domain the schema has carried since 001_init.sql and nobody
+// ever wired up: staff, time_entries (actual hours, DAY grain), and time_off.
+// Never touches assignments (human-planned hours) or comp_periods (human-entered
+// pay) — this sync only writes what QuickBooks Time itself observed.
 //
-// Required environment (GitHub repo secrets):
-//   QBTIME_TOKEN               – QuickBooks Time API access token
-//   SUPABASE_SERVICE_ROLE_KEY  – Supabase service-role key (bypasses RLS; server-side only)
+// The previous version of this file pointed at the deprecated Supabase project
+// (bdtzpeazcjgnsxodwzpz — see CLAUDE.md) and wrote into a single JSON-blob table,
+// `ledger_state`, that only ever existed there. That table and that project are
+// both gone from this platform; every current sync reads SUPABASE_URL from the
+// environment instead (see sync-qbo.mjs), and this one now matches.
+//
+// Attribution: QuickBooks Time's jobcodes are two levels — a parent (the
+// overarching customer) and a child (the sub-customer / project). The child
+// jobcode's own name is expected to carry the same embedded code QuickBooks
+// Online project names do ('26hawt260810' — see jobcodeFromName below), which is
+// also the code already stamped onto deals.jobcode by sync-qbo.mjs/sync-hubspot.mjs.
+// Matching tries the child level first, then falls back to the parent level, then
+// falls back to the internal/time-off name lists for anything that still isn't a
+// real client jobcode.
+//
+// Env: QBTIME_TOKEN, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+// State: sync_state where id='qbtime' — import_from, last_run_at, last_run_log.
+//   No refresh token: QuickBooks Time's token is long-lived, generated once in
+//   its own admin settings, unlike QBO's rotating OAuth refresh token.
 
 const QBTIME_TOKEN = process.env.QBTIME_TOKEN;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const SUPABASE_URL = 'https://bdtzpeazcjgnsxodwzpz.supabase.co';
-const WORKSPACE_ID = 'default';
+const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const QB_BASE   = process.env.QBTIME_BASE_URL || 'https://rest.tsheets.com/api/v1';
+const STATE_ID  = 'qbtime';
 
-const QB_BASE = 'https://rest.tsheets.com/api/v1';
-const INTERNAL_ID = '__internal__';
-const TIMEOFF_ID = '__timeoff__';
-// EMG-internal work: consumes time but is real work
 const INTERNAL_NAMES = ['emg', 'internal', 'internal time', 'non-billable', 'nonbillable', 'non billable', 'admin', 'overhead'];
-// Not-working time: PTO/sick/holiday — reduces capacity in the tool
 const TIMEOFF_NAMES = ['pto', 'sick', 'sick day', 'vacation', 'holiday', 'company holiday', 'unpaid time off', 'time off'];
 const TIMEOFF_JOBCODE_TYPES = new Set(['pto', 'paid_break', 'unpaid_break', 'unpaid_time_off']);
-// People to never import from QuickBooks Time (case-insensitive, full name match)
+// Full name match, case-insensitive — people whose QuickBooks Time hours should
+// never be imported at all.
 const EXCLUDED_PEOPLE = new Set(['hannah hoffman']);
-// QuickBooks Time owns all actuals from this date forward: every sync pulls the
-// full window and replaces those months, so QBT corrections/deletions flow through.
-const SYNC_FROM = '2026-01-01';
 
-if (!QBTIME_TOKEN) fail('Missing QBTIME_TOKEN secret.');
-if (!SERVICE_KEY) fail('Missing SUPABASE_SERVICE_ROLE_KEY secret.');
-
-function fail(msg) { console.error('✖ ' + msg); process.exit(1); }
-function uid() { return Math.random().toString(36).slice(2, 10); }
-function monthKeyOf(dateStr) { return dateStr.slice(0, 7); } // 'YYYY-MM-DD' -> 'YYYY-MM'
-function weekKeyOf(dateStr) { // 'YYYY-MM-DD' -> that week's Monday 'YYYY-MM-DD'
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() - ((dt.getUTCDay() + 6) % 7));
-  return dt.toISOString().slice(0, 10);
+function preflight() {
+  const missing = [];
+  if (!QBTIME_TOKEN) missing.push('QBTIME_TOKEN — repo secret, a QuickBooks Time API token');
+  if (!SERVICE_KEY)  missing.push('SUPABASE_SERVICE_ROLE_KEY — repo secret (the sb_secret_… key)');
+  if (!SUPABASE_URL) missing.push('SUPABASE_URL — repo variable, e.g. https://xxxx.supabase.co');
+  if (!missing.length) return;
+  console.error('\n✖ Cannot run. ' + missing.length + ' missing:');
+  missing.forEach((m, i) => console.error(`   ${i + 1}. ${m}`));
+  process.exit(1);
 }
+preflight();
+
+const fail = m => { throw new Error(m); };
+
+async function die(stage, err) {
+  const msg = err && err.message ? err.message : String(err);
+  console.error(`✖ [${stage}] ${msg}`);
+  try {
+    await sbPatchState({
+      last_run_at: new Date().toISOString(),
+      last_run_log: { ok: false, stage, error: msg.slice(0, 2000), at: new Date().toISOString() }
+    });
+    console.error('  (recorded in sync_state.last_run_log)');
+  } catch (e) {
+    console.error('  (could not record it: ' + (e.message || e) + ')');
+  }
+  process.exit(1);
+}
+
+function day(v) { return (v === undefined || v === null || v === '') ? null : String(v).slice(0, 10); }
 function isoDate(d) { return d.toISOString().slice(0, 10); }
 
-// ---------- QuickBooks Time ----------
+// Same regex as sync-qbo.mjs/sync-hubspot.mjs — the shared jobcode convention.
+// Kept as a local copy rather than a shared import: the two QuickBooks syncs
+// already each carry their own copy, and a shared module is a bigger refactor
+// than this rewrite calls for.
+export function jobcodeFromName(name) {
+  const m = String(name || '').match(/\b\d{2}[a-z]{3,6}\d{5,8}\b/i);
+  return m ? m[0] : null;
+}
+
+// One timesheet entry (already resolved to childName/parentName/childType) ->
+// where its hours belong. Pure and exported so adversarial fixtures can pin
+// down the priority order without a live QuickBooks Time connection: type
+// beats name, child beats parent, a real jobcode beats the internal bucket.
+export function classifyEntry(e, dealByJobcode) {
+  const lowerChild = (e.childName || '').toLowerCase(), lowerParent = (e.parentName || '').toLowerCase();
+  const childIsTimeoffType = !!(e.childType && TIMEOFF_JOBCODE_TYPES.has(e.childType));
+  if (childIsTimeoffType || TIMEOFF_NAMES.includes(lowerChild) || TIMEOFF_NAMES.includes(lowerParent)) {
+    // Prefer QuickBooks Time's own type ('pto', 'paid_break', …) when that's
+    // what actually matched — the name at that point is just the generic
+    // 'Time off' placeholder jobcodeChain substitutes in, not a real kind.
+    const kind = childIsTimeoffType ? e.childType
+      : TIMEOFF_NAMES.includes(lowerChild) ? e.childName : e.parentName;
+    return { type: 'timeoff', kind };
+  }
+  if (!INTERNAL_NAMES.includes(lowerChild) && !INTERNAL_NAMES.includes(lowerParent)) {
+    const code = jobcodeFromName(e.childName) || jobcodeFromName(e.parentName);
+    if (code) {
+      const deal = dealByJobcode.get(code);
+      if (deal) return { type: 'billable', dealId: deal.id, clientId: deal.client_id };
+      return { type: 'unmatched', code };
+    }
+  }
+  return { type: 'internal' };
+}
+
+// A sorted set of 'YYYY-MM-DD' strings -> contiguous [start, end] ranges, so a
+// week of PTO becomes one time_off row instead of seven. Pure and exported for
+// the same reason as classifyEntry — the off-by-one risk here (a single day,
+// a run that starts the array, two ranges separated by exactly one gap day)
+// is exactly what adversarial fixtures catch and a one-row fixture would miss.
+export function mergeIntoRanges(days) {
+  const sorted = [...new Set(days)].sort();
+  if (!sorted.length) return [];
+  const ranges = [];
+  let start = sorted[0], prev = sorted[0];
+  for (let i = 1; i <= sorted.length; i++) {
+    const d = sorted[i];
+    const gap = d ? (new Date(d) - new Date(prev)) / 86400000 : Infinity;
+    if (gap > 1) { ranges.push([start, prev]); start = d; }
+    prev = d;
+  }
+  return ranges;
+}
+
+/* -------------------------------------------------------------- Supabase -- */
+
+const sb = { apikey: SERVICE_KEY, Authorization: 'Bearer ' + SERVICE_KEY, 'Content-Type': 'application/json' };
+
+async function sbGet(path) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: sb });
+  if (!r.ok) fail(`Supabase GET ${path} → ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+async function sbDelete(path) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { method: 'DELETE', headers: sb });
+  if (!r.ok) fail(`Supabase DELETE ${path} → ${r.status}: ${await r.text()}`);
+}
+async function sbInsert(table, rows) {
+  if (!rows.length) return;
+  for (let i = 0; i < rows.length; i += 500) {
+    const chunk = rows.slice(i, i + 500);
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+      method: 'POST', headers: { ...sb, Prefer: 'return=minimal' }, body: JSON.stringify(chunk)
+    });
+    if (!r.ok) fail(`Supabase insert ${table} → ${r.status}: ${(await r.text()).slice(0, 500)}`);
+  }
+}
+async function sbPatchState(patch) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/sync_state?id=eq.${STATE_ID}`, {
+    method: 'PATCH', headers: { ...sb, Prefer: 'return=minimal' },
+    body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() })
+  });
+  if (!r.ok) fail(`Supabase state write → ${r.status}: ${await r.text()}`);
+}
+
+/* ---------------------------------------------------------- QuickBooks Time -- */
 
 async function qbFetch(path, params) {
   const url = new URL(QB_BASE + path);
@@ -54,44 +165,23 @@ async function qbFetch(path, params) {
   return res.json();
 }
 
-// Resolve a jobcode to its top-level parent (the customer), walking parent_id links.
-// PTO/break-type jobcodes resolve to 'Internal' so time off never becomes a fake customer.
-function rootJobcodeName(id, jobcodes) {
-  let jc = jobcodes[id];
-  let guard = 0;
-  while (jc && jc.parent_id && jc.parent_id !== 0 && jobcodes[jc.parent_id] && guard < 10) {
-    jc = jobcodes[jc.parent_id];
-    guard++;
-  }
-  if (!jc) return '';
-  if (TIMEOFF_JOBCODE_TYPES.has(String(jc.type || '').toLowerCase())) return 'Time off';
-  return String(jc.name || '').trim();
-}
-
-// Pull every jobcode up front. Relying on each page's supplemental_data means a child
-// jobcode whose parent happens not to appear on that page resolves to the sub-jobcode
-// name instead of the customer, splitting one account across several names.
 async function fetchJobcodes() {
   const map = {};
   let page = 1;
-  try {
-    for (;;) {
-      const data = await qbFetch('/jobcodes', { page, per_page: 200, active: 'both' });
-      const list = Object.values((data.results || {}).jobcodes || {});
-      for (const jc of list) map[jc.id] = jc;
-      if (!data.more) break;
-      page++;
-      if (page > 200) { console.log('  ⚠ jobcode pagination hit the 200-page guard.'); break; }
-    }
-    console.log(`  Loaded ${Object.keys(map).length} jobcodes.`);
-  } catch (e) {
-    console.log('  (jobcode prefetch failed, falling back to per-page data:', e.message + ')');
+  for (;;) {
+    const data = await qbFetch('/jobcodes', { page, per_page: 200, active: 'both' });
+    const list = Object.values((data.results || {}).jobcodes || {});
+    for (const jc of list) map[jc.id] = jc;
+    if (!data.more) break;
+    page++;
+    if (page > 200) { console.log('  ⚠ jobcode pagination hit the 200-page guard.'); break; }
   }
+  console.log(`  Loaded ${Object.keys(map).length} jobcodes.`);
   return map;
 }
 
 async function fetchGroups() {
-  const map = {}; // group_id -> group name
+  const map = {};
   let page = 1;
   try {
     for (;;) {
@@ -108,21 +198,29 @@ async function fetchGroups() {
   return map;
 }
 
+// The child (this jobcode) and parent (one level up) names, each resolved past
+// PTO/break jobcode types to a plain label. Two levels only: QuickBooks Time's own
+// hierarchy is customer -> project, and Boris confirmed that's the whole chain —
+// there is no third level to walk.
+export function jobcodeChain(id, jobcodes) {
+  const jc = jobcodes[id];
+  if (!jc) return { child: '', parent: '', childType: '' };
+  const nameOf = j => TIMEOFF_JOBCODE_TYPES.has(String(j.type || '').toLowerCase())
+    ? 'Time off' : String(j.name || '').trim();
+  const parentJc = jc.parent_id && jc.parent_id !== 0 ? jobcodes[jc.parent_id] : null;
+  return { child: nameOf(jc), parent: parentJc ? nameOf(parentJc) : '', childType: String(jc.type || '').toLowerCase() };
+}
+
 async function pullTimesheets(startDate, endDate) {
-  const entries = []; // {person, customer, month, week, hours, dept}
+  const entries = []; // {qbtimeUserId, person, dept, date, hours, jobcode, childName, parentName, childType}
   const users = {};
   const jobcodes = Object.assign({}, JOBCODES);
   let page = 1;
-  // Every hour QuickBooks Time returned, and every hour we dropped and why. Without this
-  // the sync can silently under-report and look like it worked.
   const stat = { sheets: 0, rawHours: 0, kept: 0, keptHours: 0,
-                 noPerson: 0, noPersonHours: 0, noCustomer: 0, noCustomerHours: 0,
-                 zero: 0, excluded: 0, excludedHours: 0, noDate: 0,
-                 unknownJobcodes: new Set(), unknownUsers: new Set(), truncated: false };
+                 noPerson: 0, noPersonHours: 0, excluded: 0, excludedHours: 0,
+                 zero: 0, noDate: 0, truncated: false };
 
   for (;;) {
-    // per_page must be explicit: the API defaults to 50 rows, so without it the old
-    // 50-page guard capped the entire window at ~2,500 timesheets.
     const data = await qbFetch('/timesheets', { start_date: startDate, end_date: endDate, page, per_page: 200 });
     const sup = data.supplemental_data || {};
     Object.assign(users, sup.users || {});
@@ -134,14 +232,16 @@ async function pullTimesheets(startDate, endDate) {
       const u = users[ts.user_id];
       const person = u ? `${u.first_name || ''} ${u.last_name || ''}`.trim() : '';
       const dept = u && u.group_id ? (GROUP_NAMES[u.group_id] || '') : '';
-      const customer = rootJobcodeName(ts.jobcode_id, jobcodes);
       if (!ts.date) { stat.noDate++; continue; }
-      if (!person) { stat.noPerson++; stat.noPersonHours += hours; stat.unknownUsers.add(String(ts.user_id)); continue; }
+      if (!person) { stat.noPerson++; stat.noPersonHours += hours; continue; }
       if (EXCLUDED_PEOPLE.has(person.toLowerCase())) { stat.excluded++; stat.excludedHours += hours; continue; }
-      if (!customer) { stat.noCustomer++; stat.noCustomerHours += hours; stat.unknownJobcodes.add(String(ts.jobcode_id)); continue; }
       if (hours <= 0) { stat.zero++; continue; }
+      const chain = jobcodeChain(ts.jobcode_id, jobcodes);
       stat.kept++; stat.keptHours += hours;
-      entries.push({ person, customer, month: monthKeyOf(ts.date), week: weekKeyOf(ts.date), hours, dept });
+      entries.push({
+        qbtimeUserId: String(ts.user_id), person, dept, date: ts.date, hours,
+        childName: chain.child, parentName: chain.parent, childType: chain.childType
+      });
     }
     if (!data.more) break;
     page++;
@@ -149,13 +249,12 @@ async function pullTimesheets(startDate, endDate) {
   }
 
   console.log(`  Pages read: ${page}. Timesheets seen: ${stat.sheets} (${stat.rawHours.toFixed(2)}h raw).`);
-  console.log(`  Imported: ${stat.kept} entries (${stat.keptHours.toFixed(2)}h).`);
+  console.log(`  Kept: ${stat.kept} entries (${stat.keptHours.toFixed(2)}h).`);
   const dropped = stat.rawHours - stat.keptHours;
   if (dropped > 0.01) {
     console.log(`  ⚠ Dropped ${dropped.toFixed(2)}h:`);
     if (stat.excludedHours > 0) console.log(`      ${stat.excludedHours.toFixed(2)}h — excluded people (${[...EXCLUDED_PEOPLE].join(', ')})`);
-    if (stat.noCustomerHours > 0) console.log(`      ${stat.noCustomerHours.toFixed(2)}h — jobcode did not resolve to a customer (ids: ${[...stat.unknownJobcodes].slice(0, 15).join(', ')})`);
-    if (stat.noPersonHours > 0) console.log(`      ${stat.noPersonHours.toFixed(2)}h — unknown user (ids: ${[...stat.unknownUsers].slice(0, 15).join(', ')})`);
+    if (stat.noPersonHours > 0) console.log(`      ${stat.noPersonHours.toFixed(2)}h — unknown user`);
     if (stat.zero) console.log(`      ${stat.zero} entries with zero duration (still running, or deleted)`);
     if (stat.noDate) console.log(`      ${stat.noDate} entries with no date`);
   }
@@ -163,162 +262,145 @@ async function pullTimesheets(startDate, endDate) {
   return entries;
 }
 
-// ---------- Supabase ----------
-
-const sbHeaders = {
-  apikey: SERVICE_KEY,
-  Authorization: 'Bearer ' + SERVICE_KEY,
-  'Content-Type': 'application/json',
-};
-
-let loadedVersion = null;
-async function loadLedger() {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/ledger_state?id=eq.${WORKSPACE_ID}&select=data,version`, { headers: sbHeaders });
-  if (!res.ok) fail(`Supabase read failed (${res.status}): ${await res.text()}`);
-  const rows = await res.json();
-  if (rows.length) { loadedVersion = typeof rows[0].version === 'number' ? rows[0].version : 0; return rows[0].data || {}; }
-  loadedVersion = null;
-  return null;
-}
-
-async function saveLedger(state, rowExists) {
-  if (!rowExists) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/ledger_state`, {
-      method: 'POST', headers: sbHeaders,
-      body: JSON.stringify({ id: WORKSPACE_ID, data: state, version: 1, updated_at: new Date().toISOString() })
-    });
-    if (!res.ok) fail(`Supabase insert failed (${res.status}): ${await res.text()}`);
-    return;
-  }
-  // Conditional PATCH on the loaded version; if a human saved during the sync, reload+reapply.
-  const next = (loadedVersion || 0) + 1;
-  const url = `${SUPABASE_URL}/rest/v1/ledger_state?id=eq.${WORKSPACE_ID}&version=eq.${loadedVersion}`;
-  const res = await fetch(url, {
-    method: 'PATCH', headers: { ...sbHeaders, Prefer: 'return=representation' },
-    body: JSON.stringify({ data: state, version: next, updated_at: new Date().toISOString() })
-  });
-  if (!res.ok) fail(`Supabase write failed (${res.status}): ${await res.text()}`);
-  const rows = await res.json();
-  if (!rows.length) {
-    // Version moved under us — a human saved mid-sync. This sync's data was built
-    // from month-replace logic, so just skip this run's write rather than risk a
-    // stale overwrite; tomorrow's run (or a manual dispatch) will reconcile.
-    console.log('⚠ Ledger changed during sync (concurrent edit) — skipping write to avoid overwriting newer data. Re-run the sync.');
-    process.exitCode = 0;
-  }
-}
-
-// ---------- Sync ----------
+/* -------------------------------------------------------------------- sync -- */
 
 let GROUP_NAMES = {};
 let JOBCODES = {};
 
 async function main() {
+  let stateRows;
+  try { stateRows = await sbGet(`sync_state?id=eq.${STATE_ID}&select=*`); }
+  catch (e) { console.error('✖ [db-read] ' + (e.message || e)); process.exit(1); }
+  if (!stateRows.length) fail(`No sync_state row for '${STATE_ID}'. Run db/001_init.sql.`);
+  const importFrom = day(stateRows[0].import_from) || '2025-01-01';
+
   GROUP_NAMES = await fetchGroups();
   JOBCODES = await fetchJobcodes();
-  const now = new Date();
-  const startDate = SYNC_FROM;
-  const endDate = isoDate(now);
+  const startDate = importFrom;
+  const endDate = isoDate(new Date());
   console.log(`Pulling QuickBooks Time timesheets ${startDate} → ${endDate}…`);
-
   const entries = await pullTimesheets(startDate, endDate);
-  const byMonth = {};
-  for (const e of entries) byMonth[e.month] = (byMonth[e.month] || 0) + e.hours;
-  console.log('Hours per month (compare these against the QuickBooks Time report):');
-  Object.keys(byMonth).sort().forEach(mk => console.log(`    ${mk}: ${byMonth[mk].toFixed(2)}h`));
 
-  // Aggregate: month -> personName|customer -> hours (and the same by week)
-  const agg = {};
-  const aggW = {};
+  // ---- staff: upsert by qbtime_user_id (unique), never id — new rows let
+  // Postgres assign their id via the column default, so nothing here has to
+  // generate one. Existing rows only get a blank department backfilled, never
+  // an overwrite of one a human already set.
+  const existingStaff = await sbGet('staff?select=id,name,department,qbtime_user_id,active');
+  const existingByQbId = new Map(existingStaff.filter(s => s.qbtime_user_id).map(s => [s.qbtime_user_id, s]));
+  const newStaffRows = [];
+  const newStaffNames = [];
+  const deptBackfills = []; // {id, department} — patched individually, one column
+  const seenUserIds = new Set(entries.map(e => e.qbtimeUserId));
+  for (const uid of seenUserIds) {
+    const e = entries.find(x => x.qbtimeUserId === uid);
+    const existing = existingByQbId.get(uid);
+    if (!existing) {
+      newStaffRows.push({ name: e.person, department: e.dept || null, qbtime_user_id: uid, active: true });
+      newStaffNames.push(e.person + (e.dept ? ` (${e.dept})` : ''));
+    } else if (!existing.department && e.dept) {
+      deptBackfills.push({ id: existing.id, department: e.dept });
+    }
+  }
+  // A plain insert, not an upsert: every row here is genuinely new (its
+  // qbtime_user_id matched nothing above), so there is no conflict to resolve
+  // and no risk of the union-of-keys shaping in sbUpsert nulling out a column
+  // on an existing row.
+  await sbInsert('staff', newStaffRows);
+  if (newStaffNames.length) console.log('  New people created (set comp on the Team page):', [...new Set(newStaffNames)].join(', '));
+  // Individual single-column PATCHes, not a batch upsert — sbUpsert normalizes
+  // every row in a batch to the same columns, which would null out name/active
+  // on an existing person if this were merged with the insert above.
+  for (const { id, department } of deptBackfills) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/staff?id=eq.${id}`, {
+      method: 'PATCH', headers: { ...sb, Prefer: 'return=minimal' }, body: JSON.stringify({ department })
+    });
+    if (!r.ok) fail(`Supabase department backfill (staff ${id}) → ${r.status}: ${await r.text()}`);
+  }
+
+  // Re-fetch: new rows' ids were just assigned by Postgres, and a partial-column
+  // upsert (department only) would otherwise leave this script's own view of
+  // 'existing' rows stale.
+  const staffByQbId = new Map(
+    (await sbGet('staff?select=id,name,department,qbtime_user_id,active'))
+      .filter(s => s.qbtime_user_id).map(s => [s.qbtime_user_id, s])
+  );
+
+  // ---- deals: the jobcode -> deal_id -> client_id lookup ----
+  // Only won/active deals receive new actual hours — a pipeline, closed, or lost
+  // deal shouldn't accumulate logged time against it going forward.
+  const deals = await sbGet(`deals?jobcode=not.is.null&status=in.(won,active)&select=id,client_id,jobcode`);
+  const dealByJobcode = new Map();
+  for (const d of deals) {
+    if (dealByJobcode.has(d.jobcode)) {
+      console.log(`  ⚠ jobcode '${d.jobcode}' matches more than one active deal — keeping the first, check deals.jobcode for a duplicate.`);
+      continue;
+    }
+    dealByJobcode.set(d.jobcode, d);
+  }
+
+  // ---- classify + aggregate to one row per staff+deal(or bucket)+day ----
+  const dayEntries = new Map(); // 'staffId|dealId|date' -> {staffId, dealId, clientId, department, hours}
+  const timeOffDays = new Map(); // 'staffId|kind' -> Set(dates)
+  const unmatchedJobcodes = new Map(); // code -> hours, seen but no deal carries it
+  const internalHours = { count: 0, hours: 0 };
+
   for (const e of entries) {
-    const key = e.person.toLowerCase() + '|' + e.customer.toLowerCase();
-    if (!agg[e.month]) agg[e.month] = {};
-    if (!agg[e.month][key]) agg[e.month][key] = { person: e.person, customer: e.customer, dept: e.dept || '', hours: 0 };
-    agg[e.month][key].hours += e.hours;
-    if (e.dept && !agg[e.month][key].dept) agg[e.month][key].dept = e.dept;
-    if (!aggW[e.week]) aggW[e.week] = {};
-    if (!aggW[e.week][key]) aggW[e.week][key] = { person: e.person, customer: e.customer, hours: 0 };
-    aggW[e.week][key].hours += e.hours;
-  }
-
-  const existing = await loadLedger();
-  const rowExists = existing !== null;
-  const state = Object.assign({ staff: [], projects: [], assignments: {}, actuals: {}, demand: {} }, existing || {});
-  if (!state.actuals) state.actuals = {};
-  if (!state.actualsW) state.actualsW = {};
-
-  const staffByName = {};
-  state.staff.forEach(s => staffByName[(s.name || '').trim().toLowerCase()] = s);
-  const projByName = {};
-  state.projects.forEach(p => projByName[(p.name || '').trim().toLowerCase()] = p);
-
-  const newStaff = [], newProjects = [];
-  const monthsSynced = Object.keys(agg).sort();
-
-  for (const mk of monthsSynced) {
-    const monthActuals = {}; // full-month replace: QB Time is the source of truth for these months
-    for (const { person, customer, dept, hours } of Object.values(agg[mk])) {
-      let staff = staffByName[person.toLowerCase()];
-      if (!staff) {
-        staff = { id: uid(), name: person, department: dept || '', employmentType: 'fulltime', annualCost: 0, hourlyCost: 0, weeklyCapacity: 40 };
-        state.staff.push(staff);
-        staffByName[person.toLowerCase()] = staff;
-        newStaff.push(person + (dept ? ' (' + dept + ')' : ''));
-      } else if (!staff.department && dept) {
-        staff.department = dept;   // backfill blanks only — never overwrite a department you set
-      }
-      let projectId;
-      if (TIMEOFF_NAMES.includes(customer.toLowerCase())) {
-        projectId = TIMEOFF_ID;
-      } else if (INTERNAL_NAMES.includes(customer.toLowerCase())) {
-        projectId = INTERNAL_ID;
-      } else {
-        let proj = projByName[customer.toLowerCase()];
-        if (!proj) {
-          proj = { id: uid(), name: customer, monthlyRevenue: 0, revenueOverrides: {}, startMonth: '', endMonth: '' };
-          state.projects.push(proj);
-          projByName[customer.toLowerCase()] = proj;
-          newProjects.push(customer);
-        }
-        projectId = proj.id;
-      }
-      const k = staff.id + '__' + projectId;
-      monthActuals[k] = Math.round(((monthActuals[k] || 0) + hours) * 100) / 100;
+    const staff = staffByQbId.get(e.qbtimeUserId);
+    const c = classifyEntry(e, dealByJobcode);
+    if (c.type === 'timeoff') {
+      const key = staff.id + '|' + c.kind;
+      if (!timeOffDays.has(key)) timeOffDays.set(key, new Set());
+      timeOffDays.get(key).add(e.date);
+      continue;
     }
-    state.actuals[mk] = monthActuals;
-  }
-
-  // Weekly actuals: synced months own their weeks — clear then rewrite
-  const resolveKey = (person, customer) => {
-    const staff = staffByName[person.toLowerCase()];
-    const c = customer.toLowerCase();
-    const pid = TIMEOFF_NAMES.includes(c) ? TIMEOFF_ID
-      : INTERNAL_NAMES.includes(c) ? INTERNAL_ID
-      : (projByName[c] || {}).id;
-    return staff && pid ? staff.id + '__' + pid : null;
-  };
-  const monthsSet = new Set(monthsSynced);
-  const weekOverlapsSynced = wk => {
-    const [y, m, d] = wk.split('-').map(Number);
-    const sunday = new Date(Date.UTC(y, m - 1, d + 6));
-    return monthsSet.has(wk.slice(0, 7)) || monthsSet.has(sunday.toISOString().slice(0, 7));
-  };
-  Object.keys(state.actualsW).forEach(wk => { if (weekOverlapsSynced(wk)) delete state.actualsW[wk]; });
-  for (const wk of Object.keys(aggW)) {
-    const weekActuals = {};
-    for (const { person, customer, hours } of Object.values(aggW[wk])) {
-      const k = resolveKey(person, customer);
-      if (!k) continue;
-      weekActuals[k] = Math.round(((weekActuals[k] || 0) + hours) * 100) / 100;
+    if (c.type === 'unmatched') unmatchedJobcodes.set(c.code, (unmatchedJobcodes.get(c.code) || 0) + e.hours);
+    const dealId = c.type === 'billable' ? c.dealId : null;
+    const clientId = c.type === 'billable' ? c.clientId : null;
+    if (!dealId) { internalHours.count++; internalHours.hours += e.hours; }
+    const key = staff.id + '|' + (dealId || 'internal') + '|' + e.date;
+    if (!dayEntries.has(key)) {
+      dayEntries.set(key, { staffId: staff.id, dealId, clientId, department: e.dept || null, date: e.date, hours: 0 });
     }
-    if (Object.keys(weekActuals).length) state.actualsW[wk] = weekActuals;
+    dayEntries.get(key).hours += e.hours;
   }
 
-  await saveLedger(state, rowExists);
+  if (unmatchedJobcodes.size) {
+    console.log(`  ⚠ ${unmatchedJobcodes.size} jobcode(s) looked like a real project code but matched no won/active deal:`);
+    [...unmatchedJobcodes.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20)
+      .forEach(([code, hrs]) => console.log(`      ${code}: ${hrs.toFixed(2)}h`));
+  }
+  console.log(`  Internal/non-billable/unmatched: ${internalHours.count} entries (${internalHours.hours.toFixed(2)}h) — written with deal_id null.`);
 
-  console.log('✔ Synced months:', monthsSynced.join(', ') || '(none)');
-  if (newStaff.length) console.log('  New people created (set hourly cost in the Team tab):', [...new Set(newStaff)].join(', '));
-  if (newProjects.length) console.log('  New projects created (set revenue in the Projects tab):', [...new Set(newProjects)].join(', '));
+  // ---- time_entries: SYNC-OWNED, day grain. Replace the whole synced window. ----
+  await sbDelete(`time_entries?source=eq.qbtime&worked_on=gte.${startDate}&worked_on=lte.${endDate}`);
+  const teRows = [...dayEntries.values()].map(d => ({
+    id: `qbtime:${d.staffId}:${d.dealId || 'internal'}:${d.date}`,
+    staff_id: d.staffId, deal_id: d.dealId, client_id: d.clientId,
+    worked_on: d.date, hours: Math.round(d.hours * 100) / 100,
+    department: d.department, source: 'qbtime', synced_at: new Date().toISOString()
+  }));
+  await sbInsert('time_entries', teRows);
+  console.log(`  Wrote ${teRows.length} time_entries rows (${startDate}→${endDate}).`);
+
+  // ---- time_off: merge consecutive days per staff+kind into ranges, replace window ----
+  const existingOff = await sbGet(`time_off?starts_on=lte.${endDate}&ends_on=gte.${startDate}&select=id`);
+  if (existingOff.length) await sbDelete(`time_off?id=in.(${existingOff.map(r => r.id).join(',')})`);
+  const offRows = [];
+  for (const [key, daySet] of timeOffDays) {
+    const [staffId, kind] = key.split('|');
+    for (const [starts_on, ends_on] of mergeIntoRanges([...daySet])) {
+      offRows.push({ staff_id: staffId, starts_on, ends_on, kind, set_by: 'qbtime-sync' });
+    }
+  }
+  await sbInsert('time_off', offRows);
+  console.log(`  Wrote ${offRows.length} time_off range(s).`);
+
+  await sbPatchState({
+    import_from: startDate, // unchanged; kept explicit so a manual edit to widen the window is visible in the diff
+    last_run_at: new Date().toISOString(),
+    last_run_log: { ok: true, entries: teRows.length, timeOffRanges: offRows.length, unmatchedJobcodes: unmatchedJobcodes.size, at: new Date().toISOString() }
+  });
+  console.log('✔ Synced.');
 }
 
-main().catch(e => fail(e.stack || String(e)));
+if (process.env.NODE_ENV !== 'test') main().catch(e => die('unhandled', e));

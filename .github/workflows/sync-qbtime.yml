@@ -6,7 +6,20 @@ on:
   workflow_dispatch: {}    # adds a "Run workflow" button for manual syncs
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # The pure logic (jobcode matching, time-off/internal classification,
+      # date-range merging) runs before anything touches QuickBooks Time or Supabase.
+      - name: Unit tests
+        run: node scripts/test/qbtime.test.mjs
+
   sync:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,3 +31,4 @@ jobs:
         env:
           QBTIME_TOKEN: ${{ secrets.QBTIME_TOKEN }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
