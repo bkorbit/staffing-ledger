@@ -17,7 +17,7 @@ boot('settings', async (supa, el) => {
       supa.from('sync_state').select('id,last_run_at,last_run_log,import_from,import_from_set_by,import_from_set_at'),
       supa.from('qbo_accounts').select('id,name,balance,is_operating,as_of').eq('account_type','Bank').order('balance',{ascending:false}),
       supa.from('settings').select('key,value,set_by').order('key'),
-      supa.from('pipeline_deals').select('hubspot_deal_id,name,company,campaign_start,campaign_end,pipeline,is_won,url'),
+      supa.from('pipeline_deals').select('hubspot_deal_id,name,company,campaign_start,campaign_end,pipeline,is_won,url,jobcode,stage'),
       supa.from('promotions').select('hubspot_deal_id'),
       supa.from('blocked_company_names').select('name_key'),
       supa.from('deals').select('id,name,client_id,hubspot_deal_id,flight_start,flight_end,flight_locked').not('hubspot_deal_id', 'is', null),
@@ -84,8 +84,40 @@ boot('settings', async (supa, el) => {
       return { deal: d, client: clientName.get(d.client_id) || '', hsStart: hs.campaign_start, hsEnd: hs.campaign_end, hsUrl: hs.url };
     }).filter(Boolean);
 
+    // Raw lookup by name — ground truth for one specific deal instead of another
+    // guessed-at category. Covers every HubSpot deal in the mirror, won or not,
+    // since a reopened deal can sit in a non-"won" stage and be invisible to
+    // every bucket above despite being very real, live business.
+    const dealByHsId = new Map((hsDeals.data || []).map(d => [d.hubspot_deal_id, d]));
+    function renderLookup(q) {
+      const query = nameKey(q);
+      const hits = query.length < 2 ? [] : (pipelineDeals.data || [])
+        .filter(d => nameKey(d.name).includes(query) || nameKey(d.company || '').includes(query))
+        .slice(0, 25);
+      document.getElementById('lookup-results').innerHTML = !query.length ? '' : !hits.length
+        ? `<div class="muted" style="padding:6px 0">No HubSpot deal matches "${esc(q)}".</div>`
+        : `<table><tr><th>deal</th><th>company</th><th>stage</th><th>won?</th><th>pipeline</th>
+            <th>campaign dates</th><th>jobcode</th><th>in platform?</th><th></th></tr>
+          ${hits.map(d => {
+            const promoted = dealByHsId.get(d.hubspot_deal_id);
+            return `<tr><td class="textleft">${esc(d.name)}</td><td class="textleft">${esc(d.company || '')}</td>
+              <td class="textleft muted">${esc(d.stage || '')}</td>
+              <td>${d.is_won ? '<span class="pill good">won</span>' : '<span class="pill">not won</span>'}</td>
+              <td class="textleft muted">${esc(d.pipeline || '')}</td>
+              <td class="muted">${d.campaign_start || '—'} → ${d.campaign_end || '—'}</td>
+              <td class="muted">${esc(d.jobcode || '')}</td>
+              <td>${promoted ? `<span class="pill good">yes — ${esc(promoted.flight_start||'?')}→${esc(promoted.flight_end||'?')}</span>` : '<span class="pill">no</span>'}</td>
+              <td><a href="${esc(d.url)}" target="_blank" rel="noopener">HubSpot ↗</a></td></tr>`;
+          }).join('')}</table>`;
+    }
+
     document.getElementById('hsreview').innerHTML = `<div class="muted" style="margin-bottom:8px">HubSpot reconciliation</div>
-      <div class="sc-eyebrow" style="margin-top:0">Pipelines allowed to promote</div>
+      <div class="sc-eyebrow" style="margin-top:0">Look up a deal</div>
+      <div style="margin-bottom:6px">
+        <input id="lookup-q" placeholder="deal or company name…" style="width:280px">
+      </div>
+      <div id="lookup-results" style="margin-bottom:12px"></div>
+      <div class="sc-eyebrow">Pipelines allowed to promote</div>
       ${allPipelines.length ? `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-bottom:12px">
         ${allPipelines.map(p => `<label class="mono" style="display:flex;align-items:center;gap:6px">
           <input type="checkbox" data-pipeline="${esc(p)}" ${allowedPipelines.has(nameKey(p)) ? 'checked' : ''}>${esc(p)}</label>`).join('')}
@@ -106,6 +138,7 @@ boot('settings', async (supa, el) => {
           <td>${d.hsStart} → ${d.hsEnd}</td>
           <td><button class="primary" data-apply="${i}">Apply</button> <a href="${esc(d.hsUrl)}" target="_blank" rel="noopener">HubSpot ↗</a></td></tr>`).join('')}</table>`
         : `<div class="muted" style="padding:8px 0 4px">Nothing to reconcile — flight-locked deals excluded.</div>`}`;
+    document.getElementById('lookup-q').oninput = e => renderLookup(e.target.value);
     if (document.getElementById('pipeline-save')) document.getElementById('pipeline-save').onclick = async () => {
       const selected = [...document.querySelectorAll('input[data-pipeline]:checked')].map(cb => cb.dataset.pipeline);
       const { error } = await supa.from('settings').upsert(
