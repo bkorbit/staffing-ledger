@@ -139,7 +139,7 @@ This is an operator's console for running the numbers, not a marketing surface �
 
 Two fonts carry the whole identity. Montserrat speaks — every heading, every sentence of prose. IBM Plex Mono counts — every label, every table cell, every number, every badge. The moment you're reading a figure, the typeface itself tells you you're in the ledger, not the prose. Two colors carry the emphasis: Deep Ledger Green is the system's authority (headers, totals, positive figures), and Signal Gold is reserved entirely for the one line that matters most on the forecast chart — net profit. Everything else is neutral: paper, hairlines, slate.
 
-The system is flat by rule. There is no drop shadow anywhere in this design language — elevation is expressed only through hairline borders and background contrast. (Two implementation spots — the deal-editor modal and the line-item cards — currently still carry a soft shadow; that's drift from this rule, not sanctioned exceptions, and should be brought to flat the next time either is touched.)
+The system is flat by rule. There is no drop shadow anywhere in this design language — elevation is expressed only through hairline borders and background contrast. (The deal-editor modal and the line-item cards were once drift from this rule — both now use border-based separation instead, per the Elevation & Depth section below.)
 
 **Key Characteristics:**
 - A locked, closed brand palette — two greens, one gold, one teal, functional red/amber. No new accent colors.
@@ -223,7 +223,7 @@ An app-shell with a fixed 184px sticky sidebar (collapsible to 52px, its own ind
 
 Flat by rule: every surface separation in this system is a hairline border (`1px solid var(--line)`) or a background-contrast step (paper vs. raised-paper), never a shadow. Section boundaries that matter more than an ordinary hairline — the sidebar's brand mark, a data table's header row, the modal's title bar, the totals-grid header — step up to a 2px Deep-Ledger-Green rule line instead of a heavier shadow or a bigger gap.
 
-Two current implementation spots don't yet follow this rule and should be brought to flat next time they're touched: the deal-editor modal (`box-shadow: 0 18px 60px rgba(0,0,0,.25)`) and the line-item cards (`box-shadow: 0 1px 3px rgba(0,0,0,.04)`). Replace both with border-based separation — the modal already has a hairline border and a 2px brand rule under its header, which is enough.
+The deal-editor modal and the line-item cards once drifted from this rule with a soft shadow each; both are flat now — the modal uses its hairline border plus the 2px brand rule under its header, and the line cards use a plain hairline border, no shadow on either.
 
 ### Named Rules
 **The Flat-By-Rule Rule.** No `box-shadow` anywhere. Depth is hairline borders and background contrast only.

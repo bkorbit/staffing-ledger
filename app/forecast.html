@@ -375,7 +375,7 @@ boot('forecast', async (supa, el) => {
         <span class="rd">to</span>
         <input type="month" id="r-to" aria-label="Range to" value="${rangeTo.slice(0,7)}">
         <span style="flex:1"></span>
-        <button id="costs-how">How costs are counted ▸</button>
+        <button id="costs-how" aria-expanded="false" aria-controls="how-panel">How costs are counted ▸</button>
       </div>
       <div id="how-panel" class="sc-panel" style="display:none">
         <div class="sc-eyebrow">How every number is counted</div>
@@ -407,10 +407,13 @@ boot('forecast', async (supa, el) => {
 
     // ---- fixed costs still feed the projected net line; edited on Settings ----
     const fixedTotal = () => fixedCosts.reduce((s,f)=>s+(f.amount||0),0);
-    el.querySelector('#costs-how').onclick = () => {
+    const costsHowBtn = el.querySelector('#costs-how');
+    costsHowBtn.onclick = () => {
       const p = el.querySelector('#how-panel');
       const opening = p.style.display==='none';
       p.style.display = opening ? '' : 'none';
+      costsHowBtn.setAttribute('aria-expanded', String(opening));
+      costsHowBtn.textContent = `How costs are counted ${opening?'▾':'▸'}`;
       if (opening) {
         const rows = acctTotals.map(r => ({ cls:r.class, acct:r.account, v:r.total }))
           .sort((a,b)=> a.cls===b.cls ? b.v-a.v : a.cls.localeCompare(b.cls));
