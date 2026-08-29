@@ -1,8 +1,8 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Client Profitability</title><link rel="stylesheet" href="./assets/style.css?v=b435f50"></head><body>
+<title>EMG — Client Profitability</title><link rel="stylesheet" href="./assets/style.css?v=05e723a"></head><body>
 <script type="module">
-import { boot, esc, barChart, makePopover } from './assets/shell.js?v=b435f50';
+import { boot, esc, makePopover } from './assets/shell.js?v=05e723a';
 
 // Client-level evaluation — is this account healthy? For per-project detail
 // (scoping, tracking how much work is going into a specific deal), see
@@ -183,7 +183,6 @@ boot('clientprofit', async (supa, el) => {
           <div class="summary-value ${atRisk > 0 ? 'neg' : 'pos'}">${atRisk} / ${allClientRows.length}</div>
           <div class="summary-note">losing money after labor</div></div>
       </div>
-      <div class="sc-panel chartpanel"><div id="chart"></div></div>
       <div class="sc-panel" style="padding:0">
         <div class="tbltools" style="padding:10px 14px">
           <input id="q" placeholder="search client…" value="${esc(query)}" style="width:220px">
@@ -199,15 +198,20 @@ boot('clientprofit', async (supa, el) => {
             <th>cogs</th>
             <th>gross profit</th>
             <th>labor cost</th>
+            <th>effective rate</th>
             <th>profit after labor</th>
             <th>profit / hr</th>
           </tr>
-          ${!clientRows.length ? `<tr><td colspan="11" class="empty-note">No clients match the current search.</td></tr>` : clientRows.map(c => {
+          ${!clientRows.length ? `<tr><td colspan="12" class="empty-note">No clients match the current search.</td></tr>` : clientRows.map(c => {
               const hasPlan = c.plannedHours > 0;
               const bar = hasPlan
                 ? stackSegments(c.plannedHours, [[c.actualHours > c.plannedHours ? 'seg-over' : 'seg-good', c.actualHours]])
                 : null;
               const b = c.b;
+              // revenue per hour actually worked — a distinct question from
+              // profit/hr (which nets out labor cost): "what does an hour on
+              // this account bill for," not "what does it net"
+              const effectiveRate = c.actualHours > 0 ? b.revenue / c.actualHours : null;
               return `<tr class="${b.profitAfterLabor < 0 ? 'risk-row' : ''}">
                   <td class="textleft">${esc(c.name)}</td>
                   <td class="textleft">${fmtDate(c.flightStart)} → ${fmtDate(c.flightEnd)}</td>
@@ -223,6 +227,7 @@ boot('clientprofit', async (supa, el) => {
                   <td>${fmt$0(b.cogs)}</td>
                   <td class="${b.gp < 0 ? 'err' : 'ok'}">${fmt$0(b.gp)}</td>
                   <td>${fmt$0(c.laborCost)}</td>
+                  <td class="${effectiveRate === null ? 'muted' : ''}">${effectiveRate === null ? '—' : fmt$0(effectiveRate) + '/h'}</td>
                   <td class="${b.profitAfterLabor < 0 ? 'err' : 'ok'}">${fmt$0(b.profitAfterLabor)}</td>
                   <td class="${b.profitPerHour === null ? 'muted' : b.profitPerHour < 0 ? 'err' : 'ok'}">${b.profitPerHour === null ? '—' : fmt$0(b.profitPerHour) + '/h'}</td>
                 </tr>`;
@@ -230,17 +235,6 @@ boot('clientprofit', async (supa, el) => {
         </table>
         </div>
       </div>`;
-
-    const top = clientRows.slice(0, 10);
-    if (top.length) {
-      // profit floored at 0 for the chart only (a stacked bar can't draw a
-      // negative segment) — the exact figure, negative or not, is in the
-      // table above; the chart is a shape, not the source of truth.
-      barChart(el.querySelector('#chart'), top.map(c => c.name), [
-        { name: 'labor cost', color: 'var(--slate)', values: top.map(c => c.laborCost) },
-        { name: 'profit after labor', color: 'var(--brand)', values: top.map(c => Math.max(c.b.profitAfterLabor, 0)) }
-      ]);
-    }
 
     document.getElementById('q').oninput = e => { query = e.target.value; render(); };
   }
