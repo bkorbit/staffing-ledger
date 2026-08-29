@@ -343,8 +343,8 @@ export function bandChart(el, labels, bands) {
 // cue needed), and the segment math stays simple percentage-of-circumference
 // arithmetic instead of trig for arc endpoints. Legend below carries the exact
 // percentage per slice since the ring itself only has room for the biggest.
-export function donutChart(el, slices) {
-  const size = 148, cx = size / 2, cy = size / 2, r = 54, sw = 20;
+export function donutChart(el, slices, size = 176) {
+  const cx = size / 2, cy = size / 2, r = size * 0.365, sw = size * 0.135;
   const circumference = 2 * Math.PI * r;
   const total = slices.reduce((s, x) => s + Math.max(x.value, 0), 0);
   const pct = v => total > 0 ? Math.round(v / total * 100) : 0;

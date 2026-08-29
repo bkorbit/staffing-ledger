@@ -136,7 +136,12 @@ tr.risk-row td { color:var(--ink); }
 
 .placeholder { border:1px dashed var(--line); border-radius:6px; padding:44px; text-align:center;
   color:var(--slate); background:var(--paper-raised); }
-svg.chart { width:100%; height:240px; display:block; }
+/* height:auto (not a fixed px) so the SVG's own viewBox ratio governs its
+   rendered proportions — a fixed height fought the viewBox at any width that
+   didn't match its aspect ratio, letterboxing the chart with dead space
+   instead of filling its container. sales.html's own chart class already
+   used auto for the same reason; this brings the shared one in line. */
+svg.chart { width:100%; height:auto; display:block; }
 /* the bandChart per-period keyboard focus stops (shell.js) are invisible
    hit-targets until focused — same brand-2 ring the combo chart's own
    per-column focus uses on forecast.html */
@@ -342,14 +347,17 @@ table.acct td { font-variant-numeric: tabular-nums; }
 .qpmenu .qp-hint, .qpmenu .qp-empty { padding:8px 10px; color:var(--slate); font-size:10.5px; font-family:var(--font-mono); }
 
 /* ---- Home dashboard: a multi-chart grid and a time-allocation donut pair.
-   .chart-grid holds several .sc-panel.chartpanel cards side by side (Laptop
-   Discipline Rule: wraps to one column rather than forcing horizontal
-   scroll). .pie-pair sits two donutChart() calls side by side inside one
-   chartpanel, same padding rhythm as everywhere else (18px horizontal). */
-.chart-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(420px,1fr)); gap:18px; margin-bottom:22px; }
+   .chart-grid holds several .sc-panel.chartpanel cards, capped at two per
+   row — a third or fourth column left each graph too narrow to read (axis
+   labels crowding, the donut pair squeezed into a sliver) — collapsing to
+   one column on anything narrower than a laptop (Laptop Discipline Rule).
+   .pie-pair sits two donutChart() calls side by side inside one chartpanel,
+   same padding rhythm as everywhere else (18px horizontal). */
+.chart-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:18px; margin-bottom:22px; }
 .chart-grid > .sc-panel { min-width:0; margin-bottom:0; }
-.pie-pair { display:flex; gap:20px; flex-wrap:wrap; justify-content:center; padding:6px 18px 16px; }
-.pie-cell { flex:1 1 160px; min-width:150px; text-align:center; }
+@media (max-width:980px) { .chart-grid { grid-template-columns:1fr; } }
+.pie-pair { display:flex; gap:24px; flex-wrap:wrap; justify-content:center; padding:10px 18px 18px; }
+.pie-cell { flex:1 1 180px; min-width:170px; text-align:center; }
 
 /* Team's row editor reuses the deal-editor's own focus-overlay modal
    (.modal-back/.modal/.modal-head/.settings) rather than a small anchored
