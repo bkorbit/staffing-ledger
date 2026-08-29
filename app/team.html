@@ -83,8 +83,25 @@ boot('team', async (supa, el) => {
       if (rev > 0 && +r.hours > 0) revPerHourByDeal[r.deal_id] = rev / +r.hours;
     });
 
-    const daysInRange = (new Date(endOfMonth(rangeTo)) - new Date(rangeFrom)) / 86400000 + 1;
+    const rangeToEnd = endOfMonth(rangeTo);
+    const daysInRange = (new Date(rangeToEnd) - new Date(rangeFrom)) / 86400000 + 1;
     const weeksInRange = daysInRange / 7;
+
+    // time_off.hours (db/032) is a RANGE total, not per-day — a range that
+    // only partially overlaps the selected window is prorated by day-overlap
+    // (assumes hours spread evenly across the range, which is exact for a
+    // plain multi-day PTO block and an approximation only when a half-day is
+    // mixed into an otherwise-full-day range).
+    const ptoByStaff = {};
+    (H.time_off || []).forEach(o => {
+      const s0 = new Date(o.starts_on < rangeFrom ? rangeFrom : o.starts_on);
+      const e0 = new Date(o.ends_on > rangeToEnd ? rangeToEnd : o.ends_on);
+      const overlapDays = (e0 - s0) / 86400000 + 1;
+      if (overlapDays <= 0) return;
+      const totalDays = (new Date(o.ends_on) - new Date(o.starts_on)) / 86400000 + 1;
+      const prorated = +o.hours * (overlapDays / totalDays);
+      ptoByStaff[o.staff_id] = (ptoByStaff[o.staff_id] || 0) + prorated;
+    });
 
     const departments = [...new Set((H.staff || []).map(s => s.department).filter(Boolean))].sort();
     const q = query.trim().toLowerCase();
@@ -94,15 +111,17 @@ boot('team', async (supa, el) => {
       const comp = compByStaff[s.id];
       const hc = hoursByStaff[s.id] || { hours: 0, cost: 0 };
       const cap = comp ? comp.weekly_capacity * weeksInRange : 0;
+      const ptoHours = ptoByStaff[s.id] || 0;
+      const avail = Math.max(cap - ptoHours, 0);
       const deals = (dealHoursByStaff[s.id] || []).slice().sort((a, b) => b.hours - a.hours);
       const clientHours = deals.reduce((s2, d) => s2 + +d.hours, 0);
       const internalHours = Math.max(hc.hours - clientHours, 0);
-      const pct = cap > 0 ? (hc.hours / cap) * 100 : null;
+      const pct = avail > 0 ? (hc.hours / avail) * 100 : null;
       let attributed = 0;
       deals.forEach(d => { const rph = revPerHourByDeal[d.deal_id]; if (rph) attributed += +d.hours * rph; });
       const profit = attributed - hc.cost;
       const coverage = hc.cost > 0 ? attributed / hc.cost : null;
-      return { s, comp, hc, cap, deals, clientHours, internalHours, pct, attributed, profit, coverage };
+      return { s, comp, hc, cap, avail, ptoHours, deals, clientHours, internalHours, pct, attributed, profit, coverage };
     });
 
     rows = rows.filter(r => (showInactive || r.s.active) && (!deptFilter || r.s.department === deptFilter)
@@ -120,7 +139,7 @@ boot('team', async (supa, el) => {
     const totalHours = rows.reduce((s, r) => s + r.hc.hours, 0);
     const totalCost = rows.reduce((s, r) => s + r.hc.cost, 0);
     const totalCapacity = rows.reduce((s, r) => s + r.cap, 0);
-    const overCount = rows.filter(r => r.cap > 0 && r.hc.hours / r.cap > 1.001).length;
+    const overCount = rows.filter(r => r.avail > 0 && r.hc.hours / r.avail > 1.001).length;
 
     el.querySelector('#panel').innerHTML = `
       <div class="range">
@@ -174,7 +193,7 @@ boot('team', async (supa, el) => {
           </thead>
           <tbody id="staff-tbody">
             ${!rows.length ? `<tr><td colspan="8" class="empty-note">No people match the current filters.</td></tr>` : rows.map(r => {
-              const { s, comp, hc, cap, deals, clientHours, internalHours, pct, attributed, profit, coverage } = r;
+              const { s, comp, hc, cap, avail, ptoHours, deals, clientHours, internalHours, pct, attributed, profit, coverage } = r;
               const pctCls = pct === null ? 'under' : pct > 100.1 ? 'over' : pct >= 90 ? 'full' : 'under';
               const open = openStaff.has(s.id);
               return `<tr data-sid="${s.id}">
@@ -198,10 +217,17 @@ boot('team', async (supa, el) => {
                   </td>
                   <td class="col-bar">${pct === null ? '<span class="computed-sub">no comp set</span>' : `
                     <span class="util-pct ${pctCls}">${Math.round(pct)}%</span>
-                    <span class="computed-sub"> · ${fmtHours(clientHours)} / ${fmtHours(cap)}h</span>
+                    <span class="computed-sub"> · ${fmtHours(clientHours)}h client${!clientHoursOnly&&internalHours>0?` · ${fmtHours(internalHours)}h int`:''}${ptoHours>0?` · ${fmtHours(ptoHours)}h PTO`:''} / ${fmtHours(avail)}h avail</span>
                     <div class="mini-track split">
-                      <div class="seg seg-client" style="width:${cap>0?Math.min(clientHours/cap*100,100):0}%"></div>
-                      ${!clientHoursOnly?`<div class="seg seg-int" style="width:${cap>0?Math.min(internalHours/cap*100,Math.max(100-Math.min(clientHours/cap*100,100),0)):0}%"></div>`:''}
+                      ${(() => {
+                        const segPct = h => avail > 0 ? Math.min(h / avail * 100, 100) : 0;
+                        let used = 0; let segs = '';
+                        const add = (cls, hours) => { const w = Math.min(segPct(hours), Math.max(100 - used, 0)); if (w > 0) { used += w; segs += `<div class="seg ${cls}" style="width:${w}%"></div>`; } };
+                        add('seg-client', clientHours);
+                        if (!clientHoursOnly) add('seg-int', internalHours);
+                        add('seg-off', ptoHours);
+                        return segs;
+                      })()}
                     </div>`}</td>
                   <td class="col-profit" data-salary-col>${(hc.hours>0||hc.cost>0) ? `
                     <span class="util-pct ${profit>=0?'full':'over'}">${fmt$0(profit)}</span>

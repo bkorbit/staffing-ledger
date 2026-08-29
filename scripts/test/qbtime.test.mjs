@@ -53,12 +53,22 @@ eq(m.classifyEntry({ childName: '', parentName: '', childType: '' }, dealByJobco
 
 console.log('mergeIntoRanges');
 eq(m.mergeIntoRanges([]), [], 'empty -> no ranges');
-eq(m.mergeIntoRanges(['2026-03-10']), [['2026-03-10','2026-03-10']], 'single day -> one one-day range');
-eq(m.mergeIntoRanges(['2026-03-10','2026-03-11','2026-03-12']), [['2026-03-10','2026-03-12']], 'three consecutive days merge into one range');
-eq(m.mergeIntoRanges(['2026-03-12','2026-03-10','2026-03-11']), [['2026-03-10','2026-03-12']], 'unsorted input still merges correctly');
-eq(m.mergeIntoRanges(['2026-03-10','2026-03-11','2026-03-14']), [['2026-03-10','2026-03-11'],['2026-03-14','2026-03-14']], 'a real gap starts a new range');
-eq(m.mergeIntoRanges(['2026-02-27','2026-02-28','2026-03-01']), [['2026-02-27','2026-03-01']], 'a range spanning a month boundary (28-day Feb) merges correctly');
-eq(m.mergeIntoRanges(['2026-03-10','2026-03-10','2026-03-11']), [['2026-03-10','2026-03-11']], 'duplicate day is de-duplicated, not counted as its own range');
+eq(m.mergeIntoRanges([['2026-03-10',8]]), [{starts_on:'2026-03-10',ends_on:'2026-03-10',hours:8}], 'single day -> one one-day range');
+eq(m.mergeIntoRanges([['2026-03-10',8],['2026-03-11',8],['2026-03-12',8]]),
+  [{starts_on:'2026-03-10',ends_on:'2026-03-12',hours:24}], 'three consecutive full days merge into one range, hours summed');
+eq(m.mergeIntoRanges([['2026-03-12',8],['2026-03-10',8],['2026-03-11',8]]),
+  [{starts_on:'2026-03-10',ends_on:'2026-03-12',hours:24}], 'unsorted input still merges and sums correctly');
+eq(m.mergeIntoRanges([['2026-03-10',8],['2026-03-11',8],['2026-03-14',4]]),
+  [{starts_on:'2026-03-10',ends_on:'2026-03-11',hours:16},{starts_on:'2026-03-14',ends_on:'2026-03-14',hours:4}],
+  'a real gap starts a new range, each range keeps its own hours sum');
+eq(m.mergeIntoRanges([['2026-02-27',8],['2026-02-28',8],['2026-03-01',8]]),
+  [{starts_on:'2026-02-27',ends_on:'2026-03-01',hours:24}], 'a range spanning a month boundary (28-day Feb) merges correctly');
+eq(m.mergeIntoRanges([['2026-03-10',4],['2026-03-10',4],['2026-03-11',8]]),
+  [{starts_on:'2026-03-10',ends_on:'2026-03-11',hours:16}],
+  'two entries on the same day sum (not de-duplicated to one) — e.g. two separate time-off codes logged the same day');
+eq(m.mergeIntoRanges([['2026-03-10',4],['2026-03-11',8],['2026-03-12',8]]),
+  [{starts_on:'2026-03-10',ends_on:'2026-03-12',hours:20}],
+  'a half-day mixed with full days in one merged range only shows up in the total (20h), not per-day');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail?1:0);

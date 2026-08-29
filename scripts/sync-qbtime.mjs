@@ -119,22 +119,30 @@ export function classifyEntry(e, dealByJobcode) {
   return { type: 'internal' };
 }
 
-// A sorted set of 'YYYY-MM-DD' strings -> contiguous [start, end] ranges, so a
-// week of PTO becomes one time_off row instead of seven. Pure and exported for
-// the same reason as classifyEntry — the off-by-one risk here (a single day,
-// a run that starts the array, two ranges separated by exactly one gap day)
-// is exactly what adversarial fixtures catch and a one-row fixture would miss.
-export function mergeIntoRanges(days) {
-  const sorted = [...new Set(days)].sort();
+// [date, hours] pairs -> contiguous {starts_on, ends_on, hours} ranges, so a
+// week of PTO becomes one time_off row instead of seven. hours is a RANGE
+// TOTAL, not a per-day figure — a half-day mixed with full days inside one
+// merged range only shows up in the sum (see db/032). Duplicate dates sum
+// rather than overwrite, so two time-off entries on the same day both count.
+// Pure and exported for the same reason as classifyEntry — the off-by-one
+// risk here (a single day, a run that starts the array, two ranges separated
+// by exactly one gap day) is exactly what adversarial fixtures catch and a
+// one-row fixture would miss.
+export function mergeIntoRanges(dayHours) {
+  const merged = new Map();
+  for (const [d, h] of dayHours) merged.set(d, (merged.get(d) || 0) + h);
+  const sorted = [...merged.keys()].sort();
   if (!sorted.length) return [];
   const ranges = [];
-  let start = sorted[0], prev = sorted[0];
-  for (let i = 1; i <= sorted.length; i++) {
+  let start = sorted[0], prev = sorted[0], sum = merged.get(sorted[0]);
+  for (let i = 1; i < sorted.length; i++) {
     const d = sorted[i];
-    const gap = d ? (new Date(d) - new Date(prev)) / 86400000 : Infinity;
-    if (gap > 1) { ranges.push([start, prev]); start = d; }
+    const gap = (new Date(d) - new Date(prev)) / 86400000;
+    if (gap > 1) { ranges.push({ starts_on: start, ends_on: prev, hours: Math.round(sum * 100) / 100 }); start = d; sum = 0; }
+    sum += merged.get(d);
     prev = d;
   }
+  ranges.push({ starts_on: start, ends_on: prev, hours: Math.round(sum * 100) / 100 });
   return ranges;
 }
 
@@ -365,7 +373,7 @@ async function main() {
 
   // ---- classify + aggregate to one row per staff+deal(or bucket)+day ----
   const dayEntries = new Map(); // 'staffId|dealId|date' -> {staffId, dealId, clientId, department, hours}
-  const timeOffDays = new Map(); // 'staffId|kind' -> Set(dates)
+  const timeOffDays = new Map(); // 'staffId|kind' -> Map(date -> hours)
   const unmatchedJobcodes = new Map(); // code -> hours, seen but no deal carries it
   const internalHours = { count: 0, hours: 0 };
 
@@ -374,8 +382,9 @@ async function main() {
     const c = classifyEntry(e, dealByJobcode);
     if (c.type === 'timeoff') {
       const key = staff.id + '|' + c.kind;
-      if (!timeOffDays.has(key)) timeOffDays.set(key, new Set());
-      timeOffDays.get(key).add(e.date);
+      if (!timeOffDays.has(key)) timeOffDays.set(key, new Map());
+      const days = timeOffDays.get(key);
+      days.set(e.date, (days.get(e.date) || 0) + e.hours);
       continue;
     }
     if (c.type === 'unmatched') unmatchedJobcodes.set(c.code, (unmatchedJobcodes.get(c.code) || 0) + e.hours);
@@ -421,10 +430,11 @@ async function main() {
   const staleOff = await sbGet(`time_off?set_by=eq.qbtime-sync&ends_on=lt.${startDate}&select=id`);
   if (staleOff.length) await sbDelete(`time_off?id=in.(${staleOff.map(r => r.id).join(',')})`);
   const offRows = [];
-  for (const [key, daySet] of timeOffDays) {
+  for (const [key, dayHours] of timeOffDays) {
     const [staffId, kind] = key.split('|');
-    for (const [starts_on, ends_on] of mergeIntoRanges([...daySet])) {
-      offRows.push({ staff_id: staffId, starts_on, ends_on, kind, set_by: 'qbtime-sync' });
+    for (const range of mergeIntoRanges([...dayHours])) {
+      offRows.push({ staff_id: staffId, starts_on: range.starts_on, ends_on: range.ends_on,
+        hours: range.hours, kind, set_by: 'qbtime-sync' });
     }
   }
   await sbInsert('time_off', offRows);
