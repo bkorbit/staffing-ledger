@@ -106,7 +106,10 @@ svg.chart { width:100%; height:240px; display:block; }
    inherit here would resolve to the browser's native button font (a bare
    button.lg-item beats .chart-legend .lg-item on specificity), not to the
    mono/10px/ink that every other legend item actually renders in */
-.chart-legend button.lg-item { background:none; border:none; padding:0; margin:0; cursor:pointer;
+/* padding expands the real clickable box to the WCAG 24x24px minimum; the
+   matching negative margin cancels it back out visually, so the button
+   still sits flush with its plain-text lg-item siblings in the row */
+.chart-legend button.lg-item { background:none; border:none; padding:7px 4px; margin:-7px -4px; cursor:pointer;
   font-family:var(--font-mono); font-size:10px; color:var(--ink); }
 .chart-legend button.lg-item:hover { color:var(--brand); }
 .chart-legend button.lg-item:focus-visible { outline:2px solid var(--brand-2); outline-offset:3px; border-radius:4px; }

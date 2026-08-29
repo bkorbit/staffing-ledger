@@ -16,7 +16,9 @@
 /* the settings link now lives in the chart's grey footer, sized to sit flush
    with its lg-item neighbors (the swatches, the pipeline-health toggle)
    rather than the boxed toolbar-button treatment it started with */
-.chart-legend a.iconbtn{display:flex;align-items:center;color:inherit}
+/* padding expands the real clickable box to the WCAG 24x24px minimum; the
+   matching negative margin cancels it back out visually */
+.chart-legend a.iconbtn{display:flex;align-items:center;color:inherit;padding:6px;margin:-6px}
 .chart-legend a.iconbtn:hover{color:var(--brand)}
 .chart-legend a.iconbtn:focus-visible{outline:2px solid var(--brand-2);outline-offset:3px;border-radius:4px}
 .chart-legend a.iconbtn svg{width:12px;height:12px}
@@ -34,10 +36,12 @@ svg.sfchart{width:100%;height:auto;display:block}
 svg.sfchart .ax{font-family:var(--font-mono);font-size:10px;fill:var(--slate)}
 svg.sfchart .bt{font-family:var(--font-mono);font-size:10.5px;font-weight:500;fill:var(--brand)}
 svg.sfchart .pl{font-family:var(--font-mono);font-size:9px;fill:var(--slate)}
+svg.sfchart .colgroup{outline:none}
+svg.sfchart .colgroup:focus-visible{outline:2px solid var(--brand-2);outline-offset:-2px}
 table.fc{width:100%;border-collapse:collapse;background:var(--paper-raised)}
 table.fc th{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.07em;
   color:var(--slate);text-align:left;padding:9px 8px;border:none;border-bottom:1px solid var(--line);background:transparent}
-table.fc td{padding:7px 8px;border:none;border-bottom:1px solid #efefef;font-family:var(--font-mono);font-size:11.5px;vertical-align:top}
+table.fc td{padding:7px 8px;border:none;border-bottom:1px solid var(--line);font-family:var(--font-mono);font-size:11.5px;vertical-align:top}
 table.fc th.n,table.fc td.n{text-align:right;white-space:nowrap}
 table.fc th.cl,table.fc td.cl{min-width:230px} table.fc td.cl{font-family:var(--font-body)}
 table.fc th.pr,table.fc td.pr{min-width:120px} table.fc th.fl,table.fc td.fl{min-width:150px}
@@ -53,7 +57,7 @@ table.fc th.pr,table.fc td.pr{min-width:120px} table.fc th.fl,table.fc td.fl{min
 td.pr{font-size:10px;color:var(--slate)}
 td.pr .p{display:inline-block;margin-left:5px;background:var(--brand);color:#fff;border-radius:5px;padding:0 4px;font-size:9px}
 td.tot{font-weight:700;color:var(--brand)}
-.z{color:#c8c8c8}
+.z{color:var(--line)}
 .grand td{background:var(--brand);color:#fff;font-weight:700;border-top:2px solid var(--brand)}
 .flag{display:inline-block;font-size:9px;border-radius:5px;padding:1px 5px;margin:1px 3px 1px 0;font-family:var(--font-mono)}
 .flag.t{background:var(--rust-bg);color:var(--rust)} .flag.w{background:var(--amber-bg);color:var(--amber)} .flag.i{background:#f2f2f2;color:var(--slate)}
@@ -106,7 +110,7 @@ boot('sales', async (supa, el) => {
   // not an invented in-between color
   const TIER_COLORS = ['#19a789','#3bc9ac','#e2f5ef','#fabf4d','#fdf3dc'];
   const tierOf = p => p>=0.85?0 : p>=0.65?1 : p>=0.45?2 : p>=0.25?3 : 4;
-  const LEDGER_COLOR = '#0a493c';
+  const LEDGER_COLOR = 'var(--brand)';
 
   // the ledger's line-item type map, verbatim from the draft
   const MAP={ 'programmatic media':['programmatic','budget'], 'programmatic buying fee':['programmatic','fee'],
@@ -229,7 +233,7 @@ boot('sales', async (supa, el) => {
             <button class="seg" data-span="18" aria-pressed="false">18mo</button></span></div>
       </div>
       <div style="flex:1"></div>
-      <button class="seg" id="chart-toggle" aria-expanded="true" aria-controls="chartwrap"></button>
+      <button class="seg" id="chart-toggle" aria-expanded="true" aria-controls="chartwrap">Hide chart</button>
     </div>
     <div class="sc-panel chartpanel">
       <div id="chartwrap"></div>
@@ -269,28 +273,43 @@ boot('sales', async (supa, el) => {
     // always gets a real gap below the last gridline instead of nearly
     // touching it — the axis labels had no breathing room from the chart
     const plotBottom=PT+IH;
+    const tiersPresent=[...new Set(shown.filter(r=>r.gp&&r.months.length).map(r=>r.tier))].sort();
+    const tierLabel=t=>[...new Set(shown.filter(r=>r.tier===t).map(r=>r.stage))].join(' / ');
+    // one plain-text line per column, shared by the keyboard focus label and
+    // the mouse/touch tooltip below — so both paths describe the same thing
+    const colParts = d => {
+      const parts=[];
+      if(d.ledger>0) parts.push(`Committed GP ${money(d.ledger)}`);
+      d.byTier.forEach((v,tIdx)=>{ if(v>0) parts.push(`${tierLabel(tIdx)} ${money(Math.round(v))}`); });
+      return parts;
+    };
     let g='';
     for(let v=0;v<=top;v+=stepC)
       g+=`<line x1="${PL}" y1="${y(v)}" x2="${W-PR}" y2="${y(v)}" stroke="var(--line)"/>`+
          `<text x="${PL-12}" y="${y(v)+3.5}" text-anchor="end" class="ax">$${Math.round(v/100000)/10}k</text>`;
     data.forEach((d,i)=>{
       const cx=PL+gap*i+gap/2, x=cx-bw/2; let acc=0;
+      let colG='';
       // every segment gets a hairline stroke: the two palest confidence tiers
       // (mint/amber tint) are nearly invisible as a fill alone against white —
       // the edge is what makes them perceivable
       if(d.ledger>0){ const h=(d.ledger/top)*IH; acc+=d.ledger;
-        g+=`<rect x="${x}" y="${y(acc)}" width="${bw}" height="${h}" fill="${LEDGER_COLOR}" stroke="var(--line)" stroke-width="1"><title>${label(d.c)} committed ${money(d.ledger)}</title></rect>`; }
+        colG+=`<rect x="${x}" y="${y(acc)}" width="${bw}" height="${h}" fill="${LEDGER_COLOR}" stroke="var(--line)" stroke-width="1"><title>${label(d.c)} committed ${money(d.ledger)}</title></rect>`; }
       d.byTier.forEach((v,tIdx)=>{
         if(v<=0) return;
         const h=(v/top)*IH; const yTop=y(acc+v); acc+=v;
-        g+=`<rect x="${x}" y="${yTop}" width="${bw}" height="${h}" fill="${TIER_COLORS[tIdx]}" stroke="var(--line)" stroke-width="1"><title>${label(d.c)} ${money(v)}</title></rect>`;
+        colG+=`<rect x="${x}" y="${yTop}" width="${bw}" height="${h}" fill="${TIER_COLORS[tIdx]}" stroke="var(--line)" stroke-width="1"><title>${label(d.c)} ${money(v)}</title></rect>`;
       });
-      if(acc>0&&!dense) g+=`<text x="${cx}" y="${y(acc)-6}" text-anchor="middle" class="bt">${money(acc)}</text>`;
-      if(!verydense||i%2===0) g+=`<text x="${cx}" y="${plotBottom+14}" text-anchor="middle" class="ax">${label(d.c)}</text>`;
-      if(d.pipe>0&&!dense) g+=`<text x="${cx}" y="${plotBottom+28}" text-anchor="middle" class="pl">+${money(d.pipe)} pipeline</text>`;
+      if(acc>0&&!dense) colG+=`<text x="${cx}" y="${y(acc)-6}" text-anchor="middle" class="bt">${money(acc)}</text>`;
+      if(!verydense||i%2===0) colG+=`<text x="${cx}" y="${plotBottom+14}" text-anchor="middle" class="ax">${label(d.c)}</text>`;
+      if(d.pipe>0&&!dense) colG+=`<text x="${cx}" y="${plotBottom+28}" text-anchor="middle" class="pl">+${money(d.pipe)} pipeline</text>`;
+      // the whole column is one keyboard focus stop — Tab reaches every
+      // month in order, and focus shows the same aggregate tooltip a mouse
+      // hover does, so the per-stage breakdown isn't mouse/touch-only
+      const parts = colParts(d);
+      const colSummary = `${label(d.c)}: ${parts.length?parts.join(', '):'nothing forecastable'}`;
+      g+=`<g tabindex="0" role="img" aria-label="${esc(colSummary)}" class="colgroup" data-idx="${i}">${colG}</g>`;
     });
-    const tiersPresent=[...new Set(shown.filter(r=>r.gp&&r.months.length).map(r=>r.tier))].sort();
-    const tierLabel=t=>[...new Set(shown.filter(r=>r.tier===t).map(r=>r.stage))].join(' / ');
     const chartSummary=`Committed GP plus pipeline by month, ${weighted?'weighted by stage':'total value'}, `+
       `${n} months from ${label(cols[0])} to ${label(cols[n-1])}: committed ${money(totals.l)}, `+
       `pipeline ${money(Math.round(totals.p))}, total ${money(Math.round(totals.l+totals.p))}.`;
@@ -322,13 +341,13 @@ boot('sales', async (supa, el) => {
        tiersPresent.map(t=>`<span class="lg-item"><i class="lg-dot" style="background:${TIER_COLORS[t]}"></i>${esc(tierLabel(t))}</span>`).join('') +
        `<span style="flex:1"></span>` +
        (showHealth ? `<button class="lg-item toggle" id="covtoggle" aria-expanded="${coverageOpen}" aria-controls="health-detail">
-           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex:none;color:${healthColor}">
+           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width:13px;height:13px;flex:none;color:${healthColor}">
              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
            </svg>
            pipeline health${totalRows?` — ${pct}% forecastable`:''}${coverageOpen?' ▾':' ▸'}</button>` : '') +
        `<span class="cfg">min probability ${minProb}% · programmatic margin ${PROG_MARGIN}%</span>
          <a class="iconbtn" href="./settings.html" title="Settings" aria-label="Settings">
-           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
              <circle cx="12" cy="12" r="3"/>
              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
            </svg>
@@ -337,32 +356,51 @@ boot('sales', async (supa, el) => {
 
     // real hover tooltip, same pattern as the other charts: the per-rect
     // <title> stays as a no-JS/a11y floor, but this is instant and aggregates
-    // every stage present in the hovered month, not just one segment
+    // every stage present in the hovered month, not just one segment. Shared
+    // by mouse/touch (showAt, from cursor position) AND keyboard (each
+    // column's own tabindex="0" focus, below) so the breakdown isn't
+    // mouse/touch-only.
     const svgEl = wrap.querySelector('svg.sfchart');
     const tip = wrap.querySelector('.chart-tip');
+    const tipHtmlFor = idx => {
+      const d = data[idx];
+      const rows = [];
+      if (d.ledger > 0) rows.push(`<div class="tip-row"><span class="tip-dot" style="background:${LEDGER_COLOR}"></span>Committed GP <b>${money(d.ledger)}</b></div>`);
+      d.byTier.forEach((v, tIdx) => { if (v > 0) rows.push(
+        `<div class="tip-row"><span class="tip-dot" style="background:${TIER_COLORS[tIdx]}"></span>${esc(tierLabel(tIdx))} <b>${money(Math.round(v))}</b></div>`); });
+      return `<div class="tip-label">${label(d.c)}</div>` + (rows.length ? rows.join('') : '<div class="tip-row">nothing forecastable</div>');
+    };
+    const positionNear = (clientX, clientY) => {
+      const wrapBox = wrap.getBoundingClientRect();
+      tip.style.top = (clientY - wrapBox.top - 10) + 'px';
+      const left = Math.min(wrapBox.width - tip.offsetWidth, Math.max(0, clientX - wrapBox.left + 12));
+      tip.style.left = left + 'px';
+    };
     const showAt = (clientX, clientY) => {
       const svgBox = svgEl.getBoundingClientRect();
       const scale = W / svgBox.width;
       const vx = (clientX - svgBox.left) * scale;
       let idx = Math.floor((vx - PL) / gap);
       idx = Math.max(0, Math.min(n - 1, idx));
-      const d = data[idx];
-      const rows = [];
-      if (d.ledger > 0) rows.push(`<div class="tip-row"><span class="tip-dot" style="background:${LEDGER_COLOR}"></span>Committed GP <b>${money(d.ledger)}</b></div>`);
-      d.byTier.forEach((v, tIdx) => { if (v > 0) rows.push(
-        `<div class="tip-row"><span class="tip-dot" style="background:${TIER_COLORS[tIdx]}"></span>${esc(tierLabel(tIdx))} <b>${money(Math.round(v))}</b></div>`); });
-      tip.innerHTML = `<div class="tip-label">${label(d.c)}</div>` + (rows.length ? rows.join('') : '<div class="tip-row">nothing forecastable</div>');
+      tip.innerHTML = tipHtmlFor(idx);
       tip.style.opacity = '1';
-      const wrapBox = wrap.getBoundingClientRect();
-      tip.style.top = (clientY - wrapBox.top - 10) + 'px';
-      const left = Math.min(wrapBox.width - tip.offsetWidth, Math.max(0, clientX - wrapBox.left + 12));
-      tip.style.left = left + 'px';
+      positionNear(clientX, clientY);
     };
     const hideTip = () => { tip.style.opacity = '0'; };
     svgEl.onmousemove = e => showAt(e.clientX, e.clientY);
     svgEl.onmouseleave = hideTip;
     svgEl.ontouchstart = svgEl.ontouchmove = e => { if (e.touches[0]) showAt(e.touches[0].clientX, e.touches[0].clientY); };
     svgEl.ontouchend = hideTip;
+    wrap.querySelectorAll('.colgroup').forEach(colEl => {
+      const idx = +colEl.dataset.idx;
+      colEl.onfocus = () => {
+        tip.innerHTML = tipHtmlFor(idx);
+        tip.style.opacity = '1';
+        const r = colEl.getBoundingClientRect();
+        positionNear(r.left + r.width / 2, r.top);
+      };
+      colEl.onblur = hideTip;
+    });
     return totals;
   }
 
