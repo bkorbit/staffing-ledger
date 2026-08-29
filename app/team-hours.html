@@ -145,7 +145,6 @@ boot('teamhours', async (supa, el) => {
     const overCount = rows.filter(r => r.cap > 0 && (r.hc.hours + r.ptoHours) > r.cap).length;
 
     el.querySelector('#panel').innerHTML = `
-      <h1 style="font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--brand);margin:0 0 14px;letter-spacing:-.01em">Team Hours</h1>
       <div class="range">
         <span class="rl">Range</span>
         <input type="month" id="r-from" aria-label="Range from" value="${rangeFrom.slice(0,7)}">
@@ -163,17 +162,17 @@ boot('teamhours', async (supa, el) => {
         <div class="summary-cell"><div class="summary-label">Over capacity</div>
           <div class="summary-value ${overCount>0?'neg':'pos'}">${overCount}</div></div>
       </div>
-      <div class="sc-panel" style="padding:0">
-        <div class="tbltools" style="padding:10px 14px;display:flex;gap:10px;flex-wrap:wrap">
-          <input id="q" placeholder="search name…" value="${esc(query)}" aria-label="Search name" style="width:180px">
-          <select id="dept-filter" aria-label="Filter by department">
-            <option value="">All departments</option>
-            ${departments.map(d=>`<option value="${esc(d)}" ${d===deptFilter?'selected':''}>${esc(d)}</option>`).join('')}
-          </select>
-          <label class="mono" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--slate)">
-            <input type="checkbox" id="show-inactive" ${showInactive?'checked':''}> show inactive
-          </label>
-        </div>
+      <div class="tbltools" style="padding:10px 0;border-bottom:none;display:flex;gap:10px;flex-wrap:wrap">
+        <input id="q" placeholder="search name…" value="${esc(query)}" aria-label="Search name" style="width:180px">
+        <select id="dept-filter" aria-label="Filter by department">
+          <option value="">All departments</option>
+          ${departments.map(d=>`<option value="${esc(d)}" ${d===deptFilter?'selected':''}>${esc(d)}</option>`).join('')}
+        </select>
+        <label class="mono" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--slate)">
+          <input type="checkbox" id="show-inactive" ${showInactive?'checked':''}> show inactive
+        </label>
+      </div>
+      <div class="gridwrap">
         <table class="ledger" style="table-layout:fixed">
           <colgroup><col style="width:20%"><col style="width:7%">
             <col style="width:20%"><col style="width:20%"><col style="width:20%"><col style="width:13%"></colgroup>
