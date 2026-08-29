@@ -84,7 +84,6 @@ boot('projhours', async (supa, el) => {
     const atRisk = allDealRows.filter(d => d.profit < 0 && d.hours > 0).length;
 
     el.querySelector('#panel').innerHTML = `
-      <h1 style="font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--brand);margin:0 0 14px;letter-spacing:-.01em">Project Hours</h1>
       <div class="range">
         <span class="rl">Range</span>
         <input type="month" id="r-from" aria-label="Range from" value="${rangeFrom.slice(0,7)}">

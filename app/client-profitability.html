@@ -93,7 +93,6 @@ boot('clientprofit', async (supa, el) => {
     const atRisk = allClientRows.filter(c => c.profit < 0).length;
 
     el.querySelector('#panel').innerHTML = `
-      <h1 style="font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--brand);margin:0 0 14px;letter-spacing:-.01em">Client Profitability</h1>
       <div class="range">
         <span class="rl">Range</span>
         <input type="month" id="r-from" aria-label="Range from" value="${rangeFrom.slice(0,7)}">
