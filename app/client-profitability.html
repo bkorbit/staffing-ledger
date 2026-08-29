@@ -1,8 +1,8 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Hours Reporting</title><link rel="stylesheet" href="./assets/style.css?v=996fe20"></head><body>
+<title>EMG — Client Profitability</title><link rel="stylesheet" href="./assets/style.css?v=89cf765"></head><body>
 <script type="module">
-import { boot, esc } from './assets/shell.js?v=996fe20';
+import { boot, esc, barChart } from './assets/shell.js?v=89cf765';
 
 // Client-level evaluation — is this account healthy? For per-project detail
 // (scoping, tracking how much work is going into a specific deal), see
@@ -14,6 +14,11 @@ import { boot, esc } from './assets/shell.js?v=996fe20';
 // forecast_page) — this page and Forecast must never disagree about what
 // counts as revenue, only about what "cost" means (hours here, QBO COGS
 // there). See db/031_hours_page.sql.
+//
+// Planned hours (assignments) render as an explicit "not assigned yet" empty
+// state rather than being left out of the layout — the mechanism for
+// entering planned hours is being reworked, but the shape of the comparison
+// stays on the page so it's ready the moment that data exists.
 const fmtHours = h => (+h || 0).toLocaleString(undefined, { maximumFractionDigits: 1 });
 const fmt$0 = c => (c < 0 ? '-$' : '$') + Math.abs(Math.round((c || 0) / 100)).toLocaleString();
 
@@ -26,9 +31,10 @@ const endOfMonth = m => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
 const mLabel = s => new Date(s + 'T00:00:00Z')
   .toLocaleDateString(undefined, { month: 'short', year: '2-digit', timeZone: 'UTC' });
 
-boot('hourrep', async (supa, el) => {
+boot('clientprofit', async (supa, el) => {
   const thisMonth = monthOf(iso(new Date()));
   let rangeFrom = shiftM(thisMonth, -2), rangeTo = thisMonth;
+  let query = '';
 
   el.innerHTML = `<div class="sc-panel" id="panel">loading…</div>`;
 
@@ -67,7 +73,7 @@ boot('hourrep', async (supa, el) => {
 
     const byClient = {};
     dealRows.forEach(r => (byClient[r.clientId] = byClient[r.clientId] || []).push(r));
-    const clientRows = Object.entries(byClient).map(([cid, deals]) => ({
+    const allClientRows = Object.entries(byClient).map(([cid, deals]) => ({
       clientId: cid, name: (clientsById[cid] || {}).name || '(unknown client)',
       hours: deals.reduce((s, d) => s + d.hours, 0),
       cost: deals.reduce((s, d) => s + d.cost, 0),
@@ -76,11 +82,15 @@ boot('hourrep', async (supa, el) => {
       profit: deals.reduce((s, d) => s + d.profit, 0)
     })).sort((a, b) => b.revenue - a.revenue);
 
-    const totalHours = clientRows.reduce((s, c) => s + c.hours, 0);
-    const totalPlanned = clientRows.reduce((s, c) => s + c.planned, 0);
-    const totalCost = clientRows.reduce((s, c) => s + c.cost, 0);
-    const totalRevenue = clientRows.reduce((s, c) => s + c.revenue, 0);
+    const q = query.trim().toLowerCase();
+    const clientRows = !q ? allClientRows : allClientRows.filter(c => c.name.toLowerCase().includes(q));
+
+    const totalHours = allClientRows.reduce((s, c) => s + c.hours, 0);
+    const totalPlanned = allClientRows.reduce((s, c) => s + c.planned, 0);
+    const totalCost = allClientRows.reduce((s, c) => s + c.cost, 0);
+    const totalRevenue = allClientRows.reduce((s, c) => s + c.revenue, 0);
     const totalProfit = totalRevenue - totalCost;
+    const atRisk = allClientRows.filter(c => c.profit < 0).length;
 
     el.querySelector('#panel').innerHTML = `
       <div class="range">
@@ -96,22 +106,45 @@ boot('hourrep', async (supa, el) => {
           <div class="summary-value">${fmt$0(totalCost)}</div></div>
         <div class="summary-cell"><div class="summary-label">Profit (hours-based)</div>
           <div class="summary-value ${totalProfit<0?'neg':'pos'}">${fmt$0(totalProfit)}</div></div>
-        <div class="summary-cell"><div class="summary-label">Hours (actual vs planned)</div>
-          <div class="summary-value">${fmtHours(totalHours)}<span class="muted" style="font-size:11px"> / ${fmtHours(totalPlanned)}</span></div>
-          <div class="summary-note">${mLabel(rangeFrom)}–${mLabel(rangeTo)} · revenue is measured-to-date, same number Forecast shows</div></div>
+        <div class="summary-cell"><div class="summary-label">Hours logged</div>
+          <div class="summary-value">${fmtHours(totalHours)}</div>
+          <div class="delta-note flat">vs ${fmtHours(totalPlanned)}h planned — not assigned yet</div></div>
+        <div class="summary-cell"><div class="summary-label">Clients at risk</div>
+          <div class="summary-value ${atRisk>0?'neg':'pos'}">${atRisk} / ${allClientRows.length}</div>
+          <div class="summary-note">losing money on hours-based cost</div></div>
       </div>
+      <div class="sc-panel chartpanel"><div id="chart"></div></div>
       <div class="sc-panel" style="padding:0">
-        <table><tr><th>client</th><th>hours</th><th>planned</th><th>labor cost</th><th>revenue</th><th>profit</th></tr>
-          ${clientRows.map(c => `<tr>
+        <div class="tbltools" style="padding:10px 14px">
+          <input id="q" placeholder="search client…" value="${esc(query)}" style="width:220px">
+        </div>
+        <table><tr><th>client</th><th>hours</th><th>vs planned</th><th>labor cost</th><th>revenue</th><th>profit</th></tr>
+          ${clientRows.map(c => `<tr class="${c.profit<0?'risk-row':''}">
               <td class="textleft">${esc(c.name)}</td>
-              <td>${fmtHours(c.hours)}</td><td class="muted">${fmtHours(c.planned)}</td>
+              <td>${fmtHours(c.hours)}
+                <div class="mini-track" title="hours logged — no planned figure to compare against yet">
+                  <div class="seg seg-good" style="width:${c.hours>0?100:0}%"></div>
+                </div></td>
+              <td class="delta-note flat">no plan set</td>
               <td>${fmt$0(c.cost)}</td><td>${fmt$0(c.revenue)}</td>
               <td class="${c.profit<0?'err':'ok'}">${fmt$0(c.profit)}</td></tr>`).join('')}
         </table>
       </div>`;
 
+    const top = allClientRows.slice(0, 10);
+    if (top.length) {
+      // profit floored at 0 for the chart only (a stacked bar can't draw a
+      // negative segment) — the exact figure, negative or not, is in the
+      // table above; the chart is a shape, not the source of truth.
+      barChart(el.querySelector('#chart'), top.map(c => c.name), [
+        { name: 'labor cost', color: 'var(--slate)', values: top.map(c => c.cost) },
+        { name: 'profit', color: 'var(--brand)', values: top.map(c => Math.max(c.profit, 0)) }
+      ]);
+    }
+
     el.querySelector('#r-from').onchange = e => { rangeFrom = monthOf(e.target.value); load(); };
     el.querySelector('#r-to').onchange = e => { rangeTo = monthOf(e.target.value); load(); };
+    el.querySelector('#q').oninput = e => { query = e.target.value; load(); };
   }
 
   await load();

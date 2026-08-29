@@ -260,6 +260,14 @@ Buttons, inputs, and cards read as **terminal-tactile**: small, precise, and den
 - **Warn:** Alert Amber Tint background, Alert Amber text and border.
 - **Bad:** Alert Rust Tint background, Alert Rust text and border.
 
+### Utilization Mini-Bar
+Adapted from the original hour-tracking tool's roster view (Team, Client Profitability, Project Hours) — a compact per-row progress track for "how much of X is used," re-tokened to this system's closed palette rather than carrying over any of that tool's own colors.
+- **Track:** 5px tall, full-round, Hairline background, 130px wide.
+- **Fill:** Muted Ledger Green under/at capacity, Alert Rust over — no third color; a value with nothing to compare against renders no track at all, not an empty or grey one.
+- **Percent readout:** IBM Plex Mono 11px bold, colored by the same three-state rule as the pills (`.util-pct.under/.full/.over` — Slate / Deep Ledger Green / Alert Rust).
+- **Delta note:** a small mono caption ("vs N planned") that reads Muted Ledger Green (ahead), Alert Rust (behind), or Slate (nothing to compare — e.g. planned hours not entered yet). Placeholder states are always shown, never omitted — "not assigned yet" is real information, not a gap to hide.
+- **Risk row:** a flagged record (losing money, over scope) tints its whole row Alert Rust Tint rather than just one cell — one step louder than a colored figure, quiet enough to still read as a data row among others.
+
 ### Inputs / Fields
 - **Style:** 34px height (28–30px in dense in-table contexts), hairline border, 4px radius, IBM Plex Mono value text, raised-paper background.
 - **Focus:** border shifts to Muted Ledger Green with a soft Mint glow ring (`box-shadow: 0 0 0 2px var(--mint)`); no color change, no shadow elevation.

@@ -1,19 +1,23 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Project Hours</title><link rel="stylesheet" href="./assets/style.css?v=996fe20"></head><body>
+<title>EMG — Project Hours</title><link rel="stylesheet" href="./assets/style.css?v=89cf765"></head><body>
 <script type="module">
-import { boot, esc } from './assets/shell.js?v=996fe20';
+import { boot, esc, barChart } from './assets/shell.js?v=89cf765';
 
 // Per-project scoping and tracking — how much work is actually going into a
-// specific deal. For client-level health, see Hours Reporting instead; the
-// two answer different questions and are kept as separate pages rather than
-// one view drilling into the other.
+// specific deal. For client-level health, see Client Profitability instead;
+// the two answer different questions and are kept as separate pages rather
+// than one view drilling into the other.
 //
 // Bottom-up: actual hours x each staff member's own resolved cost rate,
 // joined against the SAME rev_proj forecast.html already reads (via
 // forecast_page) — this page and Forecast must never disagree about what
 // counts as revenue, only about what "cost" means (hours here, QBO COGS
 // there). See db/031_hours_page.sql.
+//
+// Planned hours (assignments) render as an explicit "not assigned yet" empty
+// state rather than being left out of the layout — the entry mechanism is
+// being reworked, but the shape of the comparison stays on the page.
 const fmtHours = h => (+h || 0).toLocaleString(undefined, { maximumFractionDigits: 1 });
 const fmt$0 = c => (c < 0 ? '-$' : '$') + Math.abs(Math.round((c || 0) / 100)).toLocaleString();
 
@@ -53,7 +57,7 @@ boot('projhours', async (supa, el) => {
     // one row per deal that has EITHER actual labor hours or a claimed QBO
     // project (so a deal with revenue but zero hours still shows, flagging
     // that its labor was never logged against it)
-    const dealRows = Object.keys(laborByDeal)
+    const allDealRows = Object.keys(laborByDeal)
       .concat(Object.values(dealsById).filter(d => d.qbo_project_id).map(d => d.id))
       .filter((id, i, a) => a.indexOf(id) === i)
       .map(id => {
@@ -68,14 +72,16 @@ boot('projhours', async (supa, el) => {
       }).filter(Boolean).sort((a, b) => b.hours - a.hours);
 
     const q = query.trim().toLowerCase();
-    const shown = !q ? dealRows : dealRows.filter(d =>
+    const shown = !q ? allDealRows : allDealRows.filter(d =>
       d.name.toLowerCase().includes(q) || d.client.toLowerCase().includes(q));
 
-    const totalHours = dealRows.reduce((s, d) => s + d.hours, 0);
-    const totalPlanned = dealRows.reduce((s, d) => s + d.planned, 0);
-    const totalCost = dealRows.reduce((s, d) => s + d.cost, 0);
-    const totalRevenue = dealRows.reduce((s, d) => s + d.revenue, 0);
+    const totalHours = allDealRows.reduce((s, d) => s + d.hours, 0);
+    const totalPlanned = allDealRows.reduce((s, d) => s + d.planned, 0);
+    const totalCost = allDealRows.reduce((s, d) => s + d.cost, 0);
+    const totalRevenue = allDealRows.reduce((s, d) => s + d.revenue, 0);
     const totalProfit = totalRevenue - totalCost;
+    const maxHours = Math.max(...allDealRows.map(d => d.hours), 1);
+    const atRisk = allDealRows.filter(d => d.profit < 0 && d.hours > 0).length;
 
     el.querySelector('#panel').innerHTML = `
       <div class="range">
@@ -91,23 +97,41 @@ boot('projhours', async (supa, el) => {
           <div class="summary-value">${fmt$0(totalCost)}</div></div>
         <div class="summary-cell"><div class="summary-label">Profit (hours-based)</div>
           <div class="summary-value ${totalProfit<0?'neg':'pos'}">${fmt$0(totalProfit)}</div></div>
-        <div class="summary-cell"><div class="summary-label">Hours (actual vs planned)</div>
-          <div class="summary-value">${fmtHours(totalHours)}<span class="muted" style="font-size:11px"> / ${fmtHours(totalPlanned)}</span></div>
-          <div class="summary-note">${mLabel(rangeFrom)}–${mLabel(rangeTo)} · revenue is measured-to-date, same number Forecast shows</div></div>
+        <div class="summary-cell"><div class="summary-label">Hours logged</div>
+          <div class="summary-value">${fmtHours(totalHours)}</div>
+          <div class="delta-note flat">vs ${fmtHours(totalPlanned)}h scoped — not scoped yet</div></div>
+        <div class="summary-cell"><div class="summary-label">Projects at risk</div>
+          <div class="summary-value ${atRisk>0?'neg':'pos'}">${atRisk} / ${allDealRows.filter(d=>d.hours>0).length}</div>
+          <div class="summary-note">logging hours at a loss</div></div>
       </div>
+      <div class="sc-panel chartpanel"><div id="chart"></div></div>
       <div class="sc-panel" style="padding:0">
         <div class="tbltools" style="padding:10px 14px">
           <input id="q" placeholder="search project or client…" value="${esc(query)}" style="width:220px">
         </div>
-        <table><tr><th>project / deal</th><th>client</th><th>hours</th><th>planned</th><th>labor cost</th><th>revenue</th><th>profit</th></tr>
-          ${shown.map(d => `<tr>
+        <table><tr><th>project / deal</th><th>client</th><th>hours</th><th>vs scoped</th><th>labor cost</th><th>revenue</th><th>profit</th></tr>
+          ${shown.map(d => `<tr class="${d.profit<0&&d.hours>0?'risk-row':''}">
               <td class="textleft">${esc(d.name)}</td>
               <td class="textleft muted">${esc(d.client)}</td>
-              <td>${fmtHours(d.hours)}</td><td class="muted">${fmtHours(d.planned)}</td>
+              <td>${fmtHours(d.hours)}
+                <div class="mini-track" title="hours logged — no scoped figure to compare against yet">
+                  <div class="seg ${d.profit<0&&d.hours>0?'seg-over':'seg-good'}" style="width:${maxHours>0?Math.min(d.hours/maxHours*100,100):0}%"></div>
+                </div></td>
+              <td class="delta-note flat">not scoped yet</td>
               <td>${fmt$0(d.cost)}</td><td>${fmt$0(d.revenue)}</td>
               <td class="${d.profit<0?'err':'ok'}">${fmt$0(d.profit)}</td></tr>`).join('')}
         </table>
       </div>`;
+
+    const top = allDealRows.slice().sort((a,b)=>b.revenue-a.revenue).slice(0, 10);
+    if (top.length) {
+      // profit floored at 0 for the chart only (a stacked bar can't draw a
+      // negative segment) — the exact figure is in the table above.
+      barChart(el.querySelector('#chart'), top.map(d => d.name), [
+        { name: 'labor cost', color: 'var(--slate)', values: top.map(d => d.cost) },
+        { name: 'profit', color: 'var(--brand)', values: top.map(d => Math.max(d.profit, 0)) }
+      ]);
+    }
 
     el.querySelector('#r-from').onchange = e => { rangeFrom = monthOf(e.target.value); load(); };
     el.querySelector('#r-to').onchange = e => { rangeTo = monthOf(e.target.value); load(); };

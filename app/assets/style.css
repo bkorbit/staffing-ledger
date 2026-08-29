@@ -87,6 +87,32 @@ td.textleft { text-align:left; font-family:var(--font-body); }
 
 .ok { color:var(--brand-2); } .warn { color:var(--amber); } .err { color:var(--rust); white-space:pre-wrap; }
 .muted { color:var(--slate); }
+
+/* Utilization mini-bar: a thin segmented progress track — a compact way to
+   show "how much of X is used" per row without a full chart. Borrowed from
+   the original hour-tracking tool's roster view, re-tokened to this system's
+   palette (no new colors: brand-2 = healthy, rust = over, hairline = empty). */
+.mini-track { display:flex; height:5px; border-radius:99px; overflow:hidden;
+  background:var(--line); margin-top:4px; width:130px; }
+.mini-track .seg { height:100%; }
+.mini-track .seg-good  { background:var(--brand-2); }
+.mini-track .seg-over  { background:var(--rust); }
+.mini-track .seg-plan  { background:var(--slate); }
+.util-pct { font-family:var(--font-mono); font-size:11px; font-weight:600; }
+.util-pct.under { color:var(--slate); }
+.util-pct.full  { color:var(--brand); }
+.util-pct.over  { color:var(--rust); }
+
+/* Plan -> actual delta note, e.g. "+3.2h vs plan" — mono, colored by direction. */
+.delta-note { font-family:var(--font-mono); font-size:10.5px; }
+.delta-note.pos { color:var(--brand-2); }
+.delta-note.neg { color:var(--rust); }
+.delta-note.flat { color:var(--slate); }
+
+/* Whole-row tint for a flagged record (losing money, over scope) — one step
+   louder than a colored cell, quiet enough to still read as a data row. */
+tr.risk-row { background:var(--rust-bg); }
+tr.risk-row td { color:var(--ink); }
 .placeholder { border:1px dashed var(--line); border-radius:6px; padding:44px; text-align:center;
   color:var(--slate); background:var(--paper-raised); }
 svg.chart { width:100%; height:240px; display:block; }

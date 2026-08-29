@@ -1,8 +1,8 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Team</title><link rel="stylesheet" href="./assets/style.css?v=996fe20"></head><body>
+<title>EMG — Team</title><link rel="stylesheet" href="./assets/style.css?v=89cf765"></head><body>
 <script type="module">
-import { boot, esc } from './assets/shell.js?v=996fe20';
+import { boot, esc, barChart } from './assets/shell.js?v=89cf765';
 
 // Money in comp_periods is BIGINT cents, same convention as everywhere else —
 // this page is the one place a human types dollars, so the two conversions
@@ -24,7 +24,7 @@ const mLabel = s => new Date(s + 'T00:00:00Z')
 boot('team', async (supa, el) => {
   const thisMonth = monthOf(iso(new Date()));
   let rangeFrom = shiftM(thisMonth, -2), rangeTo = thisMonth;
-  let deptFilter = '';
+  let deptFilter = '', query = '';
   const openStaff = new Set();
 
   el.innerHTML = `<div class="sc-panel" id="panel">loading…</div>`;
@@ -56,13 +56,30 @@ boot('team', async (supa, el) => {
       (dealHoursByStaff[r.staff_id] = dealHoursByStaff[r.staff_id] || []).push(r);
     });
 
+    // capacity for the selected range, from each person's own current weekly
+    // capacity — real data (comp_periods), not a placeholder. Assignment
+    // (planned hours per project) is the piece still being reworked, shown
+    // below as an explicit empty state instead of a number.
+    const daysInRange = (new Date(endOfMonth(rangeTo)) - new Date(rangeFrom)) / 86400000 + 1;
+    const weeksInRange = daysInRange / 7;
+
     const departments = [...new Set((H.staff || []).map(s => s.department).filter(Boolean))].sort();
+    const q = query.trim().toLowerCase();
     const staff = (H.staff || [])
       .filter(s => !deptFilter || s.department === deptFilter)
+      .filter(s => !q || s.name.toLowerCase().includes(q))
       .sort((a, b) => (b.active - a.active) || a.name.localeCompare(b.name));
 
     const totalHours = staff.reduce((s, p) => s + ((hoursByStaff[p.id] || {}).hours || 0), 0);
     const totalCost = staff.reduce((s, p) => s + ((hoursByStaff[p.id] || {}).cost || 0), 0);
+    const totalCapacity = staff.reduce((s, p) => {
+      const comp = compByStaff[p.id]; return s + (comp ? comp.weekly_capacity * weeksInRange : 0);
+    }, 0);
+    const overCount = staff.filter(p => {
+      const comp = compByStaff[p.id]; if (!comp) return false;
+      const cap = comp.weekly_capacity * weeksInRange;
+      return cap > 0 && ((hoursByStaff[p.id] || {}).hours || 0) / cap > 1.001;
+    }).length;
 
     el.querySelector('#panel').innerHTML = `
       <div class="range">
@@ -75,23 +92,32 @@ boot('team', async (supa, el) => {
         <div class="summary-cell"><div class="summary-label">Headcount</div>
           <div class="summary-value">${staff.filter(s=>s.active).length}</div></div>
         <div class="summary-cell"><div class="summary-label">Hours logged</div>
-          <div class="summary-value">${fmtHours(totalHours)}</div></div>
+          <div class="summary-value">${fmtHours(totalHours)}</div>
+          <div class="summary-note">of ${fmtHours(totalCapacity)}h capacity</div></div>
         <div class="summary-cell"><div class="summary-label">Labor cost</div>
           <div class="summary-value">${fmt$0(totalCost)}</div>
           <div class="summary-note">${mLabel(rangeFrom)}–${mLabel(rangeTo)}, all logged hours incl. internal</div></div>
+        <div class="summary-cell"><div class="summary-label">Over capacity</div>
+          <div class="summary-value ${overCount>0?'neg':'pos'}">${overCount}</div>
+          <div class="summary-note">logged more than their capacity</div></div>
       </div>
+      <div class="sc-panel chartpanel"><div id="chart"></div></div>
       <div class="sc-panel" style="padding:0">
-        <div class="tbltools" style="padding:10px 14px">
+        <div class="tbltools" style="padding:10px 14px;display:flex;gap:10px;flex-wrap:wrap">
+          <input id="q" placeholder="search name…" value="${esc(query)}" style="width:180px">
           <select id="dept-filter">
             <option value="">All departments</option>
             ${departments.map(d=>`<option value="${esc(d)}" ${d===deptFilter?'selected':''}>${esc(d)}</option>`).join('')}
           </select>
         </div>
         <table><tr><th>name</th><th>department</th><th>active</th><th>comp</th>
-          <th>hours</th><th>labor cost</th><th></th></tr>
+          <th>utilization</th><th>labor cost</th><th></th></tr>
           ${staff.map(s => {
             const comp = compByStaff[s.id];
             const hc = hoursByStaff[s.id] || { hours: 0, cost: 0 };
+            const cap = comp ? comp.weekly_capacity * weeksInRange : 0;
+            const pct = cap > 0 ? (hc.hours / cap) * 100 : null;
+            const pctCls = pct === null ? 'under' : pct > 100.1 ? 'over' : pct >= 90 ? 'full' : 'under';
             const open = openStaff.has(s.id);
             const deals = (dealHoursByStaff[s.id] || []).slice().sort((a,b)=>b.hours-a.hours);
             return `<tr class="staffrow" data-sid="${s.id}" style="cursor:pointer">
@@ -104,19 +130,26 @@ boot('team', async (supa, el) => {
                       : `${fmt$0(comp.annual_cost)}/yr · ${comp.weekly_capacity}h/wk`)
                   : '<span class="muted">not set</span>'}
                   <button class="ghost comp-edit" data-sid="${s.id}" style="padding:1px 7px;font-size:9.5px;margin-left:6px">edit</button></td>
-                <td>${fmtHours(hc.hours)}</td>
+                <td>${pct === null ? '<span class="muted">no comp set</span>' : `
+                  <span class="util-pct ${pctCls}">${Math.round(pct)}%</span>
+                  <div class="summary-note">${fmtHours(hc.hours)} / ${fmtHours(cap)}h</div>
+                  <div class="mini-track" title="hours logged vs weekly capacity for this range">
+                    <div class="seg ${pctCls==='over'?'seg-over':'seg-good'}" style="width:${Math.min(pct,100)}%"></div>
+                  </div>`}</td>
                 <td>${fmt$0(hc.cost)}</td>
                 <td class="muted">${deals.length ? (open?'▾':'▸') : ''}</td>
               </tr>
               ${open ? `<tr><td colspan="7" style="background:#f6f6f6;padding:8px 14px">
-                ${deals.length ? `<table style="width:auto;min-width:360px">
-                  <tr><th>deal</th><th>client</th><th>hours</th><th>cost</th></tr>
+                ${deals.length ? `<table style="width:auto;min-width:420px">
+                  <tr><th>deal</th><th>client</th><th>logged</th><th>scoped</th><th>cost</th></tr>
                   ${deals.map(d => {
                     const deal = dealsById[d.deal_id];
                     const client = deal ? clientsById[deal.client_id] : null;
                     return `<tr><td class="textleft">${esc(deal?deal.name:d.deal_id)}</td>
                       <td class="textleft muted">${esc(client?client.name:'')}</td>
-                      <td>${fmtHours(d.hours)}</td><td>${fmt$0(d.cost)}</td></tr>`;
+                      <td>${fmtHours(d.hours)}</td>
+                      <td class="delta-note flat">not assigned yet</td>
+                      <td>${fmt$0(d.cost)}</td></tr>`;
                   }).join('')}
                 </table>` : `<span class="muted">No hours against a deal in this range — internal/non-billable only.</span>`}
               </td></tr>` : ''}`;
@@ -124,9 +157,20 @@ boot('team', async (supa, el) => {
         </table>
       </div>`;
 
+    const deptCost = {};
+    staff.forEach(s => { const d = s.department || '(none)';
+      deptCost[d] = (deptCost[d] || 0) + ((hoursByStaff[s.id] || {}).cost || 0); });
+    const deptRows = Object.entries(deptCost).sort((a, b) => b[1] - a[1]);
+    if (deptRows.length) {
+      barChart(el.querySelector('#chart'), deptRows.map(r => r[0]), [
+        { name: 'labor cost', color: 'var(--brand)', values: deptRows.map(r => r[1]) }
+      ]);
+    }
+
     el.querySelector('#r-from').onchange = e => { rangeFrom = monthOf(e.target.value); load(); };
     el.querySelector('#r-to').onchange = e => { rangeTo = monthOf(e.target.value); load(); };
     el.querySelector('#dept-filter').onchange = e => { deptFilter = e.target.value; render(); };
+    el.querySelector('#q').oninput = e => { query = e.target.value; render(); };
 
     el.querySelectorAll('tr.staffrow').forEach(tr => tr.onclick = e => {
       if (e.target.closest('input,button')) return;
