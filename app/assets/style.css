@@ -140,7 +140,6 @@ tr.risk-row td { color:var(--ink); }
 #tab-team .panel { overflow-x:auto; }
 #tab-team th.col-name, #tab-team td.col-name { width:196px; min-width:196px; }
 #tab-team th.col-capy, #tab-team td.cap-readout { width:172px; min-width:172px; }
-#tab-team th.edit-col { width:40px; }
 #tab-team tbody td { vertical-align:top; }
 #team-table th.col-bar, #team-table td.col-bar { min-width:150px; width:auto; vertical-align:bottom; }
 #team-table td.col-bar .mini-track { margin-top:6px; }
@@ -154,26 +153,11 @@ th.sortable:hover { color:var(--ink); }
 th .sort-ind { font-size:9px; }
 
 .name-cell { display:flex; align-items:center; gap:4px; }
-.name-cell input { flex:1; border:none; background:transparent; font-family:var(--font-body); font-size:13px; color:var(--ink); padding:4px 2px; }
-.name-cell input:focus { outline:none; background:var(--mint); border-radius:4px; }
-.dept-inline { display:block; width:100%; box-sizing:border-box; margin-top:3px; border:1px solid transparent; border-radius:4px;
-  padding:2px 5px; font-family:var(--font-mono); font-size:10.5px; color:var(--slate); background:transparent; }
-.dept-inline:hover { border-color:var(--line); background:var(--paper-raised); }
-.dept-inline:focus { outline:none; border-color:var(--brand); background:#fff; color:var(--ink); }
 .cap-int { display:block; line-height:1.5; }
 .cap-tag { font-family:var(--font-mono); font-size:9px; color:var(--slate); border:1px solid var(--line); border-radius:4px; padding:1px 5px; }
-.numfield.mini-int { display:inline-block; width:34px; padding:0 3px; font-size:10.5px; text-align:center; vertical-align:baseline;
-  margin:0 2px 0 0; border:1px solid var(--line); border-radius:4px; background:#fff; font-family:var(--font-mono); }
-.numfield.mini-int:focus { outline:none; border-color:var(--brand); }
-.numfield.mini-int:disabled { background:var(--line); color:var(--slate); }
 .computed-sub { font-family:var(--font-mono); font-size:10px; color:var(--slate); white-space:nowrap; }
 .expand-btn { background:none; border:none; cursor:pointer; font-family:var(--font-mono); font-size:11px; color:var(--slate); padding:2px; }
 .expand-btn:hover { color:var(--ink); }
-.edit-btn, .remove-btn { background:none; border:none; color:var(--slate); cursor:pointer; font-size:14px; line-height:1; padding:4px; }
-.edit-btn:hover { color:var(--brand); }
-.remove-btn { font-size:15px; }
-.remove-btn:hover { color:var(--rust); }
-.remove-col { width:34px; text-align:center; }
 
 /* Segmented mini-track variants beyond the plain good/over/plan pair above —
    the original tool's "split" bars, each a different comparison. */
@@ -238,7 +222,6 @@ th .sort-ind { font-size:9px; }
   #team-table th.col-profit, #team-table td.col-profit { width:108px; min-width:108px; max-width:108px; }
   #team-table .util-pct { font-size:12px; }
   #team-table .computed-sub, #team-table .cap-int { font-size:9.5px; }
-  #team-table .name-cell input { font-size:12px; }
 }
 
 .placeholder { border:1px dashed var(--line); border-radius:6px; padding:44px; text-align:center;

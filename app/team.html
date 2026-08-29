@@ -1,8 +1,8 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Team</title><link rel="stylesheet" href="./assets/style.css?v=e11d92c"></head><body>
+<title>EMG — Team</title><link rel="stylesheet" href="./assets/style.css?v=89cf765"></head><body>
 <script type="module">
-import { boot, esc, barChart } from './assets/shell.js?v=e11d92c';
+import { boot, esc, barChart } from './assets/shell.js?v=89cf765';
 
 // This page's HTML structure and CSS classes are ported near-verbatim from
 // the original hour-tracking tool's Team tab (root index.html, #tab-team) at
@@ -10,6 +10,11 @@ import { boot, esc, barChart } from './assets/shell.js?v=e11d92c';
 // THIS app's own tokens (IBM Plex Mono, current --brand-2) rather than the
 // original's, per his call to keep one closed palette. See
 // app/assets/style.css's "Team page — ported near-verbatim" block.
+//
+// Read-only by design: this page is for GETTING information, not providing
+// it. Salary, capacity, department, and start/end dates are all managed on
+// Team Setup instead — the inline editors used to live here and cluttered
+// the capacity column specifically.
 //
 // Data: bottom-up from actual hours (time_entries) x each staff member's own
 // resolved comp rate (comp_periods), joined against forecast_page()'s own
@@ -20,8 +25,6 @@ import { boot, esc, barChart } from './assets/shell.js?v=e11d92c';
 // (assignments table) is shown disabled/empty rather than omitted: that
 // entry mechanism doesn't exist yet and is being redesigned separately. Look
 // for "not assigned yet" — that's real information, not a bug.
-const toCents = dollars => Math.round((+dollars || 0) * 100);
-const fromCents = cents => ((cents || 0) / 100).toFixed(2);
 const fmtHours = h => (+h || 0).toLocaleString(undefined, { maximumFractionDigits: 1 });
 const fmt$0 = c => (c < 0 ? '-$' : '$') + Math.abs(Math.round((c || 0) / 100)).toLocaleString();
 
@@ -124,7 +127,13 @@ boot('team', async (supa, el) => {
       return { s, comp, hc, cap, avail, ptoHours, deals, clientHours, internalHours, pct, attributed, profit, coverage };
     });
 
-    rows = rows.filter(r => (showInactive || r.s.active) && (!deptFilter || r.s.department === deptFilter)
+    // Auto-hide anyone with no logged hours since the current QB Time import
+    // cutoff (has_recent_hours, db/033) — a stale roster entry from before
+    // the cutoff was last raised, not a real gap in someone's schedule. Purely
+    // computed, never touches the human-owned active flag; "show inactive"
+    // reveals both this and manually-inactive people together.
+    rows = rows.filter(r => (showInactive || (r.s.active && r.s.has_recent_hours))
+      && (!deptFilter || r.s.department === deptFilter)
       && (!q || r.s.name.toLowerCase().includes(q)));
 
     const sorters = {
@@ -165,7 +174,7 @@ boot('team', async (supa, el) => {
       <section class="panel">
         <div class="panel-head">
           <h2>Team</h2>
-          <div class="actions"><button class="primary" id="add-staff-btn">+ Add person</button></div>
+          <div class="actions muted" style="font-family:var(--font-mono);font-size:11px">Salary, capacity, department, and dates are managed on <a href="./team-setup.html" style="color:var(--brand-2)">Team Setup</a>.</div>
         </div>
         <div class="filter-bar">
           <input type="text" id="team-search" placeholder="Search name…" value="${esc(query)}">
@@ -175,7 +184,7 @@ boot('team', async (supa, el) => {
           </select>
           <label class="disabled" title="Assignment picker not built yet — planned hours have no entry path"><input type="checkbox" disabled> include ended flights in assign list</label>
           <label title="Hide internal hours from the logged-vs-capacity bar"><input type="checkbox" id="team-client-only" ${clientHoursOnly?'checked':''}> client hours only</label>
-          <label title="By default, inactive people are hidden"><input type="checkbox" id="team-show-inactive" ${showInactive?'checked':''}> show inactive this period</label>
+          <label title="By default, inactive people and anyone with no hours logged since the current import cutoff are hidden"><input type="checkbox" id="team-show-inactive" ${showInactive?'checked':''}> show inactive this period</label>
           <button class="ghost" id="team-report-btn" disabled title="Not built yet — see Client Profitability / Project Hours for reporting">Hours report</button>
         </div>
         <table id="team-table">
@@ -187,24 +196,21 @@ boot('team', async (supa, el) => {
               <th class="col-bar">Logged vs assigned</th>
               <th class="sortable col-bar" data-sort="loggedUtil">Logged vs capacity <span class="sort-ind" data-ind="loggedUtil">${ind('loggedUtil')}</span></th>
               <th class="col-profit sortable" data-sort="profit">Profit (period) <span class="sort-ind" data-ind="profit">${ind('profit')}</span></th>
-              <th class="edit-col"></th>
-              <th class="remove-col"></th>
             </tr>
           </thead>
           <tbody id="staff-tbody">
-            ${!rows.length ? `<tr><td colspan="8" class="empty-note">No people match the current filters.</td></tr>` : rows.map(r => {
+            ${!rows.length ? `<tr><td colspan="6" class="empty-note">No people match the current filters.</td></tr>` : rows.map(r => {
               const { s, comp, hc, cap, avail, ptoHours, deals, clientHours, internalHours, pct, attributed, profit, coverage } = r;
               const pctCls = pct === null ? 'under' : pct > 100.1 ? 'over' : pct >= 90 ? 'full' : 'under';
               const open = openStaff.has(s.id);
               return `<tr data-sid="${s.id}">
                   <td class="col-name">
-                    <div class="name-cell"><button class="expand-btn" data-role="team-toggle" data-id="${s.id}">${deals.length?(open?'▾':'▸'):'·'}</button><input type="text" value="${esc(s.name)}" data-role="staff-name" data-id="${s.id}"></div>
-                    <input class="dept-inline" type="text" value="${esc(s.department || '')}" placeholder="department" data-role="staff-dept" data-id="${s.id}">
+                    <div class="name-cell"><button class="expand-btn" data-role="team-toggle" data-id="${s.id}">${deals.length?(open?'▾':'▸'):'·'}</button>${esc(s.name)}</div>
+                    <div class="computed-sub">${esc(s.department || '')}</div>
                   </td>
                   <td class="cap-readout">
                     ${fmtHours(cap)}h/period ${comp ? `<span class="cap-tag">${comp.kind}</span>` : '<span class="muted">no comp set</span>'}
-                    <button class="ghost comp-edit" data-sid="${s.id}" style="padding:1px 6px;font-size:9px;margin-left:4px">edit</button>
-                    <div class="computed-sub cap-int"><input type="text" class="numfield mini-int" value="${fmtHours(internalHours)}" disabled title="Internal hours logged this period — planned internal hours aren't available yet">h int (actual)</div>
+                    <div class="computed-sub cap-int">${fmtHours(internalHours)}h int (actual)</div>
                   </td>
                   <td class="col-bar">
                     <div class="mini-track split"><div class="seg seg-onplan" style="width:0%"></div></div>
@@ -232,10 +238,8 @@ boot('team', async (supa, el) => {
                   <td class="col-profit" data-salary-col>${(hc.hours>0||hc.cost>0) ? `
                     <span class="util-pct ${profit>=0?'full':'over'}">${fmt$0(profit)}</span>
                     <div class="computed-sub">rev ${fmt$0(attributed)} · cost ${fmt$0(hc.cost)}${coverage!==null?` · ${coverage.toFixed(2)}×`:''}</div>` : '<span class="computed-sub">—</span>'}</td>
-                  <td class="edit-col"></td>
-                  <td class="remove-col"><button class="remove-btn" data-role="toggle-active" data-sid="${s.id}" data-active="${s.active}" title="${s.active?'Mark inactive':'Mark active'}">${s.active?'×':'+'}</button></td>
                 </tr>
-                ${open ? `<tr class="team-breakout"><td colspan="8">
+                ${open ? `<tr class="team-breakout"><td colspan="6">
                   ${deals.length ? deals.map(d => {
                     const deal = dealsById[d.deal_id]; const client = deal ? clientsById[deal.client_id] : null;
                     const rph = revPerHourByDeal[d.deal_id];
@@ -277,13 +281,6 @@ boot('team', async (supa, el) => {
     el.querySelector('#team-search').oninput = e => { query = e.target.value; render(); };
     el.querySelector('#team-show-inactive').onchange = e => { showInactive = e.target.checked; render(); };
     el.querySelector('#team-client-only').onchange = e => { clientHoursOnly = e.target.checked; render(); };
-    el.querySelector('#add-staff-btn').onclick = async () => {
-      const name = prompt('Name for the new person:');
-      if (!name) return;
-      const { error } = await supa.from('staff').insert({ name: name.trim(), active: true, set_by: window.__email });
-      if (error) { alert(error.message); return; }
-      load();
-    };
     el.querySelectorAll('th.sortable, .sub-sort').forEach(th => th.onclick = () => {
       const key = th.dataset.sort; if (!key) return;
       sortDir = sortKey === key ? -sortDir : 1; sortKey = key; render();
@@ -292,51 +289,6 @@ boot('team', async (supa, el) => {
       const sid = btn.dataset.id;
       openStaff.has(sid) ? openStaff.delete(sid) : openStaff.add(sid);
       render();
-    });
-    el.querySelectorAll('[data-role="staff-name"]').forEach(inp => inp.onchange = async () => {
-      await supa.from('staff').update({ name: inp.value.trim() }).eq('id', inp.dataset.id);
-      load();
-    });
-    el.querySelectorAll('[data-role="staff-dept"]').forEach(inp => inp.onchange = async () => {
-      await supa.from('staff').update({ department: inp.value.trim() || null }).eq('id', inp.dataset.id);
-      load();
-    });
-    el.querySelectorAll('[data-role="toggle-active"]').forEach(btn => btn.onclick = async () => {
-      await supa.from('staff').update({ active: btn.dataset.active !== 'true' }).eq('id', btn.dataset.sid);
-      load();
-    });
-    el.querySelectorAll('.comp-edit').forEach(btn => btn.onclick = () => {
-      const sid = btn.dataset.sid, comp = compByStaff[sid];
-      const cell = btn.closest('td');
-      cell.innerHTML = `<select class="ce-kind" style="height:26px">
-          <option value="salary" ${(!comp||comp.kind==='salary')?'selected':''}>salary/yr</option>
-          <option value="hourly" ${comp&&comp.kind==='hourly'?'selected':''}>hourly</option>
-        </select>
-        <input class="ce-cost" style="height:26px;width:80px" placeholder="$"
-          value="${comp ? fromCents(comp.kind==='hourly'?comp.hourly_cost:comp.annual_cost) : ''}">
-        <input class="ce-cap" style="height:26px;width:56px" placeholder="hrs/wk"
-          value="${comp ? comp.weekly_capacity : 40}">
-        <button class="primary ce-save" style="padding:2px 8px">Save</button>
-        <span class="ce-msg err" style="font-size:10px"></span>`;
-      cell.querySelector('.ce-save').onclick = async () => {
-        const kind = cell.querySelector('.ce-kind').value;
-        const cost = toCents(cell.querySelector('.ce-cost').value);
-        const cap2 = +cell.querySelector('.ce-cap').value || 40;
-        const today = iso(new Date());
-        if (comp) {
-          const { error } = await supa.from('comp_periods')
-            .update({ ends_on: today }).eq('staff_id', sid).is('ends_on', null);
-          if (error) { cell.querySelector('.ce-msg').textContent = error.message; return; }
-        }
-        const { error } = await supa.from('comp_periods').insert({
-          staff_id: sid, starts_on: today, kind,
-          annual_cost: kind === 'salary' ? cost : 0,
-          hourly_cost: kind === 'hourly' ? cost : 0,
-          weekly_capacity: cap2, set_by: window.__email
-        });
-        if (error) { cell.querySelector('.ce-msg').textContent = error.message; return; }
-        load();
-      };
     });
   }
 

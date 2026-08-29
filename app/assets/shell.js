@@ -105,6 +105,7 @@ const NAV = [
   { id: 'team',      label: 'Team',            href: './team.html' },
   { sect: 'Setup' },
   { id: 'clients',   label: 'Clients',         href: './clients.html' },
+  { id: 'teamsetup', label: 'Team Setup',      href: './team-setup.html' },
   { id: 'settings',  label: 'Settings',        href: './settings.html' },
 ];
 
