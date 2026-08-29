@@ -141,6 +141,25 @@ td.textleft { text-align:left; font-family:var(--font-body); }
 tr.risk-row { background:var(--rust-bg); }
 tr.risk-row td { color:var(--ink); }
 
+/* Team Hours' per-person expand row: full row width (colspan), not squeezed
+   into one column's width like the old inline table was. Two columns —
+   the client/deal breakout with its own planned-vs-logged bar per line on
+   the left, the internal/PTO/client time split on the right — since they're
+   two different questions ("who for" vs. "what kind of time") rather than
+   one long list. */
+tr.expand-row td { padding:0; border-bottom:1px solid var(--line); }
+.expand-grid { display:grid; grid-template-columns:1.4fr 1fr; gap:24px;
+  background:#fafaf8; padding:16px 18px 18px; }
+.assign-line { margin-bottom:10px; }
+.assign-line:last-child { margin-bottom:0; }
+.assign-label { font-size:11.5px; margin-bottom:3px; }
+.alloc-stat { display:flex; align-items:center; gap:8px; font-size:11.5px; padding:7px 0;
+  border-bottom:1px solid var(--line); }
+.alloc-stat:last-child { border-bottom:none; }
+.alloc-stat span { margin-left:auto; font-family:var(--font-mono); font-size:11px; font-weight:600; }
+.alloc-dot { width:10px; height:10px; border-radius:4px; flex:none; display:inline-block; }
+@media (max-width:900px) { .expand-grid { grid-template-columns:1fr; } }
+
 .placeholder { border:1px dashed var(--line); border-radius:6px; padding:44px; text-align:center;
   color:var(--slate); background:var(--paper-raised); }
 /* height:auto (not a fixed px) so the SVG's own viewBox ratio governs its

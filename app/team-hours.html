@@ -116,6 +116,8 @@ boot('teamhours', async (supa, el) => {
       (dealHoursByStaff[r.staff_id] = dealHoursByStaff[r.staff_id] || []).push(r);
     });
     const plannedByStaff = {}; (H.staff_planned || []).forEach(r => plannedByStaff[r.staff_id] = +r.planned_hours);
+    const plannedByStaffDeal = {}; // "staffId|dealId" -> planned hours (db/035)
+    (H.staff_deal_planned || []).forEach(r => plannedByStaffDeal[`${r.staff_id}|${r.deal_id}`] = +r.planned_hours);
 
     const revByProj = {}; (P.rev_proj || []).forEach(r => revByProj[r.qbo_project_id] = r.total);
     const revPerHourByDeal = {};
@@ -161,7 +163,8 @@ boot('teamhours', async (supa, el) => {
       const assignments = deals2.map(d => {
         const deal = dealsById[d.deal_id];
         const client = deal ? clientsById[deal.client_id] : null;
-        return { name: deal ? deal.name : '(unknown deal)', client: client ? client.name : '(no client)', hours: +d.hours };
+        const planned = plannedByStaffDeal[`${s.id}|${d.deal_id}`] || 0;
+        return { name: deal ? deal.name : '(unknown deal)', client: client ? client.name : '(no client)', hours: +d.hours, planned };
       }).sort((a, b) => b.hours - a.hours);
       return { s, hc, cap, clientHours, internalHours, ptoHours, assignedHours, profit, assignments };
     });
@@ -250,18 +253,28 @@ boot('teamhours', async (supa, el) => {
                 </td>
                 <td class="${r.profit<0?'err':'pos'}">${(r.hc.hours>0||r.hc.cost>0)?fmt$0(r.profit):'<span class="muted">—</span>'}</td>
               </tr>
-              ${open ? `<tr><td colspan="6" style="background:#fafaf8;padding:8px 14px 10px">
-                  <div class="sc-eyebrow" style="margin-bottom:6px">Assigned to</div>
-                  ${!r.assignments.length ? `<div class="muted" style="font-size:11px">No logged hours against a client project in this range.</div>` : `
-                    <table style="width:auto;min-width:360px">
-                      <tbody>
-                      ${r.assignments.map(a => `<tr>
-                          <td class="textleft" style="border:none;padding:2px 16px 2px 0">${esc(a.client)}</td>
-                          <td class="textleft" style="border:none;padding:2px 16px 2px 0;color:var(--slate)">${esc(a.name)}</td>
-                          <td style="border:none;padding:2px 0;text-align:right">${fmtHours(a.hours)}h</td>
-                        </tr>`).join('')}
-                      </tbody>
-                    </table>`}
+              ${open ? `<tr class="expand-row"><td colspan="6">
+                  <div class="expand-grid">
+                    <div>
+                      <div class="sc-eyebrow" style="margin-bottom:10px">Assigned to — planned vs. logged</div>
+                      ${!r.assignments.length ? `<div class="muted" style="font-size:11px">No logged hours against a client project in this range.</div>` : r.assignments.map(a => {
+                        const bar = stackSegments(a.planned, [[a.hours > a.planned ? 'seg-over' : 'seg-good', a.hours]]);
+                        return `<div class="assign-line">
+                            <div class="assign-label">${esc(a.client)} <span class="muted">— ${esc(a.name)}</span></div>
+                            <div class="mini-track wide">${bar.html}</div>
+                            <div class="delta-note flat">${a.planned > 0
+                              ? `${fmtHours(a.hours)}h logged / ${fmtHours(a.planned)}h planned${bar.overBy > 0.05 ? ` · <span class="delta-note neg" style="display:inline">+${fmtHours(bar.overBy)}h over</span>` : ''}`
+                              : `${fmtHours(a.hours)}h logged · not assigned yet`}</div>
+                          </div>`;
+                      }).join('')}
+                    </div>
+                    <div>
+                      <div class="sc-eyebrow" style="margin-bottom:10px">Time allocation</div>
+                      <div class="alloc-stat"><i class="alloc-dot" style="background:var(--brand-2)"></i>Client work<span>${fmtHours(r.clientHours)}h</span></div>
+                      <div class="alloc-stat"><i class="alloc-dot" style="background:var(--brand)"></i>Internal work<span>${fmtHours(r.internalHours)}h</span></div>
+                      <div class="alloc-stat"><i class="alloc-dot" style="background:var(--gold)"></i>Time off (PTO)<span>${fmtHours(r.ptoHours)}h</span></div>
+                    </div>
+                  </div>
                 </td></tr>` : ''}`;
           }).join('')}
         </table>
