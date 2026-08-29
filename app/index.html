@@ -1,12 +1,12 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Home</title><link rel="stylesheet" href="./assets/style.css?v=15660b3"></head><body>
+<title>EMG — Home</title><link rel="stylesheet" href="./assets/style.css?v=510ac2f"></head><body>
 <script type="module">
-import { boot, fmt$, esc, bandChart } from './assets/shell.js?v=15660b3';
+import { boot, fmt$, esc, bandChart } from './assets/shell.js?v=510ac2f';
 
 boot('home', async (supa, el) => {
   el.innerHTML = `<div class="summary-strip" id="tiles"></div>
-    <div class="sc-panel"><div class="muted" style="margin-bottom:8px">Cash position, 13 weeks</div><div id="chart">loading…</div></div>
+    <div class="sc-panel chartpanel"><div style="padding:16px 18px 0"><div class="muted" style="margin-bottom:8px">Cash position, 13 weeks</div></div><div id="chart"><div style="padding:0 18px 16px">loading…</div></div></div>
     <div class="sc-panel" id="queues"></div>`;
 
   const [banks, ar, review, unlinked, cf, syncs] = await Promise.all([
@@ -40,7 +40,7 @@ boot('home', async (supa, el) => {
     rows.map(r=>(r.period_label||r.week_start.slice(5)).replace(/ \d\d$/,'')),
     [{name:'expected', color:'#19a789', values: rows.map(r=>r.position_expected)},
      {name:'conservative (p90)', color:'#d1453b', values: rows.map(r=>r.position_conservative)}]);
-  else document.getElementById('chart').textContent = 'no forecast data';
+  else document.getElementById('chart').innerHTML = '<div style="padding:0 18px 16px">no forecast data</div>';
 
   document.getElementById('queues').innerHTML = `<div class="muted" style="margin-bottom:8px">Syncs</div>
     <table><tr><th>source</th><th>last run</th><th>status</th></tr>

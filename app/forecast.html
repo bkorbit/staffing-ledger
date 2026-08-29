@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Forecast</title><link rel="stylesheet" href="./assets/style.css?v=15660b3">
+<title>EMG — Forecast</title><link rel="stylesheet" href="./assets/style.css?v=510ac2f">
 <style>
 .range{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:12px}
 .rl{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.09em;color:var(--slate)}
@@ -9,10 +9,9 @@ table.sum td .pct{display:block;font-size:9px;color:var(--slate);margin-top:1px}
 table.sum td .pct.bad{color:var(--rust)} table.sum td .pct.good{color:var(--brand-2)}
 tr.deallist td{cursor:pointer}
 tr.clientrow:focus-visible,tr.deallist:focus-visible,tr.projrow:focus-visible,th[data-sort]:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--brand-2),inset 0 0 0 4px var(--mint)}
-.lgd:focus-visible{outline:2px solid var(--brand-2);outline-offset:2px}
 </style></head><body>
 <script type="module">
-import { boot, esc, fmt$, barChart } from './assets/shell.js?v=15660b3';
+import { boot, esc, fmt$, barChart } from './assets/shell.js?v=510ac2f';
 /*
   The Forecast, remodelled on the v1 ledger's Forecast view, recovered from git:
   months as ROWS in a P&L ledger — Revenue billed, COGS, Forecast GP, Actual GP,
@@ -202,28 +201,25 @@ boot('forecast', async (supa, el) => {
         g+=`<circle cx="${cx}" cy="${cy}" r="4" fill="${colorOf.net}" stroke="var(--paper-raised)" stroke-width="2" opacity="${r.measured?1:0.55}" data-tip="${tip}"><title>${tip}</title></circle>
         <text x="${cx}" y="${cy+17}" fill="${INK}" font-size="9.5" font-weight="600" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(r.net)}</text>`;});
     }
-    // the legend lives at the BOTTOM and toggles series on click or Enter/Space
-    const LEG_Y = H + 10;
-    const leg = SERIES.map(([k,c,label],i)=>{
-      const x = P.l + i*118;
+    // the legend lives in the chart's grey footer bar (the app-wide standard —
+    // see sales.html) and toggles series on click; real <button>s get Enter/Space
+    // activation for free, no manual keydown handling needed
+    const legItems = SERIES.map(([k,c,label])=>{
       const off = hidden.has(k);
-      return `<g class="lgd" data-k="${k}" style="cursor:pointer" opacity="${off?0.35:1}"
-          tabindex="0" role="button" aria-pressed="${!off}" aria-label="${off?'show':'hide'} ${label} series">
-        <rect x="${x}" y="${LEG_Y}" width="9" height="9" fill="${c}" ${off?'stroke="var(--slate)" stroke-dasharray="2 1.5"':''}/>
-        <text x="${x+13}" y="${LEG_Y+8}" fill="${INK}" font-size="10" font-family="IBM Plex Mono" ${off?'text-decoration="line-through"':''}>${label}</text>
-        <title>${off?'show':'hide'} ${label}</title></g>`;
+      return `<button class="lg-item toggle" data-k="${k}" aria-pressed="${!off}"
+          aria-label="${off?'show':'hide'} ${label} series"${off?' style="opacity:.4"':''}>
+        <i class="lg-dot" style="${off?'background:transparent;border:1.5px dashed var(--slate)':`background:${c}`}"></i>
+        <span${off?' style="text-decoration:line-through"':''}>${label}</span></button>`;
     }).join('');
     elc.style.position='relative';
-    elc.innerHTML=`<svg class="chart" viewBox="0 0 ${W} ${H+26}"><g>${g}</g>${leg}</svg><div class="chart-tip"></div>`;
+    elc.innerHTML=`<svg class="chart" viewBox="0 0 ${W} ${H}"><g>${g}</g></svg><div class="chart-tip"></div>
+      <div class="chart-legend">${legItems}</div>`;
     const toggleSeries = k => {
       hidden.has(k) ? hidden.delete(k) : hidden.add(k);
       localStorage.setItem('fc_hidden', JSON.stringify([...hidden]));
       comboChart(elc, rows);
     };
-    elc.querySelectorAll('.lgd').forEach(el2 => {
-      el2.onclick = () => toggleSeries(el2.dataset.k);
-      el2.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSeries(el2.dataset.k); } };
-    });
+    elc.querySelectorAll('.lg-item.toggle').forEach(b => { b.onclick = () => toggleSeries(b.dataset.k); });
     // real hover tooltip — the native <title> tooltip stays as a no-JS/a11y
     // floor, but it's slow to appear and easy to miss; this is instant
     const tip = elc.querySelector('.chart-tip');
@@ -348,7 +344,7 @@ boot('forecast', async (supa, el) => {
           reclassifies an account everywhere at once.</div>
         <div id="how-table" style="margin-top:10px;max-height:340px;overflow-y:auto"></div>
       </div>
-      <div class="sc-panel"><div id="chart"></div></div>
+      <div class="sc-panel chartpanel"><div id="chart"></div></div>
       <div class="sc-panel" style="padding:0">
         <div class="tbltools">
           <span class="sc-eyebrow" style="margin:0">Clients over the range</span>

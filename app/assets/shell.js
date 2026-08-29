@@ -148,11 +148,12 @@ export function barChart(el, labels, series) {
   }).join('');
   const xl = labels.map((l, i) => i % 2 ? '' :
     `<text x="${P.l + i * bw + bw / 2}" y="${H - 8}" fill="#67706d" font-size="10" font-family="IBM Plex Mono" text-anchor="middle">${l}</text>`).join('');
-  const legend = series.map((sr, i) =>
-    `<rect x="${P.l + i * 190}" y="0" width="10" height="10" fill="${sr.color}"/>
-     <text x="${P.l + i * 190 + 14}" y="9" fill="#67706d" font-size="11" font-family="IBM Plex Mono">${sr.name}</text>`).join('');
-  el.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H + 16}">
-    <g transform="translate(0,14)">${grid}${bars}${xl}</g>${legend}</svg>`;
+  // legend lives in the shared grey chart-legend footer below the SVG, not
+  // drawn inline — the app-wide standard established on sales.html
+  const legend = series.map(sr =>
+    `<span class="lg-item"><i class="lg-dot" style="background:${sr.color}"></i>${esc(sr.name)}</span>`).join('');
+  el.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}">${grid}${bars}${xl}</svg>
+    <div class="chart-legend">${legend}</div>`;
 }
 
 // condensed money, for axis labels that don't have room to spell out the
@@ -208,16 +209,18 @@ export function bandChart(el, labels, bands) {
        d="${smoothPath(b.values.map((v, i) => [x(i), y(v)]))}"/>`).join('');
   const xlabels = labels.map((l, i) => i % 2 ? '' :
     `<text x="${x(i)}" y="${H - 6}" fill="#67706d" font-size="10" font-family="IBM Plex Mono" text-anchor="middle">${l}</text>`).join('');
-  const legend = bands.map((b, i) =>
-    `<rect x="${P.l + i * 200}" y="0" width="10" height="10" fill="${b.color}"/>
-     <text x="${P.l + i * 200 + 14}" y="9" fill="#67706d" font-size="11" font-family="IBM Plex Mono">${b.name}</text>`).join('');
+  // legend lives in the shared grey chart-legend footer below the SVG, not
+  // drawn inline — the app-wide standard established on sales.html
+  const legend = bands.map(b =>
+    `<span class="lg-item"><i class="lg-dot" style="background:${b.color}"></i>${esc(b.name)}</span>`).join('');
   const summary = `Line chart of ${bands.map(b => b.name).join(', ')} across ${labels.length} `
     + `periods, from ${labels[0]} to ${labels[labels.length - 1]}.`;
   el.style.position = 'relative';
-  el.innerHTML = `<svg class="chart" role="img" aria-label="${esc(summary)}" viewBox="0 0 ${W} ${H + 16}">
+  el.innerHTML = `<svg class="chart" role="img" aria-label="${esc(summary)}" viewBox="0 0 ${W} ${H}">
     <title>${esc(summary)}</title>
-    <g transform="translate(0,14)">${grid}${zero}${lines}<g class="hoverlayer"></g>${xlabels}</g>${legend}</svg>
-    <div class="chart-tip"></div>`;
+    ${grid}${zero}${lines}<g class="hoverlayer"></g>${xlabels}</svg>
+    <div class="chart-tip"></div>
+    <div class="chart-legend">${legend}</div>`;
 
   // ---- hover: nearest-period crosshair, highlighted points, and a tooltip
   // with every band's exact value (the axis itself only has room to condense)

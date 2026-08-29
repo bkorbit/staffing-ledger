@@ -1,8 +1,8 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Cashflow</title><link rel="stylesheet" href="./assets/style.css?v=15660b3"></head><body>
+<title>EMG — Cashflow</title><link rel="stylesheet" href="./assets/style.css?v=510ac2f"></head><body>
 <script type="module">
-import { boot, fmt$, bandChart, fetchAll } from './assets/shell.js?v=15660b3';
+import { boot, fmt$, bandChart, fetchAll } from './assets/shell.js?v=510ac2f';
 
 boot('cashflow', async (supa, el) => {
   el.innerHTML = `<div class="range">
@@ -16,7 +16,7 @@ boot('cashflow', async (supa, el) => {
       pays on their curve, usually two to three halves later.</span>
     </div>
     <div class="summary-strip" id="kpis"></div>
-    <div class="sc-panel"><div id="chart">loading…</div></div>
+    <div class="sc-panel chartpanel"><div id="chart"><div style="padding:16px 18px">loading…</div></div></div>
     <div class="sc-panel" style="overflow-x:auto">
       <div class="sc-eyebrow">Cash position by period</div>
       <table id="tbl" class="ledger"></table></div>

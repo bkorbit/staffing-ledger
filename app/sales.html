@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Sales Forecast</title><link rel="stylesheet" href="./assets/style.css?v=15660b3">
+<title>EMG — Sales Forecast</title><link rel="stylesheet" href="./assets/style.css?v=510ac2f">
 <style>
 /* Layout and chart styling carried over from sales-forecast-draft.html — the design
    the page is modelled on — trimmed to what the shell doesn't already provide. */
@@ -13,7 +13,10 @@
 .seg{font-family:var(--font-mono);font-size:10px;padding:6px 11px;border:1px solid var(--line);
   background:var(--paper-raised);border-radius:5px;cursor:pointer;color:var(--slate)}
 .seg.on{background:var(--brand);color:#fff;border-color:var(--brand)}
-.chartpanel{padding:0;overflow:visible}
+.iconbtn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;flex:none;
+  border:1px solid var(--line);border-radius:5px;background:var(--paper-raised);color:var(--slate);cursor:pointer}
+.iconbtn:hover{border-color:var(--ink);color:var(--ink)}
+.iconbtn svg{width:14px;height:14px}
 .rl{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.09em;color:var(--slate)}
 .rd{font-family:var(--font-mono);font-size:10px;color:var(--slate)}
 .rp{display:inline-flex;margin-left:10px;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--paper-raised)}
@@ -28,17 +31,6 @@ svg.sfchart{width:100%;height:auto;display:block}
 svg.sfchart .ax{font-family:var(--font-mono);font-size:10px;fill:var(--slate)}
 svg.sfchart .bt{font-family:var(--font-mono);font-size:10.5px;font-weight:500;fill:var(--brand)}
 svg.sfchart .pl{font-family:var(--font-mono);font-size:9px;fill:var(--slate)}
-.legend{display:flex;flex-wrap:wrap;gap:8px 20px;margin:8px 0 0;padding:10px 22px 12px;
-  border-top:1px solid var(--line);background:#f2f2f2;border-radius:0 0 6px 6px}
-.legend span{display:flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:10px;color:var(--ink)}
-.legend i{width:11px;height:11px;border-radius:2px;display:inline-block;flex:none}
-.cover{font-family:var(--font-mono);font-size:11px;padding:10px 13px;border-radius:6px;margin-bottom:4px;margin-top:8px;line-height:1.6}
-.cover.good{background:var(--mint)} .cover.warn{background:var(--amber-bg)} .cover.bad{background:var(--rust-bg)}
-.infobtn{font-family:var(--font-mono);font-size:10px;padding:2px 8px;border-radius:99px;
-  border:1px solid var(--line);cursor:pointer;white-space:nowrap}
-.infobtn.good{color:var(--brand);border-color:var(--brand-2);background:var(--mint)}
-.infobtn.warn{color:var(--amber);border-color:var(--amber);background:var(--amber-bg)}
-.infobtn.bad{color:var(--rust);border-color:var(--rust);background:var(--rust-bg)}
 table.fc{width:100%;border-collapse:collapse;background:var(--paper-raised)}
 table.fc th{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.07em;
   color:var(--slate);text-align:left;padding:9px 8px;border:none;border-bottom:1px solid var(--line);background:transparent}
@@ -65,7 +57,7 @@ td.tot{font-weight:700;color:var(--brand)}
 .empty{padding:30px;text-align:center;color:var(--slate);font-family:var(--font-mono);font-size:11px}
 </style></head><body>
 <script type="module">
-import { boot, esc, fetchAll } from './assets/shell.js?v=15660b3';
+import { boot, esc, fetchAll } from './assets/shell.js?v=510ac2f';
 /*
   The Sales Forecast, modelled on sales-forecast-draft.html and wired to the mirror.
   Gross profit is derived from HubSpot line items through the same type map the
@@ -235,16 +227,20 @@ boot('sales', async (supa, el) => {
       </div>
       <div style="flex:1"></div>
       <button class="seg" id="chart-toggle" aria-expanded="true" aria-controls="chartwrap"></button>
-      <div class="cfg">min probability ${minProb}% · programmatic margin ${PROG_MARGIN}% ·
-        <a href="./settings.html">settings</a></div>
+      <div class="cfg">min probability ${minProb}% · programmatic margin ${PROG_MARGIN}%</div>
+      <a class="iconbtn" href="./settings.html" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </a>
     </div>
-    <div id="coverage"></div>
-    <div class="sc-panel chartpanel" style="padding:0">
+    <div class="sc-panel chartpanel">
       <div id="chartwrap"></div>
     </div>
     <div class="sc-panel" style="padding:4px;overflow-x:auto"><div id="tbl"></div></div>`;
 
-  function renderChart(cols, shown){
+  function renderChart(cols, shown, health){
     const wrap = el.querySelector('#chartwrap');
     const btn = el.querySelector('#chart-toggle');
     btn.textContent = chartOn ? 'Hide chart' : 'Show chart';
@@ -301,12 +297,31 @@ boot('sales', async (supa, el) => {
     // wide/dense views (many months) keep their real bar width and scroll
     // horizontally instead of squeezing every bar and label down to fit
     const svgStyle = dense ? ` style="width:${W}px;max-width:none"` : '';
+    // the pipeline-health toggle and its detail live in the chart's own grey
+    // footer now — another legend row entry, not a floating callout — so its
+    // dot color, not a separate pill background, carries the at-a-glance signal
+    const { covCls, pct, totalRows, coverageOpen, nF, noLI, stale, wonRecent, wonPromoted, wonReview, wonWaiting } = health;
+    const healthColor = covCls==='good' ? 'var(--brand-2)' : covCls==='warn' ? 'var(--amber)' : 'var(--rust)';
+    const showHealth = totalRows>0 || wonRecent.length>0;
+    const detailHtml = coverageOpen ? `<div class="chart-detail" id="health-detail">` +
+      (totalRows ? `<div>${nF} of ${totalRows} deals forecastable (${pct}%) — ${noLI} without line items,
+        ${stale} past their close date. GP needs line items and campaign dates in HubSpot;
+        fixing them there brings deals in on the next sync.</div>` : '') +
+      (wonRecent.length ? `<div>Closed won: ${wonPromoted.length} passed to the
+        <a href="./forecast.html">Forecast</a> automatically${wonReview.length?` — ${wonReview.length} still awaiting review there`:''}${wonWaiting?`; ${wonWaiting} will pass on the next sync`:''}.
+        Mappable line items are flighted out on arrival; the rest get a skeleton and a reason.</div>` : '') +
+      `</div>` : '';
     wrap.innerHTML =
       `<div class="chead"><h3>Committed revenue plus pipeline — ${weighted?'weighted by stage':'total value at 100%'}</h3>
        <div class="csum">${n} months · committed ${money(totals.l)} · pipeline ${money(Math.round(totals.p))} · total ${money(Math.round(totals.l+totals.p))}</div></div>
        <div class="csvg${dense?' scroll':''}"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" class="sfchart" role="img" aria-label="${esc(chartSummary)}"${svgStyle}><title>${esc(chartSummary)}</title>${g}</svg></div>
-       <div class="legend"><span><i style="background:${LEDGER_COLOR}"></i>Committed GP (shaped deals)</span>` +
-       tiersPresent.map(t=>`<span><i style="background:${TIER_COLORS[t]}"></i>${esc(tierLabel(t))}</span>`).join('') + `</div>`;
+       <div class="chart-legend">
+         <span class="lg-item"><i class="lg-dot" style="background:${LEDGER_COLOR}"></i>Committed GP (shaped deals)</span>` +
+       tiersPresent.map(t=>`<span class="lg-item"><i class="lg-dot" style="background:${TIER_COLORS[t]}"></i>${esc(tierLabel(t))}</span>`).join('') +
+       (showHealth ? `<span style="flex:1"></span>
+         <button class="lg-item toggle" id="covtoggle" aria-expanded="${coverageOpen}" aria-controls="health-detail">
+           <i class="lg-dot" style="background:${healthColor}"></i>pipeline health${totalRows?` — ${pct}% forecastable`:''}${coverageOpen?' ▾':' ▸'}</button>` : '') +
+       `</div>${detailHtml}`;
     return totals;
   }
 
@@ -329,25 +344,12 @@ boot('sales', async (supa, el) => {
     const wonPromoted = wonRecent.filter(d=>promotedBy[d.hubspot_deal_id]);
     const wonReview = wonPromoted.filter(d=>!promotedBy[d.hubspot_deal_id].reviewed_at);
     const wonWaiting = wonRecent.length - wonPromoted.length;
-    // both banners collapse behind one info pill — its color still carries the
-    // at-a-glance health signal even while the detail text is hidden
     const covCls = rows.length ? (pct>=70?'good':pct>=40?'warn':'bad') : 'good';
-    el.querySelector('#coverage').innerHTML =
-      (rows.length || wonRecent.length ? `<button class="infobtn ${covCls}" id="covtoggle" aria-expanded="${coverageOpen}">`+
-        `ⓘ pipeline health${rows.length?` — ${pct}% forecastable`:''}${coverageOpen?' ▾':' ▸'}</button>` : '') +
-      (coverageOpen ? (
-        (rows.length ? `<div class="cover ${covCls}">
-          ${nF} of ${rows.length} deals forecastable (${pct}%) —
-          ${noLI} without line items, ${stale} past their close date.
-          GP needs line items and campaign dates in HubSpot; fixing them there brings deals in on the next sync.</div>` : '') +
-        (wonRecent.length ? `<div class="cover good">Closed won: ${wonPromoted.length} passed to the
-          <a href="./forecast.html">Forecast</a> automatically${wonReview.length?` — ${wonReview.length} still awaiting review there`:''}${wonWaiting?`; ${wonWaiting} will pass on the next sync`:''}.
-          Mappable line items are flighted out on arrival; the rest get a skeleton and a reason.</div>` : '')
-      ) : '');
+
+    const chartTotals = renderChart(cols, shown,
+      { covCls, pct, totalRows: rows.length, coverageOpen, nF, noLI, stale, wonRecent, wonPromoted, wonReview, wonWaiting });
     const covBtn = el.querySelector('#covtoggle');
     if (covBtn) covBtn.onclick = () => { coverageOpen = !coverageOpen; render(); };
-
-    const chartTotals = renderChart(cols, shown);
     // headline numbers, sourced from the exact same totals the chart draws
     // from — so the ribbon and the chart's own summary line can never disagree
     el.querySelector('#kpis').innerHTML = `
