@@ -274,7 +274,7 @@ boot('settings', async (supa, el) => {
         <button class="primary" id="k-save-burden" style="align-self:flex-end">Save</button>
         <span id="k-burden-msg" class="ok" style="align-self:flex-end;font-size:12px"></span>
       </div>
-      <div class="sc-eyebrow">Benefits — 401k match, health insurance, workers' comp, SDI (041)</div>
+      <div class="sc-eyebrow">Benefits — 401k match, health insurance, workers' comp, SDI, PEO fee (041)</div>
       <div class="muted" style="font-size:11px;margin-bottom:8px;max-width:640px">
         Each only counts toward a person's cost if their own 401k / Health
         Insurance checkbox is on (set per person on Team). The 401k match
@@ -295,7 +295,10 @@ boot('settings', async (supa, el) => {
         employee; both are flat $/month per person in that state, not a %
         of pay (real TDI/DBL premiums don't scale with salary), and apply
         automatically by work state — no opt-in checkbox, since it isn't
-        optional.</div>
+        optional. PEO admin fee (050) is the flat per-employee platform
+        charge a PEO like JustWorks bills on top of wages/taxes/benefits —
+        same automatic, no-checkbox treatment as workers' comp/SUTA, for
+        every W-2 person regardless of state.</div>
       <div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:12px">
         <label class="mono" style="display:flex;flex-direction:column;gap:4px">
           401k match %
@@ -333,6 +336,10 @@ boot('settings', async (supa, el) => {
           NY disability insurance $/mo per person
           <input id="k-nysdi" style="width:160px;text-align:right"
             value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='ny_disability_monthly_cost');return k?k.value:0})()}"></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px" title="PEO platform/admin fee (e.g. JustWorks) — flat per W-2 employee per month, automatic, no per-person opt-in">
+          PEO admin fee $/mo per W-2 person
+          <input id="k-peofee" style="width:160px;text-align:right"
+            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='peo_admin_fee_monthly');return k?k.value:99})()}"></label>
         <button class="primary" id="k-save-benefits" style="align-self:flex-end">Save</button>
         <span id="k-benefits-msg" class="ok" style="align-self:flex-end;font-size:12px"></span>
       </div>
@@ -387,6 +394,8 @@ boot('settings', async (supa, el) => {
         { key:'hi_disability_monthly_cost', value:+document.getElementById('k-hisdi').value||0,
           set_by:window.__email, set_at:new Date().toISOString() },
         { key:'ny_disability_monthly_cost', value:+document.getElementById('k-nysdi').value||0,
+          set_by:window.__email, set_at:new Date().toISOString() },
+        { key:'peo_admin_fee_monthly', value:+document.getElementById('k-peofee').value||0,
           set_by:window.__email, set_at:new Date().toISOString() }];
       const { error } = await supa.from('settings').upsert(rows, { onConflict:'key' });
       document.getElementById('k-benefits-msg').textContent = error ? error.message : 'saved';
