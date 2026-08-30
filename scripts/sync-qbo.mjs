@@ -765,6 +765,19 @@ async function main() {
     console.log('  \u26a0 curve refresh failed (sync data is fine): ' + (e.message || e));
   }
 
+  // Records today's real bank position and cashflow_forecast()'s current
+  // prediction for every future period, so the forecast can eventually be
+  // checked against what actually happened (067). Same non-fatal pattern.
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/snapshot_forecast`, {
+      method: 'POST', headers: sb, body: '{}'
+    });
+    if (!r.ok) throw new Error(`${r.status}: ${(await r.text()).slice(0, 200)}`);
+    console.log('  forecast snapshot recorded');
+  } catch (e) {
+    console.log('  \u26a0 forecast snapshot failed (sync data is fine): ' + (e.message || e));
+  }
+
   await sbPatchState({
     last_run_at: new Date().toISOString(),
     last_run_log: {

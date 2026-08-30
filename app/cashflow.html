@@ -31,7 +31,13 @@ boot('cashflow', async (supa, el) => {
     the model has no revenue and both lines sink. That is missing data, not a prophecy.</div>
     <div class="sc-panel" style="overflow-x:auto">
       <div class="sc-eyebrow">Expected payment date — open AR by client, on their collection curve</div>
-      <table id="pay-dates" class="ledger"></table></div>`;
+      <table id="pay-dates" class="ledger"></table></div>
+    <div class="sc-panel" style="overflow-x:auto">
+      <div class="sc-eyebrow">Curve calibration — checked against invoices that already settled, not a prediction</div>
+      <div class="summary-strip" id="calibration"></div></div>
+    <div class="sc-panel" style="overflow-x:auto">
+      <div class="sc-eyebrow">Forecast accuracy — predicted bank position vs. what actually happened</div>
+      <table id="fc-accuracy" class="ledger"></table></div>`;
 
   const sel = document.getElementById('cf-weeks');
 
@@ -49,6 +55,16 @@ boot('cashflow', async (supa, el) => {
     supa.from('payment_behaviour').select('scope,ref,sample_n,median_lag,p90_lag')
   ]);
   for (const r of [ar, ap, pj, cl, dl, bk, pb]) if (r.error) throw r.error;
+
+  // 067's views — fetched separately from the rest of the page so a database
+  // that hasn't run that migration yet degrades to "no calibration data" on
+  // these two panels instead of taking the whole page down.
+  const [cal, acc] = await Promise.all([
+    fetchAll(() => supa.from('v_invoice_settlement_calibration')
+      .select('has_own_curve,settled_within_median,settled_within_p90')),
+    fetchAll(() => supa.from('v_forecast_accuracy')
+      .select('week_start,period_label,lead_days,position_expected,actual_balance,miss_expected,within_band'))
+  ]);
 
   // today's cash: the same "operating banks only, if any are flagged" rule
   // cashflow_forecast() uses server-side for its own opening balance
@@ -208,6 +224,65 @@ boot('cashflow', async (supa, el) => {
         <td colspan="6"></td></tr>`;
   }
   paymentDateTable('pay-dates', ar.data);
+
+  // ---- curve calibration: of invoices that have already settled, how many
+  // cleared within the median/p90 window the CURRENT curve gives them. In-sample
+  // (each invoice helped shape the curve it's checked against), so this measures
+  // whether shrinkage toward the global curve is doing right by clients with
+  // thin history more than it proves forecasting skill outright — see 067.
+  (function renderCalibration() {
+    if (cal.error) {
+      document.getElementById('calibration').innerHTML =
+        `<div class="summary-cell muted">migration 067 not applied yet — no calibration data</div>`;
+      return;
+    }
+    const rows = cal.data || [];
+    const within = (list, key) => list.length
+      ? Math.round(100 * list.filter(r => r[key]).length / list.length) : null;
+    const own = rows.filter(r => r.has_own_curve);
+    const glob = rows.filter(r => !r.has_own_curve);
+    const cell = (label, value, note) => `<div class="summary-cell">
+        <div class="summary-label">${label}</div>
+        <div class="summary-value">${value === null ? '—' : value + '%'}</div>
+        <div class="summary-note">${note}</div></div>`;
+    document.getElementById('calibration').innerHTML =
+      cell('Settled within median window', within(rows, 'settled_within_median'), `target ~50% · n=${rows.length}`) +
+      cell('Settled within p90 window', within(rows, 'settled_within_p90'), `target ~90%`) +
+      cell('Own-curve clients, within median', within(own, 'settled_within_median'), `n=${own.length}`) +
+      cell('Global-reliant clients, within median', within(glob, 'settled_within_median'), `n=${glob.length}, thin history`);
+  })();
+
+  // ---- forecast accuracy: once a predicted period's date has actually arrived,
+  // v_forecast_accuracy has the real balance to check it against. The same
+  // week_start accumulates one row per day it was snapshotted before it arrived
+  // (lead_days shrinking toward 0) — pick the one closest to a 2-week-ahead look,
+  // since that's the horizon actually worth judging the model on.
+  (function renderAccuracy() {
+    if (acc.error) {
+      document.getElementById('fc-accuracy').innerHTML =
+        `<tr><td class="muted" style="text-align:left;padding:10px 6px">migration 067 not applied yet</td></tr>`;
+      return;
+    }
+    const rows = acc.data || [];
+    const byWeek = {};
+    rows.forEach(r => {
+      const cur = byWeek[r.week_start];
+      if (!cur || Math.abs(r.lead_days - 14) < Math.abs(cur.lead_days - 14)) byWeek[r.week_start] = r;
+    });
+    const picked = Object.values(byWeek).sort((a, z) => new Date(z.week_start) - new Date(a.week_start));
+    document.getElementById('fc-accuracy').innerHTML = picked.length
+      ? `<tr><th style="text-align:left">Target period</th><th>Lead time</th>
+          <th>Predicted (expected)</th><th>Actual</th><th>Miss</th><th>In band?</th></tr>` +
+        picked.map(r => `<tr><td style="text-align:left">${r.period_label}</td>
+            <td class="muted">${r.lead_days}d ahead</td>
+            <td>${fmt$(r.position_expected)}</td>
+            <td>${fmt$(r.actual_balance)}</td>
+            <td>${r.miss_expected < 0 ? '-' : '+'}${fmt$(Math.abs(r.miss_expected))}</td>
+            <td class="${r.within_band ? 'pos' : 'err'}">${r.within_band ? 'yes' : 'no'}</td></tr>`).join('')
+      : `<tr><td class="muted" style="text-align:left;padding:10px 6px">no reconciled predictions yet —
+          snapshots started today; the first close-in comparisons land within days, genuinely
+          2-week-ahead ones in a couple of weeks.</td></tr>`;
+  })();
 
   // ---- horizon-dependent: the only part that needs to re-run on a horizon change
   async function renderPeriods(periods) {
