@@ -9,7 +9,8 @@ boot('settings', async (supa, el) => {
     <div class="sc-panel" id="hsreview"></div>
     <div class="sc-panel" id="banks"></div>
     <div class="sc-panel" id="knobs"></div>
-    <div class="sc-panel" id="wcrates"></div>`;
+    <div class="sc-panel" id="wcrates"></div>
+    <div class="sc-panel" id="sutarates"></div>`;
 
   const nameKey = s => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
 
@@ -32,7 +33,7 @@ boot('settings', async (supa, el) => {
   const STATE_NAME = Object.fromEntries(US_STATES);
 
   async function load() {
-    const [syncs, banks, knobs, pipelineDeals, promotions, blockedNames, hsDeals, clientsList, wcRates] = await Promise.all([
+    const [syncs, banks, knobs, pipelineDeals, promotions, blockedNames, hsDeals, clientsList, wcRates, sutaRates] = await Promise.all([
       supa.from('sync_state').select('id,last_run_at,last_run_log,import_from,import_from_set_by,import_from_set_at'),
       supa.from('qbo_accounts').select('id,name,balance,is_operating,as_of').eq('account_type','Bank').order('balance',{ascending:false}),
       supa.from('settings').select('key,value,set_by').order('key'),
@@ -41,7 +42,8 @@ boot('settings', async (supa, el) => {
       supa.from('blocked_company_names').select('name_key'),
       supa.from('deals').select('id,name,client_id,hubspot_deal_id,flight_start,flight_end,flight_locked,status,hidden').not('hubspot_deal_id', 'is', null),
       supa.from('clients').select('id,name'),
-      supa.from('workers_comp_rates').select('state,rate,set_by').order('state')
+      supa.from('workers_comp_rates').select('state,rate,set_by').order('state'),
+      supa.from('suta_rates').select('state,wage_base,rate,set_by').order('state')
     ]);
 
     document.getElementById('syncs').innerHTML = `<div class="muted" style="margin-bottom:8px">Syncs</div>
@@ -307,6 +309,14 @@ boot('settings', async (supa, el) => {
           workers' comp fallback rate (per $100 of pay, as %)
           <input id="k-wcrate" style="width:120px;text-align:right"
             value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='workers_comp_rate');return k?k.value:0})()}"></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">
+          SUTA fallback rate (as %)
+          <input id="k-sutarate" style="width:120px;text-align:right"
+            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='suta_rate');return k?k.value:2.7})()}"></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">
+          SUTA fallback wage base $/yr
+          <input id="k-sutabase" style="width:140px;text-align:right"
+            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='suta_wage_base');return k?k.value:7000})()}"></label>
         <button class="primary" id="k-save-benefits" style="align-self:flex-end">Save</button>
         <span id="k-benefits-msg" class="ok" style="align-self:flex-end;font-size:12px"></span>
       </div>
@@ -353,6 +363,10 @@ boot('settings', async (supa, el) => {
         { key:'health_insurance_start_date', value:document.getElementById('k-histart').value||'2099-01-01',
           set_by:window.__email, set_at:new Date().toISOString() },
         { key:'workers_comp_rate', value:+document.getElementById('k-wcrate').value||0,
+          set_by:window.__email, set_at:new Date().toISOString() },
+        { key:'suta_rate', value:+document.getElementById('k-sutarate').value||0,
+          set_by:window.__email, set_at:new Date().toISOString() },
+        { key:'suta_wage_base', value:+document.getElementById('k-sutabase').value||7000,
           set_by:window.__email, set_at:new Date().toISOString() }];
       const { error } = await supa.from('settings').upsert(rows, { onConflict:'key' });
       document.getElementById('k-benefits-msg').textContent = error ? error.message : 'saved';
@@ -396,6 +410,59 @@ boot('settings', async (supa, el) => {
       const state = btn.dataset.wcDel;
       if (!confirm(`Remove the configured rate for ${STATE_NAME[state] || state}? It'll fall back to the flat rate.`)) return;
       const { error } = await supa.from('workers_comp_rates').delete().eq('state', state);
+      if (error) { alert(error.message); return; }
+      load();
+    });
+
+    // SUTA by state (046) — needs two numbers per state, not one: the
+    // taxable wage base (real, state law, not experience-rated) AND a rate
+    // (experience-rated per employer — even a "confirmed" rate here is a
+    // starting point, not your real number, more so than workers' comp).
+    // Rate can be blank/cleared independently of wage_base — a state can
+    // have a solid wage base but no confirmed rate yet.
+    const configuredSuta = new Map((sutaRates.data || []).map(r => [r.state, r]));
+    document.getElementById('sutarates').innerHTML = `<div class="sc-eyebrow">SUTA by state (046)</div>
+      <div class="muted" style="font-size:11px;margin-bottom:8px;max-width:640px">
+        Exact per-person calculation — wage base is real, state-set law; rate
+        is experience-rated per employer, so even a filled-in number here is
+        a starting point to confirm against your own state rate notices, not
+        a final figure. A state left out (or with a blank rate) uses the
+        flat fallback above for whichever piece is missing.</div>
+      <div style="display:flex;gap:12px;align-items:flex-end;margin-bottom:12px;flex-wrap:wrap">
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">state
+          <select id="suta-state" style="width:220px">
+            ${US_STATES.map(([code, stateName]) => `<option value="${code}">${stateName}${configuredSuta.has(code)?' (configured)':''}</option>`).join('')}
+          </select></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">taxable wage base $/yr
+          <input id="suta-wagebase" style="width:140px;text-align:right"></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">rate (as %, blank = use fallback)
+          <input id="suta-rate" style="width:160px;text-align:right"></label>
+        <button class="primary" id="suta-add">Add / Update</button>
+        <span id="suta-msg" class="ok" style="font-size:12px"></span>
+      </div>
+      ${(sutaRates.data || []).length ? `<table><tr><th>state</th><th>wage base</th><th>rate</th><th>set by</th><th></th></tr>
+        ${(sutaRates.data || []).map(r => `<tr><td class="textleft">${esc(STATE_NAME[r.state] || r.state)}</td>
+          <td>$${esc(Number(r.wage_base).toLocaleString())}</td>
+          <td>${r.rate == null ? '<span class="muted">not confirmed</span>' : esc(String(r.rate)) + '%'}</td>
+          <td class="muted">${esc(r.set_by||'')}</td>
+          <td><button class="ghost" data-suta-del="${esc(r.state)}" style="padding:2px 8px;font-size:11px;color:var(--rust)">×</button></td></tr>`).join('')}</table>`
+        : `<div class="muted" style="padding:8px 0 4px">No states configured yet — everyone uses the flat fallback wage base/rate above.</div>`}`;
+    document.getElementById('suta-add').onclick = async () => {
+      const state = document.getElementById('suta-state').value;
+      const wagebaseInput = document.getElementById('suta-wagebase').value;
+      const rateInput = document.getElementById('suta-rate').value;
+      const wage_base = +wagebaseInput;
+      if (!wage_base) { document.getElementById('suta-msg').textContent = 'enter a wage base'; return; }
+      const rate = rateInput === '' ? null : +rateInput;
+      const { error } = await supa.from('suta_rates').upsert(
+        [{ state, wage_base, rate, set_by: window.__email, set_at: new Date().toISOString() }], { onConflict: 'state' });
+      document.getElementById('suta-msg').textContent = error ? error.message : 'saved';
+      if (!error) load();
+    };
+    document.querySelectorAll('[data-suta-del]').forEach(btn => btn.onclick = async () => {
+      const state = btn.dataset.sutaDel;
+      if (!confirm(`Remove the configured SUTA data for ${STATE_NAME[state] || state}? It'll fall back to the flat wage base/rate.`)) return;
+      const { error } = await supa.from('suta_rates').delete().eq('state', state);
       if (error) { alert(error.message); return; }
       load();
     });
