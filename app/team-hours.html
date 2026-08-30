@@ -20,6 +20,12 @@ tr.namerow:focus-visible { outline:none; box-shadow:inset 0 0 0 2px var(--brand-
 .rp .seg:first-child { border-left:none; }
 .rp .seg.on { background:var(--brand); color:#fff; }
 .rp .seg:hover:not(.on) { color:var(--ink); }
+
+/* Range/ribbon itself stays crisp and clickable while a range change is in
+   flight (see syncRangeControls) — only the data underneath it dims, so the
+   button you just clicked visibly responds immediately instead of waiting
+   on the round trip to feel like anything happened. */
+#panel.is-loading .sc-panel, #panel.is-loading .summary-strip { opacity:.55; pointer-events:none; transition:opacity .12s ease; }
 </style>
 </head><body>
 <script type="module">
@@ -175,20 +181,33 @@ boot('teamhours', async (supa, el) => {
   // slow one could silently revert to the earlier range, reading as the
   // click "not responding."
   let loadSeq = 0;
+  // deals/clients don't depend on rangeFrom/rangeTo at all, but every
+  // preset click used to re-fetch both anyway — two full-table round trips
+  // wasted on every single click. Fetched once, alongside the first load's
+  // hp/fp calls (still one Promise.all wave), then reused for the life of
+  // the page.
+  let deals = [], clients = [], staticLoaded = false;
 
   async function load() {
     const seq = ++loadSeq;
-    const [hp, fp, dl, cl] = await Promise.all([
+    const panel = el.querySelector('#panel');
+    if (panel) panel.classList.add('is-loading');
+    const calls = [
       supa.rpc('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) }),
       supa.rpc('forecast_page', { p_from: rangeFrom, p_to: rangeTo }),
+    ];
+    if (!staticLoaded) calls.push(
       supa.from('deals').select('id,name,client_id,qbo_project_id'),
       supa.from('clients').select('id,name')
-    ]);
+    );
+    const results = await Promise.all(calls);
     if (seq !== loadSeq) return;
-    for (const r of [hp, fp, dl, cl]) if (r.error) {
+    const [hp, fp, dl, cl] = results;
+    for (const r of results) if (r.error) {
       el.innerHTML = `<div class="sc-panel err">${esc(r.error.message)}</div>`; return;
     }
-    render(hp.data || {}, fp.data || {}, dl.data || [], cl.data || []);
+    if (!staticLoaded) { deals = dl.data || []; clients = cl.data || []; staticLoaded = true; }
+    render(hp.data || {}, fp.data || {}, deals, clients);
   }
 
   function render(H, P, deals, clients) {
@@ -325,7 +344,9 @@ boot('teamhours', async (supa, el) => {
       return `<th${cls ? ` class="${cls}"` : ''} data-sort="${key}" scope="col" tabindex="0" role="columnheader" aria-sort="${active ? (tableSort.dir < 0 ? 'descending' : 'ascending') : 'none'}">${label}${active ? `<span class="dir">${tableSort.dir < 0 ? '▼' : '▲'}</span>` : ''}</th>`;
     };
 
-    el.querySelector('#panel').innerHTML = `
+    const panelEl = el.querySelector('#panel');
+    panelEl.classList.remove('is-loading');
+    panelEl.innerHTML = `
       <div class="range">
         <span class="rl">Range</span>
         <input type="month" id="r-from" aria-label="Range from" value="${rangeFrom.slice(0,7)}">
@@ -456,10 +477,29 @@ boot('teamhours', async (supa, el) => {
         </div>
       </div>`;
 
-    el.querySelector('#r-from').onchange = e => { rangeFrom = monthOf(e.target.value); load(); };
-    el.querySelector('#r-to').onchange = e => { rangeTo = monthOf(e.target.value); load(); };
+    // Updates just the ribbon/range controls in place — no data, no re-render
+    // of the table — so a click's own button lights up (or a typed date
+    // un-lights every preset) the instant it happens, not whenever the
+    // round trip that follows happens to land. Purely cosmetic: render()
+    // recomputes the same "on" state from scratch anyway once real data
+    // arrives, so a click and its eventual data can never disagree.
+    function syncRangeControls() {
+      const panel = el.querySelector('#panel'); if (!panel) return;
+      const fromEl = panel.querySelector('#r-from'), toEl = panel.querySelector('#r-to');
+      if (fromEl) fromEl.value = rangeFrom.slice(0, 7);
+      if (toEl) toEl.value = rangeTo.slice(0, 7);
+      panel.querySelectorAll('[data-preset]').forEach(btn => {
+        const [f, t] = PRESETS[btn.dataset.preset];
+        const on = f === rangeFrom && t === rangeTo;
+        btn.classList.toggle('on', on);
+        btn.setAttribute('aria-pressed', String(on));
+      });
+    }
+    el.querySelector('#r-from').onchange = e => { rangeFrom = monthOf(e.target.value); syncRangeControls(); load(); };
+    el.querySelector('#r-to').onchange = e => { rangeTo = monthOf(e.target.value); syncRangeControls(); load(); };
     el.querySelectorAll('[data-preset]').forEach(btn => btn.onclick = () => {
       [rangeFrom, rangeTo] = PRESETS[btn.dataset.preset];
+      syncRangeControls();
       load();
     });
     el.querySelector('#dept-filter').onchange = e => { deptFilter = e.target.value; render(H, P, deals, clients); };
