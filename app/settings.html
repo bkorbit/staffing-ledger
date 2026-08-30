@@ -106,17 +106,25 @@ boot('settings', async (supa, el) => {
       return { deal: d, client: clientName.get(d.client_id) || '', hsStart: hs.campaign_start, hsEnd: hs.campaign_end, hsUrl: hs.url };
     }).filter(Boolean);
 
-    // A deal marked closed/lost whose own flight still runs into the future is a
-    // contradiction nothing in this codebase ever produces on its own — no sync
-    // and no app UI ever sets status to 'closed' or 'lost' (only promotion does,
-    // and it always writes 'won'), so this can only come from a direct SQL edit
-    // that predates a later flight-date renewal. Every forward-looking page
-    // (forecast, cashflow, sales, index) filters status in ('won','active'), so
-    // a deal like this silently vanishes everywhere with zero warning — surfaced
-    // here instead of requiring a fresh SQL dig each time it happens again.
-    const today = new Date().toISOString().slice(0, 10);
+    // A deal marked closed/lost whose own flight falls inside the platform's
+    // scope is a contradiction nothing in this codebase ever produces on its
+    // own — no sync and no app UI ever sets status to 'closed' or 'lost' (only
+    // promotion does, and it always writes 'won'), so this can only come from a
+    // direct SQL edit that predates a later flight-date renewal. Every
+    // forward-looking page (forecast, cashflow, sales, index) filters status in
+    // ('won','active'), so a deal like this silently vanishes everywhere with
+    // zero warning — surfaced here instead of requiring a fresh SQL dig each
+    // time it happens again.
+    //
+    // The boundary is the platform's own fixed start date (2026-01-01, same
+    // anchor forecast.html's deals query uses), NOT "today" — a deal whose
+    // flight has already ended is still very much in scope for matching and
+    // measured actuals, and checking against "today" stopped protecting it the
+    // moment its flight ended, exactly when the contradiction stops mattering
+    // to HubSpot's own view of it and starts mattering to ours.
+    const PLATFORM_START = '2026-01-01';
     const statusFlightMismatch = (hsDeals.data || [])
-      .filter(d => ['closed', 'lost'].includes(d.status) && !d.hidden && d.flight_end && d.flight_end >= today)
+      .filter(d => ['closed', 'lost'].includes(d.status) && !d.hidden && d.flight_end && d.flight_end >= PLATFORM_START)
       .map(d => ({ deal: d, client: clientName.get(d.client_id) || '' }));
 
     // Raw lookup by name — ground truth for one specific deal instead of another
@@ -173,13 +181,13 @@ boot('settings', async (supa, el) => {
           <td>${d.hsStart} → ${d.hsEnd}</td>
           <td><button class="primary" data-apply="${i}">Apply</button> <a href="${esc(d.hsUrl)}" target="_blank" rel="noopener">HubSpot ↗</a></td></tr>`).join('')}</table>`
         : `<div class="muted" style="padding:8px 0 4px">Nothing to reconcile — flight-locked deals excluded.</div>`}
-      <div class="sc-eyebrow">Closed/lost but still flighted into the future (${statusFlightMismatch.length})</div>
+      <div class="sc-eyebrow">Closed/lost but flighted within platform scope (${statusFlightMismatch.length})</div>
       ${statusFlightMismatch.length ? `<table><tr><th>deal</th><th>client</th><th>status</th><th>flight</th><th></th></tr>
         ${statusFlightMismatch.map((d, i) => `<tr><td class="textleft">${esc(d.deal.name)}</td><td class="textleft">${esc(d.client)}</td>
           <td class="warn">${esc(d.deal.status)}</td>
           <td class="muted">${d.deal.flight_start || '—'} → ${d.deal.flight_end || '—'}</td>
           <td><button class="primary" data-reopen="${i}" title="sets status to active — this deal will reappear in every forecast/cashflow/sales view">Reopen</button></td></tr>`).join('')}</table>`
-        : `<div class="muted" style="padding:8px 0 4px">None — every closed/lost deal's flight has already ended.</div>`}`;
+        : `<div class="muted" style="padding:8px 0 4px">None — no closed/lost deal has a flight ending on or after ${PLATFORM_START}.</div>`}`;
     document.getElementById('lookup-q').oninput = e => renderLookup(e.target.value);
     if (document.getElementById('pipeline-save')) document.getElementById('pipeline-save').onclick = async () => {
       const selected = [...document.querySelectorAll('input[data-pipeline]:checked')].map(cb => cb.dataset.pipeline);
