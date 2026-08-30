@@ -365,8 +365,8 @@ boot('forecast', async (supa, el) => {
     return { clear: () => pick(null), refresh: () => { if (!menu.hidden) render(search.value); } };
   }
 
-  let months, clientsById, dealsByClient, planByM, planBillByM, revByM, costByCM, openEditor = null;
-  let projects = [], projTakenBy = {}, projectClaims = [], fixedCosts = [], runrate = { payroll:0, overhead:0, misc:0 };
+  let months, clientsById, dealsByClient, planByM, planBillByM, revByM, costByCM, laborForecastByM, openEditor = null;
+  let projects = [], projTakenBy = {}, projectClaims = [], fixedCosts = [], runrate = { overhead:0, misc:0 };
   let acctTotals = [], fullProjects = null, fullDeals = null;
   let allAccounts = [], acctSearch = '';
   let revByProj = {}, cogsByProj = {}, openClients = new Set();
@@ -411,14 +411,14 @@ boot('forecast', async (supa, el) => {
     const sv = k => (st.data||[]).find(x=>x.key===k)?.value;
     marginDefault = +(sv('programmatic_margin_default') ?? 35);
     fixedCosts = sv('forecast_fixed_costs') || [];
-    runrate = { payroll: P.runrates?.payroll||0, overhead: P.runrates?.overhead||0,
-                misc: P.runrates?.other||0 };
+    runrate = { overhead: P.runrates?.overhead||0, misc: P.runrates?.other||0 };
     projects = P.projects || [];
 
     revByM = {}; (P.rev_month||[]).forEach(r => revByM[r.month] = r.total);
     revByProj = {}; (P.rev_proj||[]).forEach(r => revByProj[r.qbo_project_id] = { total: r.total });
     costByCM = {}; (P.cost_month||[]).forEach(r => {
       (costByCM[r.class] = costByCM[r.class]||{})[r.month] = r.total; });
+    laborForecastByM = {}; (P.labor_forecast_month||[]).forEach(r => laborForecastByM[r.month] = r.total);
     cogsByProj = {}; (P.cogs_proj||[]).forEach(r => cogsByProj[r.qbo_project_id] = r.total);
     acctTotals = P.accounts || [];
     planByM = {}; planBillByM = {};
@@ -594,7 +594,10 @@ boot('forecast', async (supa, el) => {
           not a sign to read as "money out"). <b>Excluded</b> = balance-sheet lines
           (credit-card payments, transfers, AP/AR, equity) — they move money without
           being a cost, so they never enter the chart. Settled months are measured;
-          forward months use six-month trailing averages. Search or edit any
+          forward months use six-month trailing averages for overhead/other and a
+          Team-setup-based roster projection for labour (comp rates + burden,
+          honoring known future hires/departures/raises — excludes bonuses,
+          severance and commissions, which aren't in Team yet). Search or edit any
           account's class below — saves immediately, reclassifies it everywhere at
           once (past months included).</div>
         <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap">
@@ -701,7 +704,7 @@ boot('forecast', async (supa, el) => {
                             : Math.max(0,(planBillByM[m]||0)-(planByM[m]||0));
       const forecastGP = planByM[m]||0;
       const actualGP = measured ? revenue - cogs : null;
-      const labour = measured ? ((costByCM.payroll||{})[m]||0) : runrate.payroll;
+      const labour = measured ? ((costByCM.payroll||{})[m]||0) : (laborForecastByM[m]||0);
       const other  = measured ? ((costByCM.overhead||{})[m]||0) : runrate.overhead;
       const misc   = measured ? ((costByCM.other||{})[m]||0) : runrate.misc;
       const fixed  = measured ? 0 : fixedTotal();
@@ -925,7 +928,7 @@ boot('forecast', async (supa, el) => {
         <td>${fmtM(plRows.filter(r=>r.measured).reduce((s,r)=>s+(r.actualGP||0),0))}</td>
         <td>${fmtM(plRows.filter(r=>!r.measured).reduce((s,r)=>s+r.forecastGP,0))}</td>
         <td></td>
-        <td style="text-align:left;font-size:9px;font-weight:400">labour &amp; overhead live in the chart — 6-month trailing average forward</td></tr>`;
+        <td style="text-align:left;font-size:9px;font-weight:400">labour &amp; overhead live in the chart — labour from Team setup, overhead a 6-month trailing average, both forward</td></tr>`;
 
     el.querySelector('#missing-note').innerHTML = totalMissing
       ? `<span class="warn">${totalMissing} deal${totalMissing>1?'s':''} missing a forecast</span>` : '';
