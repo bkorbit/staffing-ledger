@@ -331,7 +331,7 @@ boot('forecast', async (supa, el) => {
       flat = groups.flatMap(g => g.items);
       active = flat.length ? 0 : -1;
       menu.innerHTML = groups.map(g => `<div class="qp-group">${esc(g.label)}</div>` +
-          g.items.map(it => `<div class="qp-row" data-flat="${flat.indexOf(it)}">
+          g.items.map(it => `<div class="qp-row" data-flat="${flat.indexOf(it)}" title="${esc(getLabel(it))}">
             <span class="qp-name">${esc(getLabel(it))}</span>
             <span class="qp-badges">${(getBadges(it)||[]).map(b=>`<span class="pill warn">${esc(b)}</span>`).join('')}</span>
           </div>`).join('')).join('')
@@ -945,7 +945,9 @@ boot('forecast', async (supa, el) => {
 
         const qpCombo = mountCombobox(cell.querySelector('.qbpicker'), {
           getLabel: x => x._cn ? `${x.name} — ${x._cn}` : x.name,
-          getBadges: x => [x.qbo_project_id ? 'already linked' : null,
+          getBadges: x => [x.qbo_project_id
+              ? `linked: ${(projects.find(p=>p.id===x.qbo_project_id)||{}).name || x.qbo_project_id}`
+              : null,
             x.hidden ? 'hidden' : null,
             (x.status !== 'won' && x.status !== 'active') ? x.status : null].filter(Boolean),
           onPick: () => {},
