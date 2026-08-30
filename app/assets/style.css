@@ -94,6 +94,12 @@ td.textleft { text-align:left; font-family:var(--font-body); }
 
 .ok { color:var(--brand-2); } .warn { color:var(--amber); } .err { color:var(--rust); white-space:pre-wrap; }
 .muted { color:var(--slate); }
+/* A fourth confirmed exception to the One Gold Rule (see DESIGN.md) — the
+   90-100% band of Team Hours' logged/capacity percentage, Boris's call:
+   the one place between "on plan" (plain ink) and "over" (rust) that's
+   worth a color of its own, and gold is the only yellow/amber-adjacent hue
+   left once amber is already spoken for by the under-capacity band. */
+.cap-high { color: var(--gold); }
 
 /* Utilization mini-bar: a thin segmented progress track — a compact way to
    show "how much of X is used" per row without a full chart. Borrowed from
@@ -129,13 +135,23 @@ td.textleft { text-align:left; font-family:var(--font-body); }
 .delta-note.pos { color:var(--brand-2); }
 .delta-note.neg { color:var(--rust); }
 .delta-note.flat { color:var(--slate); }
-/* Reserves two lines' worth of height under Team Hours' three bar columns —
-   utilization's breakdown text ("Xh client · Yh int · Zh PTO / Wh cap") is
-   the longest and usually wraps to 2 lines; pacing/plan-vs-logged's shorter
-   captions don't, which left their bars sitting at a different height than
-   utilization's. Reserving the same space under all three regardless of
-   actual wrap keeps every bar in a row aligned to the same top edge. */
-.delta-note.barcap { min-height: 2.7em; }
+/* Team Hours' three bar+caption columns (utilization/pacing/plan-vs-logged).
+   Three rules, and they only hold together if every barcell is the exact
+   same shape: (1) bars level across every column, every row — needs a
+   FIXED content height per barcell, not a variable one; (2) the caption
+   never wraps to a 2nd line — nowrap+ellipsis below, with the full value
+   still reachable via the caption's own title attribute, same truncate-
+   with-tooltip pattern used everywhere else long content meets a fixed
+   column; (3) bar+caption genuinely centered top-to-bottom in the row —
+   .barcell fills the cell's real height and centers its content via flex,
+   rather than relying on table.ledger's vertical-align:middle centering a
+   box that had unused reserved space hiding below a short caption (the
+   previous, asymmetric approach). Getting all three at once also required
+   removing the one thing that ever made plan-vs-logged's own block taller
+   than the other two — its "+Xh over plan" line is folded into the same
+   caption line now (team-hours.html), not a conditional extra div. */
+.barcell { display:flex; flex-direction:column; justify-content:center; height:100%; }
+.barcell .delta-note { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
 /* Whole-row tint for a flagged record (losing money, over scope) — one step
    louder than a colored cell, quiet enough to still read as a data row. */
