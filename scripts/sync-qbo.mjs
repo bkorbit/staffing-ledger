@@ -560,13 +560,17 @@ async function main() {
   console.log(`  ${payments.length} payments \u2192 ${payRows.length} rows` +
     (unlinked ? ` (${unlinked} unlinked` + (orphaned ? `, ${orphaned} of them pointing at invoices no longer in QuickBooks` : '') + ')' : ''));
 
-  // ---- bills, card charges, journals, credit memos, refunds, cc credits ----
-  const bills             = await qboAll(realm, token, 'Bill', `TxnDate >= '${from}'`);
-  const purchases         = await qboAll(realm, token, 'Purchase', `TxnDate >= '${from}'`);
-  const journals          = await qboAll(realm, token, 'JournalEntry', `TxnDate >= '${from}'`);
-  const creditCardCredits = await qboAll(realm, token, 'CreditCardCredit', `TxnDate >= '${from}'`);
-  const creditMemos       = await qboAll(realm, token, 'CreditMemo', `TxnDate >= '${from}'`);
-  const refundReceipts    = await qboAll(realm, token, 'RefundReceipt', `TxnDate >= '${from}'`);
+  // ---- bills, card charges, journals, credit memos, refunds ----
+  // 'CreditCardCredit' is NOT a queryable QuickBooks entity — confirmed the
+  // hard way (QueryValidationError: invalid context declaration). A Credit
+  // Card Credit is stored as a Purchase record with Credit: true, and the
+  // existing Purchase query already returns every one (no Credit filter),
+  // so there is nothing extra to fetch — just a flag on rows already here.
+  const bills          = await qboAll(realm, token, 'Bill', `TxnDate >= '${from}'`);
+  const purchases      = await qboAll(realm, token, 'Purchase', `TxnDate >= '${from}'`);
+  const journals       = await qboAll(realm, token, 'JournalEntry', `TxnDate >= '${from}'`);
+  const creditMemos    = await qboAll(realm, token, 'CreditMemo', `TxnDate >= '${from}'`);
+  const refundReceipts = await qboAll(realm, token, 'RefundReceipt', `TxnDate >= '${from}'`);
 
   const billRows = [], billLines = [];
   const addCost = (kind, t, vendor, opts = {}) => {
@@ -583,12 +587,17 @@ async function main() {
     balance: cents(b.Balance),
     terms: (b.SalesTermRef || {}).name || ''
   }));
-  purchases.forEach(p => addCost('purchase', p, (p.EntityRef || {}).name || p.PaymentType || ''));
-  // Missing this entity type is what made a month's card charges show up
-  // without their offsetting reversals (confirmed against a real QuickBooks
-  // account register: July's $22,315.45 of uncredited Facebook charges vs.
-  // the true -$4,774.55 net once these are included).
-  creditCardCredits.forEach(c => addCost('credit_card_credit', c, (c.EntityRef || {}).name || c.PaymentType || '', { sign: -1 }));
+  // A Purchase with Credit: true is a Credit Card Credit — money back, not
+  // out. Never checking this flag is what made a month's card charges show
+  // up without their offsetting reversals (confirmed against a real
+  // QuickBooks account register: July's $22,315.45 of uncredited Facebook
+  // charges vs. the true -$4,774.55 net once these are signed correctly).
+  let ccCreditCount = 0;
+  purchases.forEach(p => {
+    const vendor = (p.EntityRef || {}).name || p.PaymentType || '';
+    if (p.Credit === true) { ccCreditCount++; addCost('credit_card_credit', p, vendor, { sign: -1 }); }
+    else addCost('purchase', p, vendor);
+  });
 
   // Credit Memos and Refund Receipts resolve their posting account through
   // the line item's IncomeAccountRef — see salesCostRow's own comment for
@@ -642,8 +651,8 @@ async function main() {
   await sbUpsert('bills', billRows);
   await sbUpsert('bill_lines', billLines);
   const openBills = billRows.filter(b => b.balance > 0);
-  console.log(`  ${bills.length} bills · ${purchases.length} card charges · ${journals.length} journals · ` +
-    `${creditCardCredits.length} cc credits · ${creditMemos.length} credit memos · ${refundReceipts.length} refund receipts · ` +
+  console.log(`  ${bills.length} bills · ${purchases.length - ccCreditCount} card charges · ${ccCreditCount} cc credits · ` +
+    `${journals.length} journals · ${creditMemos.length} credit memos · ${refundReceipts.length} refund receipts · ` +
     `${billLines.length} lines · ${openBills.length} unpaid ` +
     `(${(openBills.reduce((s, b) => s + b.balance, 0) / 100).toLocaleString()})`);
 
@@ -718,8 +727,8 @@ async function main() {
       invoices: invRows.length, invoice_lines: invLines.length, invoices_open: openInv.length,
       invoices_no_due: noDue,
       payments: payments.length, payment_links: payRows.length, payments_unlinked: unlinked,
-      bills: bills.length, purchases: purchases.length, journals: journals.length,
-      credit_card_credits: creditCardCredits.length, credit_memos: creditMemos.length, refund_receipts: refundReceipts.length,
+      bills: bills.length, purchases: purchases.length - ccCreditCount, journals: journals.length,
+      credit_card_credits: ccCreditCount, credit_memos: creditMemos.length, refund_receipts: refundReceipts.length,
       bill_lines: billLines.length, bills_open: openBills.length,
       bill_payments: billPmts.length, bill_payment_links: bpRows.length, payments_orphaned: orphaned, bill_payments_orphaned: bpOrphaned,
       unmatched_projects: unmatched.size
