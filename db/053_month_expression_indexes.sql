@@ -17,7 +17,7 @@
 --  as pipeline_deals_name_idx's lower(name) index (021).
 -- ============================================================================
 
-create index if not exists invoices_month_idx on invoices (date_trunc('month', issued_on)::date);
-create index if not exists bills_month_idx    on bills    (date_trunc('month', issued_on)::date);
+create index if not exists invoices_month_idx on invoices ((date_trunc('month', issued_on)::date));
+create index if not exists bills_month_idx    on bills    ((date_trunc('month', issued_on)::date));
 
 analyze invoices; analyze bills;
