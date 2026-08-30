@@ -390,7 +390,7 @@ boot('forecast', async (supa, el) => {
       // Every QuickBooks account, not just ones with cost lines in this
       // range — "How costs are counted" needs the FULL chart of accounts to
       // search/edit, independent of whatever date range happens to be open.
-      supa.from('qbo_accounts').select('id,name,account_type,derived_class,override_class').order('name')
+      supa.from('qbo_accounts').select('id,name,fully_qualified_name,account_type,derived_class,override_class').order('name')
     ]);
     for (const r of [pg,dl,cl,st,qa]) if (r.error) throw r.error;
     allAccounts = qa.data || [];
@@ -611,20 +611,29 @@ boot('forecast', async (supa, el) => {
     // "total in range" for whichever accounts actually had activity; every
     // OTHER account in the chart of accounts still gets a row (blank total),
     // since searching/reclassifying isn't limited to whatever's active right now.
+    //
+    // QuickBooks' own AccountRef.name on a bill/purchase/journal line is the
+    // FULLY QUALIFIED path for a sub-account ("Operations:Digital Tools,
+    // Subscriptions, Etc"), and that's what v_cost_lines_classified groups on
+    // — so matching against qbo_accounts' bare leaf name silently missed
+    // every nested account's total. fully_qualified_name is the real join
+    // key; falling back to name only covers top-level accounts where QBO
+    // omits the prefix entirely (fully_qualified_name == name there anyway).
     function renderHowTable() {
       const totalByName = {};
       acctTotals.forEach(r => { totalByName[r.account] = (totalByName[r.account]||0) + r.total; });
       const q = acctSearch.trim().toLowerCase();
       const rows = allAccounts
-        .filter(a => !q || a.name.toLowerCase().includes(q))
-        .map(a => ({ ...a, effective: a.override_class || a.derived_class || 'other', v: totalByName[a.name] }))
+        .filter(a => !q || a.name.toLowerCase().includes(q) || (a.fully_qualified_name||'').toLowerCase().includes(q))
+        .map(a => ({ ...a, effective: a.override_class || a.derived_class || 'other',
+                     v: totalByName[a.fully_qualified_name] ?? totalByName[a.name] }))
         .sort((a,b) => (b.v||0) - (a.v||0) || a.name.localeCompare(b.name));
       el.querySelector('#acct-count').textContent = `${rows.length} of ${allAccounts.length} accounts`;
       el.querySelector('#how-table').innerHTML =
         `<table class="acct"><tr><th style="text-align:left">account</th><th style="text-align:left">QB type</th>
            <th style="text-align:left">class</th><th>total in range</th><th style="text-align:left">counted?</th></tr>` +
         (rows.length ? rows.map(a => `<tr>
-            <td style="text-align:left"><span class="ellip" style="max-width:300px" title="${esc(a.name)}">${esc(a.name)}</span></td>
+            <td style="text-align:left"><span class="ellip" style="max-width:300px" title="${esc(a.fully_qualified_name||a.name)}">${esc(a.fully_qualified_name||a.name)}</span></td>
             <td style="text-align:left" class="muted"><span class="ellip" style="max-width:160px">${esc(a.account_type||'—')}</span></td>
             <td style="text-align:left">
               <select class="acct-class-select" data-id="${esc(a.id)}" title="Blank = follow QuickBooks' own account type; picking a class here overrides it everywhere, past months included">
