@@ -208,7 +208,17 @@ boot('teamhours', async (supa, el) => {
     });
 
     const rangeToEnd = endOfMonth(rangeTo);
-    const bizDaysInRange = businessDays(rangeFrom, rangeToEnd);
+    // Capacity only counts business days someone was actually employed —
+    // clipped to their own start_date/end_date (set on Team), not just the
+    // viewing range. Either date missing means unbounded on that side, so
+    // someone with neither counts every day in the range, same as before
+    // this existed. No overlap at all (viewing a month before they started,
+    // or after they left) is real zero capacity, not a data gap.
+    const bizDaysFor = s => {
+      const from = s.start_date && s.start_date > rangeFrom ? s.start_date : rangeFrom;
+      const to = s.end_date && s.end_date < rangeToEnd ? s.end_date : rangeToEnd;
+      return from <= to ? businessDays(from, to) : 0;
+    };
 
     // time_off.hours (db/032) is a RANGE total, not per-day — prorated by
     // day-overlap when the query window only partially covers a range.
@@ -235,7 +245,7 @@ boot('teamhours', async (supa, el) => {
       // not a flat weeks-in-range multiplier, so a 30-day month with 22
       // business days differs from a 31-day month with 21, exactly as the
       // real work calendar does.
-      const cap = comp.weekly_capacity / 5 * bizDaysInRange;
+      const cap = comp.weekly_capacity / 5 * bizDaysFor(s);
       const deals2 = dealHoursByStaff[s.id] || [];
       const clientHours = deals2.reduce((s2, d) => s2 + +d.hours, 0);
       const internalHours = Math.max(hc.hours - clientHours, 0);
