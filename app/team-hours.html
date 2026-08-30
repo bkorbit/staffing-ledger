@@ -241,9 +241,9 @@ boot('teamhours', async (supa, el) => {
           </label>
         </div>
         <table class="ledger" style="table-layout:fixed">
-          <colgroup><col style="width:20%"><col style="width:11%">
-            <col style="width:22%"><col style="width:21%"><col style="width:21%"><col style="width:5%"></colgroup>
-          <tr><th>name</th><th>logged / cap</th><th class="textleft">utilization</th><th class="textleft">pacing (assigned)</th><th class="textleft">plan vs. logged</th><th>profit</th></tr>
+          <colgroup><col style="width:20%"><col style="width:11%"><col style="width:5%">
+            <col style="width:22%"><col style="width:21%"><col style="width:21%"></colgroup>
+          <tr><th>name</th><th>logged / cap</th><th>profit</th><th class="textleft">utilization</th><th class="textleft">pacing (assigned)</th><th class="textleft">plan vs. logged</th></tr>
           ${!rows.length ? `<tr><td colspan="6" class="empty-note">No people match the current filters.</td></tr>` : rows.map(r => {
             // Utilization: client + internal + time-off, all against capacity.
             const util = utilizationBar(r.cap, r.internalHours, r.ptoHours, r.clientHours);
@@ -286,6 +286,7 @@ boot('teamhours', async (supa, el) => {
                   </div>
                 </td>
                 <td class="textleft" style="white-space:nowrap" title="${fmtHours(r.totalLoggedHours)}h logged (client + internal + PTO) of ${fmtHours(r.cap)}h capacity">${fmtHours(r.totalLoggedHours)}/${fmtHours(r.cap)}h <span class="${capPctClass}">(${Math.round(r.capPct)}%)</span></td>
+                <td class="${r.profit<0?'err':'pos'}">${(r.hc.hours>0||r.hc.cost>0)?fmt$0(r.profit):'<span class="muted">—</span>'}</td>
                 <td class="textleft">
                   <div class="barcell">
                     <div class="mini-track split wide">${util.html}</div>
@@ -304,7 +305,6 @@ boot('teamhours', async (supa, el) => {
                     <div class="delta-note flat" title="${esc(planCaption)}">${planCaptionHtml}</div>
                   </div>
                 </td>
-                <td class="${r.profit<0?'err':'pos'}">${(r.hc.hours>0||r.hc.cost>0)?fmt$0(r.profit):'<span class="muted">—</span>'}</td>
               </tr>
               ${open ? `<tr class="expand-row"><td colspan="6">
                   <div class="expand-grid">
