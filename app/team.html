@@ -390,15 +390,23 @@ boot('team', async (supa, el) => {
   }
 
   /* --------------------------------------------------- export/import (xlsx) */
-  // Staff-level fields only — name/department/dates/status/work state/
-  // 401k/health insurance. Deliberately NOT compensation history:
-  // comp_periods is an append-only ledger (raises, backdated corrections),
-  // not a set of fields a bulk re-upload should ever overwrite. This is for
-  // batch-editing the roster attributes added over 041-046 without opening
-  // 50 modals one at a time — not a full backup/restore of the person.
+  // Two sheets, one file. "Team" is staff-level fields only — name/
+  // department/dates/status/work state/401k/health insurance. "Pay Periods"
+  // is deliberately scoped to each person's CURRENT open period only
+  // (ends_on is null), not their full history: comp_periods is an
+  // append-only ledger (raises, backdated corrections, overlap-closing
+  // logic when a new period starts) — reproducing that safely for
+  // arbitrary past periods in a bulk import isn't worth the risk this round.
+  // What this sheet DOES handle safely: filling in pay for someone who has
+  // no comp period yet (a real insert, no overlap possible since there's
+  // nothing to overlap with), and correcting anyone's current rate/hours/
+  // type in bulk — the two things "fill the ledger with information"
+  // actually needs. A genuine raise with real period history still goes
+  // through "+ new period starting" in the person's own modal, same as today.
   const EXPORT_HEADERS = ['ID', 'Name', 'Department', 'Hire Date', 'Status', 'End Date', 'Work State', '401k', 'Health Insurance'];
+  const PAY_HEADERS = ['Period ID', 'Staff ID', 'Name', 'Employment Type', 'Pay Kind', 'Rate ($)', 'Hrs/Week', 'Start Date', 'End Date'];
 
-  async function exportTeam(rows) {
+  async function exportTeam(rows, compCurrentByStaff) {
     const btn = el.querySelector('#export-team-btn');
     if (!btn || btn.disabled) return;
     const label = btn.textContent;
@@ -421,6 +429,31 @@ boot('team', async (supa, el) => {
       // ID stays in the file (import matches by it, not by name) but hidden —
       // it's a join key, not something a human should read or hand-edit.
       ws.getColumn(1).hidden = true;
+
+      const ws2 = wb.addWorksheet('Pay Periods');
+      ws2.columns = PAY_HEADERS.map(h => ({ header: h, width: h === 'Period ID' || h === 'Staff ID' ? 38 : h === 'Name' ? 24 : h === 'Employment Type' ? 16 : 13 }));
+      ws2.getRow(1).eachCell(cell => {
+        cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0A493C' } };
+      });
+      // Every visible person gets a row, even with no comp period yet —
+      // blank Kind/Rate/Type/Start Date cells are exactly what "fill in the
+      // ledger" means for someone with nothing entered so far.
+      rows.forEach(s => {
+        const cp = compCurrentByStaff[s.id];
+        ws2.addRow([
+          cp ? cp.id : '', s.id, s.name,
+          cp ? (EMP_LABELS[cp.employment_type] || cp.employment_type) : '',
+          cp ? (cp.kind === 'hourly' ? 'Hourly' : 'Salary') : '',
+          cp ? +fromCents(cp.kind === 'hourly' ? cp.hourly_cost : cp.annual_cost) : '',
+          cp ? cp.weekly_capacity : '',
+          cp ? cp.starts_on : '',
+          '' // always blank on export — this row IS the currently-open period
+        ]);
+      });
+      ws2.getColumn(1).hidden = true;
+      ws2.getColumn(2).hidden = true;
+
       const buf = await wb.xlsx.writeBuffer();
       const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = URL.createObjectURL(blob);
@@ -444,14 +477,15 @@ boot('team', async (supa, el) => {
     return s || null;
   };
   const cellBool = v => /^(y|yes|true|1)$/i.test(String(v ?? '').trim());
+  const cellNumber = v => { const n = +String(v ?? '').replace(/,/g, '').trim(); return Number.isFinite(n) && String(v ?? '').trim() !== '' ? n : null; };
 
-  async function handleImportFile(file, staffById) {
+  async function handleImportFile(file, staffById, compCurrentByStaff) {
     try {
       const buf = await file.arrayBuffer();
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load(buf);
-      const ws = wb.worksheets[0];
-      if (!ws) throw new Error('no worksheet found in that file');
+      const ws = wb.getWorksheet('Team');
+      if (!ws) throw new Error('no "Team" sheet found in that file');
 
       // Match columns by header TEXT, not position — a reordered or
       // hand-edited copy of the export still parses correctly.
@@ -461,7 +495,7 @@ boot('team', async (supa, el) => {
       });
       const needed = ['id', 'name', 'department', 'hire date', 'status', 'end date', 'work state', '401k', 'health insurance'];
       const missingCols = needed.filter(h => !colByHeader[h]);
-      if (missingCols.length) throw new Error(`missing column(s): ${missingCols.join(', ')}`);
+      if (missingCols.length) throw new Error(`"Team" sheet missing column(s): ${missingCols.join(', ')}`);
       const get = (row, header) => row.getCell(colByHeader[header]).value;
       const stateCodes = new Set(US_STATES.map(([code]) => code));
 
@@ -514,8 +548,89 @@ boot('team', async (supa, el) => {
         if (diffLines.length) changes.push({ id, name: fields.name, fields, diffLines });
       }
 
-      if (!changes.length && !rowErrors.length) { alert('No changes detected — nothing to import.'); return; }
-      showImportPreview(changes, rowErrors);
+      // "Pay Periods" is optional on import — an old Team-only export (or a
+      // hand-built sheet that only touches roster fields) still works fine
+      // without it, rather than erroring for a sheet nobody meant to include.
+      const periodChanges = []; // { action:'insert'|'update', periodId?, staffId, staffName, fields, diffLines? }
+      const periodErrors = []; // { row, reason }
+      const payWs = wb.getWorksheet('Pay Periods');
+      if (payWs) {
+        const pColByHeader = {};
+        payWs.getRow(1).eachCell((cell, colNumber) => {
+          pColByHeader[String(cell.value || '').trim().toLowerCase()] = colNumber;
+        });
+        const pNeeded = ['period id', 'staff id', 'name', 'employment type', 'pay kind', 'rate ($)', 'hrs/week', 'start date', 'end date'];
+        const pMissing = pNeeded.filter(h => !pColByHeader[h]);
+        if (pMissing.length) throw new Error(`"Pay Periods" sheet missing column(s): ${pMissing.join(', ')}`);
+        const pGet = (row, header) => row.getCell(pColByHeader[header]).value;
+        const EMP_TYPE_BY_LABEL = Object.fromEntries(EMP_TYPES.map(([val, lab]) => [lab.toLowerCase(), val]));
+
+        const periodDiff = (before, employment_type, kindRaw, rate, cap, starts_on, ends_on) => [
+          ['Employment Type', EMP_LABELS[before.employment_type] || before.employment_type, EMP_LABELS[employment_type] || employment_type],
+          ['Pay Kind', before.kind === 'hourly' ? 'Hourly' : 'Salary', kindRaw === 'hourly' ? 'Hourly' : 'Salary'],
+          ['Rate', fromCents(before.kind === 'hourly' ? before.hourly_cost : before.annual_cost), rate.toFixed(2)],
+          ['Hrs/Week', String(before.weekly_capacity), String(cap)],
+          ['Start date', before.starts_on, starts_on],
+          ['End date', before.ends_on || '', ends_on || '']
+        ].filter(([, b, a]) => String(b) !== String(a)).map(([label, before2, after]) => ({ label, before: before2, after }));
+
+        for (let r = 2; r <= payWs.rowCount; r++) {
+          const row = payWs.getRow(r);
+          if (row.cellCount === 0) continue;
+          const staffId = String(pGet(row, 'staff id') || '').trim();
+          if (!staffId) continue; // blank row
+          const existingStaff = staffById[staffId];
+          if (!existingStaff) { periodErrors.push({ row: r, reason: `no matching person for staff id ${staffId}` }); continue; }
+
+          const typeLabel = String(pGet(row, 'employment type') || '').trim().toLowerCase();
+          const employment_type = EMP_TYPE_BY_LABEL[typeLabel];
+          if (!employment_type) { periodErrors.push({ row: r, reason: `unrecognized employment type "${pGet(row, 'employment type')}" (must be ${EMP_TYPES.map(t => t[1]).join('/')})` }); continue; }
+          const kindRaw = String(pGet(row, 'pay kind') || '').trim().toLowerCase();
+          if (!['salary', 'hourly'].includes(kindRaw)) { periodErrors.push({ row: r, reason: `unrecognized pay kind "${pGet(row, 'pay kind')}" (must be Salary/Hourly)` }); continue; }
+          const rate = cellNumber(pGet(row, 'rate ($)'));
+          if (rate == null || rate < 0) { periodErrors.push({ row: r, reason: 'Rate ($) must be a number, 0 or more' }); continue; }
+          const cap = employment_type === 'full_time' ? 40 : (cellNumber(pGet(row, 'hrs/week')) || 40);
+          const starts_on = cellDate(pGet(row, 'start date'));
+          if (!starts_on) { periodErrors.push({ row: r, reason: 'Start Date is required' }); continue; }
+          const ends_on = cellDate(pGet(row, 'end date'));
+          const costCents = toCents(rate);
+
+          const fields = {
+            starts_on, ends_on, kind: kindRaw, employment_type,
+            annual_cost: kindRaw === 'salary' ? costCents : 0,
+            hourly_cost: kindRaw === 'hourly' ? costCents : 0,
+            weekly_capacity: cap
+          };
+
+          const periodIdRaw = String(pGet(row, 'period id') || '').trim();
+          const current = compCurrentByStaff[staffId];
+          if (periodIdRaw) {
+            // Only the CURRENT open period is ever fetched client-side (this
+            // sheet's own scope) — a period id that isn't that one isn't
+            // something this import can safely locate or verify.
+            if (!current || current.id !== periodIdRaw) {
+              periodErrors.push({ row: r, reason: `period id ${periodIdRaw} isn't ${existingStaff.name}'s current open period` }); continue;
+            }
+            const diffLines = periodDiff(current, employment_type, kindRaw, rate, cap, starts_on, ends_on);
+            if (diffLines.length) periodChanges.push({ action: 'update', periodId: current.id, staffId, staffName: existingStaff.name, fields, diffLines });
+          } else if (current) {
+            // No id given but an open period already exists — treated as an
+            // update to THAT period (the same intent as looking its id up),
+            // never a second period stacked open on top of it.
+            const diffLines = periodDiff(current, employment_type, kindRaw, rate, cap, starts_on, ends_on);
+            if (diffLines.length) periodChanges.push({ action: 'update', periodId: current.id, staffId, staffName: existingStaff.name, fields, diffLines });
+          } else {
+            // No period exists yet at all — safe to create fresh; there's
+            // nothing for a brand first period to overlap with.
+            periodChanges.push({ action: 'insert', staffId, staffName: existingStaff.name, fields });
+          }
+        }
+      }
+
+      if (!changes.length && !rowErrors.length && !periodChanges.length && !periodErrors.length) {
+        alert('No changes detected — nothing to import.'); return;
+      }
+      showImportPreview(changes, rowErrors, periodChanges, periodErrors);
     } catch (err) {
       alert('Import failed: ' + (err.message || err));
     }
@@ -526,21 +641,23 @@ boot('team', async (supa, el) => {
   // detected change is listed field-by-field before anything touches the
   // database, and rows that couldn't be matched/validated are shown as
   // skipped rather than silently dropped.
-  function showImportPreview(changes, rowErrors) {
+  function showImportPreview(changes, rowErrors, periodChanges, periodErrors) {
+    const totalChanges = changes.length + periodChanges.length;
     const back = document.createElement('div');
     back.className = 'modal-back';
-    back.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="import-title" style="max-width:720px">
+    back.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="import-title" style="max-width:760px">
       <div class="modal-head">
         <span class="modal-title" id="import-title">Import preview</span>
         <button class="mclose">Close ✕</button>
       </div>
       <div class="modal-body">
-        ${rowErrors.length ? `<div class="sc-eyebrow" style="color:var(--rust)">Skipped rows (${rowErrors.length})</div>
+        ${rowErrors.length || periodErrors.length ? `<div class="sc-eyebrow" style="color:var(--rust)">Skipped rows (${rowErrors.length + periodErrors.length})</div>
           <ul style="font-size:12px;color:var(--rust);margin:0 0 12px 18px">
-            ${rowErrors.map(e => `<li>row ${e.row}: ${esc(e.reason)}</li>`).join('')}
+            ${rowErrors.map(e => `<li>Team row ${e.row}: ${esc(e.reason)}</li>`).join('')}
+            ${periodErrors.map(e => `<li>Pay Periods row ${e.row}: ${esc(e.reason)}</li>`).join('')}
           </ul>` : ''}
-        ${changes.length ? `<div class="sc-eyebrow">Changes to apply (${changes.length} ${changes.length===1?'person':'people'})</div>
-          <div class="gridwrap" style="max-height:360px;overflow-y:auto">
+        ${changes.length ? `<div class="sc-eyebrow">Roster changes (${changes.length} ${changes.length===1?'person':'people'})</div>
+          <div class="gridwrap" style="max-height:280px;overflow-y:auto;margin-bottom:14px">
           <table class="ledger"><thead><tr><th scope="col">name</th><th scope="col">field</th><th scope="col">was</th><th scope="col">now</th></tr></thead>
           <tbody>
             ${changes.map(c => c.diffLines.map((d, i) => `<tr>
@@ -550,12 +667,30 @@ boot('team', async (supa, el) => {
                 <td>${esc(d.after||'—')}</td>
               </tr>`).join('')).join('')}
           </tbody></table>
-          </div>` : `<div class="muted" style="font-size:12px">No changes to apply.</div>`}
+          </div>` : ''}
+        ${periodChanges.length ? `<div class="sc-eyebrow">Pay period changes (${periodChanges.length})</div>
+          <div class="gridwrap" style="max-height:280px;overflow-y:auto">
+          <table class="ledger"><thead><tr><th scope="col">name</th><th scope="col">action</th><th scope="col">field</th><th scope="col">was</th><th scope="col">now</th></tr></thead>
+          <tbody>
+            ${periodChanges.map(c => c.action === 'insert'
+              ? `<tr><td class="textleft">${esc(c.staffName)}</td><td class="textleft">new period</td>
+                   <td class="textleft" colspan="3">${esc(EMP_LABELS[c.fields.employment_type] || c.fields.employment_type)} · ${esc(c.fields.kind === 'hourly' ? 'Hourly' : 'Salary')} $${esc(fromCents(c.fields.kind === 'hourly' ? c.fields.hourly_cost : c.fields.annual_cost))} · ${esc(String(c.fields.weekly_capacity))}h/wk from ${esc(c.fields.starts_on)}</td></tr>`
+              : c.diffLines.map((d, i) => `<tr>
+                  <td class="textleft">${i===0?esc(c.staffName):''}</td>
+                  <td class="textleft">${i===0?'update current':''}</td>
+                  <td class="textleft">${esc(d.label)}</td>
+                  <td class="muted">${esc(d.before||'—')}</td>
+                  <td>${esc(d.after||'—')}</td>
+                </tr>`).join('')
+            ).join('')}
+          </tbody></table>
+          </div>` : ''}
+        ${!changes.length && !periodChanges.length ? `<div class="muted" style="font-size:12px">No changes to apply.</div>` : ''}
       </div>
       <div class="modal-foot">
         <span class="err" id="import-apply-msg" style="flex:1;font-size:11px"></span>
         <button class="ghost import-cancel">Cancel</button>
-        ${changes.length ? `<button class="primary import-apply">Apply ${changes.length} change${changes.length===1?'':'s'}</button>` : ''}
+        ${totalChanges ? `<button class="primary import-apply">Apply ${totalChanges} change${totalChanges===1?'':'s'}</button>` : ''}
       </div>
     </div>`;
     document.body.appendChild(back);
@@ -571,9 +706,15 @@ boot('team', async (supa, el) => {
         const { error } = await supa.from('staff').update(c.fields).eq('id', c.id);
         if (error) failMsgs.push(`${c.name}: ${error.message}`); else okCount++;
       }
+      for (const c of periodChanges) {
+        const { error } = c.action === 'insert'
+          ? await supa.from('comp_periods').insert({ ...c.fields, staff_id: c.staffId, set_by: window.__email })
+          : await supa.from('comp_periods').update(c.fields).eq('id', c.periodId);
+        if (error) failMsgs.push(`${c.staffName}: ${error.message}`); else okCount++;
+      }
       if (failMsgs.length) {
         back.querySelector('#import-apply-msg').textContent = `${okCount} updated, ${failMsgs.length} failed: ${failMsgs.join('; ')}`;
-        applyBtn.disabled = false; applyBtn.textContent = `Apply ${changes.length} changes`;
+        applyBtn.disabled = false; applyBtn.textContent = `Apply ${totalChanges} changes`;
       } else {
         closeThis();
         load();
@@ -623,7 +764,7 @@ boot('team', async (supa, el) => {
 
     el.querySelector('#panel').innerHTML = `
       <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-bottom:14px">
-        <span class="muted" style="font-size:11px" title="Name/department/dates/status/work state/401k/health insurance only — compensation history isn't part of this round trip, and import only updates people already on the roster, never adds new ones">Export/Import: roster fields only, no new hires</span>
+        <span class="muted" style="font-size:11px" title="Two sheets: roster fields (name/department/dates/status/work state/401k/health insurance), and each person's CURRENT pay period only — full compensation history isn't part of this round trip, and import only updates people already on the roster, never adds new ones">Export/Import: roster + current pay, no new hires</span>
         <button class="ghost" id="export-team-btn">Export</button>
         <button class="ghost" id="import-team-btn">Import</button>
         <input type="file" id="import-file-input" accept=".xlsx" hidden>
@@ -693,12 +834,12 @@ boot('team', async (supa, el) => {
     el.querySelector('#add-staff-btn').onclick = () => {
       openModal(el.querySelector('#add-staff-btn'), 'create', null);
     };
-    el.querySelector('#export-team-btn').onclick = () => exportTeam(rows);
+    el.querySelector('#export-team-btn').onclick = () => exportTeam(rows, compCurrentByStaff);
     el.querySelector('#import-team-btn').onclick = () => el.querySelector('#import-file-input').click();
     el.querySelector('#import-file-input').onchange = e => {
       const file = e.target.files[0];
       e.target.value = ''; // lets the same file be re-picked next time
-      if (file) handleImportFile(file, staffById);
+      if (file) handleImportFile(file, staffById, compCurrentByStaff);
     };
     el.querySelectorAll('.edit-btn').forEach(btn => btn.onclick = e => {
       e.stopPropagation();
