@@ -13,11 +13,26 @@
 --  everything hours_page() touches (time_entries, assignments, comp_periods)
 --  was already properly indexed from 001/021.
 --
+--  issued_on is a plain `date`. date_trunc('month', <date>) resolves against
+--  date_trunc's timestamptz overload, which Postgres marks STABLE (it reads
+--  the session's TimeZone), so it's flatly rejected in an index expression
+--  ("functions in index expression must be marked IMMUTABLE") — a date has
+--  no time-of-day or zone to begin with, so that overload was never buying
+--  anything but blocking the index. Forcing the timestamp (no zone) overload
+--  with an explicit ::timestamp cast is IMMUTABLE and, because a date has no
+--  zone-dependent instant to shift, produces the exact same calendar month
+--  regardless of session TimeZone — 055 rewrites v_cost_lines_classified,
+--  forecast_page, and rev_proj_page's own date_trunc calls to match this
+--  exact expression so the planner can actually use these indexes; that
+--  migration also removes a latent (dormant, never actually observed) bug
+--  class where two sessions with different TimeZone settings could have
+--  bucketed the same invoice into different months.
+--
 --  Expression indexes matching the exact cast the query uses, same pattern
 --  as pipeline_deals_name_idx's lower(name) index (021).
 -- ============================================================================
 
-create index if not exists invoices_month_idx on invoices ((date_trunc('month', issued_on)::date));
-create index if not exists bills_month_idx    on bills    ((date_trunc('month', issued_on)::date));
+create index if not exists invoices_month_idx on invoices ((date_trunc('month', issued_on::timestamp)::date));
+create index if not exists bills_month_idx    on bills    ((date_trunc('month', issued_on::timestamp)::date));
 
 analyze invoices; analyze bills;
