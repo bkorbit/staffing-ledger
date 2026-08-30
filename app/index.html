@@ -215,10 +215,18 @@ boot('home', async (supa, el) => {
     (H.staff_hours_deal || []).forEach(r => (dealHoursByStaff[r.staff_id] = dealHoursByStaff[r.staff_id] || []).push(r));
 
     const rangeToEnd = endOfMonth(rangeTo);
+    // Whether this person's own employment window (start_date/end_date, set
+    // on Team) overlaps the viewing range at all — same check as Team
+    // Hours's activeInRange, kept in agreement since both pages roll up the
+    // same staff roster. A start date after the range, or an end date
+    // before it, means they weren't on staff for any of these months and
+    // shouldn't feed the department capacity rollup at all.
+    const activeInRange = s => (!s.start_date || s.start_date <= rangeToEnd)
+      && (!s.end_date || s.end_date >= rangeFrom);
     // Capacity only counts business days someone was actually employed —
-    // clipped to their own start_date/end_date (set on Team), not just the
-    // viewing range. Either date missing means unbounded on that side,
-    // same as before this existed; no overlap at all is real zero capacity.
+    // clipped to their own start_date/end_date, not just the viewing range.
+    // Either date missing means unbounded on that side, same as before this
+    // existed; no overlap at all is real zero capacity.
     const bizDaysFor = s => {
       const from = s.start_date && s.start_date > rangeFrom ? s.start_date : rangeFrom;
       const to = s.end_date && s.end_date < rangeToEnd ? s.end_date : rangeToEnd;
@@ -235,8 +243,11 @@ boot('home', async (supa, el) => {
     });
 
     // stale roster entries (no logged hours since the current import cutoff)
-    // stay out of capacity/department math the same way Team Hours hides them
-    const activeStaff = (H.staff || []).filter(s => s.active && s.has_recent_hours);
+    // stay out of capacity/department math the same way Team Hours hides
+    // them; activeInRange additionally drops anyone whose own start/end
+    // dates don't overlap the selected range at all (not started yet, or
+    // already left as of these months), same as Team Hours.
+    const activeStaff = (H.staff || []).filter(s => s.active && s.has_recent_hours && activeInRange(s));
     const staffRows = activeStaff.map(s => {
       const comp = compByStaff[s.id];
       const hc = hoursByStaff[s.id] || { hours: 0, cost: 0 };

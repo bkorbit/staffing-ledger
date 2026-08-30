@@ -208,12 +208,20 @@ boot('teamhours', async (supa, el) => {
     });
 
     const rangeToEnd = endOfMonth(rangeTo);
+    // Whether this person's own employment window (start_date/end_date, set
+    // on Team) overlaps the viewing range at all — a start date after the
+    // range, or an end date before it, means they weren't on staff for any
+    // of these months and shouldn't appear in this period's table, not just
+    // show a zeroed-out capacity row. Either date missing means unbounded on
+    // that side, same as bizDaysFor below.
+    const activeInRange = s => (!s.start_date || s.start_date <= rangeToEnd)
+      && (!s.end_date || s.end_date >= rangeFrom);
     // Capacity only counts business days someone was actually employed —
-    // clipped to their own start_date/end_date (set on Team), not just the
-    // viewing range. Either date missing means unbounded on that side, so
-    // someone with neither counts every day in the range, same as before
-    // this existed. No overlap at all (viewing a month before they started,
-    // or after they left) is real zero capacity, not a data gap.
+    // clipped to their own start_date/end_date, not just the viewing range.
+    // Either date missing means unbounded on that side, so someone with
+    // neither counts every day in the range, same as before this existed.
+    // No overlap at all (viewing a month before they started, or after they
+    // left) is real zero capacity, not a data gap.
     const bizDaysFor = s => {
       const from = s.start_date && s.start_date > rangeFrom ? s.start_date : rangeFrom;
       const to = s.end_date && s.end_date < rangeToEnd ? s.end_date : rangeToEnd;
@@ -281,7 +289,11 @@ boot('teamhours', async (supa, el) => {
     // cutoff (has_recent_hours, db/033) — a stale roster entry, not a real
     // gap in someone's schedule. Purely computed, never touches the
     // human-owned active flag; "show inactive" reveals both together.
+    // activeInRange is separate and unconditional — even with "show
+    // inactive" on, someone who hasn't started yet or already left as of the
+    // selected range's own dates has no place in that period's table.
     rows = rows.filter(r => (showInactive || (r.s.active && r.s.has_recent_hours))
+      && activeInRange(r.s)
       && (!deptFilter || r.s.department === deptFilter)
       && (!q || r.s.name.toLowerCase().includes(q)));
     rows.sort((a, b) => {
