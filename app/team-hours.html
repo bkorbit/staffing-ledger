@@ -56,8 +56,9 @@ import { boot, esc, wireSearch } from './assets/shell.js?v=548ee5e';
 //                      logged hours on it, proportional to hours, netted
 //                      against their own resolved cost (comp_periods). Same
 //                      method as Client Profitability/Project Hours, joined
-//                      against forecast_page()'s own rev_proj so no page
-//                      ever disagrees about what counts as revenue.
+//                      against rev_proj_page()'s rev_proj (051, a literal
+//                      copy of forecast_page's own rev_proj) so no page ever
+//                      disagrees about what counts as revenue.
 const fmtHours = h => (+h || 0).toLocaleString(undefined, { maximumFractionDigits: 1 });
 const fmt$0 = c => (c < 0 ? '-$' : '$') + Math.abs(Math.round((c || 0) / 100)).toLocaleString();
 
@@ -194,7 +195,13 @@ boot('teamhours', async (supa, el) => {
     if (panel) panel.classList.add('is-loading');
     const calls = [
       supa.rpc('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) }),
-      supa.rpc('forecast_page', { p_from: rangeFrom, p_to: rangeTo }),
+      // Team Hours only needs revenue-per-project (for the profit column),
+      // not the whole Forecast page — forecast_page() also computes
+      // plan_month/plan_deal/cost_month/cogs_proj/accounts/keep_projects and
+      // three cost_runrate_monthly() scans this page never shows, on every
+      // single click. rev_proj_page (db/051) is a literal copy of just the
+      // rev_proj piece.
+      supa.rpc('rev_proj_page', { p_from: rangeFrom, p_to: rangeTo }),
     ];
     if (!staticLoaded) calls.push(
       supa.from('deals').select('id,name,client_id,qbo_project_id'),
@@ -202,15 +209,15 @@ boot('teamhours', async (supa, el) => {
     );
     const results = await Promise.all(calls);
     if (seq !== loadSeq) return;
-    const [hp, fp, dl, cl] = results;
+    const [hp, rp, dl, cl] = results;
     for (const r of results) if (r.error) {
       el.innerHTML = `<div class="sc-panel err">${esc(r.error.message)}</div>`; return;
     }
     if (!staticLoaded) { deals = dl.data || []; clients = cl.data || []; staticLoaded = true; }
-    render(hp.data || {}, fp.data || {}, deals, clients);
+    render(hp.data || {}, rp.data || [], deals, clients);
   }
 
-  function render(H, P, deals, clients) {
+  function render(H, revProj, deals, clients) {
     const dealsById = {}; deals.forEach(d => dealsById[d.id] = d);
     const clientsById = {}; clients.forEach(c => clientsById[c.id] = c);
     const compByStaff = {}; (H.comp_current || []).forEach(c => compByStaff[c.staff_id] = c);
@@ -227,7 +234,7 @@ boot('teamhours', async (supa, el) => {
     const plannedByStaffDeal = {}; // "staffId|dealId" -> planned hours (db/035)
     (H.staff_deal_planned || []).forEach(r => plannedByStaffDeal[`${r.staff_id}|${r.deal_id}`] = +r.planned_hours);
 
-    const revByProj = {}; (P.rev_proj || []).forEach(r => revByProj[r.qbo_project_id] = r.total);
+    const revByProj = {}; (revProj || []).forEach(r => revByProj[r.qbo_project_id] = r.total);
     const revPerHourByDeal = {};
     (H.deal_labor || []).forEach(r => {
       const deal = dealsById[r.deal_id]; if (!deal || !deal.qbo_project_id) return;
@@ -502,14 +509,14 @@ boot('teamhours', async (supa, el) => {
       syncRangeControls();
       load();
     });
-    el.querySelector('#dept-filter').onchange = e => { deptFilter = e.target.value; render(H, P, deals, clients); };
-    wireSearch(el, '#q', v => { query = v; render(H, P, deals, clients); });
-    el.querySelector('#show-inactive').onchange = e => { showInactive = e.target.checked; render(H, P, deals, clients); };
+    el.querySelector('#dept-filter').onchange = e => { deptFilter = e.target.value; render(H, revProj, deals, clients); };
+    wireSearch(el, '#q', v => { query = v; render(H, revProj, deals, clients); });
+    el.querySelector('#show-inactive').onchange = e => { showInactive = e.target.checked; render(H, revProj, deals, clients); };
     el.querySelectorAll('th[data-sort]').forEach(th => {
       const activate = () => {
         const k = th.dataset.sort;
         tableSort = { key: k, dir: tableSort.key === k ? -tableSort.dir : 1 };
-        render(H, P, deals, clients);
+        render(H, revProj, deals, clients);
       };
       th.onclick = activate;
       th.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); } };
@@ -518,7 +525,7 @@ boot('teamhours', async (supa, el) => {
       const toggle = () => {
         const sid = tr.dataset.sid;
         openStaff.has(sid) ? openStaff.delete(sid) : openStaff.add(sid);
-        render(H, P, deals, clients);
+        render(H, revProj, deals, clients);
       };
       tr.onclick = toggle;
       tr.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
