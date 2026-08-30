@@ -3,7 +3,7 @@
 :root{
   --paper:#ebebeb; --paper-raised:#ffffff; --ink:#23272b;
   --brand:#0a493c; --brand-2:#48a278; --brand-4:#19a789;
-  --accent:#3bc9ac; --mint:#e2f5ef; --gold:#fabf4d;   /* mint = logo color at ~14% on white */
+  --accent:#3bc9ac; --mint:#e2f5ef; --gold:#fabf4d; --gold-bg:#fdf3d9;   /* mint = logo color at ~14% on white; gold-bg = gold at ~12% on white, same recipe as amber-bg/rust-bg below */
   --brand-hover:#2f7e60;  /* midpoint of --brand/--brand-2, not a new accent: --brand-2 only clears 3.13:1 for white text, this clears 4.91:1 */
   --slate:#67706d; --line:#d2d2d2;
   --rust:#d1453b; --rust-bg:#fbe7e4; --amber:#b07a14; --amber-bg:#fdf3dc;
@@ -94,12 +94,20 @@ td.textleft { text-align:left; font-family:var(--font-body); }
 
 .ok { color:var(--brand-2); } .warn { color:var(--amber); } .err { color:var(--rust); white-space:pre-wrap; }
 .muted { color:var(--slate); }
-/* A fourth confirmed exception to the One Gold Rule (see DESIGN.md) — the
-   90-100% band of Team Hours' logged/capacity percentage, Boris's call:
-   the one place between "on plan" (plain ink) and "over" (rust) that's
-   worth a color of its own, and gold is the only yellow/amber-adjacent hue
-   left once amber is already spoken for by the under-capacity band. */
-.cap-high { color: var(--gold); }
+/* Team Hours' logged/capacity percentage: under/high/over each get a small
+   ink-on-tint chip instead of colored text on the bare white cell. Colored
+   text was tried first (gold/amber directly as color) and audited out —
+   gold-on-white measures 1.66:1, amber-on-white 3.72:1, both well under
+   WCAG's 4.5:1 for normal text. Ink on any of these light tints clears
+   12:1+, so the hue carries the signal as a background instead, the same
+   move .pill already makes for the Under/Over Capacity badge next to the
+   name. "high" (90-100%, gold) is a fourth confirmed exception to the One
+   Gold Rule (see DESIGN.md) — the one band between "on plan" (plain ink,
+   no chip) and "over" (rust) worth flagging at all. */
+.cap-flag { display:inline-block; padding:1px 5px; border-radius:4px; font-weight:600; color:var(--ink); }
+.cap-flag.under { background:var(--amber-bg); }
+.cap-flag.high  { background:var(--gold-bg); }
+.cap-flag.over  { background:var(--rust-bg); }
 
 /* Utilization mini-bar: a thin segmented progress track — a compact way to
    show "how much of X is used" per row without a full chart. Borrowed from

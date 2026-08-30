@@ -1,6 +1,13 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Team Hours</title><link rel="stylesheet" href="./assets/style.css?v=c84b45c"></head><body>
+<title>EMG — Team Hours</title><link rel="stylesheet" href="./assets/style.css?v=c84b45c">
+<style>
+/* Same whole-row-clickable focus ring forecast.html (.clientrow/.deallist/
+   .projrow) and sales.html (.crow/.drow.hasitems) already give this exact
+   role="button" tr pattern — team-hours.html was missing its own copy. */
+tr.namerow:focus-visible { outline:none; box-shadow:inset 0 0 0 2px var(--brand-2), inset 0 0 0 4px var(--mint); }
+</style>
+</head><body>
 <script type="module">
 import { boot, esc } from './assets/shell.js?v=c84b45c';
 
@@ -209,7 +216,7 @@ boot('teamhours', async (supa, el) => {
     const totalHours = rows.reduce((s, r) => s + r.hc.hours, 0);
     const totalCost = rows.reduce((s, r) => s + r.hc.cost, 0);
     const totalCapacity = rows.reduce((s, r) => s + r.cap, 0);
-    const overCount = rows.filter(r => r.cap > 0 && (r.hc.hours + r.ptoHours) > r.cap).length;
+    const overCount = rows.filter(r => r.capStatus === 'over').length;
 
     el.querySelector('#panel').innerHTML = `
       <div class="range">
@@ -239,7 +246,9 @@ boot('teamhours', async (supa, el) => {
           <label class="mono" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--slate)">
             <input type="checkbox" id="show-inactive" ${showInactive?'checked':''}> show inactive
           </label>
+          <span class="muted" id="count" style="font-size:11px">${rows.length} of ${(H.staff||[]).length} shown</span>
         </div>
+        <div class="gridwrap">
         <table class="ledger" style="table-layout:fixed">
           <colgroup><col style="width:20%"><col style="width:11%"><col style="width:5%">
             <col style="width:22%"><col style="width:21%"><col style="width:21%"></colgroup>
@@ -262,7 +271,7 @@ boot('teamhours', async (supa, el) => {
               : r.capStatus === 'under'
               ? `<span class="pill warn" title="${fmtHours(r.cap - r.totalLoggedHours)}h under capacity">Under Capacity</span>`
               : '';
-            const capPctClass = r.capStatus === 'over' ? 'err' : r.capStatus === 'under' ? 'warn' : r.capStatus === 'high' ? 'cap-high' : '';
+            const capPctClass = r.capStatus === 'over' ? 'cap-flag over' : r.capStatus === 'under' ? 'cap-flag under' : r.capStatus === 'high' ? 'cap-flag high' : '';
             // One caption line per bar column, always — no conditional extra
             // line (the old "+Xh over plan" div folded into this same line,
             // just its trailing clause). Every barcell is now structurally
@@ -331,6 +340,7 @@ boot('teamhours', async (supa, el) => {
                 </td></tr>` : ''}`;
           }).join('')}
         </table>
+        </div>
       </div>`;
 
     el.querySelector('#r-from').onchange = e => { rangeFrom = monthOf(e.target.value); load(); };
