@@ -257,7 +257,7 @@ export function classifyAccount(type, subType, name) {
   if (t === 'Income') return 'income';
   if (t === 'Other Income') return 'overhead';
   if (t === 'Expense' || t === 'Other Expense') {
-    if (/payroll|salaries|salary|wages|compensation|contract labor|bonus|severance|401k|health insurance|life insurance/.test(n) ||
+    if (/payroll|salaries|salary|wages|compensation|contract labor|bonus|severance|401k|health insurance|life insurance|commission/.test(n) ||
         /PayrollExpenses/i.test(st)) return 'payroll';
     return 'overhead';
   }
