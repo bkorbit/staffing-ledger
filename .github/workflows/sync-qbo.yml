@@ -1,11 +1,15 @@
 name: Sync QBO (new)
 
-# Nightly at 07:00 UTC, plus manual dispatch. The schedule went on after the pipeline
+# Every 2 hours during business hours (8am-8pm US Eastern), plus manual dispatch.
+# GitHub Actions cron has no timezone support, so two lines cover DST: the first
+# targets EDT (UTC-4, roughly Mar-Nov), the second EST (UTC-5, Dec-Feb) — each
+# maps to 8/10/12/14/16/18/20 Eastern. The schedule went on after the pipeline
 # proved itself against real data: tests gate the sync, failures are recorded in
 # sync_state, and the curves refresh as part of each run.
 on:
   schedule:
-    - cron: '0 7 * * *'
+    - cron: '0 0,12,14,16,18,20,22 3-11 * *'   # EDT: 8am-8pm Eastern
+    - cron: '0 1,13,15,17,19,21,23 1,2,12 * *' # EST: 8am-8pm Eastern
   workflow_dispatch:
 
 jobs:
