@@ -74,6 +74,7 @@ boot('team', async (supa, el) => {
   let modalOpener = null;
   let compAllByStaffLive = {}; // staff_id -> comp_periods[], refreshed every load()
   let bonusesByStaffLive = {}; // staff_id -> staff_bonuses[], refreshed every load()
+  let tiersLive = []; // health_insurance_tiers[], refreshed every load()
 
   el.innerHTML = `<div id="panel">loading…</div>`;
 
@@ -326,6 +327,10 @@ boot('team', async (supa, el) => {
                 <span class="muted" style="font-size:10.5px" title="Match starts 6 months after hire, entry on the 1st of the month coinciding with or following">(match starts 6mo after hire)</span></label>
               <label class="mono" style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:normal;font-size:12.5px;font-family:var(--font-body);color:var(--ink)">
                 <input class="ep-health" type="checkbox" ${mode==='edit'&&person.enrolled_health_insurance?'checked':''}> Health Insurance</label>
+              <select class="ep-tier" title="Flat-rate tier, effective once the health insurance flat-rate cutover date arrives" style="height:26px">
+                <option value="">— no tier assigned —</option>
+                ${tiersLive.map(t => `<option value="${t.tier_key}" ${mode==='edit'&&person.health_insurance_tier===t.tier_key?'selected':''}>${esc(t.label)}</option>`).join('')}
+              </select>
             </div></div>
         </div>
         ${mode === 'edit' ? `
@@ -440,6 +445,7 @@ boot('team', async (supa, el) => {
         work_state: back.querySelector('.ep-state').value || null,
         enrolled_401k: back.querySelector('.ep-401k').checked,
         enrolled_health_insurance: back.querySelector('.ep-health').checked,
+        health_insurance_tier: back.querySelector('.ep-tier').value || null,
         tracks_capacity: back.querySelector('.ep-capacity').checked
       };
       const { error } = mode === 'create'
@@ -457,13 +463,15 @@ boot('team', async (supa, el) => {
   }
 
   async function load() {
-    const [st, cp, tc, bn] = await Promise.all([
-      supa.from('staff').select('id,name,department,active,start_date,end_date,enrolled_401k,enrolled_health_insurance,work_state,tracks_capacity').order('name'),
+    const [st, cp, tc, bn, ti] = await Promise.all([
+      supa.from('staff').select('id,name,department,active,start_date,end_date,enrolled_401k,enrolled_health_insurance,health_insurance_tier,work_state,tracks_capacity').order('name'),
       supa.from('comp_periods').select('id,staff_id,starts_on,ends_on,kind,annual_cost,hourly_cost,weekly_capacity,employment_type').order('starts_on'),
       supa.from('v_staff_total_cost').select('staff_id,total_annual_cost'),
-      supa.from('staff_bonuses').select('id,staff_id,pay_date,amount,note').order('pay_date')
+      supa.from('staff_bonuses').select('id,staff_id,pay_date,amount,note').order('pay_date'),
+      supa.from('health_insurance_tiers').select('tier_key,label,monthly_cost').order('monthly_cost')
     ]);
     if (st.error) { el.innerHTML = `<div class="sc-panel err">${esc(st.error.message)}</div>`; return; }
+    tiersLive = ti.data || [];
     render(st.data || [], cp.data || [], tc.data || [], bn.data || []);
   }
 
