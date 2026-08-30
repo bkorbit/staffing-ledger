@@ -366,7 +366,7 @@ boot('forecast', async (supa, el) => {
   }
 
   let months, clientsById, dealsByClient, planByM, planBillByM, revByM, costByCM, openEditor = null;
-  let projects = [], projTakenBy = {}, fixedCosts = [], runrate = { payroll:0, overhead:0, misc:0 };
+  let projects = [], projTakenBy = {}, projectClaims = [], fixedCosts = [], runrate = { payroll:0, overhead:0, misc:0 };
   let acctTotals = [], fullProjects = null, fullDeals = null;
   let allAccounts = [], acctSearch = '';
   let revByProj = {}, cogsByProj = {}, openClients = new Set();
@@ -382,7 +382,7 @@ boot('forecast', async (supa, el) => {
     fullProjects = null; fullDeals = null;
     if (rangeTo < rangeFrom) rangeTo = rangeFrom;
     months = monthsBetween(rangeFrom, rangeTo);
-    const [pg, dl, cl, st, qa] = await Promise.all([
+    const [pg, dl, cl, st, qa, claims] = await Promise.all([
       supa.rpc('forecast_page', { p_from: rangeFrom, p_to: rangeTo }),
       supa.from('deals')
         .select('id,name,client_id,reviewed_at,flight_start,flight_end,qbo_project_id,promotions(as_sold:source_payload->>amount)')
@@ -395,9 +395,17 @@ boot('forecast', async (supa, el) => {
       // Every QuickBooks account, not just ones with cost lines in this
       // range — "How costs are counted" needs the FULL chart of accounts to
       // search/edit, independent of whatever date range happens to be open.
-      supa.from('qbo_accounts').select('id,name,fully_qualified_name,account_type,derived_class,override_class').order('name')
+      supa.from('qbo_accounts').select('id,name,fully_qualified_name,account_type,derived_class,override_class').order('name'),
+      // who actually claims each project — deliberately UNFILTERED (no
+      // status/hidden/flight_end gate, unlike `dl` above). A deal whose own
+      // flight predates 2026, or that's hidden, still really owns its project;
+      // computing "is this project claimed" from the same date/status-scoped
+      // set the table displays made a correctly-matched-but-out-of-scope deal
+      // look unclaimed, which is exactly what happened with a Super Bowl deal
+      // flighted entirely in 2025 — the project was never actually open.
+      fetchAll(() => supa.from('deals').select('qbo_project_id,client_id,name').not('qbo_project_id','is',null))
     ]);
-    for (const r of [pg,dl,cl,st,qa]) if (r.error) throw r.error;
+    for (const r of [pg,dl,cl,st,qa,claims]) if (r.error) throw r.error;
     allAccounts = qa.data || [];
     const P = pg.data || {};
     const sv = k => (st.data||[]).find(x=>x.key===k)?.value;
@@ -428,9 +436,12 @@ boot('forecast', async (supa, el) => {
       d._agg = planByDeal[d.id] || { gpAll:0, gpSettled:0, billFuture:0 };
       (dealsByClient[d.client_id] = dealsByClient[d.client_id]||[]).push(d); }});
 
-    // which deal owns which project — for the picker's "linked to:" labels
+    // which deal owns which project — for the picker's "linked to:" labels.
+    // From `claims` (unfiltered), not `dl` — a hidden or pre-2026-flight deal
+    // still really owns its project and must still badge as taken.
     projTakenBy = {};
-    (dl.data||[]).forEach(d => { if (d.qbo_project_id) projTakenBy[d.qbo_project_id] = d.name; });
+    projectClaims = claims.data || [];
+    projectClaims.forEach(d => { projTakenBy[d.qbo_project_id] = d.name; });
 
     render();
   }
@@ -733,11 +744,13 @@ boot('forecast', async (supa, el) => {
     const parentOf = {}; projects.forEach(p => parentOf[p.id] = p.parent_id || p.id);
     const projsUnder = {}; projects.forEach(p => (projsUnder[parentOf[p.id]] = projsUnder[parentOf[p.id]]||[]).push(p.id));
     // a project matched to a deal belongs to THAT deal's client — this is what lets
-    // two platform clients split one QuickBooks parent (On Location WC vs Events)
+    // two platform clients split one QuickBooks parent (On Location WC vs Events).
+    // From projectClaims (unfiltered — see loadAll), not dealsByClient: a hidden
+    // or pre-2026-flight deal still really claims its project, and computing
+    // this from the date/status-scoped table data made an already-matched deal
+    // whose flight predates 2026 look like its project was unclaimed.
     const projClaimedBy = {};
-    Object.values(dealsByClient).flat().forEach(d => {
-      if (d.qbo_project_id) projClaimedBy[d.qbo_project_id] = d.client_id;
-    });
+    projectClaims.forEach(d => { projClaimedBy[d.qbo_project_id] = d.client_id; });
 
     const dealRow = d => {
       const p = d._agg || { gpAll:0, gpSettled:0, billFuture:0 };
