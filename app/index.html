@@ -56,6 +56,18 @@ const shiftM = (m, n) => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
   return iso(new Date(Date.UTC(y, mm - 1 + n, 1))); };
 const endOfMonth = m => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
   return iso(new Date(Date.UTC(y, mm, 0))); };
+// Count of Monday-Friday calendar days between two ISO dates, inclusive —
+// same helper as team-hours.html's, kept in agreement since both pages
+// compute capacity the same way (see the cap = ... line below).
+const businessDays = (fromISO, toISO) => {
+  let count = 0;
+  for (const d = new Date(fromISO + 'T00:00:00Z'), end = new Date(toISO + 'T00:00:00Z');
+       d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    const day = d.getUTCDay();
+    if (day !== 0 && day !== 6) count++;
+  }
+  return count;
+};
 const mLabel = s => new Date(s + 'T00:00:00Z')
   .toLocaleDateString(undefined, { month: 'short', year: '2-digit', timeZone: 'UTC' });
 const monthsBetween = (from, to) => { const out = []; let m = from, guard = 0;
@@ -202,8 +214,7 @@ boot('home', async (supa, el) => {
     const dealHoursByStaff = {};
     (H.staff_hours_deal || []).forEach(r => (dealHoursByStaff[r.staff_id] = dealHoursByStaff[r.staff_id] || []).push(r));
 
-    const daysInRange = (new Date(endOfMonth(rangeTo)) - new Date(rangeFrom)) / 86400000 + 1;
-    const weeksInRange = daysInRange / 7;
+    const bizDaysInRange = businessDays(rangeFrom, endOfMonth(rangeTo));
     const ptoByStaff = {};
     (H.time_off || []).forEach(o => {
       const s0 = new Date(o.starts_on < rangeFrom ? rangeFrom : o.starts_on);
@@ -222,7 +233,9 @@ boot('home', async (supa, el) => {
       const hc = hoursByStaff[s.id] || { hours: 0, cost: 0 };
       // comp_current (038) is one row per staff member always, weekly_capacity
       // defaulted to 40 server-side when nobody has a comp period entered yet.
-      const cap = comp.weekly_capacity * weeksInRange;
+      // Business-day-weighted, same as Team Hours: daily rate (weekly/5)
+      // times however many Mon-Fris are actually in the range.
+      const cap = comp.weekly_capacity / 5 * bizDaysInRange;
       const ptoHours = ptoByStaff[s.id] || 0;
       const deals = dealHoursByStaff[s.id] || [];
       const clientHours = deals.reduce((s2, d) => s2 + +d.hours, 0);

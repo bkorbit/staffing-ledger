@@ -66,6 +66,19 @@ const endOfMonth = m => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
 const quarterStart = (m, n = 0) => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
   const qFirst = Math.floor((mm - 1) / 3) * 3; // 0, 3, 6, 9
   return iso(new Date(Date.UTC(y, qFirst + n * 3, 1))); };
+// Count of Monday-Friday calendar days between two ISO dates, inclusive —
+// the actual number of business days in the range, not an approximation
+// via weeks-in-range (a 30-day month isn't literally "4.29 work weeks,"
+// it's however many Mon-Fris actually land in it).
+const businessDays = (fromISO, toISO) => {
+  let count = 0;
+  for (const d = new Date(fromISO + 'T00:00:00Z'), end = new Date(toISO + 'T00:00:00Z');
+       d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    const day = d.getUTCDay();
+    if (day !== 0 && day !== 6) count++;
+  }
+  return count;
+};
 
 // Stacks segments left-to-right, each capped so the running total never
 // exceeds 100% of the track — a real over-capacity condition is reported as
@@ -180,8 +193,7 @@ boot('teamhours', async (supa, el) => {
     });
 
     const rangeToEnd = endOfMonth(rangeTo);
-    const daysInRange = (new Date(rangeToEnd) - new Date(rangeFrom)) / 86400000 + 1;
-    const weeksInRange = daysInRange / 7;
+    const bizDaysInRange = businessDays(rangeFrom, rangeToEnd);
 
     // time_off.hours (db/032) is a RANGE total, not per-day — prorated by
     // day-overlap when the query window only partially covers a range.
@@ -203,7 +215,12 @@ boot('teamhours', async (supa, el) => {
       const hc = hoursByStaff[s.id] || { hours: 0, cost: 0 };
       // comp_current (038) is one row per staff member always, weekly_capacity
       // defaulted to 40 server-side when nobody has a comp period entered yet.
-      const cap = comp.weekly_capacity * weeksInRange;
+      // Capacity is business-day-weighted: a 40h/wk person's own daily rate
+      // (40/5 = 8h) times however many Mon-Fris are actually in the range —
+      // not a flat weeks-in-range multiplier, so a 30-day month with 22
+      // business days differs from a 31-day month with 21, exactly as the
+      // real work calendar does.
+      const cap = comp.weekly_capacity / 5 * bizDaysInRange;
       const deals2 = dealHoursByStaff[s.id] || [];
       const clientHours = deals2.reduce((s2, d) => s2 + +d.hours, 0);
       const internalHours = Math.max(hc.hours - clientHours, 0);
