@@ -85,18 +85,43 @@ boot('sales', async (supa, el) => {
   // pipeline_deals is a full, unfiltered mirror of every HubSpot deal ever
   // synced (see sync-hubspot.mjs) and v_deal_month_forecast can run to many
   // rows too — both can outgrow Supabase's 1000-row cap, so both page.
-  const [pd, st, fc, promoted] = await Promise.all([
+  const [pd, st, fc, promoted, clientsR, aliasesR, projectsR, blockedR, approvalsR] = await Promise.all([
     fetchAll(() => supa.from('pipeline_deals').select('*')),
     supa.from('settings').select('key,value')
-      .in('key', ['sales_probability_threshold','programmatic_margin_default']),
+      .in('key', ['sales_probability_threshold','programmatic_margin_default','hubspot_promote_pipelines']),
     fetchAll(() => supa.from('v_deal_month_forecast').select('month,gp')),
-    fetchAll(() => supa.from('deals').select('hubspot_deal_id,reviewed_at')
-      .eq('origin','hubspot').in('status',['won','active']))
+    fetchAll(() => supa.from('deals').select('hubspot_deal_id,reviewed_at,qbo_project_id')
+      .eq('origin','hubspot').in('status',['won','active'])),
+    supa.from('clients').select('id,name,qbo_customer_id').eq('active', true),
+    supa.from('client_aliases').select('client_id,alias'),
+    fetchAll(() => supa.from('qbo_projects').select('id,name,parent_id,hidden,effective_jobcode')),
+    supa.from('blocked_company_names').select('name_key'),
+    supa.from('promotion_approvals').select('*')
   ]);
-  for (const r of [pd, st, fc, promoted]) if (r.error) throw r.error;
+  for (const r of [pd, st, fc, promoted, clientsR, aliasesR, projectsR, blockedR, approvalsR]) if (r.error) throw r.error;
   const setting = k => (st.data||[]).find(s=>s.key===k)?.value;
   const minProb = +(setting('sales_probability_threshold') ?? 10);
   const PROG_MARGIN = +(setting('programmatic_margin_default') ?? 35);
+
+  // ---- the promotion gate: every won HubSpot deal is a human decision now,
+  // not an automatic nightly insert (see scripts/sync-hubspot.mjs's rewrite).
+  // This section resolves what the gate needs: client identity (same
+  // nameKey/alias matching the sync used to do itself), the pipeline
+  // allowlist (the one pre-filter that survives — Recruiting etc. never
+  // shows up as a candidate at all), and a live-computed suggested QBO
+  // project match (same jobcode logic match_deals_to_projects() encodes,
+  // just run here instead of in a nightly batch).
+  const nameKey = s => String(s||'').trim().replace(/\s+/g,' ').toLowerCase();
+  const clientByKey = {};
+  (clientsR.data||[]).forEach(c => clientByKey[nameKey(c.name)] = c.id);
+  (aliasesR.data||[]).forEach(a => clientByKey[nameKey(a.alias)] = a.client_id);
+  const clientsById = {}; (clientsR.data||[]).forEach(c => clientsById[c.id] = c);
+  const allowedPipelines = new Set((setting('hubspot_promote_pipelines')||[]).map(nameKey));
+  const blockedNames = new Set((blockedR.data||[]).map(r=>r.name_key));
+  const approvalByHsId = {}; (approvalsR.data||[]).forEach(a => approvalByHsId[a.hubspot_deal_id] = a);
+  const allProjects = (projectsR.data||[]).filter(p => !p.hidden);
+  const projectClaimedBy = {}; // qbo_project_id -> hubspot_deal_id, from already-promoted deals
+  (promoted.data||[]).forEach(d => { if (d.qbo_project_id) projectClaimedBy[d.qbo_project_id] = d.hubspot_deal_id; });
 
   // committed GP by month, real
   const LEDGER = {};
@@ -182,6 +207,52 @@ boot('sales', async (supa, el) => {
   // won deals pass over automatically: show the door's recent traffic
   const promotedBy = {}; (promoted.data||[]).forEach(x => promotedBy[x.hubspot_deal_id] = x);
   const wonRecent = (pd.data||[]).filter(d => d.is_won && touches2026(d));
+
+  // ---- the promotion gate's candidate pool: won, not yet promoted, pipeline
+  // allowed (the one pre-filter that survives — Recruiting etc. never shows
+  // up at all), split into ready-to-review vs blocked (missing/invalid
+  // campaign dates — a genuine data-completeness problem, not a judgment
+  // call, fixed in HubSpot rather than overridden here).
+  const notYetPromoted = wonRecent.filter(d => !promotedBy[d.hubspot_deal_id] && allowedPipelines.has(nameKey(d.pipeline)));
+  const dateBlocker = d => !d.campaign_start ? 'no campaign start date'
+    : !d.campaign_end ? 'no campaign end date'
+    : d.campaign_end < d.campaign_start ? 'campaign ends before it starts' : null;
+  const setupReady = notYetPromoted.filter(d => !dateBlocker(d) && !approvalByHsId[d.hubspot_deal_id]);
+  const setupBlocked = notYetPromoted.filter(d => dateBlocker(d) && !approvalByHsId[d.hubspot_deal_id]);
+  const setupApproved = notYetPromoted.filter(d => approvalByHsId[d.hubspot_deal_id]);
+
+  const parseQboId = link => { const m = String(link||'').match(/[?&](?:id|nameId)=(\d+)/); return m ? m[1] : null; };
+  function suggestClient(d) { return clientByKey[nameKey(d.company)] || null; }
+  function suggestProject(d, clientId) {
+    const client = clientsById[clientId] || {};
+    const qid = parseQboId(d.qbo_link);
+    if (qid && allProjects.find(p => p.id === qid)) return qid;
+    if (!d.jobcode) return null;
+    const matches = allProjects.filter(p => p.effective_jobcode &&
+      p.effective_jobcode.toLowerCase() === d.jobcode.toLowerCase());
+    const mine = matches.find(p => client.qbo_customer_id &&
+      (p.parent_id === client.qbo_customer_id || p.id === client.qbo_customer_id));
+    if (mine) return mine.id;
+    return matches.find(p => !projectClaimedBy[p.id])?.id || null;
+  }
+  function clientOptionsHtml(selectedId) {
+    const sorted = [...(clientsR.data||[])].sort((a,b)=>a.name.localeCompare(b.name));
+    return `<option value="">— pick a client —</option>` +
+      sorted.map(c=>`<option value="${esc(c.id)}" ${c.id===selectedId?'selected':''}>${esc(c.name)}</option>`).join('') +
+      `<option value="__new__">+ Create new client…</option>`;
+  }
+  function projectOptionsHtml(clientId, selectedId) {
+    const client = clientsById[clientId] || {};
+    const mine = allProjects.filter(p => client.qbo_customer_id &&
+      (p.parent_id === client.qbo_customer_id || p.id === client.qbo_customer_id));
+    const mineIds = new Set(mine.map(p=>p.id));
+    const rest = allProjects.filter(p => !mineIds.has(p.id));
+    const opt = p => `<option value="${esc(p.id)}" ${p.id===selectedId?'selected':''}>${esc(p.name)}${projectClaimedBy[p.id]?' — already linked':''}</option>`;
+    return `<option value="">— pick a QBO project —</option>` +
+      (mine.length ? `<optgroup label="${esc(client.name||'this client')}'s projects">${mine.map(opt).join('')}</optgroup>` : '') +
+      (rest.length ? `<optgroup label="other projects">${rest.map(opt).join('')}</optgroup>` : '');
+  }
+
   const pipelines = [...new Set(open.map(d=>d.pipeline).filter(Boolean))].sort();
   let pipeline = pipelines.includes('agency') ? 'agency' : (pipelines[0]||'__all__');
   let weighted=true, showAll=false, chartOn=true;
@@ -244,6 +315,7 @@ boot('sales', async (supa, el) => {
       <button class="seg" id="chart-toggle" aria-expanded="true" aria-controls="chartwrap">Hide chart</button>
     </div>
     <div class="summary-strip" id="kpis"></div>
+    <div class="sc-panel" id="setup"></div>
     <div class="sc-panel chartpanel">
       <div id="chartwrap"></div>
     </div>
@@ -410,6 +482,81 @@ boot('sales', async (supa, el) => {
     return totals;
   }
 
+  // ---- the promotion gate itself. Rendered once, separately from render() —
+  // render() reruns on every pipeline/weighted/range toggle, and rebuilding
+  // this panel on every one of those would wipe out a half-made client/project
+  // choice before a human got to click Approve.
+  function renderSetup(){
+    const box = el.querySelector('#setup');
+    if (!setupReady.length && !setupBlocked.length && !setupApproved.length) {
+      box.innerHTML = `<div class="muted" style="padding:8px 0">Nothing needs setup — every won deal is either promoted or already approved.</div>`;
+      return;
+    }
+    box.innerHTML = `<div class="muted" style="margin-bottom:8px">Needs setup — every closed-won deal passes through here once, confirming the client and QBO project before it enters the live forecast</div>
+      ${setupReady.length ? setupReady.map(d => {
+        const cid = suggestClient(d);
+        const pid = cid ? suggestProject(d, cid) : null;
+        const blockedBadge = blockedNames.has(nameKey(d.company)) ?
+          `<span class="flag t" title="this company name is on the blocked list (Clients tab) — advisory only, decide anyway">blocked-list name</span>` : '';
+        return `<div class="setup-row" data-hs="${esc(d.hubspot_deal_id)}" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line)">
+          <div style="min-width:220px"><b>${esc(d.name)}</b> ${blockedBadge}<div class="muted" style="font-size:10px">${esc(d.company||'(no company)')} · ${d.campaign_start||'?'} → ${d.campaign_end||'?'}${d.jobcode?` · ${esc(d.jobcode)}`:''}</div></div>
+          <select class="setup-client" style="min-width:180px">${clientOptionsHtml(cid)}</select>
+          <input class="setup-newclient" placeholder="new client name…" style="display:none;min-width:180px">
+          <select class="setup-project" style="min-width:220px">${projectOptionsHtml(cid, pid)}</select>
+          <button class="primary setup-approve" disabled>Approve</button>
+          <a href="${esc(d.url)}" target="_blank" rel="noopener">HubSpot ↗</a>
+        </div>`;
+      }).join('') : ''}
+      ${setupBlocked.length ? `<div class="sc-eyebrow" style="margin-top:10px">Missing campaign dates — fix in HubSpot (${setupBlocked.length})</div>` +
+        setupBlocked.map(d => `<div style="display:flex;gap:10px;align-items:center;padding:6px 0;opacity:.65">
+          <div style="min-width:220px">${esc(d.name)}<div class="muted" style="font-size:10px">${esc(d.company||'')}</div></div>
+          <span class="flag t">${esc(dateBlocker(d))}</span>
+          <a href="${esc(d.url)}" target="_blank" rel="noopener">HubSpot ↗</a>
+        </div>`).join('') : ''}
+      ${setupApproved.length ? `<div class="sc-eyebrow" style="margin-top:10px">Approved — promotes on the next sync (${setupApproved.length})</div>` +
+        setupApproved.map(d => { const a = approvalByHsId[d.hubspot_deal_id];
+          const proj = allProjects.find(p=>p.id===a.qbo_project_id);
+          return `<div style="display:flex;gap:10px;align-items:center;padding:6px 0" class="muted">
+            <div style="min-width:220px;color:var(--ink)">${esc(d.name)}</div>
+            <div>${esc((clientsById[a.client_id]||{}).name||'?')} → ${esc(proj?proj.name:a.qbo_project_id)}</div>
+          </div>`; }).join('') : ''}`;
+
+    box.querySelectorAll('.setup-row').forEach(row => {
+      const hsId = row.dataset.hs;
+      const clientSel = row.querySelector('.setup-client');
+      const newClientInput = row.querySelector('.setup-newclient');
+      const projectSel = row.querySelector('.setup-project');
+      const approveBtn = row.querySelector('.setup-approve');
+      const refreshApprove = () => { approveBtn.disabled = !projectSel.value || !clientSel.value; };
+      refreshApprove();
+      clientSel.onchange = () => {
+        newClientInput.style.display = clientSel.value === '__new__' ? '' : 'none';
+        projectSel.innerHTML = clientSel.value && clientSel.value !== '__new__'
+          ? projectOptionsHtml(clientSel.value, null) : projectOptionsHtml(null, null);
+        refreshApprove();
+      };
+      projectSel.onchange = refreshApprove;
+      approveBtn.onclick = async () => {
+        let clientId = clientSel.value;
+        if (!clientId) { alert('Pick a client first.'); return; }
+        approveBtn.disabled = true; approveBtn.textContent = '…';
+        if (clientId === '__new__') {
+          const name = newClientInput.value.trim();
+          if (!name) { alert('Enter a name for the new client.'); approveBtn.disabled = false; approveBtn.textContent = 'Approve'; return; }
+          const { data, error } = await supa.from('clients').insert({ name, set_by: window.__email }).select('id').single();
+          if (error) { alert(error.message); approveBtn.disabled = false; approveBtn.textContent = 'Approve'; return; }
+          clientId = data.id;
+        }
+        const { error } = await supa.from('promotion_approvals').upsert({
+          hubspot_deal_id: hsId, client_id: clientId, qbo_project_id: projectSel.value,
+          approved_by: window.__email, approved_at: new Date().toISOString()
+        }, { onConflict: 'hubspot_deal_id' });
+        if (error) { alert(error.message); approveBtn.disabled = false; approveBtn.textContent = 'Approve'; return; }
+        location.reload();
+      };
+    });
+  }
+
   function render(){
     const rows = build();
     const shown = rows.filter(r=>showAll||r.forecastable);
@@ -559,6 +706,7 @@ boot('sales', async (supa, el) => {
     showAll = b.dataset.f==='1';
     el.querySelectorAll('[data-f]').forEach(x=>{x.classList.toggle('on',x===b);x.setAttribute('aria-pressed',String(x===b));}); render();
   });
+  renderSetup();
   render();
 });
 </script></body></html>

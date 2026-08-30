@@ -33,13 +33,11 @@ boot('settings', async (supa, el) => {
   const STATE_NAME = Object.fromEntries(US_STATES);
 
   async function load() {
-    const [syncs, banks, knobs, pipelineDeals, promotions, blockedNames, hsDeals, clientsList, wcRates, sutaRates] = await Promise.all([
+    const [syncs, banks, knobs, pipelineDeals, hsDeals, clientsList, wcRates, sutaRates] = await Promise.all([
       supa.from('sync_state').select('id,last_run_at,last_run_log,import_from,import_from_set_by,import_from_set_at'),
       supa.from('qbo_accounts').select('id,name,balance,is_operating,as_of').eq('account_type','Bank').order('balance',{ascending:false}),
       supa.from('settings').select('key,value,set_by').order('key'),
       supa.from('pipeline_deals').select('hubspot_deal_id,name,company,campaign_start,campaign_end,pipeline,is_won,url,jobcode,stage'),
-      supa.from('promotions').select('hubspot_deal_id'),
-      supa.from('blocked_company_names').select('name_key'),
       supa.from('deals').select('id,name,client_id,hubspot_deal_id,flight_start,flight_end,flight_locked,status,hidden').not('hubspot_deal_id', 'is', null),
       supa.from('clients').select('id,name'),
       supa.from('workers_comp_rates').select('state,rate,set_by').order('state'),
@@ -66,27 +64,14 @@ boot('settings', async (supa, el) => {
         ${qbt&&qbt.import_from_set_by?`<span class="muted" style="font-size:11px">last set by ${esc(qbt.import_from_set_by)}, ${new Date(qbt.import_from_set_at).toLocaleString()}</span>`:''}
       </div>`;})()}`;
 
-    // ---- HubSpot reconciliation: won-but-blocked (diagnostic) + already-promoted
-    // deals whose flight dates have since changed in HubSpot (review + approve).
-    // pipeline_deals is a full mirror refreshed every sync run regardless of
-    // promotion status — the current HubSpot state is always sitting there,
-    // even for a deal the one-way promotion door will never re-touch itself.
-    const promotedIds = new Set((promotions.data || []).map(r => r.hubspot_deal_id));
-    const blockedSet = new Set((blockedNames.data || []).map(r => r.name_key));
+    // ---- HubSpot reconciliation: already-promoted deals whose flight dates
+    // have since changed in HubSpot (review + approve). Promotion itself is no
+    // longer an automatic door this page diagnoses — a HubSpot deal going won
+    // is a human decision now, made at the promotion gate in Sales Forecast
+    // (which deal, which client, which QBO project). This section only
+    // reconciles deals ALREADY on the ledger against HubSpot's current state.
     const gateRow = (knobs.data || []).find(k => k.key === 'hubspot_promote_pipelines');
     const allowedPipelines = new Set((gateRow ? gateRow.value : []).map(nameKey));
-
-    const notPromoted = (pipelineDeals.data || []).filter(d => d.is_won && !promotedIds.has(d.hubspot_deal_id)).map(d => {
-      let reason;
-      if (!allowedPipelines.has(nameKey(d.pipeline))) reason = `pipeline "${d.pipeline || '(none)'}" not enabled for promotion`;
-      else if (!d.company) reason = 'no company';
-      else if (blockedSet.has(nameKey(d.company))) reason = 'company blocked (Clients tab)';
-      else if (!d.campaign_start) reason = 'no campaign start date';
-      else if (!d.campaign_end) reason = 'no campaign end date';
-      else if (d.campaign_end < d.campaign_start) reason = 'campaign ends before it starts';
-      else reason = 'should promote on the next HubSpot sync run';
-      return { ...d, reason };
-    });
 
     // Recruiting is a separate HubSpot pipeline (see db/008) that must never be
     // promotable — filtered out of the picker entirely rather than just
@@ -169,13 +154,9 @@ boot('settings', async (supa, el) => {
         <button class="primary" id="pipeline-save">Save</button>
         <span id="pipeline-msg" class="ok" style="font-size:12px"></span>
       </div>` : `<div class="muted" style="padding:8px 0 4px">No pipelines seen yet — run the HubSpot sync at least once.</div>`}
-      <div class="sc-eyebrow">Won in HubSpot, not yet promoted (${notPromoted.length})</div>
-      ${notPromoted.length ? `<table><tr><th>deal</th><th>company</th><th>pipeline</th><th>why it's blocked</th><th></th></tr>
-        ${notPromoted.map(d => `<tr><td class="textleft">${esc(d.name)}</td><td class="textleft">${esc(d.company || '')}</td>
-          <td class="textleft muted">${esc(d.pipeline || '')}</td>
-          <td class="textleft ${d.reason.startsWith('should') ? 'ok' : 'warn'}">${esc(d.reason)}</td>
-          <td><a href="${esc(d.url)}" target="_blank" rel="noopener">HubSpot ↗</a></td></tr>`).join('')}</table>`
-        : `<div class="muted" style="padding:8px 0 4px">Nothing waiting.</div>`}
+      <div class="muted" style="font-size:11px;margin:2px 0 10px">Reviewing and promoting a won-but-unpromoted deal now happens on
+        <a href="./sales.html">Sales Forecast</a> — every closed-won deal passes through that gate once, confirming its client and
+        QBO project before it enters the live forecast. This page only reconciles what's already on the ledger.</div>
       <div class="sc-eyebrow">Already promoted — HubSpot has newer flight dates (${staleDiffs.length})</div>
       ${staleDiffs.length ? `<table><tr><th>deal</th><th>client</th><th>platform dates</th><th>HubSpot dates</th><th></th></tr>
         ${staleDiffs.map((d, i) => `<tr><td class="textleft">${esc(d.deal.name)}</td><td class="textleft">${esc(d.client)}</td>

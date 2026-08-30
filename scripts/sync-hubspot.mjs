@@ -3,30 +3,37 @@
 // Two jobs, deliberately separate:
 //
 //   MIRROR     every deal into pipeline_deals, verbatim. Sync-owned, disposable,
-//              replaced on every run. The sales forecast reads this.
-//   PROMOTE    won deals through the one-way door: create the client if it is new,
-//              create the deal skeleton, record the promotion forever. After this
-//              moment the ledger owns the deal and HubSpot edits do not reach it.
+//              replaced on every run. Sales Forecast's promotion gate reads this.
+//   PROMOTE    consume promotion_approvals — a human's decision, made in Sales
+//              Forecast, to promote one specific won deal with a specific client
+//              and QBO project already picked. This is the mechanical write only:
+//              create the deal, record the promotion forever, flight the line
+//              items. It does NOT decide whether a deal should promote or which
+//              client/project it belongs to — a human already decided that, in
+//              the browser, before this ever runs. (Before this file's rewrite,
+//              promotion was a fully-automatic nightly door with no human review
+//              at all — fine for one-time historical backfill, wrong for a tool
+//              meant to run indefinitely against real client billing.)
 //
-// What promotion does NOT do: touch deal lines. Line items in HubSpot have not been
-// enforced, so the as-sold amount travels in the promotion snapshot for reference and
-// humans shape MOST forecast lines in the platform, but when a won deal's line
-// items map cleanly onto ledger types, the door flights them out automatically —
-// budgets spread evenly over the flight, fees attached — still unreviewed until a
-// human blesses them. One unmapped item and NO lines are created: a skeleton plus a
-// reason beats a half-invented plan. A deal skeleton with no
-// lines is visible and reviewable; an invented line would be a guess wearing a
-// number's clothes.
+// What promotion does NOT do: touch deal lines by hand. Line items in HubSpot have
+// not been enforced, so the as-sold amount travels in the promotion snapshot for
+// reference and humans shape MOST forecast lines in the platform, but when a won
+// deal's line items map cleanly onto ledger types, promotion flights them out
+// automatically — budgets spread evenly over the flight, fees attached — still
+// unreviewed until a human blesses them. One unmapped item and NO lines are
+// created: a skeleton plus a reason beats a half-invented plan.
 //
-// A won deal that CANNOT promote — no company, or no campaign dates — is not forced
-// through with defaults. It stays mirrored, the reason is recorded in the run log,
-// and it promotes on a later run once fixed in HubSpot. The database constraint
-// (won deals must have a flight) is the contract; the sync respects it rather than
-// working around it.
+// An approval whose campaign dates are missing or invalid (changed in HubSpot
+// after a human approved it, say) is held back, not forced through with
+// defaults — the database constraint (won deals must have a flight) is the
+// contract; the sync respects it rather than working around it. It stays queued
+// and promotes on a later run once fixed.
 //
-// Client identity: the company name is matched against clients and client_aliases,
-// case-insensitively. This matching is the spine that later ties hour tracking to
-// clients, which is why a new company creates a client rather than a free-text label.
+// Also refreshes name/jobcode on already-promoted deals from the current mirror
+// (never flight_start/flight_end/status/hidden — those stay human/policy-owned,
+// same as always) — a HubSpot rename used to silently orphan a deal from every
+// name-search picker forever; this closes that gap independent of the promotion
+// gate itself.
 //
 // Env: HUBSPOT_TOKEN, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 // State: sync_state where id='hubspot'.
@@ -358,48 +365,59 @@ async function main() {
   await sbUpsert('pipeline_deals', mirrored, 'hubspot_deal_id');
   const won = mirrored.filter(m => m.is_won);
   console.log(`  mirrored ${mirrored.length} (${won.length} won)`);
+  const byHsId = Object.fromEntries(mirrored.map(m => [m.hubspot_deal_id, m]));
 
-  // ---- the one-way door ----
-  const gateRows = await sbGet('settings?key=eq.hubspot_promote_pipelines&select=value');
-  const allowed = new Set(((gateRows[0] || {}).value || []).map(nameKey));
-  const gated = won.filter(m => allowed.has(nameKey(m.pipeline)));
-  const heldBack = won.length - gated.length;
-  if (!allowed.size) {
-    console.log('  \u26a0 no pipelines enabled for promotion (hubspot_promote_pipelines is empty) — ' +
-      'all won deals held at the door');
-  } else if (heldBack) {
-    console.log(`  ${heldBack} won deal(s) in pipelines not enabled for promotion — held at the door`);
+  // ---- keep already-promoted deals findable: refresh name/jobcode from the
+  // fresh mirror. name unconditionally (a pure display label — nothing reads it
+  // expecting staleness); jobcode only when still null (never overwrite a
+  // human- or matcher-set value, same "never guess, never clobber" contract
+  // match_deals_to_projects() already holds itself to).
+  const promotedRows = await sbGet('deals?hubspot_deal_id=not.is.null&select=id,hubspot_deal_id,name,jobcode');
+  let refreshed = 0;
+  for (const d of promotedRows) {
+    const m = byHsId[d.hubspot_deal_id];
+    if (!m) continue;
+    const patch = {};
+    if (m.name && m.name !== d.name) patch.name = m.name;
+    if (!d.jobcode && m.jobcode) patch.jobcode = m.jobcode;
+    if (!Object.keys(patch).length) continue;
+    patch.set_by = 'hubspot-sync:refresh'; patch.set_at = new Date().toISOString();
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/deals?id=eq.${d.id}`, {
+      method: 'PATCH', headers: { ...sb, Prefer: 'return=minimal' }, body: JSON.stringify(patch)
+    });
+    if (!r.ok) fail(`Supabase refresh deals ${d.id} → ${r.status}: ${(await r.text()).slice(0, 300)}`);
+    refreshed++;
   }
+  if (refreshed) console.log(`  refreshed name/jobcode for ${refreshed} already-promoted deal(s)`);
 
+  // ---- promotion: consume a human's decision, not decide one. Every row in
+  // promotion_approvals is a deal a person reviewed in Sales Forecast and
+  // confirmed a client + QBO project for; this just does the mechanical write
+  // that used to happen automatically. See db/060 for why there's no FK here.
+  const approvals = await sbGet('promotion_approvals?select=*');
   const already = new Set((await sbGet('promotions?select=hubspot_deal_id'))
     .map(r => r.hubspot_deal_id));
-  const clients = await sbGet('clients?select=id,name');
-  const aliases = await sbGet('client_aliases?select=client_id,alias');
-  const blockedNames = new Set((await sbGet('blocked_company_names?select=name_key'))
-    .map(r => r.name_key));
-  const clientByKey = {};
-  clients.forEach(c => { clientByKey[nameKey(c.name)] = c.id; });
-  aliases.forEach(a => { clientByKey[nameKey(a.alias)] = a.client_id; });
 
-  const skipped = {};
-  let promoted = 0, flighted = 0, unflighted = [], newClients = 0;
+  let promoted = 0, flighted = 0, unflighted = [], stale = 0;
+  const heldBack = [];
 
-  for (const m of gated) {
-    if (already.has(m.hubspot_deal_id)) continue;
-    const blocker = promotionBlocker(m, blockedNames);
-    if (blocker) { (skipped[blocker] = skipped[blocker] || []).push(m.name || m.hubspot_deal_id); continue; }
-
-    let clientId = clientByKey[nameKey(m.company)];
-    if (!clientId) {
-      const [c] = await sbInsert('clients',
-        [{ name: m.company.trim(), set_by: 'hubspot-sync' }], { returning: true });
-      clientId = c.id;
-      clientByKey[nameKey(m.company)] = clientId;
-      newClients++;
+  for (const a of approvals) {
+    // already promoted (e.g. a re-run after a partial failure) — the approval
+    // has done its job, clear it rather than leaving it queued forever
+    if (already.has(a.hubspot_deal_id)) {
+      await sbDelete(`promotion_approvals?hubspot_deal_id=eq.${a.hubspot_deal_id}`);
+      stale++;
+      continue;
     }
+    const m = byHsId[a.hubspot_deal_id];
+    if (!m) { heldBack.push(`${a.hubspot_deal_id}: no longer in the HubSpot mirror`); continue; }
+    // re-validate campaign dates at the moment of the actual write — they were
+    // valid when a human approved this, but HubSpot could have changed since
+    const blocker = promotionBlocker(m);
+    if (blocker) { heldBack.push(`${m.name || a.hubspot_deal_id}: ${blocker}`); continue; }
 
     const [deal] = await sbInsert('deals', [{
-      client_id: clientId,
+      client_id: a.client_id,
       name: m.name || 'Unnamed deal',
       status: 'won',
       origin: 'hubspot',
@@ -411,15 +429,16 @@ async function main() {
       flight_end: m.campaign_end,
       hubspot_deal_id: m.hubspot_deal_id,
       jobcode: m.jobcode,
+      qbo_project_id: a.qbo_project_id,
       promoted_at: new Date().toISOString(),
-      set_by: 'hubspot-sync'
+      set_by: a.approved_by
     }], { returning: true });
 
     await sbInsert('promotions', [{
       hubspot_deal_id: m.hubspot_deal_id,
       deal_id: deal.id,
-      promoted_by: 'hubspot-sync',
-      source_payload: m            // the as-sold record, amount included, forever
+      promoted_by: a.approved_by,   // the real human who approved it, not 'hubspot-sync'
+      source_payload: m             // the as-sold record, amount included, forever
     }]);
     promoted++;
 
@@ -444,20 +463,23 @@ async function main() {
       }
       flighted++;
     }
+
+    await sbDelete(`promotion_approvals?hubspot_deal_id=eq.${a.hubspot_deal_id}`);
   }
 
-  const skipCount = Object.values(skipped).reduce((s, a) => s + a.length, 0);
   if (flighted || unflighted.length)
     console.log(`  flighted ${flighted} promoted deal(s) from line items; ` +
       `${unflighted.length} left as skeletons` +
       (unflighted.length ? ' — ' + unflighted.slice(0, 5).join(' | ') : ''));
-  console.log(`  promoted ${promoted} (${newClients} new clients)` +
-    (skipCount ? `, ${skipCount} won deal(s) cannot promote yet:` : ''));
-  Object.entries(skipped).forEach(([why, names]) =>
-    console.log(`    ${why}: ${names.slice(0, 5).join(' · ')}${names.length > 5 ? ` +${names.length - 5} more` : ''}`));
+  console.log(`  promoted ${promoted} approved deal(s)` + (stale ? ` (${stale} approval(s) already done, cleared)` : '') +
+    (heldBack.length ? `, ${heldBack.length} approval(s) held back:` : ''));
+  heldBack.slice(0, 5).forEach(r => console.log(`    ${r}`));
 
-  // With the mirror fresh and promotions done, link deals to their QuickBooks
-  // projects: QB link first, then unambiguous jobcode. Idempotent; never guesses.
+  // With the mirror fresh and promotions done, link any still-unmatched
+  // promoted deal to its QuickBooks project: QB link first, then unambiguous
+  // jobcode. A residual safety net (e.g. a QBO project that didn't exist yet
+  // at promotion time and synced in later) — idempotent, never guesses, and
+  // never touches a deal a human already matched at the gate.
   let matchLog = null;
   try {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/match_deals_to_projects`, {
@@ -478,12 +500,10 @@ async function main() {
       matching: matchLog,
       flighted, unflighted: unflighted.slice(0, 20),
       deals: mirrored.length, won: won.length,
-      pipelines_enabled: [...allowed], held_at_door: heldBack,
-      promoted, new_clients: newClients,
-      skipped: Object.fromEntries(Object.entries(skipped).map(([k, v]) => [k, v.length])),
-      skipped_names: skipped,
+      name_jobcode_refreshed: refreshed,
+      promoted, held_back: heldBack.slice(0, 20), approvals_pending: approvals.length - promoted - stale,
       at: new Date().toISOString()
     }
   });
-  console.log('\u2714 Done.');
+  console.log('✔ Done.');
 }
