@@ -92,7 +92,9 @@ boot('cashflow', async (supa, el) => {
     const p50 = cb?.median_lag ?? globalCurve?.median_lag ?? 35;
     const p90 = cb?.p90_lag ?? globalCurve?.p90_lag ?? 80;
     const issued = new Date(i.issued_on);
-    i.expectMedian = new Date(Math.max(addDays(issued, p50), addDays(floorNow, 5)));
+    i.daysToPay = p50;                     // the curve's plain answer, unfloored
+    i.rawMedian = addDays(issued, p50);    // what the curve implies for THIS invoice
+    i.expectMedian = new Date(Math.max(i.rawMedian, addDays(floorNow, 5)));
     i.expectLate   = new Date(Math.max(addDays(issued, p90), addDays(floorNow, 14)));
     i.ownPct = cb ? Math.round(100 * cb.sample_n / (cb.sample_n + 6)) : 0;
   });
@@ -150,17 +152,27 @@ boot('cashflow', async (supa, el) => {
       year: d.getFullYear() !== today0.getFullYear() ? 'numeric' : undefined });
     const byMaster = {};
     items.forEach(i => {
-      const g = byMaster[i.master] = byMaster[i.master] || { balance: 0, wMedian: 0, wLate: 0, wOwn: 0 };
+      const g = byMaster[i.master] = byMaster[i.master] || { balance: 0, wMedian: 0, wLate: 0, wOwn: 0, wDays: 0, wRaw: 0 };
       g.balance += i.balance;
       g.wMedian += i.balance * i.expectMedian.getTime();
       g.wLate   += i.balance * i.expectLate.getTime();
       g.wOwn    += i.balance * i.ownPct;
+      g.wDays   += i.balance * i.daysToPay;
+      g.wRaw    += i.balance * i.rawMedian.getTime();
     });
+    // floored: the curve's own unfloored prediction for this client's book is
+    // already in the past (invoices sitting past their expected settlement) —
+    // the model can't say "when", only "soon", which is why a stale book
+    // clusters everyone at the same near-future date instead of spreading out
+    const floorFrom = addDays(today0, 5).getTime();
     const rows = Object.entries(byMaster)
       .map(([n, g]) => ({ n, balance: g.balance,
+        daysToPay: Math.round(g.wDays / g.balance),
         expected: new Date(g.wMedian / g.balance),
+        raw: new Date(g.wRaw / g.balance),
         late: new Date(g.wLate / g.balance),
         own: Math.round(g.wOwn / g.balance) }))
+      .map(r => ({ ...r, floored: r.raw.getTime() < floorFrom }))
       .sort((a, z) => a.expected - z.expected);
     const totalBalance = rows.reduce((s, r) => s + r.balance, 0);
     const line = r => {
@@ -168,17 +180,23 @@ boot('cashflow', async (supa, el) => {
       return `<tr><td style="text-align:left">
           <span class="ellip" style="max-width:240px;display:inline-block;vertical-align:bottom">${r.n}</span></td>
         <td>${fmt$(r.balance)}</td>
-        <td>${fmtDate(r.expected)}</td>
+        <td>${r.daysToPay}d</td>
+        <td>${fmtDate(r.expected)}${r.floored
+          ? ` <span class="muted" title="already past this client's usual settlement window — the curve has no date to give, so this is just &quot;soon&quot;, not a prediction">*</span>`
+          : ''}</td>
         <td class="${days > 60 ? 'err' : ''}">${days <= 0 ? 'overdue' : days + 'd'}</td>
         <td class="muted">${fmtDate(r.late)}</td>
         <td class="muted">${r.own}% own data</td></tr>`;
     };
+    const flooredCount = rows.filter(r => r.floored).length;
     document.getElementById(elId).innerHTML =
-      `<tr><th style="text-align:left">Client</th><th>Open balance</th><th>Expected</th>
+      `<tr><th style="text-align:left">Client</th><th>Open balance</th><th>Avg days to pay</th><th>Expected</th>
         <th>In</th><th>Worst case (p90)</th><th>Curve confidence</th></tr>` +
       rows.map(line).join('') +
-      `<tr class="gp"><td style="text-align:left">total</td><td>${fmt$(totalBalance)}</td>
-        <td colspan="4"></td></tr>`;
+      `<tr class="gp"><td style="text-align:left">total${flooredCount
+          ? ` — * ${flooredCount} client${flooredCount === 1 ? '' : 's'} already past their usual window`
+          : ''}</td><td>${fmt$(totalBalance)}</td>
+        <td colspan="5"></td></tr>`;
   }
   paymentDateTable('pay-dates', ar.data);
 
