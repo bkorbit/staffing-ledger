@@ -367,7 +367,8 @@ boot('forecast', async (supa, el) => {
 
   let months, clientsById, dealsByClient, planByM, planBillByM, revByM, costByCM, openEditor = null;
   let projects = [], projTakenBy = {}, fixedCosts = [], runrate = { payroll:0, overhead:0, misc:0 };
-  let acctTotals = [], fullProjects = null;
+  let acctTotals = [], fullProjects = null, fullDeals = null;
+  let allAccounts = [], acctSearch = '';
   let revByProj = {}, cogsByProj = {}, openClients = new Set();
   let tableSort = { key:'value', dir:-1 }, tableQuery = '';
   let unattributedOpen = false;
@@ -376,7 +377,7 @@ boot('forecast', async (supa, el) => {
   async function loadAll() {
     if (rangeTo < rangeFrom) rangeTo = rangeFrom;
     months = monthsBetween(rangeFrom, rangeTo);
-    const [pg, dl, cl, st] = await Promise.all([
+    const [pg, dl, cl, st, qa] = await Promise.all([
       supa.rpc('forecast_page', { p_from: rangeFrom, p_to: rangeTo }),
       supa.from('deals')
         .select('id,name,client_id,reviewed_at,flight_start,flight_end,qbo_project_id,promotions(as_sold:source_payload->>amount)')
@@ -385,9 +386,14 @@ boot('forecast', async (supa, el) => {
         .gte('flight_end','2026-01-01'),   // the platform starts at 2026
       supa.from('clients').select('id,name,active,qbo_customer_id').eq('active', true),
       supa.from('settings').select('key,value')
-        .in('key',['programmatic_margin_default','forecast_fixed_costs'])
+        .in('key',['programmatic_margin_default','forecast_fixed_costs']),
+      // Every QuickBooks account, not just ones with cost lines in this
+      // range — "How costs are counted" needs the FULL chart of accounts to
+      // search/edit, independent of whatever date range happens to be open.
+      supa.from('qbo_accounts').select('id,name,account_type,derived_class,override_class').order('name')
     ]);
-    for (const r of [pg,dl,cl,st]) if (r.error) throw r.error;
+    for (const r of [pg,dl,cl,st,qa]) if (r.error) throw r.error;
+    allAccounts = qa.data || [];
     const P = pg.data || {};
     const sv = k => (st.data||[]).find(x=>x.key===k)?.value;
     marginDefault = +(sv('programmatic_margin_default') ?? 35);
@@ -566,13 +572,20 @@ boot('forecast', async (supa, el) => {
           QuickBooks types as Cost of Goods Sold. <b>Labour</b> = Expense accounts whose
           name or subtype says payroll/salaries/wages. <b>Overhead</b> = every other
           Expense account. <b>Other</b> = lines on accounts with no recognisable type.
-          <b>Excluded</b> = balance-sheet lines (credit-card payments, transfers, AP/AR,
-          equity) — they move money without being a cost, so they never enter the chart.
-          Settled months are measured; forward months use six-month trailing averages.
-          If July looks wrong, the table below is where to find why — and
-          <code>update qbo_accounts set override_class='cogs', override_reason='…' where id='…'</code>
-          reclassifies an account everywhere at once.</div>
-        <div id="how-table" style="margin-top:10px;max-height:340px;overflow-y:auto"></div>
+          <b>Income</b> = contra-revenue — nets AGAINST invoiced revenue rather than
+          counting as its own cost (a positive amount here reduces revenue by that
+          much; QuickBooks' own debit/credit convention on an income-type account,
+          not a sign to read as "money out"). <b>Excluded</b> = balance-sheet lines
+          (credit-card payments, transfers, AP/AR, equity) — they move money without
+          being a cost, so they never enter the chart. Settled months are measured;
+          forward months use six-month trailing averages. Search or edit any
+          account's class below — saves immediately, reclassifies it everywhere at
+          once (past months included).</div>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap">
+          <input type="search" id="acct-search" placeholder="search accounts…" value="${esc(acctSearch)}" style="width:240px">
+          <span class="muted" id="acct-count" style="font-size:11px"></span>
+        </div>
+        <div id="how-table" style="margin-top:8px;max-height:400px;overflow-y:auto"></div>
       </div>
       <div class="summary-strip" id="kpis"></div>
       <div class="sc-panel chartpanel"><div id="chart"></div></div>
@@ -590,6 +603,56 @@ boot('forecast', async (supa, el) => {
 
     // ---- fixed costs still feed the projected net line; edited on Settings ----
     const fixedTotal = () => fixedCosts.reduce((s,f)=>s+(f.amount||0),0);
+    const COST_CLASSES = ['cogs','payroll','overhead','other','income','excluded'];
+    const inChart = { cogs:'in chart', payroll:'in chart (labour)', overhead:'in chart',
+                      other:'in chart', income:'nets against revenue (contra)',
+                      excluded:'EXCLUDED from chart' };
+    // acctTotals (from forecast_page, this range only) keyed by account name —
+    // "total in range" for whichever accounts actually had activity; every
+    // OTHER account in the chart of accounts still gets a row (blank total),
+    // since searching/reclassifying isn't limited to whatever's active right now.
+    function renderHowTable() {
+      const totalByName = {};
+      acctTotals.forEach(r => { totalByName[r.account] = (totalByName[r.account]||0) + r.total; });
+      const q = acctSearch.trim().toLowerCase();
+      const rows = allAccounts
+        .filter(a => !q || a.name.toLowerCase().includes(q))
+        .map(a => ({ ...a, effective: a.override_class || a.derived_class || 'other', v: totalByName[a.name] }))
+        .sort((a,b) => (b.v||0) - (a.v||0) || a.name.localeCompare(b.name));
+      el.querySelector('#acct-count').textContent = `${rows.length} of ${allAccounts.length} accounts`;
+      el.querySelector('#how-table').innerHTML =
+        `<table class="acct"><tr><th style="text-align:left">account</th><th style="text-align:left">QB type</th>
+           <th style="text-align:left">class</th><th>total in range</th><th style="text-align:left">counted?</th></tr>` +
+        (rows.length ? rows.map(a => `<tr>
+            <td style="text-align:left"><span class="ellip" style="max-width:300px" title="${esc(a.name)}">${esc(a.name)}</span></td>
+            <td style="text-align:left" class="muted"><span class="ellip" style="max-width:160px">${esc(a.account_type||'—')}</span></td>
+            <td style="text-align:left">
+              <select class="acct-class-select" data-id="${esc(a.id)}" title="Blank = follow QuickBooks' own account type; picking a class here overrides it everywhere, past months included">
+                <option value="" ${!a.override_class?'selected':''}>${a.derived_class?esc(a.derived_class)+' (auto)':'— none —'}</option>
+                ${COST_CLASSES.map(c => `<option value="${c}" ${a.override_class===c?'selected':''}>override: ${c}</option>`).join('')}
+              </select></td>
+            <td>${a.v!=null ? fmtM(a.v) : '<span class="muted">—</span>'}</td>
+            <td style="text-align:left" class="${a.effective==='excluded'?'warn':'muted'}">${inChart[a.effective]||''}</td>
+          </tr>`).join('') : `<tr><td colspan="5" class="empty-note">No accounts match "${esc(acctSearch)}".</td></tr>`) +
+        `</table>`;
+      el.querySelectorAll('.acct-class-select').forEach(sel => sel.onchange = async () => {
+        const id = sel.dataset.id;
+        const value = sel.value || null;
+        sel.disabled = true;
+        const { error } = await supa.from('qbo_accounts').update({
+          override_class: value,
+          override_reason: value ? `Set via How costs are counted, ${new Date().toISOString().slice(0,10)}` : null,
+          override_by: value ? window.__email : null,
+          override_at: value ? new Date().toISOString() : null
+        }).eq('id', id);
+        sel.disabled = false;
+        if (error) { alert(error.message); return; }
+        const acct = allAccounts.find(a => a.id === id);
+        if (acct) acct.override_class = value;
+        renderHowTable();
+      });
+    }
+    el.querySelector('#acct-search').oninput = e => { acctSearch = e.target.value; renderHowTable(); };
     const costsHowBtn = el.querySelector('#costs-how');
     costsHowBtn.onclick = () => {
       const p = el.querySelector('#how-panel');
@@ -597,22 +660,7 @@ boot('forecast', async (supa, el) => {
       p.style.display = opening ? '' : 'none';
       costsHowBtn.setAttribute('aria-expanded', String(opening));
       costsHowBtn.textContent = `How costs are counted ${opening?'▾':'▸'}`;
-      if (opening) {
-        const rows = acctTotals.map(r => ({ cls:r.class, acct:r.account, v:r.total }))
-          .sort((a,b)=> a.cls===b.cls ? b.v-a.v : a.cls.localeCompare(b.cls));
-        const inChart = { cogs:'in chart', payroll:'in chart (labour)', overhead:'in chart',
-                          other:'in chart', income:'nets against revenue (contra)',
-                          excluded:'EXCLUDED from chart' };
-        el.querySelector('#how-table').innerHTML =
-          `<table class="acct"><tr><th style="text-align:left">class</th>
-             <th style="text-align:left">account</th><th>total in range</th>
-             <th style="text-align:left">counted?</th></tr>` +
-          rows.map(r=>`<tr><td>${esc(r.cls)}</td>
-            <td style="text-align:left"><span class="ellip" style="max-width:320px">${esc(r.acct)}</span></td>
-            <td>${fmtM(r.v)}</td>
-            <td style="text-align:left" class="${r.cls==='excluded'?'warn':'muted'}">${inChart[r.cls]||''}</td></tr>`).join('') +
-          `</table>`;
-      }
+      if (opening) renderHowTable();
     };
     // fixed-costs panel retired from the header; values live on Settings
 
@@ -871,14 +919,6 @@ boot('forecast', async (supa, el) => {
       const activate = e => {
         e.stopPropagation();
         const pid = tr.dataset.pid, cid = tr.dataset.cid;
-        const ds = dealsByClient[cid]||[];
-        // every other client's deals too — with On Location split in two, a
-        // project under one entity may belong to the other's deal, and the claims
-        // rule routes the money by the deal's client once linked
-        const others = Object.entries(dealsByClient)
-          .filter(([k]) => k !== cid)
-          .flatMap(([k, arr]) => arr.map(x => ({ ...x, _cn: (clientsById[k]||{}).name||'' })))
-          .sort((a,b)=>a._cn.localeCompare(b._cn) || a.name.localeCompare(b.name));
         const cell = tr.querySelector('.linkcell');
         if (cell.querySelector('.qbpicker')) return;   // already open
         cell.innerHTML = `<div class="qbpicker">
@@ -890,20 +930,39 @@ boot('forecast', async (supa, el) => {
           <button class="dolink primary" style="padding:2px 10px">Link</button>
           <button class="dohide danger" style="padding:2px 10px" title="remove this project from every list — its money still rolls up to the client">Hide project</button>`;
         cell.onclick = ev => ev.stopPropagation();
-        mountCombobox(cell.querySelector('.qbpicker'), {
+
+        // this box has its own text search, so it should find ANY deal in the
+        // system — not just the won/active, unhidden, post-2026-flight subset
+        // loadAll() keeps for the rest of the page. Fetch the unfiltered list
+        // lazily, same pattern as the deal editor's full project list.
+        if (!fullDeals) {
+          fetchAll(() => supa.from('deals')
+            .select('id,name,client_id,qbo_project_id,hidden,status'))
+            .then(r => { if (!r.error) { fullDeals = r.data; qpCombo.refresh(); } });
+        }
+        const pool = () => (fullDeals || Object.values(dealsByClient).flat())
+          .map(x => ({ ...x, _cn: (clientsById[x.client_id]||{}).name||'' }));
+
+        const qpCombo = mountCombobox(cell.querySelector('.qbpicker'), {
           getLabel: x => x._cn ? `${x.name} — ${x._cn}` : x.name,
-          getBadges: x => x.qbo_project_id ? ['already linked'] : [],
+          getBadges: x => [x.qbo_project_id ? 'already linked' : null,
+            x.hidden ? 'hidden' : null,
+            (x.status !== 'won' && x.status !== 'active') ? x.status : null].filter(Boolean),
           onPick: () => {},
           spec: q => {
+            const all = pool();
             const needle = q.trim().toLowerCase();
             const match = x => !needle || x.name.toLowerCase().includes(needle) ||
               (x._cn && x._cn.toLowerCase().includes(needle));
-            const mine = ds.filter(match), rest = others.filter(match);
+            const mine = all.filter(x => x.client_id === cid && match(x));
+            const rest = all.filter(x => x.client_id !== cid && match(x))
+              .sort((a,b)=>a._cn.localeCompare(b._cn) || a.name.localeCompare(b.name));
             const CAP = 40, shown = rest.slice(0, CAP);
             const groups = [];
             if (mine.length) groups.push({ label: "this client's deals", items: mine });
             if ((needle || !mine.length) && shown.length) groups.push({ label: "other clients' deals", items: shown });
-            const hint = !needle ? 'Type to search all deals'
+            const hint = !needle
+              ? (fullDeals ? 'Type to search all deals' : 'Type to search — full list loading…')
               : (rest.length > CAP ? `+${rest.length-CAP} more — narrow the search` : null);
             return { groups, hint };
           }
@@ -924,8 +983,7 @@ boot('forecast', async (supa, el) => {
           // If no deal fits, the deal itself is missing or not-yet-promotable
           // in HubSpot (check its campaign dates) rather than something to
           // paper over in the platform.
-          const deal = ds.find(x=>x.id===val)
-            || Object.values(dealsByClient).flat().find(x=>x.id===val);
+          const deal = pool().find(x=>x.id===val);
           if (deal.qbo_project_id &&
               !confirm(`"${deal.name}" is already linked to another project. Replace that link with this project?`)) return;
           const { error } = await supa.from('deals')
