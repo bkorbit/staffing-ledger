@@ -6,6 +6,20 @@
    .projrow) and sales.html (.crow/.drow.hasitems) already give this exact
    role="button" tr pattern — team-hours.html was missing its own copy. */
 tr.namerow:focus-visible { outline:none; box-shadow:inset 0 0 0 2px var(--brand-2), inset 0 0 0 4px var(--mint); }
+
+/* Quick-range preset pill group — same .rp/.seg pattern index.html/sales.html
+   already use for their own range/span toggles, copied local here rather
+   than promoted to style.css for one control. border-radius:0 on the
+   grouped .seg is load-bearing: without it each button keeps its own
+   corner radius under the shared group border and the pill looks notched
+   instead of one continuous shape. */
+.rp { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; background:var(--paper-raised); }
+.rp .seg { font-family:var(--font-mono); font-size:10px; padding:0 11px; height:34px;
+  display:inline-flex; align-items:center; border:none; border-left:1px solid var(--line);
+  border-radius:0; background:var(--paper-raised); cursor:pointer; color:var(--slate); }
+.rp .seg:first-child { border-left:none; }
+.rp .seg.on { background:var(--brand); color:#fff; }
+.rp .seg:hover:not(.on) { color:var(--ink); }
 </style>
 </head><body>
 <script type="module">
@@ -47,6 +61,11 @@ const shiftM = (m, n) => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
   return iso(new Date(Date.UTC(y, mm - 1 + n, 1))); };
 const endOfMonth = m => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
   return iso(new Date(Date.UTC(y, mm, 0))); };
+// First month of the calendar quarter n quarters away from m's own quarter
+// (n=0 is m's own quarter, n=-1 is the quarter before it, etc).
+const quarterStart = (m, n = 0) => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
+  const qFirst = Math.floor((mm - 1) / 3) * 3; // 0, 3, 6, 9
+  return iso(new Date(Date.UTC(y, qFirst + n * 3, 1))); };
 
 // Stacks segments left-to-right, each capped so the running total never
 // exceeds 100% of the track — a real over-capacity condition is reported as
@@ -104,7 +123,19 @@ function planBar(planned, logged) {
 
 boot('teamhours', async (supa, el) => {
   const thisMonth = monthOf(iso(new Date()));
-  let rangeFrom = shiftM(thisMonth, -2), rangeTo = thisMonth;
+  // Quick-range presets, keyed by the label shown on each button. Computed
+  // once per load (today doesn't change mid-session) and reused both to
+  // render the buttons and to tell which one (if any) matches the current
+  // rangeFrom/rangeTo, so the active button always reflects real state
+  // instead of just "whichever was clicked last."
+  const PRESETS = {
+    'Last Month': [shiftM(thisMonth, -1), shiftM(thisMonth, -1)],
+    'This Month': [thisMonth, thisMonth],
+    'Next Month': [shiftM(thisMonth, 1), shiftM(thisMonth, 1)],
+    'Last Quarter': [quarterStart(thisMonth, -1), shiftM(quarterStart(thisMonth, -1), 2)],
+    'This Quarter': [quarterStart(thisMonth, 0), shiftM(quarterStart(thisMonth, 0), 2)],
+  };
+  let rangeFrom = thisMonth, rangeTo = thisMonth;
   let deptFilter = '', query = '', showInactive = false;
   const openStaff = new Set(); // staff ids currently expanded to show their client/project breakout
 
@@ -224,6 +255,12 @@ boot('teamhours', async (supa, el) => {
         <input type="month" id="r-from" aria-label="Range from" value="${rangeFrom.slice(0,7)}">
         <span class="muted">→</span>
         <input type="month" id="r-to" aria-label="Range to" value="${rangeTo.slice(0,7)}">
+        <span class="rp" role="group" aria-label="Quick range">
+          ${Object.entries(PRESETS).map(([label, [f, t]]) => {
+            const on = f === rangeFrom && t === rangeTo;
+            return `<button type="button" class="seg${on?' on':''}" data-preset="${esc(label)}" aria-pressed="${on}">${label}</button>`;
+          }).join('')}
+        </span>
       </div>
       <div class="summary-strip">
         <div class="summary-cell"><div class="summary-label">Headcount</div>
@@ -318,7 +355,7 @@ boot('teamhours', async (supa, el) => {
               ${open ? `<tr class="expand-row"><td colspan="6">
                   <div class="expand-grid">
                     <div>
-                      <div class="sc-eyebrow" style="margin-bottom:10px">Assigned to — planned vs. logged</div>
+                      <div class="sc-eyebrow" style="margin-bottom:10px">Assigned to — plan vs. logged</div>
                       ${!r.assignments.length ? `<div class="muted" style="font-size:11px">No logged hours against a client project in this range.</div>` : r.assignments.map(a => {
                         const bar = planBar(a.planned, a.hours);
                         return `<div class="assign-line">
@@ -333,8 +370,8 @@ boot('teamhours', async (supa, el) => {
                     <div>
                       <div class="sc-eyebrow" style="margin-bottom:10px">Time allocation</div>
                       <div class="alloc-stat"><i class="alloc-dot" style="background:var(--brand-2)"></i>client<span>${fmtHours(r.clientHours)}h</span></div>
-                      <div class="alloc-stat"><i class="alloc-dot" style="background:var(--brand)"></i>Internal work<span>${fmtHours(r.internalHours)}h</span></div>
-                      <div class="alloc-stat"><i class="alloc-dot" style="background:var(--gold)"></i>Time off (PTO)<span>${fmtHours(r.ptoHours)}h</span></div>
+                      <div class="alloc-stat"><i class="alloc-dot" style="background:var(--brand)"></i>internal<span>${fmtHours(r.internalHours)}h</span></div>
+                      <div class="alloc-stat"><i class="alloc-dot" style="background:var(--gold)"></i>time off (PTO)<span>${fmtHours(r.ptoHours)}h</span></div>
                     </div>
                   </div>
                 </td></tr>` : ''}`;
@@ -345,6 +382,10 @@ boot('teamhours', async (supa, el) => {
 
     el.querySelector('#r-from').onchange = e => { rangeFrom = monthOf(e.target.value); load(); };
     el.querySelector('#r-to').onchange = e => { rangeTo = monthOf(e.target.value); load(); };
+    el.querySelectorAll('[data-preset]').forEach(btn => btn.onclick = () => {
+      [rangeFrom, rangeTo] = PRESETS[btn.dataset.preset];
+      load();
+    });
     el.querySelector('#dept-filter').onchange = e => { deptFilter = e.target.value; render(H, P, deals, clients); };
     el.querySelector('#q').oninput = e => { query = e.target.value; render(H, P, deals, clients); };
     el.querySelector('#show-inactive').onchange = e => { showInactive = e.target.checked; render(H, P, deals, clients); };
