@@ -274,7 +274,7 @@ boot('settings', async (supa, el) => {
         <button class="primary" id="k-save-burden" style="align-self:flex-end">Save</button>
         <span id="k-burden-msg" class="ok" style="align-self:flex-end;font-size:12px"></span>
       </div>
-      <div class="sc-eyebrow">Benefits — 401k match, health insurance, workers' comp (041)</div>
+      <div class="sc-eyebrow">Benefits — 401k match, health insurance, workers' comp, SDI (041)</div>
       <div class="muted" style="font-size:11px;margin-bottom:8px;max-width:640px">
         Each only counts toward a person's cost if their own 401k / Health
         Insurance checkbox is on (set per person on Team). The 401k match
@@ -283,11 +283,19 @@ boot('settings', async (supa, el) => {
         unless they were hired on or before the grandfather cutoff below
         (044), in which case they're eligible immediately, no wait at all.
         Health insurance waits for the plan start date below, company-wide.
-        Workers' comp applies to every W-2 (non-contractor) staff member
-        regardless of either checkbox, calculated exactly per person from
-        their own work state (set on Team) against the per-state rates
-        below (042) — the flat rate here is only the fallback for a state
-        with no row yet, or a person with no work state set.</div>
+        Workers' comp and SUTA apply to every W-2 (non-contractor) staff
+        member regardless of either checkbox, calculated exactly per person
+        from their own work state (set on Team) against the per-state rates
+        below (042/046) — the flat rate/wage-base here is only the fallback
+        for a state with no row yet, or a person with no work state set.
+        State disability insurance (048) is deliberately NOT modeled for
+        most states — it's employee-funded there, not an employer cost.
+        Hawaii and New York are the two where the employer genuinely pays
+        the difference above what can legally be deducted from the
+        employee; both are flat $/month per person in that state, not a %
+        of pay (real TDI/DBL premiums don't scale with salary), and apply
+        automatically by work state — no opt-in checkbox, since it isn't
+        optional.</div>
       <div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:12px">
         <label class="mono" style="display:flex;flex-direction:column;gap:4px">
           401k match %
@@ -317,6 +325,14 @@ boot('settings', async (supa, el) => {
           SUTA fallback wage base $/yr
           <input id="k-sutabase" style="width:140px;text-align:right"
             value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='suta_wage_base');return k?k.value:7000})()}"></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px" title="Hawaii TDI — flat employer cost per covered person, not a % of pay">
+          HI disability insurance $/mo per person
+          <input id="k-hisdi" style="width:160px;text-align:right"
+            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='hi_disability_monthly_cost');return k?k.value:0})()}"></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px" title="New York DBL — flat employer cost per covered person, not a % of pay">
+          NY disability insurance $/mo per person
+          <input id="k-nysdi" style="width:160px;text-align:right"
+            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='ny_disability_monthly_cost');return k?k.value:0})()}"></label>
         <button class="primary" id="k-save-benefits" style="align-self:flex-end">Save</button>
         <span id="k-benefits-msg" class="ok" style="align-self:flex-end;font-size:12px"></span>
       </div>
@@ -367,6 +383,10 @@ boot('settings', async (supa, el) => {
         { key:'suta_rate', value:+document.getElementById('k-sutarate').value||0,
           set_by:window.__email, set_at:new Date().toISOString() },
         { key:'suta_wage_base', value:+document.getElementById('k-sutabase').value||7000,
+          set_by:window.__email, set_at:new Date().toISOString() },
+        { key:'hi_disability_monthly_cost', value:+document.getElementById('k-hisdi').value||0,
+          set_by:window.__email, set_at:new Date().toISOString() },
+        { key:'ny_disability_monthly_cost', value:+document.getElementById('k-nysdi').value||0,
           set_by:window.__email, set_at:new Date().toISOString() }];
       const { error } = await supa.from('settings').upsert(rows, { onConflict:'key' });
       document.getElementById('k-benefits-msg').textContent = error ? error.message : 'saved';
