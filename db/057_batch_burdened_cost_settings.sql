@@ -54,21 +54,25 @@ returns bigint as $$
     select start_date, enrolled_401k, enrolled_health_insurance, work_state
     from staff where id = p_staff_id
   ),
+  -- jsonb has no built-in MAX aggregate — extract to text (#>> '{}') before
+  -- aggregating; settings.key being a primary key means at most one row
+  -- backs each FILTER anyway, so this is just "the one value present, or
+  -- NULL", never a real max over multiple candidates.
   settings_kv as (
     select
-      max(value) filter (where key = 'fica_ss_rate')                 as fica_ss_rate,
-      max(value) filter (where key = 'fica_medicare_rate')           as fica_medicare_rate,
-      max(value) filter (where key = 'fica_ss_wage_base')            as fica_ss_wage_base,
-      max(value) filter (where key = 'futa_rate')                    as futa_rate,
-      max(value) filter (where key = 'futa_wage_base')               as futa_wage_base,
-      max(value) filter (where key = 'k401_match_rate')              as k401_match_rate,
-      max(value) filter (where key = 'health_insurance_monthly_cost') as health_insurance_monthly_cost,
-      max(value) filter (where key = 'health_insurance_start_date')  as health_insurance_start_date,
-      max(value) filter (where key = 'workers_comp_rate')            as workers_comp_rate,
-      max(value) filter (where key = 'suta_rate')                    as suta_rate,
-      max(value) filter (where key = 'suta_wage_base')               as suta_wage_base,
-      max(value) filter (where key = 'hi_disability_monthly_cost')   as hi_disability_monthly_cost,
-      max(value) filter (where key = 'ny_disability_monthly_cost')   as ny_disability_monthly_cost
+      max(value #>> '{}') filter (where key = 'fica_ss_rate')                  as fica_ss_rate,
+      max(value #>> '{}') filter (where key = 'fica_medicare_rate')            as fica_medicare_rate,
+      max(value #>> '{}') filter (where key = 'fica_ss_wage_base')             as fica_ss_wage_base,
+      max(value #>> '{}') filter (where key = 'futa_rate')                     as futa_rate,
+      max(value #>> '{}') filter (where key = 'futa_wage_base')                as futa_wage_base,
+      max(value #>> '{}') filter (where key = 'k401_match_rate')               as k401_match_rate,
+      max(value #>> '{}') filter (where key = 'health_insurance_monthly_cost') as health_insurance_monthly_cost,
+      max(value #>> '{}') filter (where key = 'health_insurance_start_date')   as health_insurance_start_date,
+      max(value #>> '{}') filter (where key = 'workers_comp_rate')             as workers_comp_rate,
+      max(value #>> '{}') filter (where key = 'suta_rate')                     as suta_rate,
+      max(value #>> '{}') filter (where key = 'suta_wage_base')                as suta_wage_base,
+      max(value #>> '{}') filter (where key = 'hi_disability_monthly_cost')    as hi_disability_monthly_cost,
+      max(value #>> '{}') filter (where key = 'ny_disability_monthly_cost')    as ny_disability_monthly_cost
     from settings
     where key in ('fica_ss_rate','fica_medicare_rate','fica_ss_wage_base','futa_rate','futa_wage_base',
                   'k401_match_rate','health_insurance_monthly_cost','health_insurance_start_date',
@@ -85,19 +89,19 @@ returns bigint as $$
   ),
   rates as (
     select
-      coalesce((settings_kv.fica_ss_rate #>> '{}')::numeric, 6.2) / 100 as ss_rate,
-      coalesce((settings_kv.fica_medicare_rate #>> '{}')::numeric, 1.45) / 100 as medicare_rate,
-      coalesce((settings_kv.fica_ss_wage_base #>> '{}')::numeric, 176100) * 100 as ss_wage_base_c,
-      coalesce((settings_kv.futa_rate #>> '{}')::numeric, 0.6) / 100 as futa_rate,
-      coalesce((settings_kv.futa_wage_base #>> '{}')::numeric, 7000) * 100 as futa_wage_base_c,
-      coalesce((settings_kv.k401_match_rate #>> '{}')::numeric, 0) / 100 as k401_rate,
-      coalesce((settings_kv.health_insurance_monthly_cost #>> '{}')::numeric, 0) * 100 as hi_monthly_c,
-      coalesce((settings_kv.health_insurance_start_date #>> '{}')::date, '2099-01-01'::date) as hi_start,
-      coalesce(wc.rate, coalesce((settings_kv.workers_comp_rate #>> '{}')::numeric, 0)) / 100 as wc_rate,
-      coalesce(suta.rate, coalesce((settings_kv.suta_rate #>> '{}')::numeric, 0)) / 100 as suta_rate,
-      coalesce(suta.wage_base, coalesce((settings_kv.suta_wage_base #>> '{}')::numeric, 7000)) * 100 as suta_wage_base_c,
-      coalesce((settings_kv.hi_disability_monthly_cost #>> '{}')::numeric, 0) * 100 as hi_sdi_monthly_c,
-      coalesce((settings_kv.ny_disability_monthly_cost #>> '{}')::numeric, 0) * 100 as ny_sdi_monthly_c
+      coalesce(settings_kv.fica_ss_rate::numeric, 6.2) / 100 as ss_rate,
+      coalesce(settings_kv.fica_medicare_rate::numeric, 1.45) / 100 as medicare_rate,
+      coalesce(settings_kv.fica_ss_wage_base::numeric, 176100) * 100 as ss_wage_base_c,
+      coalesce(settings_kv.futa_rate::numeric, 0.6) / 100 as futa_rate,
+      coalesce(settings_kv.futa_wage_base::numeric, 7000) * 100 as futa_wage_base_c,
+      coalesce(settings_kv.k401_match_rate::numeric, 0) / 100 as k401_rate,
+      coalesce(settings_kv.health_insurance_monthly_cost::numeric, 0) * 100 as hi_monthly_c,
+      coalesce(settings_kv.health_insurance_start_date::date, '2099-01-01'::date) as hi_start,
+      coalesce(wc.rate, coalesce(settings_kv.workers_comp_rate::numeric, 0)) / 100 as wc_rate,
+      coalesce(suta.rate, coalesce(settings_kv.suta_rate::numeric, 0)) / 100 as suta_rate,
+      coalesce(suta.wage_base, coalesce(settings_kv.suta_wage_base::numeric, 7000)) * 100 as suta_wage_base_c,
+      coalesce(settings_kv.hi_disability_monthly_cost::numeric, 0) * 100 as hi_sdi_monthly_c,
+      coalesce(settings_kv.ny_disability_monthly_cost::numeric, 0) * 100 as ny_sdi_monthly_c
     from settings_kv, wc, suta
   )
   select case
