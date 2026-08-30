@@ -61,7 +61,7 @@ boot('clientprofit', async (supa, el) => {
       <span class="muted">→</span>
       <input type="month" id="r-to" aria-label="Range to" value="${rangeTo.slice(0, 7)}">
       <label class="mono" style="display:flex;align-items:center;gap:6px;margin-left:auto">
-        <input type="checkbox" id="cp-historical" style="height:auto"> historical only — exclude forecasted</label>
+        <input type="checkbox" id="cp-historical" style="height:auto"> measured only</label>
     </div>
     <div id="panel">loading…</div>`;
 
@@ -203,7 +203,7 @@ boot('clientprofit', async (supa, el) => {
       <div class="summary-strip">
         <div class="summary-cell"><div class="summary-label">Revenue</div>
           <div class="summary-value">${fmt$0(totalRevenue)}</div>
-          <div class="summary-note">${historicalOnly ? 'actuals only' : 'invoiced + planned'}</div></div>
+          <div class="summary-note">${historicalOnly ? 'measured only' : 'invoiced + forecasted'}</div></div>
         <div class="summary-cell"><div class="summary-label">Gross profit</div>
           <div class="summary-value ${totalGP < 0 ? 'neg' : 'pos'}">${fmt$0(totalGP)}</div></div>
         <div class="summary-cell"><div class="summary-label">Labor cost</div>
