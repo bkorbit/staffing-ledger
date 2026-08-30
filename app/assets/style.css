@@ -465,7 +465,7 @@ table.acct td { font-variant-numeric: tabular-nums; }
    popover — a first pass opened on the side at popover size and buried
    compensation history behind a second toggle; centering it at a normal
    modal's width, with history inline in the same dialog, was the fix. */
-.modal.modal-sm { width:min(760px,94vw); }
+.modal.modal-sm { width:min(912px,94vw); }
 
 /* Every modal's Cancel/Save pair belongs at the true bottom of the dialog,
    not wherever the form happened to end — Team's edit modal used to put

@@ -19,6 +19,13 @@
 .rp .seg:hover:not(.on) { color:var(--ink); }
 .modal[data-emptype="full_time"] .cap-col,
 .modal[data-emptype="full_time"] .np-cap-wrap { display:none; }
+/* .settings' shared auto-fit grid (minmax(260px,1fr)) starts a 3rd column
+   once this modal is wide enough to fit one — fine on the deal editor's
+   1180px modal, but here it orphans "End date" alone on its own row. A
+   taller minmax basis keeps this modal's grid at the 2-per-row pairing it
+   was designed around (Department+Hire date, Active+End date) at any width
+   up to modal-sm's own cap. */
+.modal-sm .settings { grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); }
 </style>
 </head><body>
 <script type="module">
