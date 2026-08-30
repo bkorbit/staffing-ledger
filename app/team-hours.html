@@ -241,8 +241,8 @@ boot('teamhours', async (supa, el) => {
           </label>
         </div>
         <table class="ledger" style="table-layout:fixed">
-          <colgroup><col style="width:20%"><col style="width:9%">
-            <col style="width:22%"><col style="width:21%"><col style="width:21%"><col style="width:7%"></colgroup>
+          <colgroup><col style="width:20%"><col style="width:11%">
+            <col style="width:22%"><col style="width:21%"><col style="width:21%"><col style="width:5%"></colgroup>
           <tr><th>name</th><th>logged / cap</th><th class="textleft">utilization</th><th class="textleft">pacing (assigned)</th><th class="textleft">plan vs. logged</th><th>profit</th></tr>
           ${!rows.length ? `<tr><td colspan="6" class="empty-note">No people match the current filters.</td></tr>` : rows.map(r => {
             // Utilization: client + internal + time-off, all against capacity.
@@ -285,7 +285,7 @@ boot('teamhours', async (supa, el) => {
                     ${capPill}
                   </div>
                 </td>
-                <td class="textleft" title="${fmtHours(r.totalLoggedHours)}h logged (client + internal + PTO) of ${fmtHours(r.cap)}h capacity">${fmtHours(r.totalLoggedHours)}/${fmtHours(r.cap)}h <span class="${capPctClass}">(${Math.round(r.capPct)}%)</span></td>
+                <td class="textleft" style="white-space:nowrap" title="${fmtHours(r.totalLoggedHours)}h logged (client + internal + PTO) of ${fmtHours(r.cap)}h capacity">${fmtHours(r.totalLoggedHours)}/${fmtHours(r.cap)}h <span class="${capPctClass}">(${Math.round(r.capPct)}%)</span></td>
                 <td class="textleft">
                   <div class="barcell">
                     <div class="mini-track split wide">${util.html}</div>
