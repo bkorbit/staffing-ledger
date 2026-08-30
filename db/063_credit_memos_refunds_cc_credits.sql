@@ -1,7 +1,12 @@
 -- ============================================================================
---  057 — new cost_kind values for Credit Memos, Refund Receipts, and Credit
+--  063 — new cost_kind values for Credit Memos, Refund Receipts, and Credit
 --  Card Credits: three QuickBooks entity types this sync has never pulled at
 --  all (only Invoice/Bill/Purchase/JournalEntry).
+--
+--  (Originally shipped as 057 — renumbered to 063 after a collision with
+--  057_batch_burdened_cost_settings.sql, and 061/062 also already taken, all
+--  from a peer session's concurrent work. Not yet run against the live
+--  database under either number, so the rename is safe.)
 --
 --  Confirmed as the exact, to-the-penny cause of two real gaps found
 --  reconciling against the P&L (Elite Media Group_Account+QuickReport.xlsx):
