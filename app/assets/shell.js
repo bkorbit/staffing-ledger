@@ -14,6 +14,26 @@ export const fmt$ = c => '$' + (c / 100).toLocaleString(undefined, { maximumFrac
 export const esc = s => String(s ?? '').replace(/[&<>"']/g,
   c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 
+// Every page's "search…" box wires oninput straight to a function that
+// rebuilds a container's whole innerHTML — including the input itself. The
+// browser never carries focus over to a freshly created element, so typing
+// a single character unfocused the box and every keystroke after it went
+// nowhere. Capture the cursor position before the rebuild, find the new
+// element by the same selector after, and put focus (and the cursor) back.
+// onInput may return a value to await (a page whose re-render is itself
+// async) or nothing (a plain synchronous render).
+export function wireSearch(container, selector, onInput) {
+  const input = container.querySelector(selector);
+  input.oninput = async e => {
+    const pos = e.target.selectionStart;
+    await onInput(e.target.value);
+    const fresh = container.querySelector(selector);
+    if (!fresh) return;
+    fresh.focus();
+    fresh.setSelectionRange(pos, pos);
+  };
+}
+
 // Supabase caps every response at 1000 rows SERVER-side — .limit() cannot exceed
 // it. Anything that can outgrow a thousand rows must page. Pages arrive in
 // parallel waves that double (4, then 8, then 16 …) rather than one at a time.

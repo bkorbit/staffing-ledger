@@ -22,7 +22,7 @@
 </style>
 </head><body>
 <script type="module">
-import { boot, esc } from './assets/shell.js?v=c84b45c';
+import { boot, esc, wireSearch } from './assets/shell.js?v=c84b45c';
 
 // Where salary, capacity, department, and employment dates are MANAGED —
 // Team Hours (Delivery) is for reading that information back, not editing
@@ -357,7 +357,7 @@ boot('team', async (supa, el) => {
         </div>
       </div>`;
 
-    el.querySelector('#q').oninput = e => { query = e.target.value; render(staff, comp); };
+    wireSearch(el, '#q', v => { query = v; render(staff, comp); });
     el.querySelector('#dept-filter').onchange = e => { deptFilter = e.target.value; render(staff, comp); };
     el.querySelector('#show-inactive').onchange = e => { showInactive = e.target.checked; render(staff, comp); };
     el.querySelectorAll('th[data-sort]').forEach(th => {

@@ -2,7 +2,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EMG — Client Profitability</title><link rel="stylesheet" href="./assets/style.css?v=c84b45c"></head><body>
 <script type="module">
-import { boot, esc } from './assets/shell.js?v=c84b45c';
+import { boot, esc, wireSearch } from './assets/shell.js?v=c84b45c';
 
 // Client-level evaluation — is this account healthy? For per-project detail
 // (scoping, tracking how much work is going into a specific deal), see
@@ -260,7 +260,7 @@ boot('clientprofit', async (supa, el) => {
         </div>
       </div>`;
 
-    document.getElementById('q').oninput = e => { query = e.target.value; render(); };
+    wireSearch(el, '#q', v => { query = v; render(); });
     document.querySelectorAll('th[data-sort]').forEach(th => {
       const activate = () => {
         const key = th.dataset.sort;

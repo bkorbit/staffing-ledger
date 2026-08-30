@@ -2,7 +2,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EMG — Project Hours</title><link rel="stylesheet" href="./assets/style.css?v=c84b45c"></head><body>
 <script type="module">
-import { boot, esc, barChart } from './assets/shell.js?v=c84b45c';
+import { boot, esc, barChart, wireSearch } from './assets/shell.js?v=c84b45c';
 
 // Per-project scoping and tracking — how much work is actually going into a
 // specific deal. For client-level health, see Client Profitability instead;
@@ -34,6 +34,7 @@ boot('projhours', async (supa, el) => {
   const thisMonth = monthOf(iso(new Date()));
   let rangeFrom = shiftM(thisMonth, -2), rangeTo = thisMonth;
   let query = '';
+  let allDealRows = []; // fetched by load(), filtered/rendered by render()
 
   el.innerHTML = `<div id="panel">loading…</div>`;
 
@@ -57,7 +58,7 @@ boot('projhours', async (supa, el) => {
     // one row per deal that has EITHER actual labor hours or a claimed QBO
     // project (so a deal with revenue but zero hours still shows, flagging
     // that its labor was never logged against it)
-    const allDealRows = Object.keys(laborByDeal)
+    allDealRows = Object.keys(laborByDeal)
       .concat(Object.values(dealsById).filter(d => d.qbo_project_id).map(d => d.id))
       .filter((id, i, a) => a.indexOf(id) === i)
       .map(id => {
@@ -71,6 +72,13 @@ boot('projhours', async (supa, el) => {
         };
       }).filter(Boolean).sort((a, b) => b.hours - a.hours);
 
+    render();
+  }
+
+  // Pure client-side: filters/renders whatever load() last fetched. Kept
+  // separate so typing in the search box doesn't re-fetch from the network
+  // on every keystroke — it only needs to re-filter allDealRows.
+  function render() {
     const q = query.trim().toLowerCase();
     const shown = !q ? allDealRows : allDealRows.filter(d =>
       d.name.toLowerCase().includes(q) || d.client.toLowerCase().includes(q));
@@ -135,7 +143,7 @@ boot('projhours', async (supa, el) => {
 
     el.querySelector('#r-from').onchange = e => { rangeFrom = monthOf(e.target.value); load(); };
     el.querySelector('#r-to').onchange = e => { rangeTo = monthOf(e.target.value); load(); };
-    el.querySelector('#q').oninput = e => { query = e.target.value; load(); };
+    wireSearch(el, '#q', v => { query = v; render(); });
   }
 
   await load();
