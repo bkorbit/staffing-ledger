@@ -134,6 +134,18 @@ function planBar(planned, logged) {
   return { html: seg('seg-good', green) + seg('seg-over', over), overBy: over };
 }
 
+// One comparable number per sortable column. "plan" sorts by the plan-vs-
+// logged delta (negative = under plan, positive = over) since that's the
+// actual comparison the column shows, not either side of it alone.
+const SORT_ACCESSORS = {
+  name: r => r.s.name.toLowerCase(),
+  cap: r => r.capPct,
+  profit: r => r.profit,
+  util: r => r.totalLoggedHours,
+  pacing: r => r.assignedHours,
+  plan: r => r.clientHours - r.assignedHours,
+};
+
 boot('teamhours', async (supa, el) => {
   const thisMonth = monthOf(iso(new Date()));
   // Quick-range presets, keyed by the label shown on each button. Computed
@@ -150,6 +162,9 @@ boot('teamhours', async (supa, el) => {
   };
   let rangeFrom = thisMonth, rangeTo = thisMonth;
   let deptFilter = '', query = '', showInactive = false;
+  // Default matches the table's old fixed sort (busiest people first);
+  // every other column becomes reachable by clicking its header.
+  let tableSort = { key: 'util', dir: -1 };
   const openStaff = new Set(); // staff ids currently expanded to show their client/project breakout
 
   el.innerHTML = `<div id="panel">loading…</div>`;
@@ -259,12 +274,21 @@ boot('teamhours', async (supa, el) => {
     rows = rows.filter(r => (showInactive || (r.s.active && r.s.has_recent_hours))
       && (!deptFilter || r.s.department === deptFilter)
       && (!q || r.s.name.toLowerCase().includes(q)));
-    rows.sort((a, b) => b.hc.hours - a.hc.hours);
+    rows.sort((a, b) => {
+      const av = SORT_ACCESSORS[tableSort.key](a), bv = SORT_ACCESSORS[tableSort.key](b);
+      if (av !== bv) return (av < bv ? -1 : 1) * tableSort.dir;
+      return a.s.name.localeCompare(b.s.name);
+    });
 
     const totalHours = rows.reduce((s, r) => s + r.hc.hours, 0);
     const totalCost = rows.reduce((s, r) => s + r.hc.cost, 0);
     const totalCapacity = rows.reduce((s, r) => s + r.cap, 0);
     const overCount = rows.filter(r => r.capStatus === 'over').length;
+
+    const sortTh = (key, label, cls = '') => {
+      const active = tableSort.key === key;
+      return `<th${cls ? ` class="${cls}"` : ''} data-sort="${key}" scope="col" tabindex="0" role="columnheader" aria-sort="${active ? (tableSort.dir < 0 ? 'descending' : 'ascending') : 'none'}">${label}${active ? `<span class="dir">${tableSort.dir < 0 ? '▼' : '▲'}</span>` : ''}</th>`;
+    };
 
     el.querySelector('#panel').innerHTML = `
       <div class="range">
@@ -306,7 +330,7 @@ boot('teamhours', async (supa, el) => {
         <table class="ledger" style="table-layout:fixed">
           <colgroup><col style="width:20%"><col style="width:11%"><col style="width:5%">
             <col style="width:22%"><col style="width:21%"><col style="width:21%"></colgroup>
-          <tr><th>name</th><th>logged / cap</th><th>profit</th><th class="textleft">utilization</th><th class="textleft">pacing (assigned)</th><th class="textleft">plan vs. logged</th></tr>
+          <tr>${sortTh('name', 'name')}${sortTh('cap', 'logged / cap')}${sortTh('profit', 'profit')}${sortTh('util', 'utilization', 'textleft')}${sortTh('pacing', 'pacing (assigned)', 'textleft')}${sortTh('plan', 'plan vs. logged', 'textleft')}</tr>
           ${!rows.length ? `<tr><td colspan="6" class="empty-note">No people match the current filters.</td></tr>` : rows.map(r => {
             // Utilization: client + internal + time-off, all against capacity.
             const util = utilizationBar(r.cap, r.internalHours, r.ptoHours, r.clientHours);
@@ -406,6 +430,15 @@ boot('teamhours', async (supa, el) => {
     el.querySelector('#dept-filter').onchange = e => { deptFilter = e.target.value; render(H, P, deals, clients); };
     el.querySelector('#q').oninput = e => { query = e.target.value; render(H, P, deals, clients); };
     el.querySelector('#show-inactive').onchange = e => { showInactive = e.target.checked; render(H, P, deals, clients); };
+    el.querySelectorAll('th[data-sort]').forEach(th => {
+      const activate = () => {
+        const k = th.dataset.sort;
+        tableSort = { key: k, dir: tableSort.key === k ? -tableSort.dir : 1 };
+        render(H, P, deals, clients);
+      };
+      th.onclick = activate;
+      th.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); } };
+    });
     el.querySelectorAll('tr.namerow').forEach(tr => {
       const toggle = () => {
         const sid = tr.dataset.sid;
