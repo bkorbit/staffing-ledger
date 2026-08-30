@@ -251,10 +251,15 @@ boot('home', async (supa, el) => {
     const totUnused = Math.max(totalCapacity - (totClient + totInternal + totOff), 0);
 
     // ---- trend: revenue (netted, forecast_page's own rev_month) & labor
-    // cost, one point per month across the range
+    // cost, one point per month across the range, plus the deal plan's own
+    // forecasted revenue (plan_month.billable — same figure Forecast's chart
+    // falls back to once a month isn't fully measured yet) so the plan and
+    // the realized number sit on the same axis
     const months = monthsBetween(rangeFrom, rangeTo);
     const costByMonth = {};
     (H.staff_hours_month || []).forEach(r => { costByMonth[r.month] = (costByMonth[r.month] || 0) + +r.cost; });
+    const billByMonth = {};
+    (P.plan_month || []).forEach(r => { billByMonth[r.month] = +r.billable; });
 
     // ---- weekly hours by project: top 4 deals by logged hours + everyone else
     const teRows = te.data || [];
@@ -305,6 +310,7 @@ boot('home', async (supa, el) => {
 
     bandChart(document.getElementById('chart-trend'), months.map(mLabel), [
       { name: 'revenue', color: 'var(--brand)', values: months.map(m => revByMonth[m] || 0) },
+      { name: 'forecasted revenue', color: 'var(--brand-4)', values: months.map(m => billByMonth[m] || 0) },
       { name: 'labor cost', color: 'var(--slate)', values: months.map(m => costByMonth[m] || 0) }
     ]);
 
