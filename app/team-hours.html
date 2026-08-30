@@ -168,14 +168,23 @@ boot('teamhours', async (supa, el) => {
   const openStaff = new Set(); // staff ids currently expanded to show their client/project breakout
 
   el.innerHTML = `<div id="panel">loading…</div>`;
+  // Preset/range clicks fire a new load() while a prior one may still be
+  // in flight; network jitter means responses can land out of order. A
+  // sequence token lets a stale response's render() be discarded instead
+  // of clobbering a newer click's result — without it a fast click after a
+  // slow one could silently revert to the earlier range, reading as the
+  // click "not responding."
+  let loadSeq = 0;
 
   async function load() {
+    const seq = ++loadSeq;
     const [hp, fp, dl, cl] = await Promise.all([
       supa.rpc('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) }),
       supa.rpc('forecast_page', { p_from: rangeFrom, p_to: rangeTo }),
       supa.from('deals').select('id,name,client_id,qbo_project_id'),
       supa.from('clients').select('id,name')
     ]);
+    if (seq !== loadSeq) return;
     for (const r of [hp, fp, dl, cl]) if (r.error) {
       el.innerHTML = `<div class="sc-panel err">${esc(r.error.message)}</div>`; return;
     }
