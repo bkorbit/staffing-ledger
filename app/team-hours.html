@@ -188,9 +188,21 @@ boot('teamhours', async (supa, el) => {
   // hp/fp calls (still one Promise.all wave), then reused for the life of
   // the page.
   let deals = [], clients = [], staticLoaded = false;
+  // hours_page() still does real per-staff compute even after the backend
+  // work (db/057/061/062) — resolving everyone's burdened hourly rate isn't
+  // free, and people commonly flip back and forth between the same couple
+  // of ranges while reviewing (Last Month <-> This Month, etc). Read-only
+  // page, so the exact same range always means the exact same answer for
+  // the rest of this visit — cache each range's result and skip the round
+  // trip entirely the second time it's viewed. Session-only: a fresh page
+  // load starts with an empty cache, same as deals/clients above.
+  const rangeCache = new Map();
 
   async function load() {
     const seq = ++loadSeq;
+    const cacheKey = `${rangeFrom}|${rangeTo}`;
+    const cached = rangeCache.get(cacheKey);
+    if (cached) { render(cached.H, cached.RP, deals, clients); return; }
     const panel = el.querySelector('#panel');
     if (panel) panel.classList.add('is-loading');
     const calls = [
@@ -214,7 +226,9 @@ boot('teamhours', async (supa, el) => {
       el.innerHTML = `<div class="sc-panel err">${esc(r.error.message)}</div>`; return;
     }
     if (!staticLoaded) { deals = dl.data || []; clients = cl.data || []; staticLoaded = true; }
-    render(hp.data || {}, rp.data || [], deals, clients);
+    const H = hp.data || {}, RP = rp.data || [];
+    rangeCache.set(cacheKey, { H, RP });
+    render(H, RP, deals, clients);
   }
 
   function render(H, revProj, deals, clients) {
