@@ -1,6 +1,7 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EMG — Team</title><link rel="stylesheet" href="./assets/style.css?v=67f1530">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <style>
 /* .settings' shared auto-fit grid (minmax(260px,1fr)) starts a 3rd column
    once this modal is wide enough to fit one — fine on the deal editor's
@@ -113,6 +114,7 @@ boot('team', async (supa, el) => {
   // every view including their own history).
   const STATUS_OF = s => !s.active ? 'inactive' : (s.end_date ? 'ended' : 'active');
   const STATUS_PILL = { active: 'good', ended: 'warn', inactive: 'bad' };
+  const STATUS_LABEL = { active: 'Active', ended: 'Ended', inactive: 'Inactive' };
 
   // Employment type is set PER comp period, not once for a person's whole
   // tenure (039) — someone can start as a contractor and go full time later,
@@ -387,6 +389,198 @@ boot('team', async (supa, el) => {
     render(st.data || [], cp.data || [], tc.data || []);
   }
 
+  /* --------------------------------------------------- export/import (xlsx) */
+  // Staff-level fields only — name/department/dates/status/work state/
+  // 401k/health insurance. Deliberately NOT compensation history:
+  // comp_periods is an append-only ledger (raises, backdated corrections),
+  // not a set of fields a bulk re-upload should ever overwrite. This is for
+  // batch-editing the roster attributes added over 041-046 without opening
+  // 50 modals one at a time — not a full backup/restore of the person.
+  const EXPORT_HEADERS = ['ID', 'Name', 'Department', 'Hire Date', 'Status', 'End Date', 'Work State', '401k', 'Health Insurance'];
+
+  async function exportTeam(rows) {
+    const btn = el.querySelector('#export-team-btn');
+    if (!btn || btn.disabled) return;
+    const label = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Exporting…';
+    try {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Team');
+      ws.columns = EXPORT_HEADERS.map(h => ({ header: h, width: h === 'ID' ? 38 : h === 'Name' ? 24 : h === 'Health Insurance' ? 16 : 14 }));
+      ws.getRow(1).eachCell(cell => {
+        cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0A493C' } };
+      });
+      rows.forEach(s => {
+        ws.addRow([
+          s.id, s.name, s.department || '', s.start_date || '',
+          STATUS_LABEL[STATUS_OF(s)], s.end_date || '', s.work_state || '',
+          s.enrolled_401k ? 'Y' : 'N', s.enrolled_health_insurance ? 'Y' : 'N'
+        ]);
+      });
+      // ID stays in the file (import matches by it, not by name) but hidden —
+      // it's a join key, not something a human should read or hand-edit.
+      ws.getColumn(1).hidden = true;
+      const buf = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `emg-team_${iso(new Date())}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Export failed: ' + (err.message || err));
+    } finally {
+      btn.disabled = false; btn.textContent = label;
+    }
+  }
+
+  // ExcelJS gives a JS Date for date-formatted cells but a plain string/number
+  // for anything typed as text — handle both rather than assuming one shape.
+  const cellDate = v => {
+    if (!v) return null;
+    if (v instanceof Date) return iso(v);
+    const s = String(v).trim();
+    return s || null;
+  };
+  const cellBool = v => /^(y|yes|true|1)$/i.test(String(v ?? '').trim());
+
+  async function handleImportFile(file, staffById) {
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(buf);
+      const ws = wb.worksheets[0];
+      if (!ws) throw new Error('no worksheet found in that file');
+
+      // Match columns by header TEXT, not position — a reordered or
+      // hand-edited copy of the export still parses correctly.
+      const colByHeader = {};
+      ws.getRow(1).eachCell((cell, colNumber) => {
+        colByHeader[String(cell.value || '').trim().toLowerCase()] = colNumber;
+      });
+      const needed = ['id', 'name', 'department', 'hire date', 'status', 'end date', 'work state', '401k', 'health insurance'];
+      const missingCols = needed.filter(h => !colByHeader[h]);
+      if (missingCols.length) throw new Error(`missing column(s): ${missingCols.join(', ')}`);
+      const get = (row, header) => row.getCell(colByHeader[header]).value;
+      const stateCodes = new Set(US_STATES.map(([code]) => code));
+
+      const changes = []; // { id, name, fields, diffLines }
+      const rowErrors = []; // { row, reason }
+
+      for (let r = 2; r <= ws.rowCount; r++) {
+        const row = ws.getRow(r);
+        if (row.cellCount === 0) continue;
+        const id = String(get(row, 'id') || '').trim();
+        if (!id) continue; // blank row — not a data row, not a "create new person" (import never inserts)
+        const existing = staffById[id];
+        if (!existing) { rowErrors.push({ row: r, reason: `no matching person for id ${id}` }); continue; }
+
+        const statusRaw = String(get(row, 'status') || '').trim().toLowerCase();
+        if (!STATUS_LABEL[statusRaw]) {
+          rowErrors.push({ row: r, reason: `unrecognized status "${get(row, 'status')}" (must be Active/Ended/Inactive)` }); continue;
+        }
+        const end_date = cellDate(get(row, 'end date'));
+        if (statusRaw === 'ended' && !end_date) {
+          rowErrors.push({ row: r, reason: 'Status is Ended but End Date is blank' }); continue;
+        }
+        const stateRaw = String(get(row, 'work state') || '').trim().toUpperCase();
+        if (stateRaw && !stateCodes.has(stateRaw)) {
+          rowErrors.push({ row: r, reason: `unrecognized work state "${stateRaw}"` }); continue;
+        }
+
+        const fields = {
+          name: String(get(row, 'name') || '').trim() || existing.name,
+          department: String(get(row, 'department') || '').trim() || null,
+          start_date: cellDate(get(row, 'hire date')),
+          end_date: statusRaw === 'ended' ? end_date : null,
+          active: statusRaw !== 'inactive',
+          work_state: stateRaw || null,
+          enrolled_401k: cellBool(get(row, '401k')),
+          enrolled_health_insurance: cellBool(get(row, 'health insurance'))
+        };
+
+        const diffLines = [
+          ['Name', existing.name, fields.name],
+          ['Department', existing.department || '', fields.department || ''],
+          ['Hire date', existing.start_date || '', fields.start_date || ''],
+          ['Status', STATUS_LABEL[STATUS_OF(existing)], STATUS_LABEL[statusRaw]],
+          ['End date', existing.end_date || '', fields.end_date || ''],
+          ['Work state', existing.work_state || '', fields.work_state || ''],
+          ['401k', existing.enrolled_401k ? 'Y' : 'N', fields.enrolled_401k ? 'Y' : 'N'],
+          ['Health Insurance', existing.enrolled_health_insurance ? 'Y' : 'N', fields.enrolled_health_insurance ? 'Y' : 'N']
+        ].filter(([, before, after]) => before !== after).map(([label, before, after]) => ({ label, before, after }));
+
+        if (diffLines.length) changes.push({ id, name: fields.name, fields, diffLines });
+      }
+
+      if (!changes.length && !rowErrors.length) { alert('No changes detected — nothing to import.'); return; }
+      showImportPreview(changes, rowErrors);
+    } catch (err) {
+      alert('Import failed: ' + (err.message || err));
+    }
+  }
+
+  // A bulk write across many people at once is exactly the kind of action
+  // worth a real preview, not a blind "file picked -> rows written" — every
+  // detected change is listed field-by-field before anything touches the
+  // database, and rows that couldn't be matched/validated are shown as
+  // skipped rather than silently dropped.
+  function showImportPreview(changes, rowErrors) {
+    const back = document.createElement('div');
+    back.className = 'modal-back';
+    back.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="import-title" style="max-width:720px">
+      <div class="modal-head">
+        <span class="modal-title" id="import-title">Import preview</span>
+        <button class="mclose">Close ✕</button>
+      </div>
+      <div class="modal-body">
+        ${rowErrors.length ? `<div class="sc-eyebrow" style="color:var(--rust)">Skipped rows (${rowErrors.length})</div>
+          <ul style="font-size:12px;color:var(--rust);margin:0 0 12px 18px">
+            ${rowErrors.map(e => `<li>row ${e.row}: ${esc(e.reason)}</li>`).join('')}
+          </ul>` : ''}
+        ${changes.length ? `<div class="sc-eyebrow">Changes to apply (${changes.length} ${changes.length===1?'person':'people'})</div>
+          <div class="gridwrap" style="max-height:360px;overflow-y:auto">
+          <table class="ledger"><thead><tr><th scope="col">name</th><th scope="col">field</th><th scope="col">was</th><th scope="col">now</th></tr></thead>
+          <tbody>
+            ${changes.map(c => c.diffLines.map((d, i) => `<tr>
+                <td class="textleft">${i===0?esc(c.name):''}</td>
+                <td class="textleft">${esc(d.label)}</td>
+                <td class="muted">${esc(d.before||'—')}</td>
+                <td>${esc(d.after||'—')}</td>
+              </tr>`).join('')).join('')}
+          </tbody></table>
+          </div>` : `<div class="muted" style="font-size:12px">No changes to apply.</div>`}
+      </div>
+      <div class="modal-foot">
+        <span class="err" id="import-apply-msg" style="flex:1;font-size:11px"></span>
+        <button class="ghost import-cancel">Cancel</button>
+        ${changes.length ? `<button class="primary import-apply">Apply ${changes.length} change${changes.length===1?'':'s'}</button>` : ''}
+      </div>
+    </div>`;
+    document.body.appendChild(back);
+    const closeThis = () => back.remove();
+    back.onclick = e => { if (e.target === back) closeThis(); };
+    back.querySelector('.mclose').onclick = closeThis;
+    back.querySelector('.import-cancel').onclick = closeThis;
+    const applyBtn = back.querySelector('.import-apply');
+    if (applyBtn) applyBtn.onclick = async () => {
+      applyBtn.disabled = true; applyBtn.textContent = 'Applying…';
+      let okCount = 0; const failMsgs = [];
+      for (const c of changes) {
+        const { error } = await supa.from('staff').update(c.fields).eq('id', c.id);
+        if (error) failMsgs.push(`${c.name}: ${error.message}`); else okCount++;
+      }
+      if (failMsgs.length) {
+        back.querySelector('#import-apply-msg').textContent = `${okCount} updated, ${failMsgs.length} failed: ${failMsgs.join('; ')}`;
+        applyBtn.disabled = false; applyBtn.textContent = `Apply ${changes.length} changes`;
+      } else {
+        closeThis();
+        load();
+      }
+    };
+  }
+
   const STATUS_RANK = { active: 2, ended: 1, inactive: 0 };
   const SORT_ACCESSORS = {
     name: s => s.name.toLowerCase(),
@@ -428,7 +622,11 @@ boot('team', async (supa, el) => {
     });
 
     el.querySelector('#panel').innerHTML = `
-      <div style="display:flex;justify-content:flex-end;margin-bottom:14px">
+      <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-bottom:14px">
+        <span class="muted" style="font-size:11px" title="Name/department/dates/status/work state/401k/health insurance only — compensation history isn't part of this round trip, and import only updates people already on the roster, never adds new ones">Export/Import: roster fields only, no new hires</span>
+        <button class="ghost" id="export-team-btn">Export</button>
+        <button class="ghost" id="import-team-btn">Import</button>
+        <input type="file" id="import-file-input" accept=".xlsx" hidden>
         <button class="primary" id="add-staff-btn">+ Add person</button>
       </div>
       <div class="sc-panel" style="padding:0">
@@ -494,6 +692,13 @@ boot('team', async (supa, el) => {
     });
     el.querySelector('#add-staff-btn').onclick = () => {
       openModal(el.querySelector('#add-staff-btn'), 'create', null);
+    };
+    el.querySelector('#export-team-btn').onclick = () => exportTeam(rows);
+    el.querySelector('#import-team-btn').onclick = () => el.querySelector('#import-file-input').click();
+    el.querySelector('#import-file-input').onchange = e => {
+      const file = e.target.files[0];
+      e.target.value = ''; // lets the same file be re-picked next time
+      if (file) handleImportFile(file, staffById);
     };
     el.querySelectorAll('.edit-btn').forEach(btn => btn.onclick = e => {
       e.stopPropagation();
