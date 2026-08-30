@@ -277,8 +277,10 @@ boot('settings', async (supa, el) => {
         Each only counts toward a person's cost if their own 401k / Health
         Insurance checkbox is on (set per person on Team). The 401k match
         also waits for that person's own eligibility date (6 months after
-        hire, entry on the 1st of the month coinciding with or following);
-        health insurance waits for the plan start date below, company-wide.
+        hire, entry on the 1st of the month coinciding with or following) —
+        unless they were hired on or before the grandfather cutoff below
+        (044), in which case they're eligible immediately, no wait at all.
+        Health insurance waits for the plan start date below, company-wide.
         Workers' comp applies to every W-2 (non-contractor) staff member
         regardless of either checkbox, calculated exactly per person from
         their own work state (set on Team) against the per-state rates
@@ -289,6 +291,10 @@ boot('settings', async (supa, el) => {
           401k match %
           <input id="k-401krate" style="width:120px;text-align:right"
             value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='k401_match_rate');return k?k.value:3})()}"></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px" title="Hired on or before this date skips the 6-month wait entirely — eligible immediately from their own hire date">
+          401k grandfather cutoff (hired on/before = no wait)
+          <input id="k-401kgrandfather" type="date" style="width:160px"
+            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='k401_grandfather_cutoff');return k?k.value:'2026-01-01'})()}"></label>
         <label class="mono" style="display:flex;flex-direction:column;gap:4px">
           health insurance $/mo per enrolled person
           <input id="k-himonthly" style="width:160px;text-align:right"
@@ -339,6 +345,8 @@ boot('settings', async (supa, el) => {
     document.getElementById('k-save-benefits').onclick = async () => {
       const rows = [
         { key:'k401_match_rate', value:+document.getElementById('k-401krate').value||0,
+          set_by:window.__email, set_at:new Date().toISOString() },
+        { key:'k401_grandfather_cutoff', value:document.getElementById('k-401kgrandfather').value||'2026-01-01',
           set_by:window.__email, set_at:new Date().toISOString() },
         { key:'health_insurance_monthly_cost', value:+document.getElementById('k-himonthly').value||0,
           set_by:window.__email, set_at:new Date().toISOString() },
