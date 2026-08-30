@@ -344,7 +344,7 @@ boot('teamhours', async (supa, el) => {
             return `<tr class="${r.profit<0?'risk-row':''} namerow" data-sid="${r.s.id}" role="button" tabindex="0" aria-expanded="${open}" style="cursor:pointer">
                 <td class="textleft">
                   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-                    <div>${open?'▾':'▸'} ${esc(r.s.name)}<div class="summary-note">${esc(r.s.department||'')}</div></div>
+                    <div style="flex:1;min-width:0">${open?'▾':'▸'} ${esc(r.s.name)}<div class="summary-note">${esc(r.s.department||'')}</div></div>
                     ${capPill}
                   </div>
                 </td>
