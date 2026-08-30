@@ -299,15 +299,12 @@ boot('sales', async (supa, el) => {
     data.forEach((d,i)=>{
       const cx=PL+gap*i+gap/2, x=cx-bw/2; let acc=0;
       let colG='';
-      // every segment gets a hairline stroke: the two palest confidence tiers
-      // (mint/amber tint) are nearly invisible as a fill alone against white —
-      // the edge is what makes them perceivable
       if(d.ledger>0){ const h=(d.ledger/top)*IH; acc+=d.ledger;
-        colG+=`<rect x="${x}" y="${y(acc)}" width="${bw}" height="${h}" fill="${LEDGER_COLOR}" stroke="var(--line)" stroke-width="1"><title>${label(d.c)} committed ${money(d.ledger)}</title></rect>`; }
+        colG+=`<rect x="${x}" y="${y(acc)}" width="${bw}" height="${h}" fill="${LEDGER_COLOR}"><title>${label(d.c)} committed ${money(d.ledger)}</title></rect>`; }
       d.byTier.forEach((v,tIdx)=>{
         if(v<=0) return;
         const h=(v/top)*IH; const yTop=y(acc+v); acc+=v;
-        colG+=`<rect x="${x}" y="${yTop}" width="${bw}" height="${h}" fill="${TIER_COLORS[tIdx]}" stroke="var(--line)" stroke-width="1"><title>${label(d.c)} ${money(v)}</title></rect>`;
+        colG+=`<rect x="${x}" y="${yTop}" width="${bw}" height="${h}" fill="${TIER_COLORS[tIdx]}"><title>${label(d.c)} ${money(v)}</title></rect>`;
       });
       if(acc>0&&!dense) colG+=`<text x="${cx}" y="${y(acc)-6}" text-anchor="middle" class="bt">${money(acc)}</text>`;
       if(!verydense||i%2===0) colG+=`<text x="${cx}" y="${plotBottom+14}" text-anchor="middle" class="ax">${label(d.c)}</text>`;
