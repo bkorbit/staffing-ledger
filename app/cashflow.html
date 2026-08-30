@@ -87,6 +87,7 @@ boot('cashflow', async (supa, el) => {
   (pb.data||[]).forEach(r => { if (r.scope === 'global') globalCurve = r; else curveByKey[r.ref] = r; });
   const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
   const floorNow = new Date();
+  const medianFloor = addDays(floorNow, 5).getTime();
   (ar.data||[]).forEach(i => {
     const cb = curveByKey[i.curveKey];
     const p50 = cb?.median_lag ?? globalCurve?.median_lag ?? 35;
@@ -94,7 +95,8 @@ boot('cashflow', async (supa, el) => {
     const issued = new Date(i.issued_on);
     i.daysToPay = p50;                     // the curve's plain answer, unfloored
     i.rawMedian = addDays(issued, p50);    // what the curve implies for THIS invoice
-    i.expectMedian = new Date(Math.max(i.rawMedian, addDays(floorNow, 5)));
+    i.floored = i.rawMedian.getTime() < medianFloor;  // per-invoice, not blended
+    i.expectMedian = new Date(Math.max(i.rawMedian, medianFloor));
     i.expectLate   = new Date(Math.max(addDays(issued, p90), addDays(floorNow, 14)));
     i.ownPct = cb ? Math.round(100 * cb.sample_n / (cb.sample_n + 6)) : 0;
   });
@@ -144,59 +146,66 @@ boot('cashflow', async (supa, el) => {
   const arSummary = agingTable('ar-aging', ar.data, 'master', Infinity);   // every master client, all of it
   const apSummary = agingTable('ap-aging', ap.data, 'vendor_name');
 
-  // ---- expected payment date table: dollar-weighted average of each client's
-  // open invoices' expected settlement dates, soonest first
+  // ---- expected payment date table, per client. A client's open balance is
+  // usually several invoices on different clocks (different issue dates, some
+  // already past their own curve's prediction, some not) — blending them into
+  // one averaged date reads as a clean prediction but can land on a date none
+  // of the underlying invoices actually points to. So this shows the honest
+  // range (earliest..latest expected across THIS client's own invoices) and
+  // the count behind it, not a single fabricated midpoint.
   function paymentDateTable(elId, items) {
     const today0 = new Date(); today0.setHours(0,0,0,0);
     const fmtDate = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric',
       year: d.getFullYear() !== today0.getFullYear() ? 'numeric' : undefined });
     const byMaster = {};
     items.forEach(i => {
-      const g = byMaster[i.master] = byMaster[i.master] || { balance: 0, wMedian: 0, wLate: 0, wOwn: 0, wDays: 0, wRaw: 0 };
+      const g = byMaster[i.master] = byMaster[i.master] || {
+        balance: 0, count: 0, flooredCount: 0, wDays: 0, wOwn: 0,
+        minExpected: Infinity, maxExpected: -Infinity, maxLate: -Infinity
+      };
       g.balance += i.balance;
-      g.wMedian += i.balance * i.expectMedian.getTime();
-      g.wLate   += i.balance * i.expectLate.getTime();
-      g.wOwn    += i.balance * i.ownPct;
-      g.wDays   += i.balance * i.daysToPay;
-      g.wRaw    += i.balance * i.rawMedian.getTime();
+      g.count += 1;
+      g.flooredCount += i.floored ? 1 : 0;
+      g.wDays += i.balance * i.daysToPay;
+      g.wOwn  += i.balance * i.ownPct;
+      g.minExpected = Math.min(g.minExpected, i.expectMedian.getTime());
+      g.maxExpected = Math.max(g.maxExpected, i.expectMedian.getTime());
+      g.maxLate     = Math.max(g.maxLate, i.expectLate.getTime());
     });
-    // floored: the curve's own unfloored prediction for this client's book is
-    // already in the past (invoices sitting past their expected settlement) —
-    // the model can't say "when", only "soon", which is why a stale book
-    // clusters everyone at the same near-future date instead of spreading out
-    const floorFrom = addDays(today0, 5).getTime();
     const rows = Object.entries(byMaster)
-      .map(([n, g]) => ({ n, balance: g.balance,
-        daysToPay: Math.round(g.wDays / g.balance),
-        expected: new Date(g.wMedian / g.balance),
-        raw: new Date(g.wRaw / g.balance),
-        late: new Date(g.wLate / g.balance),
-        own: Math.round(g.wOwn / g.balance) }))
-      .map(r => ({ ...r, floored: r.raw.getTime() < floorFrom }))
-      .sort((a, z) => a.expected - z.expected);
+      .map(([n, g]) => ({ n, balance: g.balance, count: g.count, flooredCount: g.flooredCount,
+        daysToPay: Math.round(g.wDays / g.balance), own: Math.round(g.wOwn / g.balance),
+        minExpected: new Date(g.minExpected), maxExpected: new Date(g.maxExpected),
+        worst: new Date(g.maxLate) }))
+      .sort((a, z) => a.minExpected - z.minExpected);
     const totalBalance = rows.reduce((s, r) => s + r.balance, 0);
+    const flooredMark = n => n
+      ? ` <span class="muted" title="${n} of these invoice(s) are already past this client's usual settlement window — the curve has no date to give them, so they're floored to &quot;soon&quot;, not predicted">*</span>`
+      : '';
     const line = r => {
-      const days = Math.round((r.expected - today0) / 86400000);
+      const inDays = Math.round((r.minExpected - today0) / 86400000);
+      const range = r.count > 1
+        ? `${fmtDate(r.minExpected)}–${fmtDate(r.maxExpected)}`
+        : fmtDate(r.minExpected);
       return `<tr><td style="text-align:left">
           <span class="ellip" style="max-width:240px;display:inline-block;vertical-align:bottom">${r.n}</span></td>
         <td>${fmt$(r.balance)}</td>
+        <td class="muted">${r.count}</td>
         <td>${r.daysToPay}d</td>
-        <td>${fmtDate(r.expected)}${r.floored
-          ? ` <span class="muted" title="already past this client's usual settlement window — the curve has no date to give, so this is just &quot;soon&quot;, not a prediction">*</span>`
-          : ''}</td>
-        <td class="${days > 60 ? 'err' : ''}">${days <= 0 ? 'overdue' : days + 'd'}</td>
-        <td class="muted">${fmtDate(r.late)}</td>
+        <td>${range}${flooredMark(r.flooredCount)}</td>
+        <td class="${inDays > 60 ? 'err' : ''}">${inDays <= 0 ? 'overdue' : inDays + 'd'}</td>
+        <td class="muted">${fmtDate(r.worst)}</td>
         <td class="muted">${r.own}% own data</td></tr>`;
     };
-    const flooredCount = rows.filter(r => r.floored).length;
+    const flooredTotal = rows.reduce((s, r) => s + r.flooredCount, 0);
     document.getElementById(elId).innerHTML =
-      `<tr><th style="text-align:left">Client</th><th>Open balance</th><th>Avg days to pay</th><th>Expected</th>
-        <th>In</th><th>Worst case (p90)</th><th>Curve confidence</th></tr>` +
+      `<tr><th style="text-align:left">Client</th><th>Open balance</th><th>Inv.</th><th>Avg days to pay</th>
+        <th>Expected (range)</th><th>Earliest in</th><th>Worst case (p90)</th><th>Curve confidence</th></tr>` +
       rows.map(line).join('') +
-      `<tr class="gp"><td style="text-align:left">total${flooredCount
-          ? ` — * ${flooredCount} client${flooredCount === 1 ? '' : 's'} already past their usual window`
+      `<tr class="gp"><td style="text-align:left">total${flooredTotal
+          ? ` — * ${flooredTotal} invoice${flooredTotal === 1 ? '' : 's'} already past their usual window`
           : ''}</td><td>${fmt$(totalBalance)}</td>
-        <td colspan="5"></td></tr>`;
+        <td colspan="6"></td></tr>`;
   }
   paymentDateTable('pay-dates', ar.data);
 
