@@ -2,23 +2,6 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EMG — Team</title><link rel="stylesheet" href="./assets/style.css?v=2391861">
 <style>
-/* Employment-type segmented control in the edit modal, and the fields it
-   gates. Same .rp/.seg pill-group pattern already used for range toggles
-   on index.html/sales.html, copied local here rather than promoted to
-   style.css for a single control — see .modal[data-emptype] below for what
-   it actually governs: full time hides the per-period hrs/wk field and the
-   app forces weekly_capacity to 40 on save regardless (team.html's
-   capForSave), since a full-timer's capacity is never a human decision. */
-.rp { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden;
-  background:var(--paper-raised); }
-.rp .seg { font-family:var(--font-mono); font-size:10px; padding:0 11px; height:32px;
-  display:inline-flex; align-items:center; border:none; border-left:1px solid var(--line);
-  border-radius:0; background:var(--paper-raised); cursor:pointer; color:var(--slate); }
-.rp .seg:first-child { border-left:none; }
-.rp .seg.on { background:var(--brand); color:#fff; }
-.rp .seg:hover:not(.on) { color:var(--ink); }
-.modal[data-emptype="full_time"] .cap-col,
-.modal[data-emptype="full_time"] .np-cap-wrap { display:none; }
 /* .settings' shared auto-fit grid (minmax(260px,1fr)) starts a 3rd column
    once this modal is wide enough to fit one — fine on the deal editor's
    1180px modal, but here it orphans "End date" alone on its own row. A
@@ -80,26 +63,40 @@ boot('team', async (supa, el) => {
     modalOpener = null;
   }
 
-  // Full time locks weekly_capacity at 40 no matter what's stored on a given
-  // comp_periods row — the hrs/wk field hides via .modal[data-emptype] in
-  // style.css, and every save below forces 40 rather than trusting a hidden
-  // input's stale value. Contractor/part time expose the real field.
-  const capForSave = (modalEl, capInput) => modalEl.dataset.emptype === 'full_time'
+  const EMP_TYPES = [['full_time', 'Full Time'], ['contractor', 'Contractor'], ['part_time', 'Part Time']];
+  const EMP_LABELS = Object.fromEntries(EMP_TYPES);
+
+  // Employment type is set PER comp period, not once for a person's whole
+  // tenure (039) — someone can start as a contractor and go full time later,
+  // or the reverse. Full time locks weekly_capacity at 40 for that period
+  // regardless of what's stored, since a full-timer's capacity is never a
+  // human decision; contractor/part time expose the real field. capForSave
+  // takes the period's own employment_type (not the whole modal's), and
+  // applyCapLock keeps the row's hrs/wk input in sync as that type changes.
+  const capForSave = (employmentType, capInput) => employmentType === 'full_time'
     ? 40 : (+capInput.value || 40);
+  const applyCapLock = (typeSelect, capInput) => {
+    const lock = typeSelect.value === 'full_time';
+    capInput.disabled = lock;
+    if (lock) capInput.value = 40;
+  };
 
   function periodsHtml(periods) {
     return !periods.length
-      ? `<tr><td colspan="6" class="muted" style="text-align:left">No comp periods yet.</td></tr>`
+      ? `<tr><td colspan="7" class="muted" style="text-align:left">No comp periods yet.</td></tr>`
       : periods.map(p => `
         <tr data-period="${p.id}">
           <td><input type="date" class="cp-start" value="${p.starts_on}" style="height:26px;width:130px"></td>
           <td><input type="date" class="cp-end" value="${p.ends_on||''}" style="height:26px;width:130px" title="Blank = current, ongoing period"></td>
+          <td><select class="cp-type" style="height:26px">
+            ${EMP_TYPES.map(([val, label]) => `<option value="${val}" ${p.employment_type===val?'selected':''}>${label}</option>`).join('')}
+          </select></td>
           <td><select class="cp-kind" style="height:26px">
             <option value="salary" ${p.kind==='salary'?'selected':''}>salary/yr</option>
             <option value="hourly" ${p.kind==='hourly'?'selected':''}>hourly</option>
           </select></td>
           <td><input type="text" class="cp-cost" value="${p.kind==='hourly'?fromCents(p.hourly_cost):fromCents(p.annual_cost)}" style="height:26px;width:80px"></td>
-          <td class="cap-col"><input type="text" class="cp-cap" value="${p.weekly_capacity}" style="height:26px;width:56px"></td>
+          <td class="cap-col"><input type="text" class="cp-cap" value="${p.weekly_capacity}" style="height:26px;width:56px" ${p.employment_type==='full_time'?'disabled':''}></td>
           <td style="white-space:nowrap">
             <button class="ghost cp-save" data-id="${p.id}" style="padding:3px 8px;font-size:11px">Save</button>
             <button class="ghost cp-delete" data-id="${p.id}" style="padding:3px 8px;font-size:11px;color:var(--rust)" title="Delete this period" aria-label="Delete this comp period">×</button>
@@ -108,17 +105,20 @@ boot('team', async (supa, el) => {
   }
 
   function wirePeriodHandlers(sid, box) {
-    const modalEl = box.closest('.modal');
+    box.querySelectorAll('.cp-type').forEach(sel => {
+      sel.onchange = () => applyCapLock(sel, sel.closest('tr').querySelector('.cp-cap'));
+    });
     box.querySelectorAll('.cp-save').forEach(btn => btn.onclick = async () => {
       const row = btn.closest('tr');
+      const employment_type = row.querySelector('.cp-type').value;
       const kind = row.querySelector('.cp-kind').value;
       const cost = toCents(row.querySelector('.cp-cost').value);
-      const cap = capForSave(modalEl, row.querySelector('.cp-cap'));
+      const cap = capForSave(employment_type, row.querySelector('.cp-cap'));
       const starts_on = row.querySelector('.cp-start').value;
       const ends_on = row.querySelector('.cp-end').value || null;
       if (ends_on && ends_on < starts_on) { alert('End date is before start date.'); return; }
       const { error } = await supa.from('comp_periods').update({
-        starts_on, ends_on, kind,
+        starts_on, ends_on, kind, employment_type,
         annual_cost: kind === 'salary' ? cost : 0,
         hourly_cost: kind === 'hourly' ? cost : 0,
         weekly_capacity: cap
@@ -133,33 +133,36 @@ boot('team', async (supa, el) => {
       load();
     });
     const npAdd = box.querySelector('.np-add');
-    if (npAdd) npAdd.onclick = async () => {
-      const msg = box.querySelector('.np-msg');
-      const newStart = box.querySelector('.np-start').value;
-      if (!newStart) { msg.textContent = 'pick a start date'; return; }
-      const kind = box.querySelector('.np-kind').value;
-      const cost = toCents(box.querySelector('.np-cost').value);
-      const cap = capForSave(modalEl, box.querySelector('.np-cap'));
-      const periods = compAllByStaffLive[sid] || [];
-      const covering = periods.find(p => p.starts_on <= newStart && (!p.ends_on || p.ends_on >= newStart));
-      if (covering) {
-        const closeAt = dayBefore(newStart);
-        if (closeAt < covering.starts_on) { msg.textContent = 'starts before an existing period even begins'; return; }
-        const { error } = await supa.from('comp_periods').update({ ends_on: closeAt }).eq('id', covering.id);
+    if (npAdd) {
+      const npType = box.querySelector('.np-type');
+      npType.onchange = () => applyCapLock(npType, box.querySelector('.np-cap'));
+      npAdd.onclick = async () => {
+        const msg = box.querySelector('.np-msg');
+        const newStart = box.querySelector('.np-start').value;
+        if (!newStart) { msg.textContent = 'pick a start date'; return; }
+        const employment_type = npType.value;
+        const kind = box.querySelector('.np-kind').value;
+        const cost = toCents(box.querySelector('.np-cost').value);
+        const cap = capForSave(employment_type, box.querySelector('.np-cap'));
+        const periods = compAllByStaffLive[sid] || [];
+        const covering = periods.find(p => p.starts_on <= newStart && (!p.ends_on || p.ends_on >= newStart));
+        if (covering) {
+          const closeAt = dayBefore(newStart);
+          if (closeAt < covering.starts_on) { msg.textContent = 'starts before an existing period even begins'; return; }
+          const { error } = await supa.from('comp_periods').update({ ends_on: closeAt }).eq('id', covering.id);
+          if (error) { msg.textContent = error.message; return; }
+        }
+        const { error } = await supa.from('comp_periods').insert({
+          staff_id: sid, starts_on: newStart, kind, employment_type,
+          annual_cost: kind === 'salary' ? cost : 0,
+          hourly_cost: kind === 'hourly' ? cost : 0,
+          weekly_capacity: cap, set_by: window.__email
+        });
         if (error) { msg.textContent = error.message; return; }
-      }
-      const { error } = await supa.from('comp_periods').insert({
-        staff_id: sid, starts_on: newStart, kind,
-        annual_cost: kind === 'salary' ? cost : 0,
-        hourly_cost: kind === 'hourly' ? cost : 0,
-        weekly_capacity: cap, set_by: window.__email
-      });
-      if (error) { msg.textContent = error.message; return; }
-      load();
-    };
+        load();
+      };
+    }
   }
-
-  const EMP_TYPES = [['full_time', 'Full Time'], ['contractor', 'Contractor'], ['part_time', 'Part Time']];
 
   function openModal(anchorEl, mode, person) {
     const opener = document.activeElement !== document.body ? document.activeElement : null;
@@ -170,19 +173,22 @@ boot('team', async (supa, el) => {
     const periods = mode === 'edit'
       ? (compAllByStaffLive[person.id] || []).slice().sort((a, b) => b.starts_on.localeCompare(a.starts_on))
       : [];
-    const empType = mode === 'edit' ? (person.employment_type || 'full_time') : 'full_time';
     const isActive = mode === 'create' || person.active;
 
     // "New period starting" default: a known (already-ended) period wins —
     // the next period picks up the day after it ends. Otherwise fall back to
-    // this person's hire date, and only then to today.
+    // this person's hire date, and only then to today. Employment type
+    // defaults to whatever the most recent period was, since a new period
+    // usually keeps someone's current type — the dropdown is still there for
+    // the moment they actually switch.
     const hasKnownPeriod = periods.length > 0 && !!periods[0].ends_on;
     const npStartDefault = hasKnownPeriod ? dayAfter(periods[0].ends_on)
       : (person && person.start_date) || iso(new Date());
+    const npTypeDefault = periods.length ? periods[0].employment_type : 'full_time';
 
     const back = document.createElement('div');
     back.className = 'modal-back';
-    back.innerHTML = `<div class="modal modal-sm" data-emptype="${empType}" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    back.innerHTML = `<div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <div class="modal-head">
         <span class="modal-title" id="modal-title">${mode==='create'?'Add person':esc(person.name)}</span>
         <button class="mclose">Close ✕</button>
@@ -190,10 +196,6 @@ boot('team', async (supa, el) => {
       <div class="modal-body">
         <div class="settings">
           <div class="setrow wide"><span class="setlabel">Name</span><input class="ep-name" type="text" value="${mode==='edit'?esc(person.name):''}"></div>
-          <div class="setrow wide"><span class="setlabel">Type</span>
-            <span class="rp ep-emptype-group" role="group" aria-label="Employment type">
-              ${EMP_TYPES.map(([val, label]) => `<button type="button" class="seg ep-emptype${empType===val?' on':''}" data-emptype="${val}" aria-pressed="${empType===val}">${label}</button>`).join('')}
-            </span></div>
           <div class="setrow"><span class="setlabel">Department</span><input class="ep-dept" type="text" placeholder="department" value="${mode==='edit'?esc(person.department||''):''}"></div>
           <div class="setrow"><span class="setlabel">Hire date</span><input class="ep-start" type="date" value="${mode==='edit'?(person.start_date||''):''}"></div>
           <div class="setrow"><span class="setlabel">Active</span>
@@ -205,19 +207,22 @@ boot('team', async (supa, el) => {
           <div class="sc-eyebrow">Compensation history</div>
           <div class="gridwrap">
             <table class="ledger" id="modal-periods-tbl">
-              <thead><tr><th scope="col">start</th><th scope="col">end</th><th scope="col">kind</th><th scope="col">cost</th><th scope="col" class="cap-col">hrs/wk</th><th scope="col"></th></tr></thead>
+              <thead><tr><th scope="col">start</th><th scope="col">end</th><th scope="col">type</th><th scope="col">kind</th><th scope="col">cost</th><th scope="col" class="cap-col">hrs/wk</th><th scope="col"></th></tr></thead>
               <tbody>${periodsHtml(periods)}</tbody>
             </table>
           </div>
           <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
             <span class="mono muted" style="font-size:11px">+ new period starting</span>
             <input type="date" class="np-start" value="${npStartDefault}" style="height:26px">
+            <select class="np-type" style="height:26px">
+              ${EMP_TYPES.map(([val, label]) => `<option value="${val}" ${npTypeDefault===val?'selected':''}>${label}</option>`).join('')}
+            </select>
             <select class="np-kind" style="height:26px">
               <option value="salary">salary/yr</option>
               <option value="hourly">hourly</option>
             </select>
             <input type="text" class="np-cost" placeholder="$" style="height:26px;width:80px">
-            <span class="np-cap-wrap"><input type="text" class="np-cap" placeholder="hrs/wk" value="40" style="height:26px;width:56px"></span>
+            <input type="text" class="np-cap" placeholder="hrs/wk" value="${npTypeDefault==='full_time'?40:''}" style="height:26px;width:56px" ${npTypeDefault==='full_time'?'disabled':''}>
             <button class="primary np-add" style="padding:2px 8px">Add period</button>
             <span class="np-msg err" style="font-size:11px"></span>
           </div>` : `<p class="muted" style="font-size:12px">Save this person first to add compensation history.</p>`}
@@ -234,12 +239,6 @@ boot('team', async (supa, el) => {
     back.querySelector('.ep-cancel').onclick = closeModal;
     const modal = back.querySelector('.modal');
 
-    modal.querySelectorAll('.ep-emptype').forEach(btn => btn.onclick = () => {
-      modal.querySelectorAll('.ep-emptype').forEach(b => { b.classList.remove('on'); b.setAttribute('aria-pressed', 'false'); });
-      btn.classList.add('on');
-      btn.setAttribute('aria-pressed', 'true');
-      modal.dataset.emptype = btn.dataset.emptype;
-    });
     back.querySelector('.ep-active').onchange = e => {
       back.querySelector('.ep-enddate-row').hidden = e.target.checked;
     };
@@ -286,7 +285,6 @@ boot('team', async (supa, el) => {
       const payload = {
         name,
         department: back.querySelector('.ep-dept').value.trim() || null,
-        employment_type: modal.dataset.emptype,
         start_date: back.querySelector('.ep-start').value || null,
         end_date: active ? null : (back.querySelector('.ep-end').value || null),
         active
@@ -304,8 +302,8 @@ boot('team', async (supa, el) => {
 
   async function load() {
     const [st, cp] = await Promise.all([
-      supa.from('staff').select('id,name,department,active,start_date,end_date,employment_type').order('name'),
-      supa.from('comp_periods').select('id,staff_id,starts_on,ends_on,kind,annual_cost,hourly_cost,weekly_capacity').order('starts_on')
+      supa.from('staff').select('id,name,department,active,start_date,end_date').order('name'),
+      supa.from('comp_periods').select('id,staff_id,starts_on,ends_on,kind,annual_cost,hourly_cost,weekly_capacity,employment_type').order('starts_on')
     ]);
     if (st.error) { el.innerHTML = `<div class="sc-panel err">${esc(st.error.message)}</div>`; return; }
     render(st.data || [], cp.data || []);
@@ -376,6 +374,7 @@ boot('team', async (supa, el) => {
                       ? `$${(comp.hourly_cost/100).toLocaleString()}/hr · ${comp.weekly_capacity}h/wk`
                       : `$${(comp.annual_cost/100).toLocaleString()}/yr · ${comp.weekly_capacity}h/wk`)
                   : '<span class="muted">not set</span>'}
+                  ${comp && comp.employment_type !== 'full_time' ? `<span class="muted" style="font-size:10.5px"> · ${esc(EMP_LABELS[comp.employment_type] || comp.employment_type)}</span>` : ''}
                   ${periodCount ? `<span class="muted" style="font-size:10.5px"> (${periodCount} period${periodCount===1?'':'s'})</span>` : ''}</td>
                 <td>${fmtDate(s.start_date)}</td>
                 <td>${fmtDate(s.end_date)}</td>
