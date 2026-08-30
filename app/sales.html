@@ -85,7 +85,7 @@ boot('sales', async (supa, el) => {
   // pipeline_deals is a full, unfiltered mirror of every HubSpot deal ever
   // synced (see sync-hubspot.mjs) and v_deal_month_forecast can run to many
   // rows too — both can outgrow Supabase's 1000-row cap, so both page.
-  const [pd, st, fc, promoted, clientsR, aliasesR, projectsR, blockedR, approvalsR] = await Promise.all([
+  const [pd, st, fc, promoted, clientsR, aliasesR, projectsR, blockedR, approvalsR, dismissedR] = await Promise.all([
     fetchAll(() => supa.from('pipeline_deals').select('*')),
     supa.from('settings').select('key,value')
       .in('key', ['sales_probability_threshold','programmatic_margin_default','hubspot_promote_pipelines']),
@@ -96,9 +96,11 @@ boot('sales', async (supa, el) => {
     supa.from('client_aliases').select('client_id,alias'),
     fetchAll(() => supa.from('qbo_projects').select('id,name,parent_id,hidden,effective_jobcode')),
     supa.from('blocked_company_names').select('name_key'),
-    supa.from('promotion_approvals').select('*')
+    supa.from('promotion_approvals').select('*'),
+    supa.from('won_deal_dismissals').select('hubspot_deal_id')
   ]);
-  for (const r of [pd, st, fc, promoted, clientsR, aliasesR, projectsR, blockedR, approvalsR]) if (r.error) throw r.error;
+  for (const r of [pd, st, fc, promoted, clientsR, aliasesR, projectsR, blockedR, approvalsR, dismissedR]) if (r.error) throw r.error;
+  const dismissedIds = new Set((dismissedR.data||[]).map(r=>r.hubspot_deal_id));
   const setting = k => (st.data||[]).find(s=>s.key===k)?.value;
   const minProb = +(setting('sales_probability_threshold') ?? 10);
   const PROG_MARGIN = +(setting('programmatic_margin_default') ?? 35);
@@ -213,7 +215,8 @@ boot('sales', async (supa, el) => {
   // up at all), split into ready-to-review vs blocked (missing/invalid
   // campaign dates — a genuine data-completeness problem, not a judgment
   // call, fixed in HubSpot rather than overridden here).
-  const notYetPromoted = wonRecent.filter(d => !promotedBy[d.hubspot_deal_id] && allowedPipelines.has(nameKey(d.pipeline)));
+  const notYetPromoted = wonRecent.filter(d => !promotedBy[d.hubspot_deal_id] &&
+    allowedPipelines.has(nameKey(d.pipeline)) && !dismissedIds.has(d.hubspot_deal_id));
   const dateBlocker = d => !d.campaign_start ? 'no campaign start date'
     : !d.campaign_end ? 'no campaign end date'
     : d.campaign_end < d.campaign_start ? 'campaign ends before it starts' : null;
@@ -504,6 +507,7 @@ boot('sales', async (supa, el) => {
           <input class="setup-newclient" placeholder="new client name…" style="display:none;min-width:180px">
           <select class="setup-project" style="min-width:220px">${projectOptionsHtml(cid, pid)}</select>
           <button class="primary setup-approve" disabled>Approve</button>
+          <button class="danger setup-dismiss" data-dismiss="${esc(d.hubspot_deal_id)}" title="Old/abandoned deal — remove it from this list for good">Dismiss</button>
           <a href="${esc(d.url)}" target="_blank" rel="noopener">HubSpot ↗</a>
         </div>`;
       }).join('') : ''}
@@ -512,6 +516,7 @@ boot('sales', async (supa, el) => {
           <div style="min-width:220px">${esc(d.name)}<div class="muted" style="font-size:10px">${esc(d.company||'')}</div></div>
           <span class="flag t">${esc(dateBlocker(d))}</span>
           <a href="${esc(d.url)}" target="_blank" rel="noopener">HubSpot ↗</a>
+          <button class="danger setup-dismiss" data-dismiss="${esc(d.hubspot_deal_id)}" title="Old/abandoned deal — remove it from this list for good">Dismiss</button>
         </div>`).join('') : ''}
       ${setupApproved.length ? `<div class="sc-eyebrow" style="margin-top:10px">Approved — promotes on the next sync (${setupApproved.length})</div>` +
         setupApproved.map(d => { const a = approvalByHsId[d.hubspot_deal_id];
@@ -554,6 +559,16 @@ boot('sales', async (supa, el) => {
         if (error) { alert(error.message); approveBtn.disabled = false; approveBtn.textContent = 'Approve'; return; }
         location.reload();
       };
+    });
+
+    box.querySelectorAll('.setup-dismiss').forEach(btn => btn.onclick = async () => {
+      if (!confirm('Dismiss this deal from the setup list for good?\n\nIt never enters the forecast — this just stops it from showing up here. Reversible only by deleting its row from won_deal_dismissals.')) return;
+      btn.disabled = true; btn.textContent = '…';
+      const { error } = await supa.from('won_deal_dismissals').upsert({
+        hubspot_deal_id: btn.dataset.dismiss, dismissed_by: window.__email, dismissed_at: new Date().toISOString()
+      }, { onConflict: 'hubspot_deal_id' });
+      if (error) { alert(error.message); btn.disabled = false; btn.textContent = 'Dismiss'; return; }
+      location.reload();
     });
   }
 
