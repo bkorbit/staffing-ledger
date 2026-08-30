@@ -25,7 +25,7 @@ boot('cashflow', async (supa, el) => {
       <div class="sc-eyebrow">AR aging — who owes EMG, by how late</div>
       <table id="ar-aging" class="ledger"></table></div>
     <div class="sc-panel" style="overflow-x:auto">
-      <div class="sc-eyebrow">Expected payment date — open AR by client, on their collection curve</div>
+      <div class="sc-eyebrow">Expected payment date — open invoices by client, on their collection curve</div>
       <table id="pay-dates" class="ledger"></table></div>
     <div class="sc-panel" style="overflow-x:auto">
       <div class="sc-eyebrow">AP aging — what EMG owes, by how late</div>
@@ -38,7 +38,7 @@ boot('cashflow', async (supa, el) => {
   // ---- everything below is independent of the horizon — loaded once
   const [ar, ap, pj, cl, dl, bk, pb] = await Promise.all([
     fetchAll(() => supa.from('invoices')
-      .select('qbo_customer_name,qbo_project_id,due_on,issued_on,balance').gt('balance', 0)),
+      .select('doc_number,qbo_customer_name,qbo_project_id,due_on,issued_on,balance').gt('balance', 0)),
     fetchAll(() => supa.from('bills')
       .select('vendor_name,due_on,issued_on,balance').gt('balance', 0)),
     fetchAll(() => supa.from('qbo_projects').select('id,name,parent_id')),
@@ -46,7 +46,7 @@ boot('cashflow', async (supa, el) => {
     supa.from('deals').select('client_id,qbo_project_id')
       .in('status',['won','active']).eq('hidden', false).not('qbo_project_id','is',null),
     supa.from('qbo_accounts').select('balance,is_operating,as_of').eq('account_type','Bank'),
-    supa.from('payment_behaviour').select('scope,ref,sample_n,median_lag,p90_lag')
+    supa.from('payment_behaviour').select('scope,ref,median_lag,p90_lag')
   ]);
   for (const r of [ar, ap, pj, cl, dl, bk, pb]) if (r.error) throw r.error;
 
@@ -76,6 +76,7 @@ boot('cashflow', async (supa, el) => {
     i.master = claimedClientOf[i.qbo_project_id] || clientByParent[parent]
       || projName[parent] || i.qbo_customer_name || '(unnamed)';
     i.curveKey = parent;
+    i.forWhat = projName[i.qbo_project_id] || i.qbo_customer_name || '—';
   });
 
   // ---- expected payment date per client: same curve cashflow_forecast() uses
@@ -98,7 +99,6 @@ boot('cashflow', async (supa, el) => {
     i.floored = i.rawMedian.getTime() < medianFloor;  // per-invoice, not blended
     i.expectMedian = new Date(Math.max(i.rawMedian, medianFloor));
     i.expectLate   = new Date(Math.max(addDays(issued, p90), addDays(floorNow, 14)));
-    i.ownPct = cb ? Math.round(100 * cb.sample_n / (cb.sample_n + 6)) : 0;
   });
 
   // ---- aging: bucket every open balance by days past due; not-yet-due is Current
@@ -146,66 +146,53 @@ boot('cashflow', async (supa, el) => {
   const arSummary = agingTable('ar-aging', ar.data, 'master', Infinity);   // every master client, all of it
   const apSummary = agingTable('ap-aging', ap.data, 'vendor_name');
 
-  // ---- expected payment date table, per client. A client's open balance is
-  // usually several invoices on different clocks (different issue dates, some
-  // already past their own curve's prediction, some not) — blending them into
-  // one averaged date reads as a clean prediction but can land on a date none
-  // of the underlying invoices actually points to. So this shows the honest
-  // range (earliest..latest expected across THIS client's own invoices) and
-  // the count behind it, not a single fabricated midpoint.
+  // ---- expected payment date table, one row per open invoice, grouped under
+  // each client — who pays, for what, and when, at the grain the balance
+  // actually exists in (a client-level average landed on dates no invoice
+  // was really predicting; this shows the real ones).
   function paymentDateTable(elId, items) {
     const today0 = new Date(); today0.setHours(0,0,0,0);
     const fmtDate = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric',
       year: d.getFullYear() !== today0.getFullYear() ? 'numeric' : undefined });
     const byMaster = {};
-    items.forEach(i => {
-      const g = byMaster[i.master] = byMaster[i.master] || {
-        balance: 0, count: 0, flooredCount: 0, wDays: 0, wOwn: 0,
-        minExpected: Infinity, maxExpected: -Infinity, maxLate: -Infinity
-      };
-      g.balance += i.balance;
-      g.count += 1;
-      g.flooredCount += i.floored ? 1 : 0;
-      g.wDays += i.balance * i.daysToPay;
-      g.wOwn  += i.balance * i.ownPct;
-      g.minExpected = Math.min(g.minExpected, i.expectMedian.getTime());
-      g.maxExpected = Math.max(g.maxExpected, i.expectMedian.getTime());
-      g.maxLate     = Math.max(g.maxLate, i.expectLate.getTime());
-    });
-    const rows = Object.entries(byMaster)
-      .map(([n, g]) => ({ n, balance: g.balance, count: g.count, flooredCount: g.flooredCount,
-        daysToPay: Math.round(g.wDays / g.balance), own: Math.round(g.wOwn / g.balance),
-        minExpected: new Date(g.minExpected), maxExpected: new Date(g.maxExpected),
-        worst: new Date(g.maxLate) }))
-      .sort((a, z) => a.minExpected - z.minExpected);
-    const totalBalance = rows.reduce((s, r) => s + r.balance, 0);
-    const flooredMark = n => n
-      ? ` <span class="muted" title="${n} of these invoice(s) are already past this client's usual settlement window — the curve has no date to give them, so they're floored to &quot;soon&quot;, not predicted">*</span>`
+    items.forEach(i => (byMaster[i.master] = byMaster[i.master] || []).push(i));
+    const clients = Object.entries(byMaster)
+      .map(([n, invs]) => ({
+        n, invs: invs.slice().sort((a, z) => a.expectMedian - z.expectMedian),
+        balance: invs.reduce((s, i) => s + i.balance, 0),
+        earliest: Math.min(...invs.map(i => i.expectMedian.getTime())),
+      }))
+      .sort((a, z) => a.earliest - z.earliest);
+    const totalBalance = clients.reduce((s, c) => s + c.balance, 0);
+    const flooredMark = floored => floored
+      ? ` <span class="muted" title="already past this invoice's usual settlement window — the curve has no date to give, so this is floored to &quot;soon&quot;, not predicted">*</span>`
       : '';
-    const line = r => {
-      const inDays = Math.round((r.minExpected - today0) / 86400000);
-      const range = r.count > 1
-        ? `${fmtDate(r.minExpected)}–${fmtDate(r.maxExpected)}`
-        : fmtDate(r.minExpected);
-      return `<tr><td style="text-align:left">
-          <span class="ellip" style="max-width:240px;display:inline-block;vertical-align:bottom">${r.n}</span></td>
-        <td>${fmt$(r.balance)}</td>
-        <td class="muted">${r.count}</td>
-        <td>${r.daysToPay}d</td>
-        <td>${range}${flooredMark(r.flooredCount)}</td>
+    const invRow = i => {
+      const inDays = Math.round((i.expectMedian - today0) / 86400000);
+      return `<tr><td style="text-align:left;padding-left:20px" class="muted">
+          <span class="ellip" style="max-width:220px;display:inline-block;vertical-align:bottom">${i.forWhat}</span></td>
+        <td class="muted">${i.doc_number || '—'}</td>
+        <td class="muted">${fmtDate(new Date(i.issued_on))}</td>
+        <td>${fmt$(i.balance)}</td>
+        <td class="muted">${i.daysToPay}d</td>
+        <td>${fmtDate(i.expectMedian)}${flooredMark(i.floored)}</td>
         <td class="${inDays > 60 ? 'err' : ''}">${inDays <= 0 ? 'overdue' : inDays + 'd'}</td>
-        <td class="muted">${fmtDate(r.worst)}</td>
-        <td class="muted">${r.own}% own data</td></tr>`;
+        <td class="muted">${fmtDate(i.expectLate)}</td></tr>`;
     };
-    const flooredTotal = rows.reduce((s, r) => s + r.flooredCount, 0);
+    const clientBlock = c => `<tr class="gp"><td style="text-align:left">
+          <span class="ellip" style="max-width:220px;display:inline-block;vertical-align:bottom">${c.n}</span></td>
+        <td colspan="2" class="muted">${c.invs.length} invoice${c.invs.length === 1 ? '' : 's'}</td>
+        <td>${fmt$(c.balance)}</td><td colspan="4"></td></tr>` +
+      c.invs.map(invRow).join('');
+    const flooredTotal = items.filter(i => i.floored).length;
     document.getElementById(elId).innerHTML =
-      `<tr><th style="text-align:left">Client</th><th>Open balance</th><th>Inv.</th><th>Avg days to pay</th>
-        <th>Expected (range)</th><th>Earliest in</th><th>Worst case (p90)</th><th>Curve confidence</th></tr>` +
-      rows.map(line).join('') +
+      `<tr><th style="text-align:left">Client / for</th><th>Invoice #</th><th>Issued</th><th>Balance</th>
+        <th>Days to pay</th><th>Expected</th><th>In</th><th>Worst case (p90)</th></tr>` +
+      clients.map(clientBlock).join('') +
       `<tr class="gp"><td style="text-align:left">total${flooredTotal
           ? ` — * ${flooredTotal} invoice${flooredTotal === 1 ? '' : 's'} already past their usual window`
-          : ''}</td><td>${fmt$(totalBalance)}</td>
-        <td colspan="6"></td></tr>`;
+          : ''}</td><td colspan="2"></td><td>${fmt$(totalBalance)}</td>
+        <td colspan="4"></td></tr>`;
   }
   paymentDateTable('pay-dates', ar.data);
 
