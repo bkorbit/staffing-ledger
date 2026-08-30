@@ -149,7 +149,9 @@ boot('settings', async (supa, el) => {
               <td class="textleft muted">${esc(d.pipeline || '')}</td>
               <td class="muted">${d.campaign_start || '—'} → ${d.campaign_end || '—'}</td>
               <td class="muted">${esc(d.jobcode || '')}</td>
-              <td>${promoted ? `<span class="pill ${promoted.hidden?'bad':'good'}">yes — ${esc(promoted.status)}${promoted.hidden?' · HIDDEN':''} — ${esc(promoted.flight_start||'?')}→${esc(promoted.flight_end||'?')}</span>` : '<span class="pill">no</span>'}</td>
+              <td>${promoted ? `<span class="pill ${promoted.hidden?'bad':'good'}">yes — ${esc(promoted.status)}${promoted.hidden?' · HIDDEN':''} — ${esc(promoted.flight_start||'?')}→${esc(promoted.flight_end||'?')}</span>
+                ${promoted.name !== d.name ? `<div class="warn" style="font-size:11px;margin-top:2px">stored as "${esc(promoted.name)}" — promotion is a one-time snapshot; a later HubSpot rename never propagates, so pickers that search by name won't find this deal under its current HubSpot name</div>` : ''}`
+                : '<span class="pill">no</span>'}</td>
               <td><a href="${esc(d.url)}" target="_blank" rel="noopener">HubSpot ↗</a></td></tr>`;
           }).join('')}</table>`;
     }
