@@ -249,9 +249,15 @@ export function classifyAccount(type, subType, name) {
   const st = String(subType || '');
   const n = String(name || '').toLowerCase();
   if (t === 'Cost of Goods Sold') return 'cogs';
-  if (t === 'Income' || t === 'Other Income') return 'income';
+  // 'Income' is the real contra-revenue path (search/social media pass-through
+  // booked against income-type accounts). 'Other Income' (credit card rewards,
+  // bank interest) is unrelated to client billing and was wrongly netted into
+  // revenue the same way — it's money in, so it reduces overhead instead;
+  // v_cost_lines_classified flips its sign accordingly.
+  if (t === 'Income') return 'income';
+  if (t === 'Other Income') return 'overhead';
   if (t === 'Expense' || t === 'Other Expense') {
-    if (/payroll|salaries|salary|wages|compensation/.test(n) ||
+    if (/payroll|salaries|salary|wages|compensation|contract labor|bonus|severance|401k|health insurance|life insurance/.test(n) ||
         /PayrollExpenses/i.test(st)) return 'payroll';
     return 'overhead';
   }
