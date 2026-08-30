@@ -288,6 +288,70 @@ export function lineProject(l) {
   return e.value ? String(e.value) : null;
 }
 
+// Shared shape for Bill/Purchase/CreditCardCredit — all three carry a real
+// AccountRef per line, unlike CreditMemo/RefundReceipt below. A Credit Card
+// Credit is the exact reverse of a Purchase (money back instead of money
+// out), so it reuses this with sign=-1 rather than a separate code path.
+export function costRow(kind, t, vendor, opts = {}) {
+  const sign = opts.sign || 1;
+  const id = `${kind}:${t.Id}`;
+  const row = {
+    id, kind, vendor_name: vendor || '', qbo_customer_name: opts.customer || null,
+    issued_on: day(t.TxnDate),
+    due_on: opts.due || null,
+    balance: opts.balance !== undefined ? opts.balance : 0,
+    terms: opts.terms || '',
+    total: sign * cents(t.TotalAmt),
+    synced_at: new Date().toISOString()
+  };
+  const lines = [];
+  (t.Line || []).forEach((l, n) => {
+    const d = l.AccountBasedExpenseLineDetail || l.ItemBasedExpenseLineDetail || {};
+    if (!d.AccountRef && !d.ItemRef) return;
+    lines.push({
+      id: `${id}:${l.Id || n}`, bill_id: id, line_no: +l.LineNum || n + 1,
+      item_name: (d.ItemRef || {}).name || '',
+      account_id: (d.AccountRef || {}).value ? String(d.AccountRef.value) : null,
+      account_name: (d.AccountRef || {}).name || '',
+      description: l.Description || '', amount: sign * cents(l.Amount),
+      qbo_project_id: lineProject(l)
+    });
+  });
+  return { row, lines };
+}
+
+// CreditMemo and RefundReceipt are structured like Invoices, not Bills —
+// each line names a Product/Service ITEM (SalesItemLineDetail), never an
+// account directly. QuickBooks resolves the posting account through that
+// item's own IncomeAccountRef (the same field a normal Invoice line relies
+// on to attribute revenue), so itemAccount — built once from the Item list
+// — is the only way to know where a given line actually lands. A line whose
+// item has no income account configured is left out rather than guessed at.
+export function salesCostRow(kind, t, itemAccount) {
+  const id = `${kind}:${t.Id}`;
+  const row = {
+    id, kind, vendor_name: (t.CustomerRef || {}).name || '', qbo_customer_name: null,
+    issued_on: day(t.TxnDate), due_on: null, balance: 0, terms: '',
+    total: cents(t.TotalAmt), synced_at: new Date().toISOString()
+  };
+  const lines = [];
+  (t.Line || []).forEach((l, n) => {
+    if (l.DetailType !== 'SalesItemLineDetail') return;
+    const d = l.SalesItemLineDetail || {};
+    const itemId = (d.ItemRef || {}).value ? String(d.ItemRef.value) : null;
+    const acct = itemId ? itemAccount[itemId] : null;
+    if (!acct) return;
+    lines.push({
+      id: `${id}:${l.Id || n}`, bill_id: id, line_no: +l.LineNum || n + 1,
+      item_name: (d.ItemRef || {}).name || '',
+      account_id: acct.id, account_name: acct.name,
+      description: l.Description || '', amount: cents(l.Amount),
+      qbo_project_id: (t.CustomerRef || {}).value ? String(t.CustomerRef.value) : null
+    });
+  });
+  return { row, lines };
+}
+
 /* ----------------------------------------------------------------- main -- */
 
 if (process.env.NODE_ENV !== 'test') main().catch(e => die('unhandled', e));
@@ -496,35 +560,19 @@ async function main() {
   console.log(`  ${payments.length} payments \u2192 ${payRows.length} rows` +
     (unlinked ? ` (${unlinked} unlinked` + (orphaned ? `, ${orphaned} of them pointing at invoices no longer in QuickBooks` : '') + ')' : ''));
 
-  // ---- bills, card charges, journals ----
-  const bills     = await qboAll(realm, token, 'Bill', `TxnDate >= '${from}'`);
-  const purchases = await qboAll(realm, token, 'Purchase', `TxnDate >= '${from}'`);
-  const journals  = await qboAll(realm, token, 'JournalEntry', `TxnDate >= '${from}'`);
+  // ---- bills, card charges, journals, credit memos, refunds, cc credits ----
+  const bills             = await qboAll(realm, token, 'Bill', `TxnDate >= '${from}'`);
+  const purchases         = await qboAll(realm, token, 'Purchase', `TxnDate >= '${from}'`);
+  const journals          = await qboAll(realm, token, 'JournalEntry', `TxnDate >= '${from}'`);
+  const creditCardCredits = await qboAll(realm, token, 'CreditCardCredit', `TxnDate >= '${from}'`);
+  const creditMemos       = await qboAll(realm, token, 'CreditMemo', `TxnDate >= '${from}'`);
+  const refundReceipts    = await qboAll(realm, token, 'RefundReceipt', `TxnDate >= '${from}'`);
 
   const billRows = [], billLines = [];
   const addCost = (kind, t, vendor, opts = {}) => {
-    const id = `${kind}:${t.Id}`;
-    billRows.push({
-      id, kind, vendor_name: vendor || '', qbo_customer_name: opts.customer || null,
-      issued_on: day(t.TxnDate),
-      due_on: opts.due || null,
-      balance: opts.balance !== undefined ? opts.balance : 0,
-      terms: opts.terms || '',
-      total: cents(t.TotalAmt),
-      synced_at: new Date().toISOString()
-    });
-    (t.Line || []).forEach((l, n) => {
-      const d = l.AccountBasedExpenseLineDetail || l.ItemBasedExpenseLineDetail || {};
-      if (!d.AccountRef && !d.ItemRef) return;
-      billLines.push({
-        id: `${id}:${l.Id || n}`, bill_id: id, line_no: +l.LineNum || n + 1,
-        item_name: (d.ItemRef || {}).name || '',
-        account_id: (d.AccountRef || {}).value ? String(d.AccountRef.value) : null,
-        account_name: (d.AccountRef || {}).name || '',
-        description: l.Description || '', amount: cents(l.Amount),
-        qbo_project_id: lineProject(l)
-      });
-    });
+    const { row, lines } = costRow(kind, t, vendor, opts);
+    billRows.push(row);
+    billLines.push(...lines);
   };
 
   // A Bill is owed and has terms. A Purchase is a card charge — already paid, so its
@@ -536,6 +584,30 @@ async function main() {
     terms: (b.SalesTermRef || {}).name || ''
   }));
   purchases.forEach(p => addCost('purchase', p, (p.EntityRef || {}).name || p.PaymentType || ''));
+  // Missing this entity type is what made a month's card charges show up
+  // without their offsetting reversals (confirmed against a real QuickBooks
+  // account register: July's $22,315.45 of uncredited Facebook charges vs.
+  // the true -$4,774.55 net once these are included).
+  creditCardCredits.forEach(c => addCost('credit_card_credit', c, (c.EntityRef || {}).name || c.PaymentType || '', { sign: -1 }));
+
+  // Credit Memos and Refund Receipts resolve their posting account through
+  // the line item's IncomeAccountRef — see salesCostRow's own comment for
+  // why. Confirmed against the same register: April's "Non Operating Loss"
+  // was short exactly $102,634.48, three Credit Memos ("TN Waived Invoices
+  // Write Off") this sync never fetched at all before now.
+  const items = await qboAll(realm, token, 'Item', '');
+  const itemAccount = {};
+  items.forEach(it => {
+    const ref = it.IncomeAccountRef || {};
+    if (ref.value) itemAccount[String(it.Id)] = { id: String(ref.value), name: ref.name || '' };
+  });
+  const addSalesCost = (kind, t) => {
+    const { row, lines } = salesCostRow(kind, t, itemAccount);
+    billRows.push(row);
+    billLines.push(...lines);
+  };
+  creditMemos.forEach(cm => addSalesCost('credit_memo', cm));
+  refundReceipts.forEach(rr => addSalesCost('refund_receipt', rr));
 
   // Journal lines are signed: a debit to an expense account is a cost, a credit reduces
   // it. Kept separate so they can be included or excluded deliberately — payroll already
@@ -571,6 +643,7 @@ async function main() {
   await sbUpsert('bill_lines', billLines);
   const openBills = billRows.filter(b => b.balance > 0);
   console.log(`  ${bills.length} bills · ${purchases.length} card charges · ${journals.length} journals · ` +
+    `${creditCardCredits.length} cc credits · ${creditMemos.length} credit memos · ${refundReceipts.length} refund receipts · ` +
     `${billLines.length} lines · ${openBills.length} unpaid ` +
     `(${(openBills.reduce((s, b) => s + b.balance, 0) / 100).toLocaleString()})`);
 
@@ -646,6 +719,7 @@ async function main() {
       invoices_no_due: noDue,
       payments: payments.length, payment_links: payRows.length, payments_unlinked: unlinked,
       bills: bills.length, purchases: purchases.length, journals: journals.length,
+      credit_card_credits: creditCardCredits.length, credit_memos: creditMemos.length, refund_receipts: refundReceipts.length,
       bill_lines: billLines.length, bills_open: openBills.length,
       bill_payments: billPmts.length, bill_payment_links: bpRows.length, payments_orphaned: orphaned, bill_payments_orphaned: bpOrphaned,
       unmatched_projects: unmatched.size
