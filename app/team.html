@@ -73,6 +73,7 @@ boot('team', async (supa, el) => {
   let editState = null; // { mode: 'edit'|'create', id }
   let modalOpener = null;
   let compAllByStaffLive = {}; // staff_id -> comp_periods[], refreshed every load()
+  let bonusesByStaffLive = {}; // staff_id -> staff_bonuses[], refreshed every load()
 
   el.innerHTML = `<div id="panel">loading…</div>`;
 
@@ -154,6 +155,56 @@ boot('team', async (supa, el) => {
         </tr>`).join('');
   }
 
+  function bonusesHtml(bonuses) {
+    return !bonuses.length
+      ? `<tr><td colspan="4" class="muted" style="text-align:left">No bonuses scheduled.</td></tr>`
+      : bonuses.map(b => `
+        <tr data-bonus="${b.id}">
+          <td><input type="date" class="bn-date" value="${b.pay_date}" style="height:26px;width:130px"></td>
+          <td><span class="moneyfield"><input type="text" class="bn-amount" value="${fmtCostDisplay(fromCents(b.amount))}" style="height:26px;width:118px"></span></td>
+          <td><input type="text" class="bn-note" value="${esc(b.note || '')}" placeholder="note" style="height:26px;width:160px"></td>
+          <td style="white-space:nowrap">
+            <button class="ghost bn-save" data-id="${b.id}" style="padding:3px 8px;font-size:11px">Save</button>
+            <button class="ghost bn-delete" data-id="${b.id}" style="padding:3px 8px;font-size:11px;color:var(--rust)" title="Delete this bonus" aria-label="Delete this bonus">×</button>
+          </td>
+        </tr>`).join('');
+  }
+
+  function wireBonusHandlers(sid, box) {
+    box.querySelectorAll('.bn-amount, .nb-amount').forEach(wireMoneyInput);
+    box.querySelectorAll('.bn-save').forEach(btn => btn.onclick = async () => {
+      const row = btn.closest('tr');
+      const pay_date = row.querySelector('.bn-date').value;
+      const amount = toCents(row.querySelector('.bn-amount').value);
+      const note = row.querySelector('.bn-note').value.trim() || null;
+      if (!pay_date) { alert('Pick a date.'); return; }
+      const { error } = await supa.from('staff_bonuses')
+        .update({ pay_date, amount, note }).eq('id', btn.dataset.id);
+      if (error) { alert(error.message); return; }
+      load();
+    });
+    box.querySelectorAll('.bn-delete').forEach(btn => btn.onclick = async () => {
+      if (!confirm('Delete this bonus? This cannot be undone.')) return;
+      const { error } = await supa.from('staff_bonuses').delete().eq('id', btn.dataset.id);
+      if (error) { alert(error.message); return; }
+      load();
+    });
+    const nbAdd = box.querySelector('.nb-add');
+    if (nbAdd) {
+      nbAdd.onclick = async () => {
+        const msg = box.querySelector('.nb-msg');
+        const pay_date = box.querySelector('.nb-date').value;
+        if (!pay_date) { msg.textContent = 'pick a date'; return; }
+        const amount = toCents(box.querySelector('.nb-amount').value);
+        const note = box.querySelector('.nb-note').value.trim() || null;
+        const { error } = await supa.from('staff_bonuses')
+          .insert({ staff_id: sid, pay_date, amount, note, set_by: window.__email });
+        if (error) { msg.textContent = error.message; return; }
+        load();
+      };
+    }
+  }
+
   function wirePeriodHandlers(sid, box) {
     box.querySelectorAll('.cp-cost, .np-cost').forEach(wireMoneyInput);
     box.querySelectorAll('.cp-type').forEach(sel => {
@@ -223,6 +274,9 @@ boot('team', async (supa, el) => {
 
     const periods = mode === 'edit'
       ? (compAllByStaffLive[person.id] || []).slice().sort((a, b) => b.starts_on.localeCompare(a.starts_on))
+      : [];
+    const bonuses = mode === 'edit'
+      ? (bonusesByStaffLive[person.id] || []).slice().sort((a, b) => b.pay_date.localeCompare(a.pay_date))
       : [];
     const initialStatus = mode === 'create' ? 'active' : STATUS_OF(person);
 
@@ -296,6 +350,21 @@ boot('team', async (supa, el) => {
             <input type="text" class="np-cap" placeholder="hrs/wk" value="${npTypeDefault==='full_time'?40:''}" style="height:26px;width:56px" ${npTypeDefault==='full_time'?'disabled':''}>
             <button class="primary np-add" style="padding:2px 8px">Add period</button>
             <span class="np-msg err" style="font-size:11px"></span>
+          </div>
+          <div class="sc-eyebrow" style="margin-top:18px">Scheduled bonuses</div>
+          <div class="gridwrap">
+            <table class="ledger" id="modal-bonuses-tbl">
+              <thead><tr><th scope="col">date</th><th scope="col">amount</th><th scope="col">note</th><th scope="col"></th></tr></thead>
+              <tbody>${bonusesHtml(bonuses)}</tbody>
+            </table>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+            <span class="mono muted" style="font-size:11px">+ new bonus on</span>
+            <input type="date" class="nb-date" style="height:26px">
+            <span class="moneyfield"><input type="text" class="nb-amount" placeholder="0.00" style="height:26px;width:118px"></span>
+            <input type="text" class="nb-note" placeholder="note" style="height:26px;width:160px">
+            <button class="primary nb-add" style="padding:2px 8px">Add bonus</button>
+            <span class="nb-msg err" style="font-size:11px"></span>
           </div>` : `<p class="muted" style="font-size:12px">Save this person first to add compensation history.</p>`}
       </div>
       <div class="modal-foot">
@@ -381,17 +450,21 @@ boot('team', async (supa, el) => {
       load();
     };
 
-    if (mode === 'edit') wirePeriodHandlers(person.id, back.querySelector('.modal-body'));
+    if (mode === 'edit') {
+      wirePeriodHandlers(person.id, back.querySelector('.modal-body'));
+      wireBonusHandlers(person.id, back.querySelector('.modal-body'));
+    }
   }
 
   async function load() {
-    const [st, cp, tc] = await Promise.all([
+    const [st, cp, tc, bn] = await Promise.all([
       supa.from('staff').select('id,name,department,active,start_date,end_date,enrolled_401k,enrolled_health_insurance,work_state,tracks_capacity').order('name'),
       supa.from('comp_periods').select('id,staff_id,starts_on,ends_on,kind,annual_cost,hourly_cost,weekly_capacity,employment_type').order('starts_on'),
-      supa.from('v_staff_total_cost').select('staff_id,total_annual_cost')
+      supa.from('v_staff_total_cost').select('staff_id,total_annual_cost'),
+      supa.from('staff_bonuses').select('id,staff_id,pay_date,amount,note').order('pay_date')
     ]);
     if (st.error) { el.innerHTML = `<div class="sc-panel err">${esc(st.error.message)}</div>`; return; }
-    render(st.data || [], cp.data || [], tc.data || []);
+    render(st.data || [], cp.data || [], tc.data || [], bn.data || []);
   }
 
   /* --------------------------------------------------- export/import (xlsx) */
@@ -752,9 +825,11 @@ boot('team', async (supa, el) => {
     ['start_date', 'Hire date'], ['end_date', 'End date'], ['active', 'Status'], [null, '']
   ];
 
-  function render(staff, comp, totalCost) {
+  function render(staff, comp, totalCost, bonuses) {
     compAllByStaffLive = {};
     comp.forEach(c => (compAllByStaffLive[c.staff_id] = compAllByStaffLive[c.staff_id] || []).push(c));
+    bonusesByStaffLive = {};
+    (bonuses || []).forEach(b => (bonusesByStaffLive[b.staff_id] = bonusesByStaffLive[b.staff_id] || []).push(b));
     const compCurrentByStaff = {};
     comp.forEach(c => { if (c.ends_on === null) compCurrentByStaff[c.staff_id] = c; });
     // v_staff_total_cost (041) — one live row per staff member, fully loaded
@@ -894,6 +969,12 @@ boot('team', async (supa, el) => {
         const periods = (compAllByStaffLive[editState.id] || []).slice().sort((a, b) => b.starts_on.localeCompare(a.starts_on));
         tbody.innerHTML = periodsHtml(periods);
         wirePeriodHandlers(editState.id, back.querySelector('.modal-body'));
+      }
+      const bonusTbody = back && back.querySelector('#modal-bonuses-tbl tbody');
+      if (bonusTbody) {
+        const bonuses = (bonusesByStaffLive[editState.id] || []).slice().sort((a, b) => b.pay_date.localeCompare(a.pay_date));
+        bonusTbody.innerHTML = bonusesHtml(bonuses);
+        wireBonusHandlers(editState.id, back.querySelector('.modal-body'));
       }
     }
   }
