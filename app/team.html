@@ -731,15 +731,24 @@ boot('team', async (supa, el) => {
   }
 
   const STATUS_RANK = { active: 2, ended: 1, inactive: 0 };
+  // comp/total_cost read values render() attaches to each staff row just
+  // before sorting (_compAnnual/_totalCost) — both need per-render context
+  // (compCurrentByStaff/totalCostByStaff) that these accessors don't close
+  // over, so the value is computed once and hung on the row instead. Null
+  // sorts as -1 (lowest), so "no comp entered yet"/"no current period"
+  // rows settle at whichever end makes sense for the current sort direction
+  // rather than breaking the comparison.
   const SORT_ACCESSORS = {
     name: s => s.name.toLowerCase(),
     department: s => (s.department || '').toLowerCase(),
     start_date: s => s.start_date || '',
     end_date: s => s.end_date || '',
-    active: s => STATUS_RANK[STATUS_OF(s)]
+    active: s => STATUS_RANK[STATUS_OF(s)],
+    comp: s => s._compAnnual ?? -1,
+    total_cost: s => s._totalCost ?? -1
   };
   const HCOLS = [
-    ['name', 'Name'], ['department', 'Department'], [null, 'Comp'], [null, 'Total Cost'],
+    ['name', 'Name'], ['department', 'Department'], ['comp', 'Comp'], ['total_cost', 'Total Cost'],
     ['start_date', 'Hire date'], ['end_date', 'End date'], ['active', 'Status'], [null, '']
   ];
 
@@ -756,6 +765,13 @@ boot('team', async (supa, el) => {
     // staff_hourly_cost has always taken.
     const totalCostByStaff = {};
     totalCost.forEach(t => { totalCostByStaff[t.staff_id] = t.total_annual_cost; });
+    // Sortable Comp/Total Cost need this same per-render lookup context, so
+    // the value's computed once here and attached directly to each row.
+    staff.forEach(s => {
+      const c = compCurrentByStaff[s.id];
+      s._compAnnual = c ? (c.kind === 'hourly' ? c.hourly_cost * c.weekly_capacity * 52 : c.annual_cost) : null;
+      s._totalCost = totalCostByStaff[s.id] ?? null;
+    });
 
     const departments = [...new Set(staff.map(s => s.department).filter(Boolean))].sort();
     const q = query.trim().toLowerCase();
@@ -804,7 +820,7 @@ boot('team', async (supa, el) => {
             const totalAnnual = totalCostByStaff[s.id];
             return `<tr class="${stat!=='active'?'muted':''}" data-id="${s.id}" style="cursor:pointer">
                 <td>${esc(s.name)}</td>
-                <td>${s.department ? esc(s.department) : '<span class="muted">—</span>'}</td>
+                <td>${s.department ? esc(s.department) : '<span class="muted">—</span>'}${s.tracks_capacity === false ? ` <span class="muted" style="font-size:10.5px" title="Not counted toward capacity/utilization on Team Hours or Home">(non-capacity)</span>` : ''}</td>
                 <td>${comp
                   ? (comp.kind === 'hourly'
                       ? `$${(comp.hourly_cost/100).toLocaleString()}/hr · ${comp.weekly_capacity}h/wk`
@@ -833,7 +849,7 @@ boot('team', async (supa, el) => {
     el.querySelectorAll('th[data-sort]').forEach(th => {
       const activate = () => {
         const k = th.dataset.sort;
-        tableSort = { key: k, dir: tableSort.key === k ? -tableSort.dir : (k === 'active' ? -1 : 1) };
+        tableSort = { key: k, dir: tableSort.key === k ? -tableSort.dir : (['active','comp','total_cost'].includes(k) ? -1 : 1) };
         render(staff, comp, totalCost);
       };
       th.onclick = activate;
