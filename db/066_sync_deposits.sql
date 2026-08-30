@@ -1,0 +1,22 @@
+-- ============================================================================
+--  066 — new cost_kind value for Deposit lines: a fifth QuickBooks entity
+--  type this sync had never fetched (only Invoice/Bill/Purchase/JournalEntry/
+--  CreditMemo/RefundReceipt).
+--
+--  Confirmed after the Credit Card Credit and Credit Memo fixes (063) closed
+--  April's and July's big gaps: every remaining month's small overhead
+--  residual matched "Interest earned" almost to the penny (Jan $411.96, Feb
+--  $777.44, Apr $1,348.03, May $1,549.89, Jun $767.03, Jul $1,587.70) — and
+--  that account had ZERO rows anywhere in v_cost_lines_classified. Bank
+--  interest is recorded as a Deposit crediting an Other Income account
+--  directly, with nothing else on the transaction, so it was invisible to
+--  every entity type this sync already pulls.
+--
+--  scripts/sync-qbo.mjs now pulls Deposit too — only lines with a bare
+--  AccountRef and no linked Entity, so a bank-fed customer payment bundled
+--  into the same deposit (already captured via the payments sync) is never
+--  double-counted. This migration only adds the enum value; 'if not
+--  exists' so it's safe to re-run.
+-- ============================================================================
+
+alter type cost_kind add value if not exists 'deposit';

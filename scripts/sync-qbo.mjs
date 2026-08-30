@@ -352,6 +352,37 @@ export function salesCostRow(kind, t, itemAccount) {
   return { row, lines };
 }
 
+// A Deposit's line carries an AccountRef directly (DepositLineDetail), same
+// as a Bill/Purchase line — but a Deposit can ALSO bundle a linked customer
+// payment (an Entity reference on the line), which the payments sync already
+// captures. Only a bare account credit — no Entity — is counted here, or
+// every bank-fed customer payment swept into a deposit would double count
+// revenue. This is how bank interest (recorded as a deposit crediting an
+// Other Income account, with nothing on the other side) reaches this system
+// at all — confirmed absent from every other synced entity type.
+export function depositRow(t) {
+  const id = `deposit:${t.Id}`;
+  const row = {
+    id, kind: 'deposit', vendor_name: '', qbo_customer_name: null,
+    issued_on: day(t.TxnDate), due_on: null, balance: 0, terms: '',
+    total: cents(t.TotalAmt), synced_at: new Date().toISOString()
+  };
+  const lines = [];
+  (t.Line || []).forEach((l, n) => {
+    if (l.DetailType !== 'DepositLineDetail') return;
+    const d = l.DepositLineDetail || {};
+    if (d.Entity || !d.AccountRef) return;
+    lines.push({
+      id: `${id}:${l.Id || n}`, bill_id: id, line_no: +l.LineNum || n + 1,
+      item_name: '',
+      account_id: String(d.AccountRef.value), account_name: d.AccountRef.name || '',
+      description: l.Description || '', amount: cents(l.Amount),
+      qbo_project_id: null
+    });
+  });
+  return { row, lines };
+}
+
 /* ----------------------------------------------------------------- main -- */
 
 if (process.env.NODE_ENV !== 'test') main().catch(e => die('unhandled', e));
@@ -571,6 +602,7 @@ async function main() {
   const journals       = await qboAll(realm, token, 'JournalEntry', `TxnDate >= '${from}'`);
   const creditMemos    = await qboAll(realm, token, 'CreditMemo', `TxnDate >= '${from}'`);
   const refundReceipts = await qboAll(realm, token, 'RefundReceipt', `TxnDate >= '${from}'`);
+  const deposits       = await qboAll(realm, token, 'Deposit', `TxnDate >= '${from}'`);
 
   const billRows = [], billLines = [];
   const addCost = (kind, t, vendor, opts = {}) => {
@@ -618,6 +650,20 @@ async function main() {
   creditMemos.forEach(cm => addSalesCost('credit_memo', cm));
   refundReceipts.forEach(rr => addSalesCost('refund_receipt', rr));
 
+  // Bank interest never appears via Bill/Purchase/JournalEntry/CreditMemo/
+  // RefundReceipt — confirmed by its total absence from every one of those
+  // (zero rows) despite a real, non-zero "Interest earned" balance every
+  // single month. It's recorded as a Deposit, a fifth entity type this sync
+  // had never fetched. depositRow's own comment explains the Entity guard
+  // that keeps bundled customer payments from double-counting here.
+  let depositLineCount = 0;
+  deposits.forEach(dep => {
+    const { row, lines } = depositRow(dep);
+    billRows.push(row);
+    billLines.push(...lines);
+    depositLineCount += lines.length;
+  });
+
   // Journal lines are signed: a debit to an expense account is a cost, a credit reduces
   // it. Kept separate so they can be included or excluded deliberately — payroll already
   // arrives via purchases, and folding these in blind risks double-counting.
@@ -653,6 +699,7 @@ async function main() {
   const openBills = billRows.filter(b => b.balance > 0);
   console.log(`  ${bills.length} bills · ${purchases.length - ccCreditCount} card charges · ${ccCreditCount} cc credits · ` +
     `${journals.length} journals · ${creditMemos.length} credit memos · ${refundReceipts.length} refund receipts · ` +
+    `${deposits.length} deposits (${depositLineCount} counted lines) · ` +
     `${billLines.length} lines · ${openBills.length} unpaid ` +
     `(${(openBills.reduce((s, b) => s + b.balance, 0) / 100).toLocaleString()})`);
 
@@ -729,6 +776,7 @@ async function main() {
       payments: payments.length, payment_links: payRows.length, payments_unlinked: unlinked,
       bills: bills.length, purchases: purchases.length - ccCreditCount, journals: journals.length,
       credit_card_credits: ccCreditCount, credit_memos: creditMemos.length, refund_receipts: refundReceipts.length,
+      deposits: deposits.length, deposit_lines: depositLineCount,
       bill_lines: billLines.length, bills_open: openBills.length,
       bill_payments: billPmts.length, bill_payment_links: bpRows.length, payments_orphaned: orphaned, bill_payments_orphaned: bpOrphaned,
       unmatched_projects: unmatched.size
