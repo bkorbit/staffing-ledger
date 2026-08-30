@@ -9,6 +9,16 @@
    was designed around (Department+Hire date, Active+End date) at any width
    up to modal-sm's own cap. */
 .modal-sm .settings { grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); }
+/* Cost is the one figure in this modal with no other cue that it's money —
+   kind's own label (salary/yr, hourly) sits right next to it but a bare
+   "65000.00" still reads as an anonymous number at a glance. A pinned "$"
+   glyph plus room to breathe (cp-cost/np-cost both widened well past the
+   other short fields) fixes both the "what is this" and the "I can't tell
+   65000 from 650000" complaints in one move. */
+.moneyfield { position:relative; display:inline-block; }
+.moneyfield::before { content:"$"; position:absolute; left:9px; top:50%; transform:translateY(-50%);
+  font-family:var(--font-mono); font-size:12px; color:var(--slate); pointer-events:none; }
+.moneyfield input { padding-left:19px; }
 </style>
 </head><body>
 <script type="module">
@@ -37,8 +47,18 @@ import { boot, esc, wireSearch } from './assets/shell.js?v=8abcf45';
 // backdrop click, Escape, focus restored to the opener on close) — one
 // place for name/department/dates/active AND compensation history together,
 // rather than a small popover that hid the history behind a second toggle.
-const toCents = dollars => Math.round((+dollars || 0) * 100);
+const toCents = dollars => Math.round((+String(dollars).replace(/,/g, '') || 0) * 100);
 const fromCents = cents => ((cents || 0) / 100).toFixed(2);
+// Cost inputs show comma-grouped thousands (fmtCostDisplay) so a figure like
+// 65000 reads as "65,000.00" instead of a wall of undifferentiated digits;
+// toCents above strips the commas back out, and focus/blur (wireMoneyInput)
+// swap between the raw editable form and the grouped display form so typing
+// mid-number never fights a comma landing where the cursor just was.
+const fmtCostDisplay = dollars => (+dollars || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const wireMoneyInput = input => {
+  input.addEventListener('focus', () => { input.value = input.value.replace(/,/g, ''); });
+  input.addEventListener('blur', () => { if (input.value.trim()) input.value = fmtCostDisplay(input.value); });
+};
 const iso = d => d.toISOString().slice(0, 10);
 const dayBefore = dateStr => iso(new Date(new Date(dateStr + 'T00:00:00Z').getTime() - 86400000));
 const dayAfter = dateStr => iso(new Date(new Date(dateStr + 'T00:00:00Z').getTime() + 86400000));
@@ -95,7 +115,7 @@ boot('team', async (supa, el) => {
             <option value="salary" ${p.kind==='salary'?'selected':''}>salary/yr</option>
             <option value="hourly" ${p.kind==='hourly'?'selected':''}>hourly</option>
           </select></td>
-          <td><input type="text" class="cp-cost" value="${p.kind==='hourly'?fromCents(p.hourly_cost):fromCents(p.annual_cost)}" style="height:26px;width:80px"></td>
+          <td><span class="moneyfield"><input type="text" class="cp-cost" value="${fmtCostDisplay(p.kind==='hourly'?fromCents(p.hourly_cost):fromCents(p.annual_cost))}" style="height:26px;width:118px"></span></td>
           <td class="cap-col"><input type="text" class="cp-cap" value="${p.weekly_capacity}" style="height:26px;width:56px" ${p.employment_type==='full_time'?'disabled':''}></td>
           <td style="white-space:nowrap">
             <button class="ghost cp-save" data-id="${p.id}" style="padding:3px 8px;font-size:11px">Save</button>
@@ -105,6 +125,7 @@ boot('team', async (supa, el) => {
   }
 
   function wirePeriodHandlers(sid, box) {
+    box.querySelectorAll('.cp-cost, .np-cost').forEach(wireMoneyInput);
     box.querySelectorAll('.cp-type').forEach(sel => {
       sel.onchange = () => applyCapLock(sel, sel.closest('tr').querySelector('.cp-cap'));
     });
@@ -195,7 +216,7 @@ boot('team', async (supa, el) => {
       </div>
       <div class="modal-body">
         <div class="settings">
-          <div class="setrow wide"><span class="setlabel">Name</span><input class="ep-name" type="text" value="${mode==='edit'?esc(person.name):''}"></div>
+          ${mode === 'create' ? `<div class="setrow wide"><span class="setlabel">Name</span><input class="ep-name" type="text"></div>` : ''}
           <div class="setrow"><span class="setlabel">Department</span><input class="ep-dept" type="text" placeholder="department" value="${mode==='edit'?esc(person.department||''):''}"></div>
           <div class="setrow"><span class="setlabel">Hire date</span><input class="ep-start" type="date" value="${mode==='edit'?(person.start_date||''):''}"></div>
           <div class="setrow"><span class="setlabel">Active</span>
@@ -221,7 +242,7 @@ boot('team', async (supa, el) => {
               <option value="salary">salary/yr</option>
               <option value="hourly">hourly</option>
             </select>
-            <input type="text" class="np-cost" placeholder="$" style="height:26px;width:80px">
+            <span class="moneyfield"><input type="text" class="np-cost" placeholder="0.00" style="height:26px;width:130px"></span>
             <input type="text" class="np-cap" placeholder="hrs/wk" value="${npTypeDefault==='full_time'?40:''}" style="height:26px;width:56px" ${npTypeDefault==='full_time'?'disabled':''}>
             <button class="primary np-add" style="padding:2px 8px">Add period</button>
             <span class="np-msg err" style="font-size:11px"></span>
@@ -276,11 +297,14 @@ boot('team', async (supa, el) => {
       if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     };
-    back.querySelector('.ep-name').focus();
+    (back.querySelector('.ep-name') || back.querySelector('.ep-dept')).focus();
 
     back.querySelector('.ep-save').onclick = async () => {
-      const name = back.querySelector('.ep-name').value.trim();
-      if (!name) { back.querySelector('.ep-msg').textContent = 'name is required'; return; }
+      let name = person && person.name;
+      if (mode === 'create') {
+        name = back.querySelector('.ep-name').value.trim();
+        if (!name) { back.querySelector('.ep-msg').textContent = 'name is required'; return; }
+      }
       const active = back.querySelector('.ep-active').checked;
       const payload = {
         name,

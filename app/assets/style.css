@@ -76,6 +76,7 @@ input,select { height:34px; border:1px solid var(--line); border-radius:4px; pad
   font-family:var(--font-mono); font-size:12.5px; background:var(--paper-raised); color:var(--ink); }
 input:focus,select:focus { outline:none; border-color:var(--brand-2); box-shadow:0 0 0 2px var(--mint); }
 input::placeholder { color:#b5b5b5; }
+input:disabled,select:disabled { background:var(--paper); color:var(--slate); cursor:not-allowed; }
 label.mono { font-family:var(--font-mono); font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:var(--slate); }
 
 table { border-collapse:collapse; width:100%; background:var(--paper-raised); }
