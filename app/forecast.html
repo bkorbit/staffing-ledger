@@ -375,6 +375,11 @@ boot('forecast', async (supa, el) => {
   let plRowsCache = [];
 
   async function loadAll() {
+    // invalidate the pickers' lazily-fetched full lists — every reload follows
+    // a save (link, hide, reopen…), and a stale snapshot here badges a deal
+    // with the project it USED to hold, reading as proof a fix didn't take
+    // when it actually did
+    fullProjects = null; fullDeals = null;
     if (rangeTo < rangeFrom) rangeTo = rangeFrom;
     months = monthsBetween(rangeFrom, rangeTo);
     const [pg, dl, cl, st, qa] = await Promise.all([
