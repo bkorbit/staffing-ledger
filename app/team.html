@@ -86,6 +86,17 @@ boot('team', async (supa, el) => {
   const EMP_TYPES = [['full_time', 'Full Time'], ['contractor', 'Contractor'], ['part_time', 'Part Time']];
   const EMP_LABELS = Object.fromEntries(EMP_TYPES);
 
+  // Three real states, not two. staff.active alone used to double as both
+  // "currently employed" AND "never count this person" — setting an end
+  // date required unchecking Active, which also excluded someone from every
+  // historical rollup they actually worked. active now means only "count
+  // this person at all"; end_date (when active is still true) is what marks
+  // someone as ended without touching that. active=false is reserved for the
+  // "don't count this ever" case (typos, test rows, someone to purge from
+  // every view including their own history).
+  const STATUS_OF = s => !s.active ? 'inactive' : (s.end_date ? 'ended' : 'active');
+  const STATUS_PILL = { active: 'good', ended: 'warn', inactive: 'bad' };
+
   // Employment type is set PER comp period, not once for a person's whole
   // tenure (039) — someone can start as a contractor and go full time later,
   // or the reverse. Full time locks weekly_capacity at 40 for that period
@@ -194,7 +205,7 @@ boot('team', async (supa, el) => {
     const periods = mode === 'edit'
       ? (compAllByStaffLive[person.id] || []).slice().sort((a, b) => b.starts_on.localeCompare(a.starts_on))
       : [];
-    const isActive = mode === 'create' || person.active;
+    const initialStatus = mode === 'create' ? 'active' : STATUS_OF(person);
 
     // "New period starting" default: a known (already-ended) period wins —
     // the next period picks up the day after it ends. Otherwise fall back to
@@ -219,10 +230,13 @@ boot('team', async (supa, el) => {
           ${mode === 'create' ? `<div class="setrow wide"><span class="setlabel">Name</span><input class="ep-name" type="text"></div>` : ''}
           <div class="setrow"><span class="setlabel">Department</span><input class="ep-dept" type="text" placeholder="department" value="${mode==='edit'?esc(person.department||''):''}"></div>
           <div class="setrow"><span class="setlabel">Hire date</span><input class="ep-start" type="date" value="${mode==='edit'?(person.start_date||''):''}"></div>
-          <div class="setrow"><span class="setlabel">Active</span>
-            <label class="mono" style="display:flex;align-items:center;gap:6px;height:32px;text-transform:none;letter-spacing:normal;font-size:12.5px;font-family:var(--font-body);color:var(--ink)">
-              <input class="ep-active" type="checkbox" ${isActive?'checked':''}> currently active</label></div>
-          <div class="setrow ep-enddate-row" ${isActive?'hidden':''}><span class="setlabel">End date</span><input class="ep-end" type="date" value="${mode==='edit'?(person.end_date||''):''}"></div>
+          <div class="setrow"><span class="setlabel">Status</span>
+            <select class="ep-status">
+              <option value="active" ${initialStatus==='active'?'selected':''}>Active — still employed</option>
+              <option value="ended" ${initialStatus==='ended'?'selected':''}>Ended — was active, no longer</option>
+              <option value="inactive" ${initialStatus==='inactive'?'selected':''}>Inactive — never count</option>
+            </select></div>
+          <div class="setrow ep-enddate-row" ${initialStatus!=='ended'?'hidden':''}><span class="setlabel">End date</span><input class="ep-end" type="date" value="${mode==='edit'?(person.end_date||''):''}"></div>
         </div>
         ${mode === 'edit' ? `
           <div class="sc-eyebrow">Compensation history</div>
@@ -260,8 +274,11 @@ boot('team', async (supa, el) => {
     back.querySelector('.ep-cancel').onclick = closeModal;
     const modal = back.querySelector('.modal');
 
-    back.querySelector('.ep-active').onchange = e => {
-      back.querySelector('.ep-enddate-row').hidden = e.target.checked;
+    back.querySelector('.ep-status').onchange = e => {
+      const row = back.querySelector('.ep-enddate-row');
+      row.hidden = e.target.value !== 'ended';
+      const endInput = row.querySelector('.ep-end');
+      if (!row.hidden && !endInput.value) endInput.value = iso(new Date());
     };
 
     // Hire date <-> "new period starting" cross-fill — only while there's no
@@ -305,13 +322,16 @@ boot('team', async (supa, el) => {
         name = back.querySelector('.ep-name').value.trim();
         if (!name) { back.querySelector('.ep-msg').textContent = 'name is required'; return; }
       }
-      const active = back.querySelector('.ep-active').checked;
+      const status = back.querySelector('.ep-status').value;
+      if (status === 'ended' && !back.querySelector('.ep-end').value) {
+        back.querySelector('.ep-msg').textContent = 'end date is required for "Ended"'; return;
+      }
       const payload = {
         name,
         department: back.querySelector('.ep-dept').value.trim() || null,
         start_date: back.querySelector('.ep-start').value || null,
-        end_date: active ? null : (back.querySelector('.ep-end').value || null),
-        active
+        end_date: status === 'ended' ? back.querySelector('.ep-end').value : null,
+        active: status !== 'inactive'
       };
       const { error } = mode === 'create'
         ? await supa.from('staff').insert({ ...payload, set_by: window.__email })
@@ -333,16 +353,17 @@ boot('team', async (supa, el) => {
     render(st.data || [], cp.data || []);
   }
 
+  const STATUS_RANK = { active: 2, ended: 1, inactive: 0 };
   const SORT_ACCESSORS = {
     name: s => s.name.toLowerCase(),
     department: s => (s.department || '').toLowerCase(),
     start_date: s => s.start_date || '',
     end_date: s => s.end_date || '',
-    active: s => s.active ? 1 : 0
+    active: s => STATUS_RANK[STATUS_OF(s)]
   };
   const HCOLS = [
     ['name', 'Name'], ['department', 'Department'], [null, 'Comp'],
-    ['start_date', 'Hire date'], ['end_date', 'End date'], ['active', 'Active'], [null, '']
+    ['start_date', 'Hire date'], ['end_date', 'End date'], ['active', 'Status'], [null, '']
   ];
 
   function render(staff, comp) {
@@ -390,7 +411,8 @@ boot('team', async (supa, el) => {
           ${!rows.length ? `<tr><td colspan="7" class="empty-note">No people match the current filters.</td></tr>` : rows.map(s => {
             const comp = compCurrentByStaff[s.id];
             const periodCount = (compAllByStaffLive[s.id] || []).length;
-            return `<tr class="${!s.active?'muted':''}" data-id="${s.id}" style="cursor:pointer">
+            const stat = STATUS_OF(s);
+            return `<tr class="${stat!=='active'?'muted':''}" data-id="${s.id}" style="cursor:pointer">
                 <td>${esc(s.name)}</td>
                 <td>${s.department ? esc(s.department) : '<span class="muted">—</span>'}</td>
                 <td>${comp
@@ -402,7 +424,7 @@ boot('team', async (supa, el) => {
                   ${periodCount ? `<span class="muted" style="font-size:10.5px"> (${periodCount} period${periodCount===1?'':'s'})</span>` : ''}</td>
                 <td>${fmtDate(s.start_date)}</td>
                 <td>${fmtDate(s.end_date)}</td>
-                <td><span class="pill ${s.active?'good':'bad'}">${s.active?'active':'inactive'}</span></td>
+                <td><span class="pill ${STATUS_PILL[stat]}">${stat}</span></td>
                 <td style="white-space:nowrap">
                   <button class="ghost edit-btn" data-id="${s.id}">Edit</button>
                   <button class="ghost toggle-active-btn" data-id="${s.id}">${s.active?'Deactivate':'Reactivate'}</button>
@@ -440,7 +462,10 @@ boot('team', async (supa, el) => {
       e.stopPropagation();
       const s = staffById[btn.dataset.id];
       if (s.active && !confirm(`Deactivate "${s.name}"?`)) return;
-      const { error } = await supa.from('staff').update({ active: !s.active }).eq('id', s.id);
+      // Reactivating clears any lingering end_date — otherwise they'd land
+      // back on "ended" instead of "active" despite the explicit reactivate.
+      const payload = s.active ? { active: false } : { active: true, end_date: null };
+      const { error } = await supa.from('staff').update(payload).eq('id', s.id);
       if (error) { alert(error.message); return; }
       load();
     });
