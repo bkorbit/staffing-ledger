@@ -8,12 +8,31 @@ boot('settings', async (supa, el) => {
   el.innerHTML = `<div class="sc-panel" id="syncs">loading…</div>
     <div class="sc-panel" id="hsreview"></div>
     <div class="sc-panel" id="banks"></div>
-    <div class="sc-panel" id="knobs"></div>`;
+    <div class="sc-panel" id="knobs"></div>
+    <div class="sc-panel" id="wcrates"></div>`;
 
   const nameKey = s => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
 
+  // Same 50 states + DC as Team's work_state dropdown — real workers' comp
+  // rates are set per state, so exact calculation (042) needs one rate per
+  // state actually confirmed from the policy, not a free-text list.
+  const US_STATES = [
+    ['AL','Alabama'],['AK','Alaska'],['AZ','Arizona'],['AR','Arkansas'],['CA','California'],
+    ['CO','Colorado'],['CT','Connecticut'],['DE','Delaware'],['DC','District of Columbia'],
+    ['FL','Florida'],['GA','Georgia'],['HI','Hawaii'],['ID','Idaho'],['IL','Illinois'],
+    ['IN','Indiana'],['IA','Iowa'],['KS','Kansas'],['KY','Kentucky'],['LA','Louisiana'],
+    ['ME','Maine'],['MD','Maryland'],['MA','Massachusetts'],['MI','Michigan'],['MN','Minnesota'],
+    ['MS','Mississippi'],['MO','Missouri'],['MT','Montana'],['NE','Nebraska'],['NV','Nevada'],
+    ['NH','New Hampshire'],['NJ','New Jersey'],['NM','New Mexico'],['NY','New York'],
+    ['NC','North Carolina'],['ND','North Dakota'],['OH','Ohio'],['OK','Oklahoma'],['OR','Oregon'],
+    ['PA','Pennsylvania'],['RI','Rhode Island'],['SC','South Carolina'],['SD','South Dakota'],
+    ['TN','Tennessee'],['TX','Texas'],['UT','Utah'],['VT','Vermont'],['VA','Virginia'],
+    ['WA','Washington'],['WV','West Virginia'],['WI','Wisconsin'],['WY','Wyoming']
+  ];
+  const STATE_NAME = Object.fromEntries(US_STATES);
+
   async function load() {
-    const [syncs, banks, knobs, pipelineDeals, promotions, blockedNames, hsDeals, clientsList] = await Promise.all([
+    const [syncs, banks, knobs, pipelineDeals, promotions, blockedNames, hsDeals, clientsList, wcRates] = await Promise.all([
       supa.from('sync_state').select('id,last_run_at,last_run_log,import_from,import_from_set_by,import_from_set_at'),
       supa.from('qbo_accounts').select('id,name,balance,is_operating,as_of').eq('account_type','Bank').order('balance',{ascending:false}),
       supa.from('settings').select('key,value,set_by').order('key'),
@@ -21,7 +40,8 @@ boot('settings', async (supa, el) => {
       supa.from('promotions').select('hubspot_deal_id'),
       supa.from('blocked_company_names').select('name_key'),
       supa.from('deals').select('id,name,client_id,hubspot_deal_id,flight_start,flight_end,flight_locked,status,hidden').not('hubspot_deal_id', 'is', null),
-      supa.from('clients').select('id,name')
+      supa.from('clients').select('id,name'),
+      supa.from('workers_comp_rates').select('state,rate,set_by').order('state')
     ]);
 
     document.getElementById('syncs').innerHTML = `<div class="muted" style="margin-bottom:8px">Syncs</div>
@@ -221,6 +241,69 @@ boot('settings', async (supa, el) => {
         <button class="primary" id="k-save" style="align-self:flex-end">Save</button>
         <span id="k-msg" class="ok" style="align-self:flex-end;font-size:12px"></span>
       </div>
+      <div class="sc-eyebrow">Payroll burden (employer FICA + FUTA, 040)</div>
+      <div class="muted" style="font-size:11px;margin-bottom:8px;max-width:640px">
+        Layered on top of base pay for full_time/part_time comp periods only —
+        contractors are unaffected. The Social Security wage base is reindexed
+        annually by the SSA; the FUTA rate assumes the standard 5.4% state
+        credit (higher in a handful of "credit reduction" states). Confirm
+        both against your payroll provider before relying on this.</div>
+      <div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:12px">
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">
+          FICA — Social Security %
+          <input id="k-ficass" style="width:120px;text-align:right"
+            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='fica_ss_rate');return k?k.value:6.2})()}"></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">
+          FICA — Medicare %
+          <input id="k-ficamed" style="width:120px;text-align:right"
+            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='fica_medicare_rate');return k?k.value:1.45})()}"></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">
+          Social Security wage base $/yr
+          <input id="k-ssbase" style="width:140px;text-align:right"
+            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='fica_ss_wage_base');return k?k.value:176100})()}"></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">
+          FUTA rate %
+          <input id="k-futarate" style="width:120px;text-align:right"
+            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='futa_rate');return k?k.value:0.6})()}"></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">
+          FUTA wage base $/yr
+          <input id="k-futabase" style="width:120px;text-align:right"
+            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='futa_wage_base');return k?k.value:7000})()}"></label>
+        <button class="primary" id="k-save-burden" style="align-self:flex-end">Save</button>
+        <span id="k-burden-msg" class="ok" style="align-self:flex-end;font-size:12px"></span>
+      </div>
+      <div class="sc-eyebrow">Benefits — 401k match, health insurance, workers' comp (041)</div>
+      <div class="muted" style="font-size:11px;margin-bottom:8px;max-width:640px">
+        Each only counts toward a person's cost if their own 401k / Health
+        Insurance checkbox is on (set per person on Team). The 401k match
+        also waits for that person's own eligibility date (6 months after
+        hire, entry on the 1st of the month coinciding with or following);
+        health insurance waits for the plan start date below, company-wide.
+        Workers' comp applies to every W-2 (non-contractor) staff member
+        regardless of either checkbox, calculated exactly per person from
+        their own work state (set on Team) against the per-state rates
+        below (042) — the flat rate here is only the fallback for a state
+        with no row yet, or a person with no work state set.</div>
+      <div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:12px">
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">
+          401k match %
+          <input id="k-401krate" style="width:120px;text-align:right"
+            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='k401_match_rate');return k?k.value:3})()}"></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">
+          health insurance $/mo per enrolled person
+          <input id="k-himonthly" style="width:160px;text-align:right"
+            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='health_insurance_monthly_cost');return k?k.value:0})()}"></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">
+          health insurance plan start date
+          <input id="k-histart" type="date" style="width:160px"
+            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='health_insurance_start_date');return k?k.value:'2099-01-01'})()}"></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">
+          workers' comp fallback rate (per $100 of pay, as %)
+          <input id="k-wcrate" style="width:120px;text-align:right"
+            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='workers_comp_rate');return k?k.value:0})()}"></label>
+        <button class="primary" id="k-save-benefits" style="align-self:flex-end">Save</button>
+        <span id="k-benefits-msg" class="ok" style="align-self:flex-end;font-size:12px"></span>
+      </div>
       <table><tr><th>key</th><th>value</th><th>set by</th></tr>
       ${(knobs.data||[]).map(k=>`<tr><td>${esc(k.key)}</td>
         <td style="text-align:left">${esc(JSON.stringify(k.value))}</td>
@@ -237,6 +320,77 @@ boot('settings', async (supa, el) => {
       document.getElementById('k-msg').textContent = error ? error.message : 'saved';
       if (!error) load();
     };
+    document.getElementById('k-save-burden').onclick = async () => {
+      const rows = [
+        { key:'fica_ss_rate', value:+document.getElementById('k-ficass').value||6.2,
+          set_by:window.__email, set_at:new Date().toISOString() },
+        { key:'fica_medicare_rate', value:+document.getElementById('k-ficamed').value||1.45,
+          set_by:window.__email, set_at:new Date().toISOString() },
+        { key:'fica_ss_wage_base', value:+document.getElementById('k-ssbase').value||176100,
+          set_by:window.__email, set_at:new Date().toISOString() },
+        { key:'futa_rate', value:+document.getElementById('k-futarate').value||0.6,
+          set_by:window.__email, set_at:new Date().toISOString() },
+        { key:'futa_wage_base', value:+document.getElementById('k-futabase').value||7000,
+          set_by:window.__email, set_at:new Date().toISOString() }];
+      const { error } = await supa.from('settings').upsert(rows, { onConflict:'key' });
+      document.getElementById('k-burden-msg').textContent = error ? error.message : 'saved';
+      if (!error) load();
+    };
+    document.getElementById('k-save-benefits').onclick = async () => {
+      const rows = [
+        { key:'k401_match_rate', value:+document.getElementById('k-401krate').value||0,
+          set_by:window.__email, set_at:new Date().toISOString() },
+        { key:'health_insurance_monthly_cost', value:+document.getElementById('k-himonthly').value||0,
+          set_by:window.__email, set_at:new Date().toISOString() },
+        { key:'health_insurance_start_date', value:document.getElementById('k-histart').value||'2099-01-01',
+          set_by:window.__email, set_at:new Date().toISOString() },
+        { key:'workers_comp_rate', value:+document.getElementById('k-wcrate').value||0,
+          set_by:window.__email, set_at:new Date().toISOString() }];
+      const { error } = await supa.from('settings').upsert(rows, { onConflict:'key' });
+      document.getElementById('k-benefits-msg').textContent = error ? error.message : 'saved';
+      if (!error) load();
+    };
+
+    // Workers' comp by state (042) — a real per-state rate table, not a
+    // settings blob, so states get added one at a time as their real rate
+    // is confirmed from the policy rather than requiring all 51 up front.
+    const configuredStates = new Set((wcRates.data || []).map(r => r.state));
+    document.getElementById('wcrates').innerHTML = `<div class="sc-eyebrow">Workers' comp by state (042)</div>
+      <div class="muted" style="font-size:11px;margin-bottom:8px;max-width:640px">
+        Exact per-person calculation — add a rate for every state you actually
+        confirmed from your policy. A state left out here just uses the flat
+        fallback rate above, same as before.</div>
+      <div style="display:flex;gap:12px;align-items:flex-end;margin-bottom:12px;flex-wrap:wrap">
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">state
+          <select id="wc-state" style="width:220px">
+            ${US_STATES.map(([code, stateName]) => `<option value="${code}">${stateName}${configuredStates.has(code)?' (configured)':''}</option>`).join('')}
+          </select></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">rate (per $100 of pay, as %)
+          <input id="wc-rate" style="width:140px;text-align:right"></label>
+        <button class="primary" id="wc-add">Add / Update</button>
+        <span id="wc-msg" class="ok" style="font-size:12px"></span>
+      </div>
+      ${(wcRates.data || []).length ? `<table><tr><th>state</th><th>rate</th><th>set by</th><th></th></tr>
+        ${(wcRates.data || []).map(r => `<tr><td class="textleft">${esc(STATE_NAME[r.state] || r.state)}</td>
+          <td>${esc(String(r.rate))}%</td><td class="muted">${esc(r.set_by||'')}</td>
+          <td><button class="ghost" data-wc-del="${esc(r.state)}" style="padding:2px 8px;font-size:11px;color:var(--rust)">×</button></td></tr>`).join('')}</table>`
+        : `<div class="muted" style="padding:8px 0 4px">No states configured yet — everyone uses the flat fallback rate above.</div>`}`;
+    document.getElementById('wc-add').onclick = async () => {
+      const state = document.getElementById('wc-state').value;
+      const rate = +document.getElementById('wc-rate').value;
+      if (!rate && rate !== 0) { document.getElementById('wc-msg').textContent = 'enter a rate'; return; }
+      const { error } = await supa.from('workers_comp_rates').upsert(
+        [{ state, rate, set_by: window.__email, set_at: new Date().toISOString() }], { onConflict: 'state' });
+      document.getElementById('wc-msg').textContent = error ? error.message : 'saved';
+      if (!error) load();
+    };
+    document.querySelectorAll('[data-wc-del]').forEach(btn => btn.onclick = async () => {
+      const state = btn.dataset.wcDel;
+      if (!confirm(`Remove the configured rate for ${STATE_NAME[state] || state}? It'll fall back to the flat rate.`)) return;
+      const { error } = await supa.from('workers_comp_rates').delete().eq('state', state);
+      if (error) { alert(error.message); return; }
+      load();
+    });
   }
   await load();
 });

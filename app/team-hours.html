@@ -331,7 +331,7 @@ boot('teamhours', async (supa, el) => {
         <div class="summary-cell"><div class="summary-label">Hours logged</div>
           <div class="summary-value">${fmtHours(totalHours)}</div>
           <div class="summary-note">of ${fmtHours(totalCapacity)}h capacity</div></div>
-        <div class="summary-cell"><div class="summary-label">Labor cost</div>
+        <div class="summary-cell" title="Includes employer FICA + FUTA on top of base pay (040), not just base pay itself"><div class="summary-label">Labor cost</div>
           <div class="summary-value">${fmt$0(totalCost)}</div></div>
         <div class="summary-cell"><div class="summary-label">Over capacity</div>
           <div class="summary-value ${overCount>0?'neg':'pos'}">${overCount}</div></div>
@@ -352,7 +352,7 @@ boot('teamhours', async (supa, el) => {
         <table class="ledger" style="table-layout:fixed">
           <colgroup><col style="width:20%"><col style="width:11%"><col style="width:5%">
             <col style="width:22%"><col style="width:21%"><col style="width:21%"></colgroup>
-          <tr>${sortTh('name', 'name')}${sortTh('cap', 'logged / cap')}${sortTh('profit', 'profit')}${sortTh('util', 'utilization', 'textleft')}${sortTh('pacing', 'pacing (assigned)', 'textleft')}${sortTh('plan', 'plan vs. logged', 'textleft')}</tr>
+          <tr>${sortTh('name', 'name')}${sortTh('cap', 'logged / cap')}${sortTh('profit', '<span title="Attributed revenue minus labor cost — cost includes employer FICA + FUTA on top of base pay (040)">profit</span>')}${sortTh('util', 'utilization', 'textleft')}${sortTh('pacing', 'pacing (assigned)', 'textleft')}${sortTh('plan', 'plan vs. logged', 'textleft')}</tr>
           ${!rows.length ? `<tr><td colspan="6" class="empty-note">No people match the current filters.</td></tr>` : rows.map(r => {
             // Utilization: client + internal + time-off, all against capacity.
             const util = utilizationBar(r.cap, r.internalHours, r.ptoHours, r.clientHours);

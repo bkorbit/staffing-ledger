@@ -321,9 +321,9 @@ boot('home', async (supa, el) => {
       <div class="summary-strip">
         <div class="summary-cell"><div class="summary-label">Revenue</div>
           <div class="summary-value">${fmt$0(totalRevenue)}</div></div>
-        <div class="summary-cell"><div class="summary-label">Labor cost</div>
+        <div class="summary-cell" title="Includes employer FICA + FUTA on top of base pay (040), not just base pay itself"><div class="summary-label">Labor cost</div>
           <div class="summary-value">${fmt$0(totalCost)}</div></div>
-        <div class="summary-cell"><div class="summary-label">Profit (hours-based)</div>
+        <div class="summary-cell" title="Attributed revenue minus labor cost, which includes employer FICA + FUTA (040)"><div class="summary-label">Profit (hours-based)</div>
           <div class="summary-value ${totalProfit < 0 ? 'neg' : 'pos'}">${fmt$0(totalProfit)}</div></div>
         <div class="summary-cell"><div class="summary-label">Hours logged</div>
           <div class="summary-value">${fmtHours(totalHours)}</div>
