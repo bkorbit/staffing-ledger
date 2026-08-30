@@ -246,8 +246,10 @@ boot('home', async (supa, el) => {
     // stay out of capacity/department math the same way Team Hours hides
     // them; activeInRange additionally drops anyone whose own start/end
     // dates don't overlap the selected range at all (not started yet, or
-    // already left as of these months), same as Team Hours.
-    const activeStaff = (H.staff || []).filter(s => s.active && s.has_recent_hours && activeInRange(s));
+    // already left as of these months), same as Team Hours. tracks_capacity
+    // (049) drops non-execution staff outright — this rollup is capacity by
+    // construction, and they were never tied to it.
+    const activeStaff = (H.staff || []).filter(s => s.active && s.has_recent_hours && activeInRange(s) && s.tracks_capacity);
     const staffRows = activeStaff.map(s => {
       const comp = compByStaff[s.id];
       const hc = hoursByStaff[s.id] || { hours: 0, cost: 0 };

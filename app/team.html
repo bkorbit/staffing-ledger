@@ -261,6 +261,10 @@ boot('team', async (supa, el) => {
               <option value="">— not set —</option>
               ${US_STATES.map(([code, stateName]) => `<option value="${code}" ${mode==='edit'&&person.work_state===code?'selected':''}>${stateName}</option>`).join('')}
             </select></div>
+          <div class="setrow"><span class="setlabel">Execution team</span>
+            <label class="mono" style="display:flex;align-items:center;gap:6px;height:32px;text-transform:none;letter-spacing:normal;font-size:12.5px;font-family:var(--font-body);color:var(--ink)">
+              <input class="ep-capacity" type="checkbox" ${(mode==='create'||person.tracks_capacity)?'checked':''}> counts toward capacity/utilization
+              <span class="muted" style="font-size:10.5px" title="Uncheck for sales/marketing/leadership/etc — people who cost money but were never tied to client-delivery capacity. They still get full cost tracking, just excluded from Team Hours and Home's capacity rollups.">(Team Hours/Home)</span></label></div>
           <div class="setrow wide"><span class="setlabel">Benefits</span>
             <div style="display:flex;gap:16px;height:32px;align-items:center">
               <label class="mono" style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:normal;font-size:12.5px;font-family:var(--font-body);color:var(--ink)">
@@ -366,7 +370,8 @@ boot('team', async (supa, el) => {
         active: status !== 'inactive',
         work_state: back.querySelector('.ep-state').value || null,
         enrolled_401k: back.querySelector('.ep-401k').checked,
-        enrolled_health_insurance: back.querySelector('.ep-health').checked
+        enrolled_health_insurance: back.querySelector('.ep-health').checked,
+        tracks_capacity: back.querySelector('.ep-capacity').checked
       };
       const { error } = mode === 'create'
         ? await supa.from('staff').insert({ ...payload, set_by: window.__email })
@@ -381,7 +386,7 @@ boot('team', async (supa, el) => {
 
   async function load() {
     const [st, cp, tc] = await Promise.all([
-      supa.from('staff').select('id,name,department,active,start_date,end_date,enrolled_401k,enrolled_health_insurance,work_state').order('name'),
+      supa.from('staff').select('id,name,department,active,start_date,end_date,enrolled_401k,enrolled_health_insurance,work_state,tracks_capacity').order('name'),
       supa.from('comp_periods').select('id,staff_id,starts_on,ends_on,kind,annual_cost,hourly_cost,weekly_capacity,employment_type').order('starts_on'),
       supa.from('v_staff_total_cost').select('staff_id,total_annual_cost')
     ]);
@@ -403,7 +408,7 @@ boot('team', async (supa, el) => {
   // type in bulk — the two things "fill the ledger with information"
   // actually needs. A genuine raise with real period history still goes
   // through "+ new period starting" in the person's own modal, same as today.
-  const EXPORT_HEADERS = ['ID', 'Name', 'Department', 'Hire Date', 'Status', 'End Date', 'Work State', '401k', 'Health Insurance'];
+  const EXPORT_HEADERS = ['ID', 'Name', 'Department', 'Hire Date', 'Status', 'End Date', 'Work State', 'Tracks Capacity', '401k', 'Health Insurance'];
   const PAY_HEADERS = ['Period ID', 'Staff ID', 'Name', 'Employment Type', 'Pay Kind', 'Rate ($)', 'Hrs/Week', 'Start Date', 'End Date'];
 
   async function exportTeam(rows, compCurrentByStaff) {
@@ -423,6 +428,7 @@ boot('team', async (supa, el) => {
         ws.addRow([
           s.id, s.name, s.department || '', s.start_date || '',
           STATUS_LABEL[STATUS_OF(s)], s.end_date || '', s.work_state || '',
+          s.tracks_capacity ? 'Y' : 'N',
           s.enrolled_401k ? 'Y' : 'N', s.enrolled_health_insurance ? 'Y' : 'N'
         ]);
       });
@@ -493,7 +499,7 @@ boot('team', async (supa, el) => {
       ws.getRow(1).eachCell((cell, colNumber) => {
         colByHeader[String(cell.value || '').trim().toLowerCase()] = colNumber;
       });
-      const needed = ['id', 'name', 'department', 'hire date', 'status', 'end date', 'work state', '401k', 'health insurance'];
+      const needed = ['id', 'name', 'department', 'hire date', 'status', 'end date', 'work state', 'tracks capacity', '401k', 'health insurance'];
       const missingCols = needed.filter(h => !colByHeader[h]);
       if (missingCols.length) throw new Error(`"Team" sheet missing column(s): ${missingCols.join(', ')}`);
       const get = (row, header) => row.getCell(colByHeader[header]).value;
@@ -530,6 +536,7 @@ boot('team', async (supa, el) => {
           end_date: statusRaw === 'ended' ? end_date : null,
           active: statusRaw !== 'inactive',
           work_state: stateRaw || null,
+          tracks_capacity: cellBool(get(row, 'tracks capacity')),
           enrolled_401k: cellBool(get(row, '401k')),
           enrolled_health_insurance: cellBool(get(row, 'health insurance'))
         };
@@ -541,6 +548,7 @@ boot('team', async (supa, el) => {
           ['Status', STATUS_LABEL[STATUS_OF(existing)], STATUS_LABEL[statusRaw]],
           ['End date', existing.end_date || '', fields.end_date || ''],
           ['Work state', existing.work_state || '', fields.work_state || ''],
+          ['Tracks Capacity', existing.tracks_capacity ? 'Y' : 'N', fields.tracks_capacity ? 'Y' : 'N'],
           ['401k', existing.enrolled_401k ? 'Y' : 'N', fields.enrolled_401k ? 'Y' : 'N'],
           ['Health Insurance', existing.enrolled_health_insurance ? 'Y' : 'N', fields.enrolled_health_insurance ? 'Y' : 'N']
         ].filter(([, before, after]) => before !== after).map(([label, before, after]) => ({ label, before, after }));

@@ -301,8 +301,12 @@ boot('teamhours', async (supa, el) => {
     // activeInRange is separate and unconditional — even with "show
     // inactive" on, someone who hasn't started yet or already left as of the
     // selected range's own dates has no place in that period's table.
+    // tracks_capacity (049) is unconditional too — this whole page is a
+    // capacity/utilization view, and someone on the non-execution side was
+    // never tied to capacity in the first place, "show inactive" or not.
     rows = rows.filter(r => (showInactive || (r.s.active && r.s.has_recent_hours))
       && activeInRange(r.s)
+      && r.s.tracks_capacity
       && (!deptFilter || r.s.department === deptFilter)
       && (!q || r.s.name.toLowerCase().includes(q)));
     rows.sort((a, b) => {
