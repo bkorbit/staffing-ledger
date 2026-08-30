@@ -198,11 +198,29 @@ boot('teamhours', async (supa, el) => {
   // load starts with an empty cache, same as deals/clients above.
   const rangeCache = new Map();
 
+  // Hovering this page's nav link elsewhere in the app may have already
+  // kicked off this exact range's fetch in the background (shell.js'
+  // prefetchTeamHours) — sessionStorage is how its result survives the
+  // full page navigation a plain <a href> does (a JS variable would not).
+  // Ignored past 10 minutes: a hover from a much earlier visit shouldn't
+  // hand back data that stale.
+  const PREFETCH_MAX_AGE_MS = 10 * 60 * 1000;
+  function takePrefetched(cacheKey) {
+    const key = `th-prefetch:${cacheKey}`;
+    try {
+      const raw = sessionStorage.getItem(key);
+      if (!raw) return null;
+      sessionStorage.removeItem(key);
+      const { H, RP, at } = JSON.parse(raw);
+      return (Date.now() - at) <= PREFETCH_MAX_AGE_MS ? { H, RP } : null;
+    } catch { return null; }
+  }
+
   async function load() {
     const seq = ++loadSeq;
     const cacheKey = `${rangeFrom}|${rangeTo}`;
-    const cached = rangeCache.get(cacheKey);
-    if (cached) { render(cached.H, cached.RP, deals, clients); return; }
+    const cached = rangeCache.get(cacheKey) || takePrefetched(cacheKey);
+    if (cached) { rangeCache.set(cacheKey, cached); render(cached.H, cached.RP, deals, clients); return; }
     const panel = el.querySelector('#panel');
     if (panel) panel.classList.add('is-loading');
     const calls = [

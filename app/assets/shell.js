@@ -150,6 +150,34 @@ const NAV_ICONS = {
     `<rect x="9.25" y="4.8" width="1.5" height="2.4" rx="0.3" fill="currentColor" stroke="none" transform="rotate(${a} 10 10)"/>`).join('')}`,
 };
 
+// Team Hours' opening range still costs a real round trip even after
+// db/057-064 trimmed it down (~150ms warm). Hovering its nav link is a
+// strong signal of an imminent click with real dwell time before the
+// actual navigation — firing the same two calls then and handing the
+// result to the fresh page via sessionStorage (survives the full page
+// load a plain <a href> does; a JS variable would not) means the click
+// that follows often finds its data already sitting there. A click that
+// beats the prefetch there just falls through to team-hours.html's own
+// normal fetch, no worse than today. Scoped to this one page rather than
+// a generic per-page prefetch hook — nothing else has asked to be faster.
+let teamHoursPrefetchStarted = false;
+function prefetchTeamHours() {
+  if (teamHoursPrefetchStarted) return;
+  teamHoursPrefetchStarted = true;
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const monthStart = todayIso.slice(0, 7) + '-01';
+  const [y, m] = monthStart.slice(0, 7).split('-').map(Number);
+  const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+  Promise.all([
+    supa.rpc('hours_page', { p_from: monthStart, p_to: monthEnd }),
+    supa.rpc('rev_proj_page', { p_from: monthStart, p_to: monthStart }),
+  ]).then(([hp, rp]) => {
+    if (hp.error || rp.error) return;
+    sessionStorage.setItem(`th-prefetch:${monthStart}|${monthStart}`,
+      JSON.stringify({ H: hp.data, RP: rp.data, at: Date.now() }));
+  }).catch(() => {});
+}
+
 function renderShell(current) {
   document.body.innerHTML = `
     <div class="layout ${localStorage.getItem('nav_collapsed')==='1'?'nav-collapsed':''}">
@@ -182,6 +210,10 @@ function renderShell(current) {
     const now = layout.classList.toggle('nav-collapsed');
     localStorage.setItem('nav_collapsed', now ? '1' : '0');
   };
+  if (current !== 'teamhours') {
+    document.querySelector('a.item[href="./team-hours.html"]')
+      ?.addEventListener('pointerenter', prefetchTeamHours, { once: true });
+  }
   loadVerTag(document.getElementById('ver-tag'));
 }
 
