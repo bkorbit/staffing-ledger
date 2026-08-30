@@ -58,6 +58,7 @@ const toCents = dollars => Math.round((+dollars || 0) * 100);
 const fromCents = cents => ((cents || 0) / 100).toFixed(2);
 const iso = d => d.toISOString().slice(0, 10);
 const dayBefore = dateStr => iso(new Date(new Date(dateStr + 'T00:00:00Z').getTime() - 86400000));
+const dayAfter = dateStr => iso(new Date(new Date(dateStr + 'T00:00:00Z').getTime() + 86400000));
 const fmtDate = s => s ? new Date(s + 'T00:00:00Z')
   .toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
   : '<span class="muted">—</span>';
@@ -172,6 +173,13 @@ boot('team', async (supa, el) => {
     const empType = mode === 'edit' ? (person.employment_type || 'full_time') : 'full_time';
     const isActive = mode === 'create' || person.active;
 
+    // "New period starting" default: a known (already-ended) period wins —
+    // the next period picks up the day after it ends. Otherwise fall back to
+    // this person's hire date, and only then to today.
+    const hasKnownPeriod = periods.length > 0 && !!periods[0].ends_on;
+    const npStartDefault = hasKnownPeriod ? dayAfter(periods[0].ends_on)
+      : (person && person.start_date) || iso(new Date());
+
     const back = document.createElement('div');
     back.className = 'modal-back';
     back.innerHTML = `<div class="modal modal-sm" data-emptype="${empType}" role="dialog" aria-modal="true" aria-labelledby="modal-title">
@@ -203,7 +211,7 @@ boot('team', async (supa, el) => {
           </div>
           <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
             <span class="mono muted" style="font-size:11px">+ new period starting</span>
-            <input type="date" class="np-start" value="${iso(new Date())}" style="height:26px">
+            <input type="date" class="np-start" value="${npStartDefault}" style="height:26px">
             <select class="np-kind" style="height:26px">
               <option value="salary">salary/yr</option>
               <option value="hourly">hourly</option>
@@ -235,6 +243,25 @@ boot('team', async (supa, el) => {
     back.querySelector('.ep-active').onchange = e => {
       back.querySelector('.ep-enddate-row').hidden = e.target.checked;
     };
+
+    // Hire date <-> "new period starting" cross-fill — only while there's no
+    // known (already-ended) period, since that case already picked its own
+    // default above. Hire date only ever fills FROM a blank field (it starts
+    // genuinely empty), so a value the person already typed is never
+    // clobbered; "new period starting" always carries some default value, so
+    // it tracks whether the person has actually touched it instead.
+    if (mode === 'edit' && !hasKnownPeriod) {
+      const epStart = back.querySelector('.ep-start');
+      const npStart = back.querySelector('.np-start');
+      let npStartTouched = false;
+      npStart.addEventListener('input', () => { npStartTouched = true; });
+      epStart.addEventListener('change', () => {
+        if (epStart.value && !npStartTouched) npStart.value = epStart.value;
+      });
+      npStart.addEventListener('change', () => {
+        if (npStart.value && !epStart.value) epStart.value = npStart.value;
+      });
+    }
 
     // a simple focus trap: Escape closes, Tab/Shift+Tab cycles within the
     // dialog instead of escaping to the page behind it — same pattern as
@@ -341,7 +368,7 @@ boot('team', async (supa, el) => {
           ${!rows.length ? `<tr><td colspan="7" class="empty-note">No people match the current filters.</td></tr>` : rows.map(s => {
             const comp = compCurrentByStaff[s.id];
             const periodCount = (compAllByStaffLive[s.id] || []).length;
-            return `<tr class="${!s.active?'muted':''}">
+            return `<tr class="${!s.active?'muted':''}" data-id="${s.id}" style="cursor:pointer">
                 <td>${esc(s.name)}</td>
                 <td>${s.department ? esc(s.department) : '<span class="muted">—</span>'}</td>
                 <td>${comp
@@ -379,10 +406,15 @@ boot('team', async (supa, el) => {
     el.querySelector('#add-staff-btn').onclick = () => {
       openModal(el.querySelector('#add-staff-btn'), 'create', null);
     };
-    el.querySelectorAll('.edit-btn').forEach(btn => btn.onclick = () => {
+    el.querySelectorAll('.edit-btn').forEach(btn => btn.onclick = e => {
+      e.stopPropagation();
       openModal(btn, 'edit', staffById[btn.dataset.id]);
     });
-    el.querySelectorAll('.toggle-active-btn').forEach(btn => btn.onclick = async () => {
+    el.querySelectorAll('tbody tr[data-id]').forEach(tr => tr.onclick = () => {
+      openModal(tr, 'edit', staffById[tr.dataset.id]);
+    });
+    el.querySelectorAll('.toggle-active-btn').forEach(btn => btn.onclick = async e => {
+      e.stopPropagation();
       const s = staffById[btn.dataset.id];
       if (s.active && !confirm(`Deactivate "${s.name}"?`)) return;
       const { error } = await supa.from('staff').update({ active: !s.active }).eq('id', s.id);
