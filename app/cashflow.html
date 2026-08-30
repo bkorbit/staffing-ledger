@@ -25,6 +25,9 @@ boot('cashflow', async (supa, el) => {
       <div class="sc-eyebrow">AR aging — who owes EMG, by how late</div>
       <table id="ar-aging" class="ledger"></table></div>
     <div class="sc-panel" style="overflow-x:auto">
+      <div class="sc-eyebrow">Expected payment date — open AR by client, on their collection curve</div>
+      <table id="pay-dates" class="ledger"></table></div>
+    <div class="sc-panel" style="overflow-x:auto">
       <div class="sc-eyebrow">AP aging — what EMG owes, by how late</div>
       <table id="ap-aging" class="ledger"></table></div>
     <div class="sc-panel muted">Tail caution: beyond the reach of open invoices and shaped deals,
@@ -33,7 +36,7 @@ boot('cashflow', async (supa, el) => {
   const sel = document.getElementById('cf-weeks');
 
   // ---- everything below is independent of the horizon — loaded once
-  const [ar, ap, pj, cl, dl, bk] = await Promise.all([
+  const [ar, ap, pj, cl, dl, bk, pb] = await Promise.all([
     fetchAll(() => supa.from('invoices')
       .select('qbo_customer_name,qbo_project_id,due_on,issued_on,balance').gt('balance', 0)),
     fetchAll(() => supa.from('bills')
@@ -42,9 +45,10 @@ boot('cashflow', async (supa, el) => {
     supa.from('clients').select('id,name,qbo_customer_id'),
     supa.from('deals').select('client_id,qbo_project_id')
       .in('status',['won','active']).eq('hidden', false).not('qbo_project_id','is',null),
-    supa.from('qbo_accounts').select('balance,is_operating,as_of').eq('account_type','Bank')
+    supa.from('qbo_accounts').select('balance,is_operating,as_of').eq('account_type','Bank'),
+    supa.from('payment_behaviour').select('scope,ref,sample_n,median_lag,p90_lag')
   ]);
-  for (const r of [ar, ap, pj, cl, dl, bk]) if (r.error) throw r.error;
+  for (const r of [ar, ap, pj, cl, dl, bk, pb]) if (r.error) throw r.error;
 
   // today's cash: the same "operating banks only, if any are flagged" rule
   // cashflow_forecast() uses server-side for its own opening balance
@@ -71,6 +75,26 @@ boot('cashflow', async (supa, el) => {
     const parent = parentOf[i.qbo_project_id] || i.qbo_project_id;
     i.master = claimedClientOf[i.qbo_project_id] || clientByParent[parent]
       || projName[parent] || i.qbo_customer_name || '(unnamed)';
+    i.curveKey = parent;
+  });
+
+  // ---- expected payment date per client: same curve cashflow_forecast() uses
+  // server-side (v_open_invoice_expectations — issued_on + median/p90 lag off the
+  // client's own curve, shrunk toward the global one, floored to the near future
+  // since the money is conditionally still unpaid) — rolled up to the same
+  // claims-attributed master client as the aging table above.
+  const curveByKey = {}; let globalCurve = null;
+  (pb.data||[]).forEach(r => { if (r.scope === 'global') globalCurve = r; else curveByKey[r.ref] = r; });
+  const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
+  const floorNow = new Date();
+  (ar.data||[]).forEach(i => {
+    const cb = curveByKey[i.curveKey];
+    const p50 = cb?.median_lag ?? globalCurve?.median_lag ?? 35;
+    const p90 = cb?.p90_lag ?? globalCurve?.p90_lag ?? 80;
+    const issued = new Date(i.issued_on);
+    i.expectMedian = new Date(Math.max(addDays(issued, p50), addDays(floorNow, 5)));
+    i.expectLate   = new Date(Math.max(addDays(issued, p90), addDays(floorNow, 14)));
+    i.ownPct = cb ? Math.round(100 * cb.sample_n / (cb.sample_n + 6)) : 0;
   });
 
   // ---- aging: bucket every open balance by days past due; not-yet-due is Current
@@ -117,6 +141,46 @@ boot('cashflow', async (supa, el) => {
   }
   const arSummary = agingTable('ar-aging', ar.data, 'master', Infinity);   // every master client, all of it
   const apSummary = agingTable('ap-aging', ap.data, 'vendor_name');
+
+  // ---- expected payment date table: dollar-weighted average of each client's
+  // open invoices' expected settlement dates, soonest first
+  function paymentDateTable(elId, items) {
+    const today0 = new Date(); today0.setHours(0,0,0,0);
+    const fmtDate = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric',
+      year: d.getFullYear() !== today0.getFullYear() ? 'numeric' : undefined });
+    const byMaster = {};
+    items.forEach(i => {
+      const g = byMaster[i.master] = byMaster[i.master] || { balance: 0, wMedian: 0, wLate: 0, wOwn: 0 };
+      g.balance += i.balance;
+      g.wMedian += i.balance * i.expectMedian.getTime();
+      g.wLate   += i.balance * i.expectLate.getTime();
+      g.wOwn    += i.balance * i.ownPct;
+    });
+    const rows = Object.entries(byMaster)
+      .map(([n, g]) => ({ n, balance: g.balance,
+        expected: new Date(g.wMedian / g.balance),
+        late: new Date(g.wLate / g.balance),
+        own: Math.round(g.wOwn / g.balance) }))
+      .sort((a, z) => a.expected - z.expected);
+    const totalBalance = rows.reduce((s, r) => s + r.balance, 0);
+    const line = r => {
+      const days = Math.round((r.expected - today0) / 86400000);
+      return `<tr><td style="text-align:left">
+          <span class="ellip" style="max-width:240px;display:inline-block;vertical-align:bottom">${r.n}</span></td>
+        <td>${fmt$(r.balance)}</td>
+        <td>${fmtDate(r.expected)}</td>
+        <td class="${days > 60 ? 'err' : ''}">${days <= 0 ? 'overdue' : days + 'd'}</td>
+        <td class="muted">${fmtDate(r.late)}</td>
+        <td class="muted">${r.own}% own data</td></tr>`;
+    };
+    document.getElementById(elId).innerHTML =
+      `<tr><th style="text-align:left">Client</th><th>Open balance</th><th>Expected</th>
+        <th>In</th><th>Worst case (p90)</th><th>Curve confidence</th></tr>` +
+      rows.map(line).join('') +
+      `<tr class="gp"><td style="text-align:left">total</td><td>${fmt$(totalBalance)}</td>
+        <td colspan="4"></td></tr>`;
+  }
+  paymentDateTable('pay-dates', ar.data);
 
   // ---- horizon-dependent: the only part that needs to re-run on a horizon change
   async function renderPeriods(periods) {
