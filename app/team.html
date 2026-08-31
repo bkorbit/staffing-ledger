@@ -840,6 +840,21 @@ boot('team', async (supa, el) => {
     (bonuses || []).forEach(b => (bonusesByStaffLive[b.staff_id] = bonusesByStaffLive[b.staff_id] || []).push(b));
     const compCurrentByStaff = {};
     comp.forEach(c => { if (c.ends_on === null) compCurrentByStaff[c.staff_id] = c; });
+    // Distinct from compCurrentByStaff (the OPEN period, used by the xlsx
+    // export/import round-trip on purpose — see that section's own comment):
+    // this is the period that actually COVERS today, which is not the same
+    // thing once a raise has been entered ahead of its start date. An open
+    // period with a future starts_on is real and correct to have on file,
+    // but showing it as today's pay (Comp column, sort, v_staff_total_cost
+    // cross-checks) reads as a bug the moment someone compares it against
+    // Total Cost, which already resolves by date correctly server-side.
+    const today = iso(new Date());
+    const compEffectiveByStaff = {};
+    comp.forEach(c => {
+      if (c.starts_on <= today && (c.ends_on === null || c.ends_on >= today)) {
+        compEffectiveByStaff[c.staff_id] = c;
+      }
+    });
     // v_staff_total_cost (041) — one live row per staff member, fully loaded
     // annual cost (base pay + employer FICA/FUTA/workers-comp + 401k match +
     // health insurance, each gated by its own real-world condition even when
@@ -851,7 +866,7 @@ boot('team', async (supa, el) => {
     // Sortable Comp/Total Cost need this same per-render lookup context, so
     // the value's computed once here and attached directly to each row.
     staff.forEach(s => {
-      const c = compCurrentByStaff[s.id];
+      const c = compEffectiveByStaff[s.id];
       s._compAnnual = c ? (c.kind === 'hourly' ? c.hourly_cost * c.weekly_capacity * 52 : c.annual_cost) : null;
       s._totalCost = totalCostByStaff[s.id] ?? null;
     });
@@ -897,7 +912,7 @@ boot('team', async (supa, el) => {
           ).join('')}</tr></thead>
           <tbody>
           ${!rows.length ? `<tr><td colspan="8" class="empty-note">No people match the current filters.</td></tr>` : rows.map(s => {
-            const comp = compCurrentByStaff[s.id];
+            const comp = compEffectiveByStaff[s.id];
             const periodCount = (compAllByStaffLive[s.id] || []).length;
             const stat = STATUS_OF(s);
             const totalAnnual = totalCostByStaff[s.id];
