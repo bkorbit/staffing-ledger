@@ -121,6 +121,61 @@ export function classifyEntry(e, dealByJobcode) {
   return { type: 'internal' };
 }
 
+// One row per distinct QuickBooks Time user id seen this run -> what to do
+// about their `staff` row. Pure and exported for the same reason as
+// classifyEntry: the ordering/consumption logic here (a name match can only
+// ever be claimed once per run) is exactly the kind of thing a one-fixture
+// test would miss.
+//
+// Primary match is qbtime_user_id, which only this sync ever writes. The
+// backup match exists for someone created BY HAND on the Team page before
+// QuickBooks Time ever saw them: their row has no qbtime_user_id yet, so the
+// primary match can never find it, and this sync would otherwise insert a
+// second, duplicate row the first time their real timesheet shows up — their
+// hand-entered comp/hire-date/etc. stranded on one row while all their
+// actual hours accumulate on another (see the 2026-08-31 investigation with
+// Boris, where exactly this shape of duplicate turned up). The backup match
+// is keyed on exact, case-insensitive, trimmed name, restricted to rows with
+// NO qbtime_user_id — so someone already linked to a real QBT identity can
+// never be re-matched onto a different one. A name matching more than one
+// such candidate is genuinely ambiguous (rare — two people sharing a name)
+// and is deliberately left alone rather than guessing: falls through to
+// "create new", same as no match at all. Each candidate can only be claimed
+// once per run (spliced out of its list on match), so two distinct QBT ids
+// that happen to share a name in the same run can't both claim the same
+// hand-created row — the first claims it, the second creates a new row.
+export function planStaffUpdates(entries, existingStaff) {
+  const existingByQbId = new Map(existingStaff.filter(s => s.qbtime_user_id).map(s => [s.qbtime_user_id, s]));
+  const unlinkedByName = new Map(); // lowercased trimmed name -> [staff row, ...]
+  for (const s of existingStaff) {
+    if (s.qbtime_user_id) continue;
+    const key = s.name.trim().toLowerCase();
+    if (!unlinkedByName.has(key)) unlinkedByName.set(key, []);
+    unlinkedByName.get(key).push(s);
+  }
+  const newStaffRows = [];
+  const newStaffNames = [];
+  const deptBackfills = []; // {id, department} — patched individually, one column
+  const qbIdBackfills = []; // {id, qbtime_user_id, name} — links a hand-created row to its real QBT identity
+  for (const e of entries) {
+    const existing = existingByQbId.get(e.qbtimeUserId);
+    if (existing) {
+      if (!existing.department && e.dept) deptBackfills.push({ id: existing.id, department: e.dept });
+      continue;
+    }
+    const candidates = unlinkedByName.get(e.person.trim().toLowerCase()) || [];
+    if (candidates.length === 1) {
+      const match = candidates.shift();
+      qbIdBackfills.push({ id: match.id, qbtime_user_id: e.qbtimeUserId, name: e.person });
+      if (!match.department && e.dept) deptBackfills.push({ id: match.id, department: e.dept });
+      continue;
+    }
+    newStaffRows.push({ name: e.person, department: e.dept || null, qbtime_user_id: e.qbtimeUserId, active: true });
+    newStaffNames.push(e.person + (e.dept ? ` (${e.dept})` : ''));
+  }
+  return { newStaffRows, newStaffNames, deptBackfills, qbIdBackfills };
+}
+
 // [date, hours] pairs -> contiguous {starts_on, ends_on, hours} ranges, so a
 // week of PTO becomes one time_off row instead of seven. hours is a RANGE
 // TOTAL, not a per-day figure — a half-day mixed with full days inside one
@@ -310,27 +365,16 @@ async function main() {
   // generate one. Existing rows only get a blank department backfilled, never
   // an overwrite of one a human already set.
   const existingStaff = await sbGet('staff?select=id,name,department,qbtime_user_id,active');
-  const existingByQbId = new Map(existingStaff.filter(s => s.qbtime_user_id).map(s => [s.qbtime_user_id, s]));
-  const newStaffRows = [];
-  const newStaffNames = [];
-  const deptBackfills = []; // {id, department} — patched individually, one column
   const seenUserIds = new Set(entries.map(e => e.qbtimeUserId));
-  for (const uid of seenUserIds) {
-    const e = entries.find(x => x.qbtimeUserId === uid);
-    const existing = existingByQbId.get(uid);
-    if (!existing) {
-      newStaffRows.push({ name: e.person, department: e.dept || null, qbtime_user_id: uid, active: true });
-      newStaffNames.push(e.person + (e.dept ? ` (${e.dept})` : ''));
-    } else if (!existing.department && e.dept) {
-      deptBackfills.push({ id: existing.id, department: e.dept });
-    }
-  }
+  const perUidEntries = [...seenUserIds].map(uid => entries.find(x => x.qbtimeUserId === uid));
+  const { newStaffRows, newStaffNames, deptBackfills, qbIdBackfills } = planStaffUpdates(perUidEntries, existingStaff);
   // A plain insert, not an upsert: every row here is genuinely new (its
   // qbtime_user_id matched nothing above), so there is no conflict to resolve
   // and no risk of the union-of-keys shaping in sbUpsert nulling out a column
   // on an existing row.
   await sbInsert('staff', newStaffRows);
   if (newStaffNames.length) console.log('  New people created (set comp on the Team page):', [...new Set(newStaffNames)].join(', '));
+  if (qbIdBackfills.length) console.log('  Linked to existing roster entries by name match (verify these are correct on the Team page):', qbIdBackfills.map(b => b.name).join(', '));
   // Individual single-column PATCHes, not a batch upsert — sbUpsert normalizes
   // every row in a batch to the same columns, which would null out name/active
   // on an existing person if this were merged with the insert above.
@@ -340,10 +384,18 @@ async function main() {
     });
     if (!r.ok) fail(`Supabase department backfill (staff ${id}) → ${r.status}: ${await r.text()}`);
   }
+  for (const { id, qbtime_user_id } of qbIdBackfills) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/staff?id=eq.${id}`, {
+      method: 'PATCH', headers: { ...sb, Prefer: 'return=minimal' }, body: JSON.stringify({ qbtime_user_id })
+    });
+    if (!r.ok) fail(`Supabase qbtime_user_id backfill (staff ${id}) → ${r.status}: ${await r.text()}`);
+  }
 
-  // Re-fetch: new rows' ids were just assigned by Postgres, and a partial-column
-  // upsert (department only) would otherwise leave this script's own view of
-  // 'existing' rows stale.
+  // Re-fetch: new rows' ids were just assigned by Postgres, and the partial-
+  // column PATCHes above (department, qbtime_user_id) would otherwise leave
+  // this script's own view of 'existing' rows stale — staffByQbId below
+  // needs every just-backfilled qbtime_user_id to resolve this run's own
+  // time_entries against the right staff row.
   const staffByQbId = new Map(
     (await sbGet('staff?select=id,name,department,qbtime_user_id,active'))
       .filter(s => s.qbtime_user_id).map(s => [s.qbtime_user_id, s])

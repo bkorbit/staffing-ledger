@@ -53,6 +53,52 @@ eq(m.classifyEntry({ childName: 'Admin', parentName: '', childType: 'regular' },
 eq(m.classifyEntry({ childName: '', parentName: '', childType: '' }, dealByJobcode),
   { type: 'internal' }, 'unresolvable jobcode (id not found upstream) falls back to internal, never throws');
 
+console.log('planStaffUpdates');
+eq(m.planStaffUpdates(
+  [{ qbtimeUserId: '1', person: 'Jane Doe', dept: 'Creative' }],
+  []
+), { newStaffRows: [{ name: 'Jane Doe', department: 'Creative', qbtime_user_id: '1', active: true }],
+     newStaffNames: ['Jane Doe (Creative)'], deptBackfills: [], qbIdBackfills: [] },
+  'no candidates at all -> plain new-row insert, unchanged from before this feature');
+eq(m.planStaffUpdates(
+  [{ qbtimeUserId: '1', person: 'Jane Doe', dept: 'Creative' }],
+  [{ id: 'staff-1', name: 'Jane Doe', department: null, qbtime_user_id: null, active: true }]
+), { newStaffRows: [], newStaffNames: [], deptBackfills: [{ id: 'staff-1', department: 'Creative' }],
+     qbIdBackfills: [{ id: 'staff-1', qbtime_user_id: '1', name: 'Jane Doe' }] },
+  'hand-created row with no qbtime_user_id yet, exact name match -> linked instead of duplicated, blank dept backfilled too');
+eq(m.planStaffUpdates(
+  [{ qbtimeUserId: '1', person: 'JANE doe ', dept: null }],
+  [{ id: 'staff-1', name: ' Jane Doe', department: 'Creative', qbtime_user_id: null, active: true }]
+), { newStaffRows: [], newStaffNames: [], deptBackfills: [],
+     qbIdBackfills: [{ id: 'staff-1', qbtime_user_id: '1', name: 'JANE doe ' }] },
+  'match is case-insensitive and trims whitespace on both sides; existing department never touched when the sync has none to offer');
+eq(m.planStaffUpdates(
+  [{ qbtimeUserId: '1', person: 'Jane Doe', dept: null }],
+  [{ id: 'staff-1', name: 'Jane Doe', department: null, qbtime_user_id: '999', active: true }]
+), { newStaffRows: [{ name: 'Jane Doe', department: null, qbtime_user_id: '1', active: true }],
+     newStaffNames: ['Jane Doe'], deptBackfills: [], qbIdBackfills: [] },
+  'a same-named row that already has a DIFFERENT qbtime_user_id is never a backup-match candidate -> genuinely new person gets a new row');
+eq(m.planStaffUpdates(
+  [{ qbtimeUserId: '1', person: 'Jane Doe', dept: null }],
+  [
+    { id: 'staff-1', name: 'Jane Doe', department: null, qbtime_user_id: null, active: true },
+    { id: 'staff-2', name: 'Jane Doe', department: null, qbtime_user_id: null, active: false }
+  ]
+), { newStaffRows: [{ name: 'Jane Doe', department: null, qbtime_user_id: '1', active: true }],
+     newStaffNames: ['Jane Doe'], deptBackfills: [], qbIdBackfills: [] },
+  'two real people happen to share a name and BOTH are unlinked -> genuinely ambiguous, left alone (falls through to new row) rather than guessing which one is right');
+eq(m.planStaffUpdates(
+  [
+    { qbtimeUserId: '1', person: 'Jane Doe', dept: null },
+    { qbtimeUserId: '2', person: 'Jane Doe', dept: 'Analytics' }
+  ],
+  [{ id: 'staff-1', name: 'Jane Doe', department: null, qbtime_user_id: null, active: true }]
+), { newStaffRows: [{ name: 'Jane Doe', department: 'Analytics', qbtime_user_id: '2', active: true }],
+     newStaffNames: ['Jane Doe (Analytics)'],
+     deptBackfills: [],
+     qbIdBackfills: [{ id: 'staff-1', qbtime_user_id: '1', name: 'Jane Doe' }] },
+  'exactly one candidate but TWO distinct QBT ids share that name in the same run -> only the first claims it, the second gets a real new row, never double-claimed');
+
 console.log('mergeIntoRanges');
 eq(m.mergeIntoRanges([]), [], 'empty -> no ranges');
 eq(m.mergeIntoRanges([['2026-03-10',8]]), [{starts_on:'2026-03-10',ends_on:'2026-03-10',hours:8}], 'single day -> one one-day range');
