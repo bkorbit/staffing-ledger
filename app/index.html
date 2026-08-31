@@ -151,7 +151,7 @@ boot('home', async (supa, el) => {
     const [hp, fp, dl, cl, te] = await Promise.all([
       supa.rpc('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) }),
       supa.rpc('forecast_page', { p_from: rangeFrom, p_to: rangeTo }),
-      supa.from('deals').select('id,name,client_id,qbo_project_id'),
+      fetchAll(() => supa.from('deals').select('id,name,client_id,qbo_project_id')),
       supa.from('clients').select('id,name'),
       fetchAll(() => supa.from('time_entries').select('worked_on,deal_id,hours')
         .gte('worked_on', rangeFrom).lte('worked_on', endOfMonth(rangeTo)).not('deal_id', 'is', null))

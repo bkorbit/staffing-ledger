@@ -2,7 +2,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EMG — Project Hours</title><link rel="stylesheet" href="./assets/style.css?v=dbd5cdb"></head><body>
 <script type="module">
-import { boot, esc, barChart, wireSearch } from './assets/shell.js?v=dbd5cdb';
+import { boot, esc, barChart, wireSearch, fetchAll } from './assets/shell.js?v=dbd5cdb';
 
 // Per-project scoping and tracking — how much work is actually going into a
 // specific deal. For client-level health, see Client Profitability instead;
@@ -42,7 +42,7 @@ boot('projhours', async (supa, el) => {
     const [hp, fp, dl, cl] = await Promise.all([
       supa.rpc('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) }),
       supa.rpc('forecast_page', { p_from: rangeFrom, p_to: rangeTo }),
-      supa.from('deals').select('id,name,client_id,qbo_project_id'),
+      fetchAll(() => supa.from('deals').select('id,name,client_id,qbo_project_id')),
       supa.from('clients').select('id,name')
     ]);
     for (const r of [hp, fp, dl, cl]) if (r.error) {

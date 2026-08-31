@@ -29,7 +29,7 @@ tr.namerow:focus-visible { outline:none; box-shadow:inset 0 0 0 2px var(--brand-
 </style>
 </head><body>
 <script type="module">
-import { boot, esc, wireSearch } from './assets/shell.js?v=dbd5cdb';
+import { boot, esc, wireSearch, fetchAll } from './assets/shell.js?v=dbd5cdb';
 
 // Read-only by design: this page is for GETTING information, not providing
 // it. Salary, capacity, department, and start/end dates are all managed on
@@ -234,7 +234,7 @@ boot('teamhours', async (supa, el) => {
       supa.rpc('rev_proj_page', { p_from: rangeFrom, p_to: rangeTo }),
     ];
     if (!staticLoaded) calls.push(
-      supa.from('deals').select('id,name,client_id,qbo_project_id'),
+      fetchAll(() => supa.from('deals').select('id,name,client_id,qbo_project_id')),
       supa.from('clients').select('id,name')
     );
     const results = await Promise.all(calls);
