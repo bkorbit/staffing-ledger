@@ -555,11 +555,28 @@ boot('team', async (supa, el) => {
     }
   }
 
-  // ExcelJS gives a JS Date for date-formatted cells but a plain string/number
-  // for anything typed as text — handle both rather than assuming one shape.
+  // ExcelJS gives a JS Date for date-formatted cells, a plain string/number
+  // for text cells, and one of several plain OBJECTS for anything else — a
+  // formula ({formula,result}), a rich-text run ({richText:[...]}), a
+  // hyperlink ({text,hyperlink}), or a cell error (#REF!/#N/A, {error:...}).
+  // Unwrap each to the real value instead of falling through to a bare
+  // String(v), which silently stringifies any of those objects to the
+  // literal text "[object Object]" — exactly what corrupted Andrew Benci's
+  // hire date on 2026-08-31: that string reached Postgres as a real date
+  // value and only failed there, as a cryptic "invalid input syntax for
+  // type date" with no indication of which cell or field was actually
+  // wrong. An error cell or an unrecognized shape returns UNPARSEABLE so
+  // the caller can reject the row with a clear reason instead.
+  const UNPARSEABLE = Symbol('unparseable date cell');
   const cellDate = v => {
-    if (!v) return null;
+    if (v === null || v === undefined || v === '') return null;
     if (v instanceof Date) return iso(v);
+    if (typeof v === 'object') {
+      if ('result' in v) return cellDate(v.result);
+      if ('richText' in v) return cellDate(v.richText.map(r => r.text).join(''));
+      if ('text' in v) return cellDate(v.text);
+      return UNPARSEABLE;
+    }
     const s = String(v).trim();
     return s || null;
   };
@@ -617,6 +634,9 @@ boot('team', async (supa, el) => {
           rowErrors.push({ row: r, reason: `unrecognized status "${get(row, 'status')}" (must be Active/Ended/Inactive)` }); continue;
         }
         const end_date = cellDate(get(row, 'end date'));
+        if (end_date === UNPARSEABLE) {
+          rowErrors.push({ row: r, reason: 'End Date cell is not a plain date (a formula, link, or error cell?) — row skipped' }); continue;
+        }
         if (statusRaw === 'ended' && !end_date) {
           rowErrors.push({ row: r, reason: 'Status is Ended but End Date is blank' }); continue;
         }
@@ -624,10 +644,14 @@ boot('team', async (supa, el) => {
         if (stateRaw && !stateCodes.has(stateRaw)) {
           rowErrors.push({ row: r, reason: `unrecognized work state "${stateRaw}"` }); continue;
         }
+        const hire_date = cellDate(get(row, 'hire date'));
+        if (hire_date === UNPARSEABLE) {
+          rowErrors.push({ row: r, reason: 'Hire Date cell is not a plain date (a formula, link, or error cell?) — row skipped' }); continue;
+        }
 
         const fields = {
           department: String(get(row, 'department') || '').trim() || null,
-          start_date: cellDate(get(row, 'hire date')),
+          start_date: hire_date,
           end_date: statusRaw === 'ended' ? end_date : null,
           active: statusRaw !== 'inactive',
           work_state: stateRaw || null,
@@ -703,8 +727,14 @@ boot('team', async (supa, el) => {
           if (rate == null || rate < 0) { periodErrors.push({ row: r, reason: 'Rate ($) must be a number, 0 or more' }); continue; }
           const cap = employment_type === 'full_time' ? 40 : (cellNumber(pGet(row, 'hrs/week')) || 40);
           const starts_on = cellDate(pGet(row, 'start date'));
+          if (starts_on === UNPARSEABLE) {
+            periodErrors.push({ row: r, reason: 'Start Date cell is not a plain date (a formula, link, or error cell?) — row skipped' }); continue;
+          }
           if (!starts_on) { periodErrors.push({ row: r, reason: 'Start Date is required' }); continue; }
           const ends_on = cellDate(pGet(row, 'end date'));
+          if (ends_on === UNPARSEABLE) {
+            periodErrors.push({ row: r, reason: 'End Date cell is not a plain date (a formula, link, or error cell?) — row skipped' }); continue;
+          }
           const costCents = toCents(rate);
 
           const fields = {
