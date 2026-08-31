@@ -834,6 +834,74 @@ boot('team', async (supa, el) => {
     };
   }
 
+  // Deliberately not the same single confirm() the per-row comp/bonus
+  // deletes use (line ~188/233) — this deletes EVERY comp_periods row and
+  // EVERY staff_bonuses row for EVERY person on the roster, not one row for
+  // one person, and comp_periods is an append-only ledger with no other
+  // backup anywhere (see its own table comment, db/001) — once gone, a past
+  // rate or raise cannot be reconstructed. A typed phrase is a much higher
+  // bar than a click-through confirm, on purpose, for exactly that gap in
+  // blast radius. Requested 2026-08-31 (Boris, after the Team import
+  // name-swap incident) explicitly to start compensation over from scratch
+  // — NOT scoped to the people that incident affected, and NOT touching
+  // name/department/dates/work state/401k/health-insurance-enrolled, which
+  // were the incident's actual damage and are already repaired separately;
+  // this button only ever touches comp_periods/staff_bonuses.
+  function showClearCompModal() {
+    const PHRASE = 'CLEAR ALL COMP DATA';
+    const back = document.createElement('div');
+    back.className = 'modal-back';
+    back.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="clearcomp-title" style="max-width:520px">
+      <div class="modal-head">
+        <span class="modal-title" id="clearcomp-title">Clear all compensation data</span>
+        <button class="mclose">Close ✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:13px;color:var(--rust);font-weight:600;margin:0 0 10px">This permanently deletes, for every person on the roster:</p>
+        <ul style="font-size:12px;margin:0 0 14px 18px;line-height:1.6">
+          <li>Every comp period — every rate, salary, hourly cost, and hours/week ever entered, for anyone, at any time</li>
+          <li>Every scheduled bonus</li>
+        </ul>
+        <p style="font-size:12px;color:var(--slate);margin:0 0 14px">
+          This is not limited to the people affected by the recent import incident — it clears everyone's pay history,
+          including anyone never touched by that bug. Comp periods are an append-only ledger with no other backup:
+          once deleted, a past rate or raise cannot be recovered. Names, departments, hire dates, and other roster
+          fields are untouched by this — only pay and bonus data.
+        </p>
+        <label style="font-size:12px;display:block;margin-bottom:6px">Type <b>${PHRASE}</b> to confirm:</label>
+        <input id="clearcomp-confirm-input" style="width:100%" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="modal-foot">
+        <span class="err" id="clearcomp-msg" style="flex:1;font-size:11px"></span>
+        <button class="ghost clearcomp-cancel">Cancel</button>
+        <button class="danger clearcomp-apply" disabled>Delete everything</button>
+      </div>
+    </div>`;
+    document.body.appendChild(back);
+    const closeThis = () => back.remove();
+    back.onclick = e => { if (e.target === back) closeThis(); };
+    back.querySelector('.mclose').onclick = closeThis;
+    back.querySelector('.clearcomp-cancel').onclick = closeThis;
+    const input = back.querySelector('#clearcomp-confirm-input');
+    const applyBtn = back.querySelector('.clearcomp-apply');
+    input.oninput = () => { applyBtn.disabled = input.value !== PHRASE; };
+    applyBtn.onclick = async () => {
+      applyBtn.disabled = true; applyBtn.textContent = 'Deleting…';
+      const [cp, bn] = await Promise.all([
+        supa.from('comp_periods').delete().not('id', 'is', null),
+        supa.from('staff_bonuses').delete().not('id', 'is', null)
+      ]);
+      if (cp.error || bn.error) {
+        back.querySelector('#clearcomp-msg').textContent =
+          `Failed: ${[cp.error, bn.error].filter(Boolean).map(e => e.message).join('; ')}`;
+        applyBtn.disabled = false; applyBtn.textContent = 'Delete everything';
+        return;
+      }
+      closeThis();
+      load();
+    };
+  }
+
   const STATUS_RANK = { active: 2, ended: 1, inactive: 0 };
   // comp/total_cost read values render() attaches to each staff row just
   // before sorting (_compAnnual/_totalCost) — both need per-render context
@@ -913,6 +981,7 @@ boot('team', async (supa, el) => {
         <button class="ghost" id="export-team-btn">Export</button>
         <button class="ghost" id="import-team-btn">Import</button>
         <input type="file" id="import-file-input" accept=".xlsx" hidden>
+        <button class="danger" id="clear-comp-btn" title="Permanently delete every comp period and bonus, for everyone">Clear All Comp Data</button>
         <button class="primary" id="add-staff-btn">+ Add person</button>
       </div>
       <div class="sc-panel" style="padding:0">
@@ -981,6 +1050,7 @@ boot('team', async (supa, el) => {
     };
     el.querySelector('#export-team-btn').onclick = () => exportTeam(rows, compCurrentByStaff);
     el.querySelector('#import-team-btn').onclick = () => el.querySelector('#import-file-input').click();
+    el.querySelector('#clear-comp-btn').onclick = showClearCompModal;
     el.querySelector('#import-file-input').onchange = e => {
       const file = e.target.files[0];
       e.target.value = ''; // lets the same file be re-picked next time
