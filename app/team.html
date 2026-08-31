@@ -596,6 +596,21 @@ boot('team', async (supa, el) => {
         if (!id) continue; // blank row — not a data row, not a "create new person" (import never inserts)
         const existing = staffById[id];
         if (!existing) { rowErrors.push({ row: r, reason: `no matching person for id ${id}` }); continue; }
+        // Name is never written by this import (a name is a legal-identity fact,
+        // not a bulk-editable field) — it's read-only here, used ONLY as a
+        // sanity check that this row's hidden ID still lines up with the person
+        // a human would recognize by the visible Name cell next to it. A
+        // mismatch means the file's rows got shuffled relative to that hidden
+        // column (a sort or paste that moved visible cells without it) — real
+        // incident, not hypothetical: see the 2026-08-30 Team Hours name-swap.
+        // The WHOLE row is rejected rather than just skipping the name write,
+        // since a misaligned row's other fields (department, dates, status)
+        // are equally suspect once the ID/Name pairing itself is broken.
+        const sheetName = String(get(row, 'name') || '').trim();
+        if (sheetName && sheetName !== existing.name) {
+          rowErrors.push({ row: r, reason: `name mismatch: file says "${sheetName}" but id ${id} is "${existing.name}" on file — row skipped (rows may have been reordered before import)` });
+          continue;
+        }
 
         const statusRaw = String(get(row, 'status') || '').trim().toLowerCase();
         if (!STATUS_LABEL[statusRaw]) {
@@ -611,7 +626,6 @@ boot('team', async (supa, el) => {
         }
 
         const fields = {
-          name: String(get(row, 'name') || '').trim() || existing.name,
           department: String(get(row, 'department') || '').trim() || null,
           start_date: cellDate(get(row, 'hire date')),
           end_date: statusRaw === 'ended' ? end_date : null,
@@ -623,7 +637,6 @@ boot('team', async (supa, el) => {
         };
 
         const diffLines = [
-          ['Name', existing.name, fields.name],
           ['Department', existing.department || '', fields.department || ''],
           ['Hire date', existing.start_date || '', fields.start_date || ''],
           ['Status', STATUS_LABEL[STATUS_OF(existing)], STATUS_LABEL[statusRaw]],
@@ -634,7 +647,7 @@ boot('team', async (supa, el) => {
           ['Health Insurance', existing.enrolled_health_insurance ? 'Y' : 'N', fields.enrolled_health_insurance ? 'Y' : 'N']
         ].filter(([, before, after]) => before !== after).map(([label, before, after]) => ({ label, before, after }));
 
-        if (diffLines.length) changes.push({ id, name: fields.name, fields, diffLines });
+        if (diffLines.length) changes.push({ id, name: existing.name, fields, diffLines });
       }
 
       // "Pay Periods" is optional on import — an old Team-only export (or a
@@ -670,6 +683,16 @@ boot('team', async (supa, el) => {
           if (!staffId) continue; // blank row
           const existingStaff = staffById[staffId];
           if (!existingStaff) { periodErrors.push({ row: r, reason: `no matching person for staff id ${staffId}` }); continue; }
+          // Same alignment sanity check as the Team sheet (see its own comment) —
+          // Name here is never written, only compared against the hidden Staff
+          // ID's real owner. A mismatch on THIS sheet is worse than on Team: it
+          // would otherwise misapply pay/rate changes to the wrong person with
+          // no name-based check at all.
+          const sheetName = String(pGet(row, 'name') || '').trim();
+          if (sheetName && sheetName !== existingStaff.name) {
+            periodErrors.push({ row: r, reason: `name mismatch: file says "${sheetName}" but staff id ${staffId} is "${existingStaff.name}" on file — row skipped (rows may have been reordered before import)` });
+            continue;
+          }
 
           const typeLabel = String(pGet(row, 'employment type') || '').trim().toLowerCase();
           const employment_type = EMP_TYPE_BY_LABEL[typeLabel];
