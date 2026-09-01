@@ -126,6 +126,7 @@ const NAV = [
   { sect: 'Setup' },
   { id: 'clients',   label: 'Clients',         href: './clients.html' },
   { id: 'team',      label: 'Team',            href: './team.html' },
+  { id: 'labor',     label: 'Labor',           href: './labor.html' },
   { id: 'settings',  label: 'Settings',        href: './settings.html' },
 ];
 
@@ -146,6 +147,7 @@ const NAV_ICONS = {
   teamhours: `<circle cx="10" cy="6.5" r="3"/><path d="M4 17c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/>`,
   clients: `<rect x="3" y="7" width="14" height="9" rx="1.5"/><path d="M7.5 7V5.5a1.5 1.5 0 0 1 1.5-1.5h2a1.5 1.5 0 0 1 1.5 1.5V7"/><path d="M3 11h14"/>`,
   team: `<circle cx="7" cy="6.5" r="2.3"/><circle cx="14" cy="7.5" r="2"/><path d="M2.5 16c0-2.8 2-4.7 4.5-4.7s4.5 1.9 4.5 4.7"/><path d="M12.5 12.2c2 .2 3.5 1.8 3.5 3.8"/>`,
+  labor: `<path d="M10 3v14M6.5 5.8h4.7a2.2 2.2 0 0 1 0 4.4H8.8a2.2 2.2 0 0 0 0 4.4h4.7"/>`,
   settings: `<circle cx="10" cy="10" r="3"/>${[0,45,90,135,180,225,270,315].map(a =>
     `<rect x="9.25" y="4.8" width="1.5" height="2.4" rx="0.3" fill="currentColor" stroke="none" transform="rotate(${a} 10 10)"/>`).join('')}`,
 };

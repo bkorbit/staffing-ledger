@@ -1,0 +1,218 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EMG — Labor</title><link rel="stylesheet" href="./assets/style.css?v=b02db8f"></head><body>
+<script type="module">
+import { boot, esc, fmt$, barChart, donutChart } from './assets/shell.js?v=b02db8f';
+
+// Financial view of labor cost, sourced entirely from Team setup (staff/
+// comp_periods/staff_bonuses/health_insurance_tiers, via
+// staff_burdened_cost_breakdown + labor_forecast_breakdown, 077) —
+// deliberately not tied to logged or planned hours. Snapshot = every
+// active staff member's current burdened-cost breakdown, one RPC row per
+// person; department/employment-type/cost-component/individual are all
+// client-side pivots of that one array, same pattern Team already uses
+// for its own aggregates. Trend = the forward monthly projection built
+// from the exact same canonical functions Forecast's Labour bar and
+// Cashflow's payroll cash-out already read (077) — a forward projection
+// only, so the default range starts at this month, not a blend with past
+// GL actuals.
+boot('labor', async (supa, el) => {
+  const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const mLabel = ymd => MO[+ymd.slice(5,7)-1] + ' ' + ymd.slice(2,4);
+  const iso = d => d.toISOString().slice(0,10);
+  const t0 = new Date(); t0.setUTCDate(1);
+  const thisMonth = iso(t0).slice(0,8)+'01';
+  const shiftM = (m,n)=>{const[y,mm]=m.slice(0,7).split('-').map(Number);
+    return new Date(Date.UTC(y,mm-1+n,1)).toISOString().slice(0,10);};
+
+  const EMP_LABELS = { full_time: 'Full time', part_time: 'Part time', contractor: 'Contractor' };
+
+  let rangeFrom = thisMonth, rangeTo = shiftM(thisMonth, 11);
+  let tableSort = { key: 'total_cents', dir: -1 };
+
+  el.innerHTML = `<div id="panel">loading…</div>`;
+
+  async function load() {
+    if (rangeTo < rangeFrom) rangeTo = rangeFrom;
+    const { data, error } = await supa.rpc('labor_page', { p_from: rangeFrom, p_to: rangeTo });
+    if (error) { el.querySelector('#panel').innerHTML = `<div class="sc-panel err">${esc(error.message)}</div>`; return; }
+    render(data.roster || [], data.trend || []);
+  }
+
+  const SORT_ACCESSORS = {
+    name: r => r.name.toLowerCase(),
+    department: r => (r.department || '').toLowerCase(),
+    employment_type: r => r.employment_type || '',
+    base_cents: r => r.base_cents,
+    statutory_cents: r => r._statutory,
+    benefits_cents: r => r._benefits,
+    peo_fee_cents: r => r.peo_fee_cents,
+    total_cents: r => r.total_cents
+  };
+  const HCOLS = [
+    ['name', 'Name'], ['department', 'Department'], ['employment_type', 'Type'],
+    ['base_cents', 'Base'], ['statutory_cents', 'Statutory'], ['benefits_cents', 'Benefits'],
+    ['peo_fee_cents', 'PEO'], ['total_cents', 'Total']
+  ];
+
+  function render(roster, trend) {
+    // fica_ss/fica_medicare/futa/workers_comp/suta/disability are the
+    // "statutory" bucket for display; k401_match + health_insurance are
+    // "benefits" — same components staff_burdened_cost_breakdown (077)
+    // returns, just regrouped for a readable table. An active staff row
+    // with no comp_periods covering today (LEFT JOINed, 077) comes back
+    // with every cost field null — flagged as _noComp and zeroed for
+    // aggregation math, same "show them, mark it unset" treatment Team's
+    // own Comp column already gives that case, rather than dropping the
+    // person or rendering $NaN.
+    roster.forEach(r => {
+      r._noComp = r.total_cents == null;
+      if (r._noComp) {
+        r.base_cents = r.fica_ss_cents = r.fica_medicare_cents = r.futa_cents = 0;
+        r.workers_comp_cents = r.suta_cents = r.k401_match_cents = 0;
+        r.health_insurance_cents = r.disability_cents = r.peo_fee_cents = 0;
+        r.burdened_cents = r.total_cents = 0;
+      }
+      r._statutory = r.fica_ss_cents + r.fica_medicare_cents + r.futa_cents
+        + r.workers_comp_cents + r.suta_cents + r.disability_cents;
+      r._benefits = r.k401_match_cents + r.health_insurance_cents;
+    });
+
+    const totalCost = roster.reduce((s, r) => s + r.total_cents, 0);
+    const headcount = roster.length;
+
+    const byDept = {};
+    roster.forEach(r => {
+      const k = r.department || '(none)';
+      (byDept[k] = byDept[k] || { cost: 0, count: 0 }).cost += r.total_cents;
+      byDept[k].count++;
+    });
+    const deptRows = Object.entries(byDept).sort((a, b) => b[1].cost - a[1].cost);
+
+    const byType = {};
+    roster.forEach(r => {
+      const k = r.employment_type || '(none)';
+      (byType[k] = byType[k] || { cost: 0, count: 0 }).cost += r.total_cents;
+      byType[k].count++;
+    });
+    const typeRows = Object.entries(byType).sort((a, b) => b[1].cost - a[1].cost);
+
+    const compTotals = roster.reduce((s, r) => ({
+      base: s.base + r.base_cents,
+      statutory: s.statutory + r._statutory,
+      k401: s.k401 + r.k401_match_cents,
+      hi: s.hi + r.health_insurance_cents,
+      peo: s.peo + r.peo_fee_cents
+    }), { base: 0, statutory: 0, k401: 0, hi: 0, peo: 0 });
+
+    const rows = roster.slice().sort((a, b) => {
+      const av = SORT_ACCESSORS[tableSort.key](a), bv = SORT_ACCESSORS[tableSort.key](b);
+      if (av !== bv) return (av < bv ? -1 : 1) * tableSort.dir;
+      return a.name.localeCompare(b.name);
+    });
+
+    el.querySelector('#panel').innerHTML = `
+      <div class="range">
+        <input type="month" id="r-from" aria-label="Range from" value="${rangeFrom.slice(0, 7)}">
+        <span class="muted">→</span>
+        <input type="month" id="r-to" aria-label="Range to" value="${rangeTo.slice(0, 7)}">
+      </div>
+      <div class="summary-strip">
+        <div class="summary-cell"><div class="summary-label">Current annual labor cost</div>
+          <div class="summary-value">${fmt$(totalCost)}</div>
+          <div class="summary-note">${headcount} active staff</div></div>
+        <div class="summary-cell"><div class="summary-label">Avg. cost per person</div>
+          <div class="summary-value">${headcount ? fmt$(totalCost / headcount) : '—'}</div></div>
+        <div class="summary-cell" title="Employer FICA/FUTA/workers' comp/SUTA/SDI + 401k match + health insurance + PEO fee"><div class="summary-label">Burden on top of base pay</div>
+          <div class="summary-value">${fmt$(compTotals.statutory + compTotals.k401 + compTotals.hi + compTotals.peo)}</div>
+          <div class="summary-note">on ${fmt$(compTotals.base)} base pay</div></div>
+      </div>
+      <div class="chart-grid">
+        <div class="sc-panel chartpanel">
+          <div class="chart-head"><div class="sc-eyebrow" style="margin-bottom:0">Cost by department</div></div>
+          <div class="chart-body"><div id="chart-dept"></div></div>
+        </div>
+        <div class="sc-panel chartpanel">
+          <div class="chart-head"><div class="sc-eyebrow" style="margin-bottom:0">Cost by employment type</div></div>
+          <div class="chart-body"><div id="chart-type"></div></div>
+        </div>
+        <div class="sc-panel chartpanel">
+          <div class="chart-head"><div class="sc-eyebrow" style="margin-bottom:0">Cost by component</div></div>
+          <div class="chart-body"><div id="chart-component"></div></div>
+        </div>
+        <div class="sc-panel chartpanel chart-wide">
+          <div class="chart-head"><div class="sc-eyebrow" style="margin-bottom:0">Forward labor cost trend</div></div>
+          <div class="chart-body"><div id="chart-trend"></div></div>
+        </div>
+      </div>
+      <div class="sc-panel" style="padding:0;margin-top:18px">
+        <div class="gridwrap">
+        <table class="ledger">
+          <thead><tr>${HCOLS.map(([k, label]) =>
+            `<th data-sort="${k}" scope="col" tabindex="0" role="columnheader" aria-sort="${tableSort.key === k ? (tableSort.dir < 0 ? 'descending' : 'ascending') : 'none'}">${label}${tableSort.key === k ? `<span class="dir">${tableSort.dir < 0 ? '▼' : '▲'}</span>` : ''}</th>`
+          ).join('')}</tr></thead>
+          <tbody>
+          ${!rows.length ? `<tr><td colspan="8" class="empty-note">No active staff.</td></tr>` : rows.map(r => r._noComp ? `
+            <tr class="muted">
+              <td>${esc(r.name)}</td>
+              <td>${r.department ? esc(r.department) : '<span class="muted">—</span>'}</td>
+              <td colspan="6" title="No compensation period covers today on Team setup">not set</td>
+            </tr>` : `
+            <tr>
+              <td>${esc(r.name)}</td>
+              <td>${r.department ? esc(r.department) : '<span class="muted">—</span>'}</td>
+              <td>${esc(EMP_LABELS[r.employment_type] || r.employment_type || '—')}</td>
+              <td>${fmt$(r.base_cents)}</td>
+              <td>${fmt$(r._statutory)}</td>
+              <td>${fmt$(r._benefits)}</td>
+              <td>${fmt$(r.peo_fee_cents)}</td>
+              <td><b>${fmt$(r.total_cents)}</b></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+        </div>
+      </div>`;
+
+    if (deptRows.length) barChart(document.getElementById('chart-dept'), deptRows.map(([k]) => k), [
+      { name: 'annual cost', color: 'var(--brand)', values: deptRows.map(([, v]) => v.cost) }
+    ]);
+    else document.getElementById('chart-dept').innerHTML = '<div style="padding:16px 18px" class="muted">No active staff.</div>';
+
+    if (typeRows.length) barChart(document.getElementById('chart-type'), typeRows.map(([k]) => EMP_LABELS[k] || k), [
+      { name: 'annual cost', color: 'var(--brand-2)', values: typeRows.map(([, v]) => v.cost) }
+    ]);
+    else document.getElementById('chart-type').innerHTML = '<div style="padding:16px 18px" class="muted">No active staff.</div>';
+
+    donutChart(document.getElementById('chart-component'), [
+      { name: 'Base pay', color: 'var(--brand)', value: compTotals.base },
+      { name: 'Statutory', color: 'var(--brand-2)', value: compTotals.statutory },
+      { name: '401k match', color: 'var(--brand-4)', value: compTotals.k401 },
+      { name: 'Health insurance', color: 'var(--accent)', value: compTotals.hi },
+      { name: 'PEO fee', color: 'var(--slate)', value: compTotals.peo }
+    ]);
+
+    if (trend.length) barChart(document.getElementById('chart-trend'), trend.map(t => mLabel(t.month)), [
+      { name: 'base + statutory', color: 'var(--brand)', values: trend.map(t => t.base_statutory_cents) },
+      { name: 'loose payroll', color: 'var(--slate)', values: trend.map(t => t.loose_payroll_cents) },
+      { name: 'health insurance', color: 'var(--accent)', values: trend.map(t => t.health_insurance_cents) },
+      { name: 'bonuses', color: 'var(--brand-4)', values: trend.map(t => t.bonus_cents) }
+    ]);
+    else document.getElementById('chart-trend').innerHTML = '<div style="padding:16px 18px" class="muted">No future months in range.</div>';
+
+    el.querySelector('#r-from').onchange = e => { rangeFrom = e.target.value + '-01'; load(); };
+    el.querySelector('#r-to').onchange = e => { rangeTo = e.target.value + '-01'; load(); };
+    el.querySelectorAll('th[data-sort]').forEach(th => {
+      const activate = () => {
+        const k = th.dataset.sort;
+        tableSort = { key: k, dir: tableSort.key === k ? -tableSort.dir : -1 };
+        render(roster, trend);
+      };
+      th.onclick = activate;
+      th.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); } };
+    });
+  }
+
+  load();
+});
+</script>
+</body></html>
