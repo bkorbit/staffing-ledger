@@ -146,7 +146,16 @@ async function qboQuery(realm, token, sql, tries = 0) {
     await sleep(wait);
     return qboQuery(realm, token, sql, tries + 1);
   }
-  if (!r.ok) throw new Error(`QuickBooks query \u2192 ${r.status}: ${(await r.text()).slice(0, 400)}`);
+  if (!r.ok) {
+    // Status is attached (not just baked into the message) so callers can tell an
+    // actual rejection (401/403 \u2014 bad realm or credentials) apart from Intuit's API
+    // being transiently unavailable (429/5xx, retries already exhausted above) \u2014
+    // confirmed real: a 504 stream timeout on the realm-check probe was once
+    // misreported as a bad realm_id, sending Boris to check credentials that were fine.
+    const err = new Error(`QuickBooks query \u2192 ${r.status}: ${(await r.text()).slice(0, 400)}`);
+    err.status = r.status;
+    throw err;
+  }
   return (await r.json()).QueryResponse || {};
 }
 
@@ -412,9 +421,21 @@ async function main() {
     const probe = await qboQuery(realm, token, 'SELECT COUNT(*) FROM Invoice');
     console.log(`  connected to realm ${realm} — ${probe.totalCount ?? '?'} invoices in the file`);
   } catch (e) {
-    await die('realm-check', new Error(
-      `realm_id '${realm}' was rejected. The token refreshed fine, so the credentials are ` +
-      `good but the company id is wrong. Check the realmId shown in the OAuth playground. (${e.message || e})`));
+    // 401/403 is QuickBooks actually rejecting who we are — a real realm/credentials
+    // problem. Anything else (429/5xx surviving all of qboQuery's retries, a network
+    // timeout) is Intuit's API being transiently unavailable, not a bad realm_id — it
+    // should clear on the next scheduled run. Conflating the two once sent Boris to
+    // check a realm_id that was fine while a 504 timeout was the real cause.
+    if (e.status === 401 || e.status === 403) {
+      await die('realm-check', new Error(
+        `realm_id '${realm}' was rejected. The token refreshed fine, so the credentials are ` +
+        `good but the company id is wrong. Check the realmId shown in the OAuth playground. (${e.message || e})`));
+    } else {
+      await die('realm-check', new Error(
+        `QuickBooks did not answer a simple probe query even after retries (${e.message || e}). ` +
+        `This looks like Intuit's API being transiently slow or unavailable, not a bad realm_id ` +
+        `or credentials — it should clear on the next scheduled run.`));
+    }
   }
 
   // ---- customers and projects: the names that make matching possible ----
