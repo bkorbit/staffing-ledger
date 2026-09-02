@@ -1204,7 +1204,7 @@ boot('forecast', async (supa, el) => {
           bits.push(field(li,'amount','$ / flight month', l.params.amount||''));
         if (isHourlyL(l)) {
           bits.push(field(li,'rate','rate $/hr', l.params.rate||''));
-          bits.push(field(li,'hours_per_month','hrs / mo', l.params.hours_per_month||''));
+          bits.push(field(li,'hours_per_month','hrs/mo default', l.params.hours_per_month||''));
         }
         (cfg.defaults||[]).forEach(([p,label]) => {
           if (p==='amount'||p==='rate'||p==='hours_per_month') return;
