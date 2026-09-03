@@ -70,6 +70,7 @@ td.tot{font-weight:700;color:var(--brand)}
 .grand td{background:var(--brand);color:#fff;font-weight:700;border-top:2px solid var(--brand)}
 .flag{display:inline-block;font-size:9px;border-radius:5px;padding:1px 5px;margin:1px 3px 1px 0;font-family:var(--font-mono)}
 .flag.t{background:var(--rust-bg);color:var(--rust)} .flag.w{background:var(--amber-bg);color:var(--amber)} .flag.i{background:#f2f2f2;color:var(--slate)}
+.flag.g{background:var(--mint);color:var(--brand)}
 .empty{padding:30px;text-align:center;color:var(--slate);font-family:var(--font-mono);font-size:11px}
 </style></head><body>
 <script type="module">
@@ -407,8 +408,8 @@ boot('sales', async (supa, el) => {
       (totalRows ? `<div>${nF} of ${totalRows} deals forecastable (${pct}%) — ${noLI} without line items,
         ${stale} past their close date. GP needs line items and campaign dates in HubSpot;
         fixing them there brings deals in on the next sync.</div>` : '') +
-      (wonRecent.length ? `<div>Closed won: ${wonPromoted.length} passed to the
-        <a href="./forecast.html">Forecast</a> automatically${wonReview.length?` — ${wonReview.length} still awaiting review there`:''}${wonWaiting?`; ${wonWaiting} will pass on the next sync`:''}.
+      (wonRecent.length ? `<div>Closed won: ${wonPromoted.length} promoted to the
+        <a href="./forecast.html">Forecast</a>${wonReview.length?` — ${wonReview.length} still awaiting review there`:''}${wonWaiting?`; ${wonWaiting} awaiting setup below`:''}.
         Mappable line items are flighted out on arrival; the rest get a skeleton and a reason.</div>` : '') +
       `</div>` : '';
     wrap.style.position='relative';
@@ -489,19 +490,40 @@ boot('sales', async (supa, el) => {
   // render() reruns on every pipeline/weighted/range toggle, and rebuilding
   // this panel on every one of those would wipe out a half-made client/project
   // choice before a human got to click Approve.
+  //
+  // Approve promotes NOW. promote_approval() (db/078) creates the deal, records
+  // the permanent promotion and flights the line items in one database
+  // transaction, so by the time this row says "promoted" the deal really is in
+  // the Forecast. The row is then rewritten in place rather than reloading the
+  // page: a reload would throw away every other half-made choice on this panel,
+  // and it never told anyone what actually happened.
+
+  // What the row becomes once the deal is through the door.
+  function promotedRowHtml(name, res) {
+    const detail = res.already
+      ? 'Already through the promotion door — nothing was created twice.'
+      : res.flighted
+        ? `${res.lines} line${res.lines === 1 ? '' : 's'} flighted from the HubSpot line items — worth checking before you trust them.`
+        : `No lines created (${esc(res.reason || 'nothing mappable')}) — shape it in the Forecast.`;
+    return `<div style="min-width:220px"><b>${esc(name)}</b>
+        <div class="muted" style="font-size:10px">${detail}</div></div>
+      <span class="flag g">✓ promoted</span>
+      <a href="./forecast.html">view in Forecast →</a>`;
+  }
+
   function renderSetup(){
     const box = el.querySelector('#setup');
     if (!setupReady.length && !setupBlocked.length && !setupApproved.length) {
-      box.innerHTML = `<div class="muted" style="padding:8px 0">Nothing needs setup — every won deal is either promoted or already approved.</div>`;
+      box.innerHTML = `<div class="muted" style="padding:8px 0">Nothing needs setup — every won deal has been promoted or dismissed.</div>`;
       return;
     }
-    box.innerHTML = `<div class="muted" style="margin-bottom:8px">Needs setup — every closed-won deal passes through here once, confirming the client and QBO project before it enters the live forecast</div>
+    box.innerHTML = `<div class="muted" style="margin-bottom:8px">Needs setup — every closed-won deal passes through here once, confirming the client and QBO project. Approving puts it in the live forecast immediately.</div>
       ${setupReady.length ? setupReady.map(d => {
         const cid = suggestClient(d);
         const pid = cid ? suggestProject(d, cid) : null;
         const blockedBadge = blockedNames.has(nameKey(d.company)) ?
           `<span class="flag t" title="this company name is on the blocked list (Clients tab) — advisory only, decide anyway">blocked-list name</span>` : '';
-        return `<div class="setup-row" data-hs="${esc(d.hubspot_deal_id)}" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line)">
+        return `<div class="setup-row" data-hs="${esc(d.hubspot_deal_id)}" data-name="${esc(d.name)}" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line)">
           <div style="min-width:220px"><b>${esc(d.name)}</b> ${blockedBadge}<div class="muted" style="font-size:10px">${esc(d.company||'(no company)')} · ${d.campaign_start||'?'} → ${d.campaign_end||'?'}${d.jobcode?` · ${esc(d.jobcode)}`:''}</div></div>
           <select class="setup-client" style="min-width:180px">${clientOptionsHtml(cid)}</select>
           <input class="setup-newclient" placeholder="new client name…" style="display:none;min-width:180px">
@@ -518,12 +540,14 @@ boot('sales', async (supa, el) => {
           <a href="${esc(d.url)}" target="_blank" rel="noopener">HubSpot ↗</a>
           <button class="danger setup-dismiss" data-dismiss="${esc(d.hubspot_deal_id)}" title="Old/abandoned deal — remove it from this list for good">Dismiss</button>
         </div>`).join('') : ''}
-      ${setupApproved.length ? `<div class="sc-eyebrow" style="margin-top:10px">Approved — promotes on the next sync (${setupApproved.length})</div>` +
+      ${setupApproved.length ? `<div class="sc-eyebrow" style="margin-top:10px">Approved but not yet promoted — the nightly sync retries these (${setupApproved.length})</div>
+        <div class="muted" style="font-size:10px;margin-bottom:4px">An approved deal normally lands in the Forecast the same second. Anything sitting here had its promotion interrupted, or is waiting on campaign dates being fixed in HubSpot.</div>` +
         setupApproved.map(d => { const a = approvalByHsId[d.hubspot_deal_id];
           const proj = allProjects.find(p=>p.id===a.qbo_project_id);
           return `<div style="display:flex;gap:10px;align-items:center;padding:6px 0" class="muted">
             <div style="min-width:220px;color:var(--ink)">${esc(d.name)}</div>
             <div>${esc((clientsById[a.client_id]||{}).name||'?')} → ${esc(proj?proj.name:a.qbo_project_id)}</div>
+            <a href="${esc(d.url)}" target="_blank" rel="noopener">HubSpot ↗</a>
           </div>`; }).join('') : ''}`;
 
     box.querySelectorAll('.setup-row').forEach(row => {
@@ -544,20 +568,32 @@ boot('sales', async (supa, el) => {
       approveBtn.onclick = async () => {
         let clientId = clientSel.value;
         if (!clientId) { alert('Pick a client first.'); return; }
+        // put the button back so a failed attempt can be retried or corrected
+        const restore = msg => { if (msg) alert(msg); approveBtn.disabled = false; approveBtn.textContent = 'Approve'; };
         approveBtn.disabled = true; approveBtn.textContent = '…';
         if (clientId === '__new__') {
           const name = newClientInput.value.trim();
-          if (!name) { alert('Enter a name for the new client.'); approveBtn.disabled = false; approveBtn.textContent = 'Approve'; return; }
+          if (!name) return restore('Enter a name for the new client.');
           const { data, error } = await supa.from('clients').insert({ name, set_by: window.__email }).select('id').single();
-          if (error) { alert(error.message); approveBtn.disabled = false; approveBtn.textContent = 'Approve'; return; }
+          if (error) return restore(error.message);
           clientId = data.id;
         }
+        // The decision is recorded FIRST and separately: it is the durable
+        // record of what a human decided. If the promotion below never lands —
+        // connection dropped, tab closed mid-click — the approval survives and
+        // tonight's sync retries it through this very same function.
         const { error } = await supa.from('promotion_approvals').upsert({
           hubspot_deal_id: hsId, client_id: clientId, qbo_project_id: projectSel.value,
           approved_by: window.__email, approved_at: new Date().toISOString()
         }, { onConflict: 'hubspot_deal_id' });
-        if (error) { alert(error.message); approveBtn.disabled = false; approveBtn.textContent = 'Approve'; return; }
-        location.reload();
+        if (error) return restore(error.message);
+
+        const { data: res, error: rpcErr } = await supa.rpc('promote_approval', { p_hubspot_deal_id: hsId });
+        if (rpcErr) return restore(`Approved, but the promotion did not run:\n${rpcErr.message}\n\n` +
+          `The approval is saved — tonight's sync will retry it.`);
+        if (!res || !res.ok) return restore(`Approved, but not promoted: ${(res && res.reason) || 'unknown reason'}\n\n` +
+          `The approval stays queued and the nightly sync will retry it. If that reason points at HubSpot, fix it there.`);
+        row.innerHTML = promotedRowHtml(row.dataset.name, res);
       };
     });
 
@@ -567,8 +603,8 @@ boot('sales', async (supa, el) => {
       const { error } = await supa.from('won_deal_dismissals').upsert({
         hubspot_deal_id: btn.dataset.dismiss, dismissed_by: window.__email, dismissed_at: new Date().toISOString()
       }, { onConflict: 'hubspot_deal_id' });
-      if (error) { alert(error.message); btn.disabled = false; btn.textContent = 'Dismiss'; return; }
-      location.reload();
+      if (error) { btn.disabled = false; btn.textContent = 'Dismiss'; return alert(error.message); }
+      btn.closest('div').remove();
     });
   }
 
@@ -611,7 +647,7 @@ boot('sales', async (supa, el) => {
         <div class="summary-note">${nF} of ${rows.length} deals</div></div>
       <div class="summary-cell"><div class="summary-label">Closed won</div>
         <div class="summary-value">${wonPromoted.length}</div>
-        <div class="summary-note">${wonReview.length ? wonReview.length+' awaiting review' : wonWaiting ? wonWaiting+' pending next sync' : 'all reviewed'}</div></div>`;
+        <div class="summary-note">${wonReview.length ? wonReview.length+' awaiting review' : wonWaiting ? wonWaiting+' awaiting setup' : 'all reviewed'}</div></div>`;
 
     const by={}; shown.forEach(r=>(by[r.client]=by[r.client]||[]).push(r));
     const clients=Object.keys(by).sort((a,b)=>{

@@ -14,8 +14,10 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   numbered and immutable once shipped — a fix is a NEW migration (see 023→024).
 - **Syncs**: `scripts/sync-qbo.mjs` (Invoices+lines, Bills, Purchases,
   JournalEntries, Accounts, Projects — nightly), `scripts/sync-hubspot.mjs`
-  (pipeline mirror full-replace + one-time promotion of won deals; promotions
-  protect history — a hidden/renamed deal is never resurrected).
+  (pipeline mirror full-replace, then a RETRY pass calling `promote_approval()`
+  for anything still queued; promotions protect history — a hidden/renamed deal
+  is never resurrected). Promotion itself happens in the browser at Approve
+  time (078), not overnight — the sync is only the safety net.
 
 ## Non-negotiable working habits (each one earned by a shipped bug)
 1. **Rewrite whole functions; never regex-splice inside one.** Splices twice broke
@@ -71,14 +73,46 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
 - Fixed costs: edited on Settings, subtracted from projected net only.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 025. Key views/functions
-- `v_deal_month_forecast` — the commercial plan as money (definition = 024).
-- `v_cost_lines_classified` — bill/purchase/journal lines with cost_class
+## Current migration head: 078. Key views/functions
+The number in brackets is the migration holding the CURRENT definition — a fix
+is always a new migration, so grep for the highest one before reading an old body.
+
+- `v_deal_month_forecast` [058] — the commercial plan as money. Day-weighted
+  media spread from 024; 058 stopped hidden deals leaking into the plan.
+- `v_cost_lines_classified` [056] — bill/purchase/journal lines with cost_class
   (cogs/payroll/overhead/other/income/excluded); overrides via
-  qbo_accounts.override_class.
-- `forecast_page(p_from,p_to)` — whole Forecast page in one jsonb (025 = contra).
-- Cashflow: half-month periods (016), programmatic COGS terms knob (017),
-  EB-shrunk per-client payment curves, overdue clamps.
+  qbo_accounts.override_class. 056 fixed Other Income and labor sub-accounts
+  against the real QB P&L.
+- `forecast_page(p_from,p_to)` [076] — whole Forecast page in one jsonb.
+  025 added contra revenue; 068-071 wired in bottoms-up labor; 076 made it scan
+  v_cost_lines_classified ONCE instead of ~15-20 times (it was the page's load
+  cost, not a behaviour change — 076_fixture_test.sql proves byte-identical output).
+- `cashflow_forecast(...)` [071] — half-month periods (016), programmatic COGS
+  terms knob (017), EB-shrunk per-client payment curves, overdue clamps, and
+  since 071 the same real labor numbers the Forecast uses.
+- `labor_page` / `labor_forecast_breakdown` / `staff_burdened_cost_breakdown` [077]
+  — the Labor page, sourced entirely from Team setup, deliberately NOT tied to
+  logged or planned hours.
+- `staff_annual_burdened_cost` / `staff_annual_labor_cost` [077], `staff_hourly_cost`
+  [041], `v_staff_total_cost` [073] — the burden stack: FICA/FUTA (040), 401k +
+  health (041, grandfathered 044), workers' comp by state (042/045), SUTA (046),
+  SDI (048), PEO admin fee (050, excluded from the hourly rate by 052).
+- `staff_base_labor_forecast_month` [075], `health_insurance_forecast_month` [072],
+  `payroll_loose_runrate` [074], `labor_addendum_runrate` [070],
+  `staff_bonus_burdened_cost` [070] — the forward labor cost pieces.
+- `hours_page` [064], `rev_proj_page` [055].
+- `snapshot_forecast`, `v_forecast_accuracy`, `v_invoice_settlement_calibration`
+  [067] — measuring the model against itself.
+- `promote_approval(hubspot_deal_id)` [078] — the promotion door: deal +
+  promotion + flighted lines in ONE transaction, called by Sales Forecast's
+  Approve button (the normal path) and by sync-hubspot.mjs as a retry for
+  anything still queued. Both go through the single once-only check inside it,
+  under an advisory lock, so a deal can never promote twice. Its helpers
+  `hs_flight_lines` / `hs_line_item_map` [078] are the ONLY copy of the
+  line-item flighting math — the JS twin in sync-hubspot.mjs was deleted, not
+  left to drift.
+- `match_deals_to_projects()` [010/037] — residual deal↔QBO-project fill-gaps
+  pass; never guesses, never clobbers a human's match.
 
 ## Open threads (ask Boris before assuming)
 - Reopened SB/NCAA 2026 deals need real exact flight dates + picker matching.

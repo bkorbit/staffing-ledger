@@ -794,8 +794,8 @@ async function mountSalesPanel(supa, el, initFrom, initTo) {
       (totalRows ? `<div>${nF} of ${totalRows} deals forecastable (${pct}%) — ${noLI} without line items,
         ${stale} past their close date. GP needs line items and campaign dates in HubSpot;
         fixing them there brings deals in on the next sync.</div>` : '') +
-      (wr.length ? `<div>Closed won: ${wonPromoted.length} passed to the
-        <a href="./forecast.html">Forecast</a> automatically${wonReview.length ? ` — ${wonReview.length} still awaiting review there` : ''}${wonWaiting ? `; ${wonWaiting} will pass on the next sync` : ''}.</div>` : '') +
+      (wr.length ? `<div>Closed won: ${wonPromoted.length} promoted to the
+        <a href="./forecast.html">Forecast</a>${wonReview.length ? ` — ${wonReview.length} still awaiting review there` : ''}${wonWaiting ? `; ${wonWaiting} awaiting setup in Sales Forecast` : ''}.</div>` : '') +
       `</div>` : '';
     wrap.style.position = 'relative';
     wrap.innerHTML =

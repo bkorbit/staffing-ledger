@@ -4,30 +4,28 @@
 //
 //   MIRROR     every deal into pipeline_deals, verbatim. Sync-owned, disposable,
 //              replaced on every run. Sales Forecast's promotion gate reads this.
-//   PROMOTE    consume promotion_approvals — a human's decision, made in Sales
-//              Forecast, to promote one specific won deal with a specific client
-//              and QBO project already picked. This is the mechanical write only:
-//              create the deal, record the promotion forever, flight the line
-//              items. It does NOT decide whether a deal should promote or which
-//              client/project it belongs to — a human already decided that, in
-//              the browser, before this ever runs. (Before this file's rewrite,
-//              promotion was a fully-automatic nightly door with no human review
-//              at all — fine for one-time historical backfill, wrong for a tool
-//              meant to run indefinitely against real client billing.)
+//   RETRY      call promote_approval() for every approval still sitting in
+//              promotion_approvals. Promotion itself no longer happens here: a
+//              human clicking Approve in Sales Forecast calls that same database
+//              function directly and the deal is in the Forecast a second later
+//              (078). What reaches this loop is the residue — an approval whose
+//              RPC never landed (tab closed, network dropped mid-click), or one
+//              deliberately held back because HubSpot's campaign dates went
+//              missing after a human approved it. It is a safety net, and on a
+//              healthy day it has nothing to do.
 //
-// What promotion does NOT do: touch deal lines by hand. Line items in HubSpot have
-// not been enforced, so the as-sold amount travels in the promotion snapshot for
-// reference and humans shape MOST forecast lines in the platform, but when a won
-// deal's line items map cleanly onto ledger types, promotion flights them out
-// automatically — budgets spread evenly over the flight, fees attached — still
-// unreviewed until a human blesses them. One unmapped item and NO lines are
-// created: a skeleton plus a reason beats a half-invented plan.
+// The mechanical write — deal row, permanent promotion record, line-item
+// flighting — lives entirely in promote_approval() (db/078). It used to live
+// here, as three unrelated PostgREST round trips with no transaction around
+// them, so a failure between them could leave a deal with no promotion record
+// or a promoted deal with half its lines. The JS flighting math (LI_MAP,
+// flightFromItems) was deleted along with it rather than left to drift against
+// the SQL copy; db/078_fixture_test.sql carries its cases.
 //
-// An approval whose campaign dates are missing or invalid (changed in HubSpot
-// after a human approved it, say) is held back, not forced through with
-// defaults — the database constraint (won deals must have a flight) is the
-// contract; the sync respects it rather than working around it. It stays queued
-// and promotes on a later run once fixed.
+// Both callers enter through the same function, and the "has this HubSpot deal
+// already been through the door?" check exists exactly once, inside it, under
+// an advisory lock. A deal cannot promote twice even if a human clicks Approve
+// at the moment this loop reaches the same row.
 //
 // Also refreshes name/jobcode on already-promoted deals from the current mirror
 // (never flight_start/flight_end/status/hidden — those stay human/policy-owned,
@@ -73,16 +71,6 @@ async function sbDelete(path) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { method: 'DELETE', headers: sb });
   if (!r.ok) fail(`Supabase DELETE ${path} \u2192 ${r.status}: ${await r.text()}`);
 }
-async function sbInsert(table, rows, { returning = false } = {}) {
-  if (!rows.length) return [];
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
-    method: 'POST',
-    headers: { ...sb, Prefer: returning ? 'return=representation' : 'return=minimal' },
-    body: JSON.stringify(rows)
-  });
-  if (!r.ok) fail(`Supabase insert ${table} \u2192 ${r.status}: ${(await r.text()).slice(0, 500)}`);
-  return returning ? r.json() : [];
-}
 async function sbUpsert(table, rows, onConflict) {
   if (!rows.length) return;
   const keys = [...new Set(rows.flatMap(Object.keys))];
@@ -100,62 +88,14 @@ async function sbUpsert(table, rows, onConflict) {
     if (!r.ok) fail(`Supabase upsert ${table} \u2192 ${r.status}: ${(await r.text()).slice(0, 500)}`);
   }
 }
-// ---- line items -> deal lines, the same type map the Sales page uses ----------
-export const LI_MAP = {
-  'programmatic media': ['programmatic', 'budget'], 'programmatic buying fee': ['programmatic', 'fee'],
-  'paid search media': ['search', 'budget'], 'paid search fee': ['search', 'fee'],
-  'paid social media': ['social', 'budget'], 'paid social fee': ['social', 'fee'],
-  'paid search hourly': ['retainer', 'flat'], 'paid social hourly': ['retainer', 'flat'],
-  'creative retainer': ['retainer', 'flat'], 'creative services': ['retainer', 'flat'],
-  'planning': ['retainer', 'flat'], 'dashboard': ['retainer', 'flat'],
-};
-
-export function monthsOf(a, b) {
-  const out = []; let d = new Date(a + 'T00:00:00Z'); const end = new Date(b + 'T00:00:00Z');
-  while (d <= end && out.length < 48) { out.push(d.toISOString().slice(0, 10));
-    d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)); }
-  return out;
-}
-
-// Returns { lines:[{kind,fee_pct,amount,months:{iso:budgetCents}}], reason } —
-// lines only when EVERY item maps; total cents preserved against rounding by
-// putting the remainder on the last month.
-export function flightFromItems(items, flightStart, flightEnd) {
-  if (!items || !items.length) return { lines: [], reason: 'no line items' };
-  const months = monthsOf(flightStart, flightEnd);
-  if (!months.length) return { lines: [], reason: 'no flight months' };
-  const byType = {};
-  for (const li of items) {
-    const key = String(li.name || '').split(':').pop().trim().toLowerCase();
-    const m = LI_MAP[key];
-    if (!m) return { lines: [], reason: 'unmapped line item: ' + (li.name || '?') };
-    const cents = Math.round(parseFloat(li.amount || 0) * 100);
-    const [type, role] = m;
-    (byType[type] = byType[type] || { budget: 0, fee: 0, flat: 0 })[role] += cents;
-  }
-  const spread = total => {
-    const per = Math.floor(total / months.length), out = {};
-    months.forEach((m, i) => out[m] = per + (i === months.length - 1 ? total - per * months.length : 0));
-    return out;
-  };
-  const lines = [];
-  for (const [type, v] of Object.entries(byType)) {
-    if (type === 'retainer') {
-      const flat = v.flat + v.fee + v.budget;
-      if (flat > 0) lines.push({ kind: 'retainer',
-        amount: Math.round(flat / months.length), fee_pct: 0, months: null });
-    } else {
-      if (v.budget > 0) {
-        const feePct = v.fee > 0 ? +(v.fee / v.budget * 100).toFixed(2) : 0;
-        lines.push({ kind: type, amount: 0, fee_pct: feePct, months: spread(v.budget) });
-      } else if (v.fee > 0) {
-        // a fee with no media: a flat monthly amount is the honest shape
-        lines.push({ kind: 'retainer',
-          amount: Math.round(v.fee / months.length), fee_pct: 0, months: null });
-      }
-    }
-  }
-  return lines.length ? { lines } : { lines: [], reason: 'items sum to nothing' };
+// PostgREST function call. promote_approval() (078) is the only one the
+// promotion path needs — the whole mechanical write is behind it.
+async function sbRpc(fn, args) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: 'POST', headers: sb, body: JSON.stringify(args)
+  });
+  if (!r.ok) fail(`Supabase rpc ${fn} \u2192 ${r.status}: ${(await r.text()).slice(0, 500)}`);
+  return r.json();
 }
 
 async function sbPatchState(patch) {
@@ -227,12 +167,6 @@ export function hsDate(v) {
   return null;
 }
 
-// The flight is stored as first-of-month dates (database constraint). A campaign
-// running Aug 14 to Nov 20 flies Aug through Nov.
-export function monthStart(dateStr) {
-  return dateStr ? dateStr.slice(0, 8) + '01' : null;
-}
-
 // Company names arrive with whitespace noise and inconsistent case. The KEY is for
 // matching only; the display name keeps its original form.
 export function nameKey(name) {
@@ -248,19 +182,11 @@ export function jobcodeFromName(name) {
   return m ? m[0] : null;
 }
 
-// Why a won deal cannot promote, or null if it can. The reasons are the run log's
-// vocabulary, so keep them short and stable. blockedNames is a set of
-// nameKey()-normalized company names a human has marked "don't match" on the
-// Clients tab (029) — checked right alongside "no company", since both mean
-// there's no client this deal should attach to yet.
-export function promotionBlocker(deal, blockedNames = new Set()) {
-  if (!deal.company)         return 'no company';
-  if (blockedNames.has(nameKey(deal.company))) return 'company name blocked (see Clients tab)';
-  if (!deal.campaign_start)  return 'no campaign start date';
-  if (!deal.campaign_end)    return 'no campaign end date';
-  if (deal.campaign_end < deal.campaign_start) return 'campaign ends before it starts';
-  return null;
-}
+// NOTE: the old promotionBlocker() lived here — the write-time re-validation
+// of a deal about to promote. It moved into promote_approval() (078) with the
+// rest of the write, so there is one copy of the rule instead of two. The gate
+// UI keeps its own advisory checks (blocked company names, missing dates) for
+// what it shows a human BEFORE they decide; that is a different question.
 
 /* ----------------------------------------------------------------- main -- */
 
@@ -390,90 +316,50 @@ async function main() {
   }
   if (refreshed) console.log(`  refreshed name/jobcode for ${refreshed} already-promoted deal(s)`);
 
-  // ---- promotion: consume a human's decision, not decide one. Every row in
-  // promotion_approvals is a deal a person reviewed in Sales Forecast and
-  // confirmed a client + QBO project for; this just does the mechanical write
-  // that used to happen automatically. See db/060 for why there's no FK here.
-  const approvals = await sbGet('promotion_approvals?select=*');
-  const already = new Set((await sbGet('promotions?select=hubspot_deal_id'))
-    .map(r => r.hubspot_deal_id));
+  // ---- promotion retry. The Approve button already ran promote_approval()
+  // for each of these the moment a human clicked it, so an approval reaching
+  // this loop is one whose call never landed, or one the function itself held
+  // back (HubSpot's campaign dates changed after approval — the database
+  // contract is that a won deal has a flight, and it is respected rather than
+  // worked around). Held-back approvals STAY queued and are retried every
+  // night until HubSpot is fixed or a human dismisses the deal. The mirror is
+  // rewritten above before this runs, so the function reads current data.
+  const approvals = await sbGet('promotion_approvals?select=hubspot_deal_id');
 
   let promoted = 0, flighted = 0, unflighted = [], stale = 0;
   const heldBack = [];
 
   for (const a of approvals) {
-    // already promoted (e.g. a re-run after a partial failure) — the approval
-    // has done its job, clear it rather than leaving it queued forever
-    if (already.has(a.hubspot_deal_id)) {
-      await sbDelete(`promotion_approvals?hubspot_deal_id=eq.${a.hubspot_deal_id}`);
-      stale++;
+    let res;
+    try {
+      res = await sbRpc('promote_approval', { p_hubspot_deal_id: a.hubspot_deal_id });
+    } catch (e) {
+      // one bad approval must not abort the run — the mirror is already
+      // written and the matcher below still has work to do
+      heldBack.push(`${a.hubspot_deal_id}: promote_approval failed — ` +
+        String(e && e.message ? e.message : e).slice(0, 200));
       continue;
     }
-    const m = byHsId[a.hubspot_deal_id];
-    if (!m) { heldBack.push(`${a.hubspot_deal_id}: no longer in the HubSpot mirror`); continue; }
-    // re-validate campaign dates at the moment of the actual write — they were
-    // valid when a human approved this, but HubSpot could have changed since
-    const blocker = promotionBlocker(m);
-    if (blocker) { heldBack.push(`${m.name || a.hubspot_deal_id}: ${blocker}`); continue; }
-
-    const [deal] = await sbInsert('deals', [{
-      client_id: a.client_id,
-      name: m.name || 'Unnamed deal',
-      status: 'won',
-      origin: 'hubspot',
-      // exact HubSpot campaign dates, not month-truncated — 022 dropped the
-      // schema's first-of-month constraint and taught v_deal_month_forecast
-      // to date_trunc internally for its own month series; this was the one
-      // remaining place still throwing the day precision away at the door
-      flight_start: m.campaign_start,
-      flight_end: m.campaign_end,
-      hubspot_deal_id: m.hubspot_deal_id,
-      jobcode: m.jobcode,
-      qbo_project_id: a.qbo_project_id,
-      promoted_at: new Date().toISOString(),
-      set_by: a.approved_by
-    }], { returning: true });
-
-    await sbInsert('promotions', [{
-      hubspot_deal_id: m.hubspot_deal_id,
-      deal_id: deal.id,
-      promoted_by: a.approved_by,   // the real human who approved it, not 'hubspot-sync'
-      source_payload: m             // the as-sold record, amount included, forever
-    }]);
+    const label = res.deal_name || a.hubspot_deal_id;
+    // already through the door (the browser's call DID land, or this is a
+    // re-run after a partial failure): the function consumed the approval itself
+    if (res.already) { stale++; continue; }
+    if (!res.ok) { heldBack.push(`${label}: ${res.reason}`); continue; }
     promoted++;
-
-    // flight the line items out when they map cleanly; otherwise leave the
-    // skeleton and say why
-    const fl = flightFromItems(m.line_items, monthStart(m.campaign_start), monthStart(m.campaign_end));
-    if (!fl.lines.length) {
-      unflighted.push(`${m.name}: ${fl.reason}`);
-    } else {
-      for (const ln of fl.lines) {
-        const [row] = await sbInsert('deal_lines', [{
-          deal_id: deal.id, kind: ln.kind, amount: ln.amount, budget: 0,
-          fee_pct: ln.fee_pct, hours_per_month: 0, rate: 0,
-          billing_day: ln.kind === 'retainer' ? 'first' : 'last',
-          set_by: 'hubspot-sync:line-items'
-        }], { returning: true });
-        if (ln.months) {
-          await sbInsert('deal_line_months', Object.entries(ln.months).map(([mo, b]) => ({
-            deal_line_id: row.id, month: mo, budget: b, set_by: 'hubspot-sync:line-items'
-          })));
-        }
-      }
-      flighted++;
-    }
-
-    await sbDelete(`promotion_approvals?hubspot_deal_id=eq.${a.hubspot_deal_id}`);
+    if (res.flighted) flighted++; else unflighted.push(`${label}: ${res.reason}`);
   }
 
-  if (flighted || unflighted.length)
-    console.log(`  flighted ${flighted} promoted deal(s) from line items; ` +
-      `${unflighted.length} left as skeletons` +
-      (unflighted.length ? ' — ' + unflighted.slice(0, 5).join(' | ') : ''));
-  console.log(`  promoted ${promoted} approved deal(s)` + (stale ? ` (${stale} approval(s) already done, cleared)` : '') +
-    (heldBack.length ? `, ${heldBack.length} approval(s) held back:` : ''));
-  heldBack.slice(0, 5).forEach(r => console.log(`    ${r}`));
+  if (!approvals.length) {
+    console.log('  promotion retry: nothing queued — approvals promote in the browser now');
+  } else {
+    console.log(`  promotion retry: ${approvals.length} approval(s) were still queued — ` +
+      `${promoted} promoted, ${stale} already done (cleared), ${heldBack.length} held back` +
+      (heldBack.length ? ':' : ''));
+    heldBack.slice(0, 5).forEach(r => console.log(`    ${r}`));
+    if (flighted || unflighted.length)
+      console.log(`  flighted ${flighted} of them from line items; ${unflighted.length} left as skeletons` +
+        (unflighted.length ? ' — ' + unflighted.slice(0, 5).join(' | ') : ''));
+  }
 
   // With the mirror fresh and promotions done, link any still-unmatched
   // promoted deal to its QuickBooks project: QB link first, then unambiguous
@@ -482,11 +368,7 @@ async function main() {
   // never touches a deal a human already matched at the gate.
   let matchLog = null;
   try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/match_deals_to_projects`, {
-      method: 'POST', headers: sb, body: '{}'
-    });
-    if (!r.ok) throw new Error(`${r.status}: ${(await r.text()).slice(0, 200)}`);
-    matchLog = await r.json();
+    matchLog = await sbRpc('match_deals_to_projects', {});
     console.log('  deal↔project matching: ' +
       matchLog.map(m => `${m.method} ${m.matched}`).join(' · '));
   } catch (e) {
