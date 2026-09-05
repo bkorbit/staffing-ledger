@@ -30,7 +30,6 @@ boot('settings', async (supa, el) => {
     <div class="settab-note muted" id="tabnote"></div>
     <section data-sec="finance" id="secpanel-finance" role="tabpanel" aria-labelledby="settab-finance" hidden>
       <div class="sc-panel" id="accounts">loading…</div>
-      <div class="sc-panel" id="banks"></div>
       <div class="sc-panel" id="finknobs"></div>
     </section>
     <section data-sec="hr" id="secpanel-hr" role="tabpanel" aria-labelledby="settab-hr" hidden>
@@ -85,9 +84,15 @@ boot('settings', async (supa, el) => {
     deposit:  'Deposits',
     excluded: 'Excluded'
   };
+  // The picker spells out both roles an income account plays, because the
+  // table's "which means" column will say Contra-Revenue for a pass-through
+  // account and an option list that never mentions the word reads like a gap.
+  // It is one class either way: a debit to an income account IS contra revenue,
+  // which is how QuickBooks' own P&L nets it, and how 025/080 reproduce it.
+  const PICKER_LABEL = Object.assign({}, CLASS_LABEL, { income: 'Revenue / Contra-Revenue' });
   const CLASS_ORDER = ['income', 'cogs', 'payroll', 'overhead', 'other', 'deposit', 'excluded'];
   const CLASS_HELP = {
-    income:   'Money earned. Counts as revenue on invoices, and nets back out of revenue when a bill or journal debits it.',
+    income:   'Money earned. Counts as revenue when an invoice lands on it, and nets back OUT of revenue when a bill or journal debits it — that debit is what contra revenue is. QuickBooks has no separate contra-revenue account type either; both sides are the same account.',
     cogs:     'Direct cost of delivering the work. Subtracted from revenue to give gross profit.',
     payroll:  'People cost — wages, taxes, benefits.',
     overhead: 'Running the business.',
@@ -103,14 +108,18 @@ boot('settings', async (supa, el) => {
     unclassified:
       'Money is running through this account and it has no class at all. Always a data problem, never a preference.'
   };
+  const STATEMENT_LABEL = { pl: 'P&L', bs: 'Balance sheet' };
 
   let accountsData = { accounts: [], counts: {} };
   let acctSearch = '';
   let acctFilter = 'review';
+  let acctSort = { key: 'at_stake', dir: -1 };
 
   // What an account actually does, derived from the two sides it is used on
-  // rather than from anything anyone configured.
+  // rather than from anything anyone configured. A bank account is cash before
+  // it is anything else, so it says so instead of "Not counted".
   function roleOf(a) {
+    if (a.is_bank) return a.is_operating ? 'Cash · opening position' : 'Cash';
     if (a.class === 'income') {
       const parts = [];
       if (+a.invoiced_lines > 0) parts.push('Revenue');
@@ -122,14 +131,41 @@ boot('settings', async (supa, el) => {
     return CLASS_LABEL[a.class] || 'Unclassified';
   }
 
+  const SORT_VAL = {
+    account:   a => String(a.account || '').toLowerCase(),
+    statement: a => a.statement || 'zz',
+    type:      a => String(a.account_type || '').toLowerCase(),
+    class:     a => CLASS_LABEL[a.class] || 'zz',
+    means:     a => roleOf(a).toLowerCase(),
+    invoiced:  a => +a.invoiced_cents || 0,
+    costed:    a => +a.costed_cents || 0,
+    at_stake:  a => +a.at_stake_cents || 0,
+    bank:      a => (a.is_bank ? (+a.balance_cents || 0) : -Infinity)
+  };
+  const COLS = [
+    ['account',   'account'],
+    ['statement', 'statement'],
+    ['type',      'QB type'],
+    ['class',     'count it as'],
+    ['means',     'which means'],
+    ['invoiced',  'invoiced'],
+    ['costed',    'costed'],
+    ['bank',      'bank']
+  ];
+
   function classSelect(a) {
-    const auto = a.derived_class ? `${CLASS_LABEL[a.derived_class] || a.derived_class} (from QuickBooks)` : '— unclassified —';
+    const auto = a.derived_class ? `${PICKER_LABEL[a.derived_class] || a.derived_class} (from QuickBooks)` : '— unclassified —';
     return `<select class="acct-class" data-id="${esc(a.id)}"
         title="Blank follows the QuickBooks account type. Choosing here overrides it everywhere, past months included.">
       <option value="" ${!a.override_class ? 'selected' : ''}>${esc(auto)}</option>
       ${CLASS_ORDER.map(c => `<option value="${c}" ${a.override_class === c ? 'selected' : ''}
-        title="${esc(CLASS_HELP[c])}">${esc(CLASS_LABEL[c])}</option>`).join('')}
+        title="${esc(CLASS_HELP[c])}">${esc(PICKER_LABEL[c])}</option>`).join('')}
     </select>`;
+  }
+
+  function stmtPill(a) {
+    if (!a.statement) return '<span class="pill bad">no type</span>';
+    return `<span class="pill stmt-${a.statement}">${esc(STATEMENT_LABEL[a.statement])}</span>`;
   }
 
   function renderAccounts() {
@@ -140,8 +176,15 @@ boot('settings', async (supa, el) => {
     const pool = acctFilter === 'review' ? review
       : acctFilter === 'overridden' ? all.filter(a => a.override_class)
       : acctFilter === 'unclassified' ? all.filter(a => !a.class)
+      : acctFilter === 'bank' ? all.filter(a => a.is_bank)
       : all;
-    const rows = pool.filter(a => !q || String(a.account).toLowerCase().includes(q));
+    const val = SORT_VAL[acctSort.key] || SORT_VAL.at_stake;
+    const rows = pool.filter(a => !q || String(a.account).toLowerCase().includes(q))
+      .slice().sort((x, y) => {
+        const ax = val(x), ay = val(y);
+        if (ax !== ay) return (ax < ay ? -1 : 1) * acctSort.dir;
+        return String(x.account).localeCompare(String(y.account));
+      });
 
     document.getElementById('accounts').innerHTML =
       `<div class="sc-eyebrow" style="margin-top:0">How money is counted</div>
@@ -155,14 +198,15 @@ boot('settings', async (supa, el) => {
         <span class="${review.length ? 'warn' : ''}"><b>${review.length}</b> need review</span>
         <span><b>${+c.acknowledged || 0}</b> confirmed</span>
         <span><b>${+c.overridden || 0}</b> overridden</span>
+        <span><b>${+c.banks || 0}</b> bank · <b>${+c.operating || 0}</b> operating</span>
       </div>
 
       ${review.length ? `<div class="sc-eyebrow">Needs review — biggest exposure first</div>
         <table class="acct"><tr><th class="textleft">account</th><th class="textleft">what we can't tell</th>
           <th>at stake</th><th class="textleft">count it as</th><th></th></tr>
-        ${review.map(a => `<tr>
+        ${review.slice().sort((x, y) => (+y.at_stake_cents) - (+x.at_stake_cents)).map(a => `<tr>
           <td class="textleft"><span class="ellip" style="max-width:260px" title="${esc(a.account)}">${esc(a.account)}</span>
-            <div class="muted" style="font-size:10px">${esc(a.account_type || '—')}</div></td>
+            <div class="muted" style="font-size:10px">${esc(a.account_type || '—')} · ${esc(STATEMENT_LABEL[a.statement] || 'no type')}</div></td>
           <td class="textleft muted" style="max-width:340px;white-space:normal;font-size:11px">${esc(REASON_TEXT[a.review_reason] || a.review_reason)}</td>
           <td>${fmt$(+a.at_stake_cents)}</td>
           <td class="textleft">${classSelect(a)}</td>
@@ -175,28 +219,63 @@ boot('settings', async (supa, el) => {
       <div class="acct-tools">
         <input id="acct-search" placeholder="search accounts…" style="width:240px" value="${esc(acctSearch)}">
         ${[['review', `needs review (${review.length})`], ['all', `all (${+c.total || 0})`],
-           ['overridden', `overridden (${+c.overridden || 0})`], ['unclassified', `unclassified (${+c.unclassified || 0})`]]
+           ['overridden', `overridden (${+c.overridden || 0})`], ['unclassified', `unclassified (${+c.unclassified || 0})`],
+           ['bank', `bank (${+c.banks || 0})`]]
           .map(([k, label]) => `<button class="ghost acct-filter${acctFilter === k ? ' current' : ''}"
             data-filter="${k}" aria-pressed="${acctFilter === k}">${esc(label)}</button>`).join('')}
         <span class="muted" style="font-size:11px">${rows.length} shown</span>
       </div>
-      <table class="acct"><tr><th class="textleft">account</th><th class="textleft">QB type</th>
-        <th class="textleft">count it as</th><th class="textleft">which means</th>
-        <th>invoiced</th><th>costed</th></tr>
+      <table class="acct"><tr>${COLS.map(([k, label]) => {
+        const active = acctSort.key === k;
+        return `<th data-sort="${k}" tabindex="0" role="columnheader"
+          aria-sort="${active ? (acctSort.dir < 0 ? 'descending' : 'ascending') : 'none'}"
+          class="${['account','statement','type','class','means'].includes(k) ? 'textleft' : ''}"
+          >${esc(label)}${active ? `<span class="dir">${acctSort.dir < 0 ? '▼' : '▲'}</span>` : ''}</th>`;
+      }).join('')}</tr>
       ${rows.length ? rows.map(a => `<tr>
-        <td class="textleft"><span class="ellip" style="max-width:260px" title="${esc(a.account)}">${esc(a.account)}</span>
+        <td class="textleft"><span class="ellip" style="max-width:250px" title="${esc(a.account)}">${esc(a.account)}</span>
           ${a.review_ack_at ? '<span class="pill good" style="margin-left:6px">confirmed</span>' : ''}</td>
-        <td class="textleft muted"><span class="ellip" style="max-width:150px">${esc(a.account_type || '—')}</span></td>
+        <td class="textleft">${stmtPill(a)}</td>
+        <td class="textleft muted"><span class="ellip" style="max-width:140px">${esc(a.account_type || '—')}</span></td>
         <td class="textleft">${classSelect(a)}</td>
         <td class="textleft ${a.class ? 'muted' : 'warn'}" style="font-size:11px">${esc(roleOf(a))}</td>
         <td>${+a.invoiced_cents ? fmt$(+a.invoiced_cents) : '<span class="muted">—</span>'}</td>
         <td>${+a.costed_cents ? fmt$(+a.costed_cents) : '<span class="muted">—</span>'}</td>
+        <td>${a.is_bank
+          ? `<div class="bankcell">${fmt$(+a.balance_cents)}
+               <label class="mono" title="Operating accounts form the cashflow opening position${a.as_of ? ', balance as of ' + esc(a.as_of) : ''}">
+                 <input type="checkbox" data-bank="${esc(a.id)}" ${a.is_operating ? 'checked' : ''}>operating</label></div>`
+          : '<span class="muted">—</span>'}</td>
       </tr>`).join('')
-      : `<tr><td colspan="6" class="empty-note">No account matches "${esc(acctSearch)}".</td></tr>`}
+      : `<tr><td colspan="${COLS.length}" class="empty-note">No account matches "${esc(acctSearch)}".</td></tr>`}
       </table>`;
 
     wireSearch(document.getElementById('accounts'), '#acct-search', v => { acctSearch = v; renderAccounts(); });
     document.querySelectorAll('.acct-filter').forEach(b => b.onclick = () => { acctFilter = b.dataset.filter; renderAccounts(); });
+    document.querySelectorAll('#accounts th[data-sort]').forEach(th => {
+      const activate = () => {
+        const k = th.dataset.sort;
+        acctSort = { key: k, dir: acctSort.key === k ? -acctSort.dir : (k === 'account' ? 1 : -1) };
+        renderAccounts();
+      };
+      th.onclick = activate;
+      th.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); } };
+    });
+
+    // Which accounts ARE banks is QuickBooks' account type, never a choice.
+    // Which of them count toward the cashflow opening position is (005), and
+    // it is set here rather than in a second list of the same accounts.
+    document.querySelectorAll('input[data-bank]').forEach(cb => cb.onchange = async () => {
+      cb.disabled = true;
+      const { error } = await supa.from('qbo_accounts').update({ is_operating: cb.checked }).eq('id', cb.dataset.bank);
+      cb.disabled = false;
+      if (error) { alert(error.message); cb.checked = !cb.checked; return; }
+      const acct = (accountsData.accounts || []).find(x => x.id === cb.dataset.bank);
+      if (acct) acct.is_operating = cb.checked;
+      const counts = accountsData.counts || {};
+      counts.operating = (accountsData.accounts || []).filter(x => x.is_operating).length;
+      renderAccounts();
+    });
 
     // Writing a class clears the acknowledgement in the SAME statement (082):
     // a reclassified account has not been reviewed under its new class, and a
@@ -259,9 +338,8 @@ boot('settings', async (supa, el) => {
   const STATE_NAME = Object.fromEntries(US_STATES);
 
   async function load() {
-    const [syncs, banks, knobs, pipelineDeals, hsDeals, clientsList, wcRates, sutaRates] = await Promise.all([
+    const [syncs, knobs, pipelineDeals, hsDeals, clientsList, wcRates, sutaRates] = await Promise.all([
       supa.from('sync_state').select('id,last_run_at,last_run_log,import_from,import_from_set_by,import_from_set_at'),
-      supa.from('qbo_accounts').select('id,name,balance,is_operating,as_of').eq('account_type','Bank').order('balance',{ascending:false}),
       supa.from('settings').select('key,value,set_by').order('key'),
       supa.from('pipeline_deals').select('hubspot_deal_id,name,company,campaign_start,campaign_end,pipeline,is_won,url,jobcode,stage'),
       supa.from('deals').select('id,name,client_id,hubspot_deal_id,flight_start,flight_end,flight_locked,status,hidden').not('hubspot_deal_id', 'is', null),
@@ -436,15 +514,6 @@ boot('settings', async (supa, el) => {
       else load();
     });
 
-    document.getElementById('banks').innerHTML = `<div class="sc-eyebrow" style="margin-top:0">Bank accounts</div>
-      <div class="muted" style="font-size:11px;margin-bottom:8px">Operating accounts form the cashflow opening position.</div>
-      <table><tr><th>account</th><th>balance</th><th>as of</th><th>operating</th></tr>
-      ${(banks.data||[]).map(b=>`<tr><td>${esc(b.name)}</td><td>${fmt$(b.balance)}</td>
-        <td class="muted">${b.as_of||''}</td>
-        <td><input type="checkbox" data-bank="${b.id}" ${b.is_operating?'checked':''}></td></tr>`).join('')}</table>`;
-    document.querySelectorAll('input[data-bank]').forEach(cb => cb.onchange = async () => {
-      await supa.from('qbo_accounts').update({ is_operating: cb.checked }).eq('id', cb.dataset.bank);
-    });
     document.getElementById('cutoff-save').onclick = async () => {
       const v = document.getElementById('qbtime-cutoff').value;
       const { error } = await supa.from('sync_state').update({
