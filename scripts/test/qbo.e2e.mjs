@@ -15,15 +15,30 @@ const qbo = http.createServer((req, res) => {
     Account: [{ Id:'1', Name:'Chase Operating', AccountType:'Bank', CurrentBalance:125000.50 },
               { Id:'2', Name:'Media Buys', AccountType:'Cost of Goods Sold', CurrentBalance:0 },
               { Id:'3', Name:'Payroll Expenses', AccountType:'Expense', CurrentBalance:0 },
-              { Id:'4', Name:'Rent', AccountType:'Expense', CurrentBalance:0 }],
+              { Id:'4', Name:'Rent', AccountType:'Expense', CurrentBalance:0 },
+              // 079/080: an income account an invoice line lands on (revenue) and a
+              // liability one it must NOT (a customer deposit — cash, never P&L)
+              { Id:'5', Name:'Customer Deposits', AccountType:'Other Current Liability', CurrentBalance:0 },
+              { Id:'6', Name:'Paid Search Fee Income', AccountType:'Income', CurrentBalance:0 }],
+    // Invoice/CreditMemo/RefundReceipt lines name an ITEM, never an account;
+    // QuickBooks resolves the posting account through the item's own
+    // IncomeAccountRef. Item 9 deliberately has none — that is the fail-open
+    // case, and it must keep its line rather than drop it (080).
+    Item:    [{ Id:'7', Name:'Paid Search Fee', IncomeAccountRef:{value:'6',name:'Paid Search Fee Income'} },
+              { Id:'8', Name:'Media Deposit',   IncomeAccountRef:{value:'5',name:'Customer Deposits'} },
+              { Id:'9', Name:'Unmapped Thing' }],
     Customer:[{ Id:'100', DisplayName:'Visit Akron', FullyQualifiedName:'Visit Akron' },
               { Id:'101', DisplayName:'26akrn260101 Visit Akron - World Cup', Job:true,
                 FullyQualifiedName:'Visit Akron:26akrn260101 Visit Akron - World Cup',
                 ParentRef:{value:'100'} }],
     Invoice: [{ Id:'900', DocNumber:'INV-1', TxnDate:'2026-01-31', DueDate:'2026-03-16',
-                SalesTermRef:{name:'Net 45'}, CustomerRef:{value:'101'}, TotalAmt:50000, Balance:0,
+                SalesTermRef:{name:'Net 45'}, CustomerRef:{value:'101'}, TotalAmt:62500, Balance:0,
                 Line:[{Id:'1',LineNum:1,DetailType:'SalesItemLineDetail',Amount:50000,
-                       SalesItemLineDetail:{ItemRef:{value:'7',name:'Paid Search Fee'},Qty:1,UnitPrice:50000}}] }],
+                       SalesItemLineDetail:{ItemRef:{value:'7',name:'Paid Search Fee'},Qty:1,UnitPrice:50000}},
+                      {Id:'2',LineNum:2,DetailType:'SalesItemLineDetail',Amount:10000,
+                       SalesItemLineDetail:{ItemRef:{value:'8',name:'Media Deposit'},Qty:1,UnitPrice:10000}},
+                      {Id:'3',LineNum:3,DetailType:'SalesItemLineDetail',Amount:2500,
+                       SalesItemLineDetail:{ItemRef:{value:'9',name:'Unmapped Thing'},Qty:1,UnitPrice:2500}}] }],
     Payment: [{ Id:'500', TxnDate:'2026-03-10', TotalAmt:50000,
                 Line:[{Amount:50000, LinkedTxn:[{TxnId:'900',TxnType:'Invoice'}]}] }],
     Bill:    [{ Id:'600', TxnDate:'2026-02-01', DueDate:'2026-03-03', TotalAmt:20000, Balance:20000,
@@ -107,4 +122,24 @@ console.log(rpcCalls.includes('refresh_payment_behaviour')
 const noId=(writes.bill_lines||[]).filter(l=>!l.account_id);
 console.log(noId.length? 'LINES WITHOUT account_id: '+noId.length : 'every bill line carries an account_id');
 if (noId.length) process.exitCode=1;
+
+// 079/080: an invoice line's posting account comes from its item, and a line
+// whose item has no account KEEPS ITS LINE with a null account. Dropping it
+// the way salesCostRow drops a credit-memo line would delete revenue, so the
+// count is asserted as hard as the mapping is.
+const il=writes.invoice_lines||[];
+const byItem=Object.fromEntries(il.map(l=>[l.item_id,l]));
+const want=[
+  ['3 invoice lines kept, none dropped', il.length===3, `got ${il.length}`],
+  ['income item -> its income account', byItem['7'] && byItem['7'].account_id==='6',
+     `got ${byItem['7'] && byItem['7'].account_id}`],
+  ['deposit item -> its liability account', byItem['8'] && byItem['8'].account_id==='5',
+     `got ${byItem['8'] && byItem['8'].account_id}`],
+  ['unmapped item -> null account, line kept', byItem['9'] && byItem['9'].account_id===null,
+     `got ${byItem['9'] && byItem['9'].account_id}`]
+];
+want.forEach(([label,ok,detail])=>{
+  console.log(ok ? `  ${label}` : `  FAIL ${label} — ${detail}`);
+  if (!ok) process.exitCode=1;
+});
 qbo.close(); sb.close(); token.close();

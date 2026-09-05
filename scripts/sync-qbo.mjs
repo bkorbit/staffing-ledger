@@ -505,6 +505,22 @@ async function main() {
     Object.entries(byClass).map(([k, v]) => `${v} ${k}`).join(', '));
   console.log(`  bank total ${banks.reduce((s, a) => s + (+a.CurrentBalance || 0), 0).toLocaleString()}`);
 
+  // ---- item -> posting account ----
+  // Every Invoice/CreditMemo/RefundReceipt line names a Product/Service ITEM, never
+  // an account; QuickBooks resolves where it posts through that item's own
+  // IncomeAccountRef. Credit memos have always needed this map (salesCostRow). So do
+  // invoices, as of 079: revenue means the lines that land on an INCOME account, and
+  // a 'Media Deposit' item pointing at a balance-sheet liability is a customer
+  // pre-payment QuickBooks keeps out of Total Income. Fetched here, above the invoice
+  // block, because both consumers now need it.
+  const items = await qboAll(realm, token, 'Item', '');
+  const itemAccount = {};
+  items.forEach(it => {
+    const ref = it.IncomeAccountRef || {};
+    if (ref.value) itemAccount[String(it.Id)] = { id: String(ref.value), name: ref.name || '' };
+  });
+  console.log(`  ${items.length} items — ${Object.keys(itemAccount).length} with a posting account`);
+
   // ---- invoices ----
   // The window is REPLACED, not merged: invoices are deleted rather than voided in this
   // file, and a deleted record simply stops appearing in the API. An incremental sync
@@ -532,9 +548,15 @@ async function main() {
     (inv.Line || []).forEach((l, n) => {
       if (l.DetailType !== 'SalesItemLineDetail') return;
       const d = l.SalesItemLineDetail || {};
+      // An item with no posting account leaves these null, and 080 counts a
+      // null-account line as revenue — the pre-079 behaviour. Never skip the
+      // line the way salesCostRow does for credit memos: dropping it here
+      // would delete revenue instead of merely failing to reclassify it.
+      const acct = (d.ItemRef || {}).value ? itemAccount[String(d.ItemRef.value)] : null;
       invLines.push({
         id: `${inv.Id}:${l.Id || n}`, invoice_id: String(inv.Id), line_no: +l.LineNum || n + 1,
         item_id: (d.ItemRef || {}).value || null, item_name: (d.ItemRef || {}).name || '',
+        account_id: acct ? acct.id : null, account_name: acct ? acct.name : '',
         description: l.Description || '', qty: d.Qty !== undefined ? +d.Qty : null,
         unit_price: d.UnitPrice !== undefined ? cents(d.UnitPrice) : null,
         amount: cents(l.Amount)
@@ -581,9 +603,11 @@ async function main() {
         (inv.Line || []).forEach((l, n) => {
           if (l.DetailType !== 'SalesItemLineDetail') return;
           const d = l.SalesItemLineDetail || {};
+          const acct = (d.ItemRef || {}).value ? itemAccount[String(d.ItemRef.value)] : null;
           extraLines.push({
             id: `${inv.Id}:${l.Id || n}`, invoice_id: String(inv.Id), line_no: +l.LineNum || n + 1,
             item_id: (d.ItemRef || {}).value || null, item_name: (d.ItemRef || {}).name || '',
+            account_id: acct ? acct.id : null, account_name: acct ? acct.name : '',
             description: l.Description || '', qty: d.Qty !== undefined ? +d.Qty : null,
             unit_price: d.UnitPrice !== undefined ? cents(d.UnitPrice) : null,
             amount: cents(l.Amount)
@@ -657,12 +681,7 @@ async function main() {
   // why. Confirmed against the same register: April's "Non Operating Loss"
   // was short exactly $102,634.48, three Credit Memos ("TN Waived Invoices
   // Write Off") this sync never fetched at all before now.
-  const items = await qboAll(realm, token, 'Item', '');
-  const itemAccount = {};
-  items.forEach(it => {
-    const ref = it.IncomeAccountRef || {};
-    if (ref.value) itemAccount[String(it.Id)] = { id: String(ref.value), name: ref.name || '' };
-  });
+  // itemAccount is built once, above the invoice block (079).
   const addSalesCost = (kind, t) => {
     const { row, lines } = salesCostRow(kind, t, itemAccount);
     billRows.push(row);
