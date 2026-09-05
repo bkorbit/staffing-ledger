@@ -557,3 +557,31 @@ details.permonth summary:hover { color:var(--brand); }
 
 /* exact-date flight pickers need more room than the old month inputs */
 .setrow .month { width:170px; }
+
+/* Settings tabs (082/083). Six flat panels made everything equally hard to
+   find; the tab bar groups them by who is asking, not by which table the value
+   lives in. Same vocabulary as the sidebar's own current-item treatment — mono
+   uppercase, mint ground, brand rule — so it reads as part of the shell rather
+   than a second navigation language. */
+.settabs { display:flex; gap:2px; flex-wrap:wrap; border-bottom:1px solid var(--line); margin-bottom:2px; }
+.settab { font-family:var(--font-mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase;
+  background:transparent; border:none; border-bottom:2px solid transparent; color:var(--slate);
+  padding:9px 14px; cursor:pointer; }
+.settab:hover { background:var(--mint); color:var(--brand); }
+.settab.current { color:var(--brand); border-bottom-color:var(--brand); font-weight:600; }
+.settab:focus-visible { outline:2px solid var(--brand-2); outline-offset:-2px; }
+.settab-note { font-size:11px; padding:8px 2px 0; }
+
+/* Chart-of-accounts review. The count strip is a status line, not a stat
+   block — it belongs to the table under it, so it stays quiet unless something
+   actually needs review. */
+.acct-counts { display:flex; gap:18px; flex-wrap:wrap; font-family:var(--font-mono); font-size:11px;
+  color:var(--slate); padding:8px 0 14px; border-bottom:1px solid var(--line); margin-bottom:14px; }
+.acct-counts b { color:var(--ink); font-weight:600; }
+.acct-counts .warn b { color:var(--amber); }
+.acct-clear { background:var(--mint); color:var(--brand); font-size:12px; padding:10px 12px; border-radius:5px; }
+.acct-tools { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+.acct-tools button.ghost { font-family:var(--font-mono); font-size:10px; letter-spacing:.06em;
+  text-transform:uppercase; padding:5px 10px; }
+.acct-tools button.ghost.current { background:var(--mint); border-color:var(--brand-2); color:var(--brand); }
+table.acct td select.acct-class { font-size:11px; padding:3px 6px; max-width:210px; }

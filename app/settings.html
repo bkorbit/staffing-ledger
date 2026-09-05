@@ -2,17 +2,243 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EMG — Settings</title><link rel="stylesheet" href="./assets/style.css?v=12a9365"></head><body>
 <script type="module">
-import { boot, fmt$, esc } from './assets/shell.js?v=12a9365';
+import { boot, fmt$, esc, wireSearch } from './assets/shell.js?v=12a9365';
 
 boot('settings', async (supa, el) => {
-  el.innerHTML = `<div class="sc-panel" id="syncs">loading…</div>
-    <div class="sc-panel" id="hsreview"></div>
-    <div class="sc-panel" id="banks"></div>
-    <div class="sc-panel" id="knobs"></div>
-    <div class="sc-panel" id="wcrates"></div>
-    <div class="sc-panel" id="sutarates"></div>`;
+  // Four tabs, because one flat stack of six panels made everything equally
+  // hard to find. The grouping is by WHO is asking, not by which table the
+  // value lives in: HR owns what a person costs, Finance owns what money
+  // means, CRM sync owns the HubSpot boundary, Integrations owns the plumbing.
+  const TABS = [
+    ['finance', 'Finance',      'How money is counted, bank accounts, margin defaults'],
+    ['hr',      'HR',           'Payroll burden, benefits, and per-state rates'],
+    ['crm',     'CRM sync',     'HubSpot reconciliation and the promotion gate'],
+    ['int',     'Integrations', 'Sync health, import windows, raw settings']
+  ];
+
+  // The tab lives in the URL so a link can point at one, and a reload keeps
+  // you where you were. An unknown hash falls back rather than showing nothing.
+  const validTab = k => TABS.some(([t]) => t === k);
+  let tab = (location.hash || '').replace(/^#/, '');
+  if (!validTab(tab)) tab = 'finance';
+
+  el.innerHTML = `
+    <div class="settabs" role="tablist" aria-label="Settings sections">
+      ${TABS.map(([k, label]) => `<button class="settab" role="tab" data-tab="${k}"
+        id="settab-${k}" aria-controls="secpanel-${k}" aria-selected="false">${esc(label)}</button>`).join('')}
+    </div>
+    <div class="settab-note muted" id="tabnote"></div>
+    <section data-sec="finance" id="secpanel-finance" role="tabpanel" aria-labelledby="settab-finance" hidden>
+      <div class="sc-panel" id="accounts">loading…</div>
+      <div class="sc-panel" id="banks"></div>
+      <div class="sc-panel" id="finknobs"></div>
+    </section>
+    <section data-sec="hr" id="secpanel-hr" role="tabpanel" aria-labelledby="settab-hr" hidden>
+      <div class="sc-panel" id="hrknobs"></div>
+      <div class="sc-panel" id="wcrates"></div>
+      <div class="sc-panel" id="sutarates"></div>
+    </section>
+    <section data-sec="crm" id="secpanel-crm" role="tabpanel" aria-labelledby="settab-crm" hidden>
+      <div class="sc-panel" id="hsreview"></div>
+      <div class="sc-panel" id="crmknobs"></div>
+    </section>
+    <section data-sec="int" id="secpanel-int" role="tabpanel" aria-labelledby="settab-int" hidden>
+      <div class="sc-panel" id="syncs">loading…</div>
+      <div class="sc-panel" id="rawsettings"></div>
+    </section>`;
+
+  // Every panel renders on load and is shown or hidden, rather than rendered
+  // lazily on tab click. Switching tabs therefore cannot lose a handler, and
+  // there is no second code path where a panel exists but is unwired.
+  function showTab(k) {
+    tab = k;
+    el.querySelectorAll('.settab').forEach(b => {
+      const on = b.dataset.tab === k;
+      b.classList.toggle('current', on);
+      b.setAttribute('aria-selected', String(on));
+    });
+    el.querySelectorAll('section[data-sec]').forEach(s => { s.hidden = s.dataset.sec !== k; });
+    const meta = TABS.find(([t]) => t === k);
+    el.querySelector('#tabnote').textContent = meta ? meta[2] : '';
+    if (location.hash !== '#' + k) history.replaceState(null, '', '#' + k);
+  }
+  el.querySelectorAll('.settab').forEach(b => { b.onclick = () => showTab(b.dataset.tab); });
+  window.addEventListener('hashchange', () => {
+    const k = (location.hash || '').replace(/^#/, '');
+    if (validTab(k) && k !== tab) showTab(k);
+  });
 
   const nameKey = s => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+  // ---- how money is counted ------------------------------------------------
+  // The seven classes a person picks from. Contra-Revenue is deliberately NOT
+  // here: an income account is revenue when an invoice line lands on it and
+  // contra revenue when a bill or journal line does (025/080), so the role
+  // follows the side of the transaction, not a setting. Offering it would put
+  // a control on screen that cannot change the arithmetic.
+  const CLASS_LABEL = {
+    income:   'Revenue',
+    cogs:     'COGS',
+    payroll:  'Labor',
+    overhead: 'Overhead',
+    other:    'Other',
+    deposit:  'Deposits',
+    excluded: 'Excluded'
+  };
+  const CLASS_ORDER = ['income', 'cogs', 'payroll', 'overhead', 'other', 'deposit', 'excluded'];
+  const CLASS_HELP = {
+    income:   'Money earned. Counts as revenue on invoices, and nets back out of revenue when a bill or journal debits it.',
+    cogs:     'Direct cost of delivering the work. Subtracted from revenue to give gross profit.',
+    payroll:  'People cost — wages, taxes, benefits.',
+    overhead: 'Running the business.',
+    other:    'A cost that belongs on the P&L but in none of the buckets above.',
+    deposit:  'Customer money held before it is earned. Arrives as cash on the cashflow forecast, never counted as revenue.',
+    excluded: 'Balance-sheet movement. Never counted as revenue or cost anywhere.'
+  };
+  const REASON_TEXT = {
+    liability_on_invoice:
+      'An invoice bills against this balance-sheet account. That is a customer deposit or pre-payment — cash you hold before earning it. Class it Deposits.',
+    income_needs_side_check:
+      'An income account that bills and gets debited. Debits are usually pass-through costs netting out of revenue, which is correct as it stands — but a revenue reclass looks identical, and only you can tell.',
+    unclassified:
+      'Money is running through this account and it has no class at all. Always a data problem, never a preference.'
+  };
+
+  let accountsData = { accounts: [], counts: {} };
+  let acctSearch = '';
+  let acctFilter = 'review';
+
+  // What an account actually does, derived from the two sides it is used on
+  // rather than from anything anyone configured.
+  function roleOf(a) {
+    if (a.class === 'income') {
+      const parts = [];
+      if (+a.invoiced_lines > 0) parts.push('Revenue');
+      if (+a.costed_lines > 0) parts.push('Contra-Revenue');
+      return parts.length ? parts.join(' + ') : 'Revenue';
+    }
+    if (a.class === 'deposit')  return 'Cash in, never P&L';
+    if (a.class === 'excluded') return 'Not counted';
+    return CLASS_LABEL[a.class] || 'Unclassified';
+  }
+
+  function classSelect(a) {
+    const auto = a.derived_class ? `${CLASS_LABEL[a.derived_class] || a.derived_class} (from QuickBooks)` : '— unclassified —';
+    return `<select class="acct-class" data-id="${esc(a.id)}"
+        title="Blank follows the QuickBooks account type. Choosing here overrides it everywhere, past months included.">
+      <option value="" ${!a.override_class ? 'selected' : ''}>${esc(auto)}</option>
+      ${CLASS_ORDER.map(c => `<option value="${c}" ${a.override_class === c ? 'selected' : ''}
+        title="${esc(CLASS_HELP[c])}">${esc(CLASS_LABEL[c])}</option>`).join('')}
+    </select>`;
+  }
+
+  function renderAccounts() {
+    const all = accountsData.accounts || [];
+    const c = accountsData.counts || {};
+    const review = all.filter(a => a.review_reason);
+    const q = acctSearch.trim().toLowerCase();
+    const pool = acctFilter === 'review' ? review
+      : acctFilter === 'overridden' ? all.filter(a => a.override_class)
+      : acctFilter === 'unclassified' ? all.filter(a => !a.class)
+      : all;
+    const rows = pool.filter(a => !q || String(a.account).toLowerCase().includes(q));
+
+    document.getElementById('accounts').innerHTML =
+      `<div class="sc-eyebrow" style="margin-top:0">How money is counted</div>
+      <div class="muted" style="font-size:11px;margin-bottom:12px;max-width:680px">
+        QuickBooks' own account types classify everything automatically. This is
+        where you correct one, and where the handful of accounts a type can't
+        settle come to be decided. Nothing here changes QuickBooks — it changes
+        what this platform counts, retroactively, for every month.</div>
+      <div class="acct-counts">
+        <span><b>${+c.total || 0}</b> accounts</span>
+        <span class="${review.length ? 'warn' : ''}"><b>${review.length}</b> need review</span>
+        <span><b>${+c.acknowledged || 0}</b> confirmed</span>
+        <span><b>${+c.overridden || 0}</b> overridden</span>
+      </div>
+
+      ${review.length ? `<div class="sc-eyebrow">Needs review — biggest exposure first</div>
+        <table class="acct"><tr><th class="textleft">account</th><th class="textleft">what we can't tell</th>
+          <th>at stake</th><th class="textleft">count it as</th><th></th></tr>
+        ${review.map(a => `<tr>
+          <td class="textleft"><span class="ellip" style="max-width:260px" title="${esc(a.account)}">${esc(a.account)}</span>
+            <div class="muted" style="font-size:10px">${esc(a.account_type || '—')}</div></td>
+          <td class="textleft muted" style="max-width:340px;white-space:normal;font-size:11px">${esc(REASON_TEXT[a.review_reason] || a.review_reason)}</td>
+          <td>${fmt$(+a.at_stake_cents)}</td>
+          <td class="textleft">${classSelect(a)}</td>
+          <td><button class="ghost acct-ack" data-id="${esc(a.id)}" data-reason="${esc(a.review_reason)}"
+              title="This classification is right — stop asking. It comes back only if the account raises a different question.">Looks right</button></td>
+        </tr>`).join('')}</table>`
+      : `<div class="acct-clear">Nothing to review. Every account with money running through it has been classified or confirmed.</div>`}
+
+      <div class="sc-eyebrow" style="margin-top:18px">All accounts</div>
+      <div class="acct-tools">
+        <input id="acct-search" placeholder="search accounts…" style="width:240px" value="${esc(acctSearch)}">
+        ${[['review', `needs review (${review.length})`], ['all', `all (${+c.total || 0})`],
+           ['overridden', `overridden (${+c.overridden || 0})`], ['unclassified', `unclassified (${+c.unclassified || 0})`]]
+          .map(([k, label]) => `<button class="ghost acct-filter${acctFilter === k ? ' current' : ''}"
+            data-filter="${k}" aria-pressed="${acctFilter === k}">${esc(label)}</button>`).join('')}
+        <span class="muted" style="font-size:11px">${rows.length} shown</span>
+      </div>
+      <table class="acct"><tr><th class="textleft">account</th><th class="textleft">QB type</th>
+        <th class="textleft">count it as</th><th class="textleft">which means</th>
+        <th>invoiced</th><th>costed</th></tr>
+      ${rows.length ? rows.map(a => `<tr>
+        <td class="textleft"><span class="ellip" style="max-width:260px" title="${esc(a.account)}">${esc(a.account)}</span>
+          ${a.review_ack_at ? '<span class="pill good" style="margin-left:6px">confirmed</span>' : ''}</td>
+        <td class="textleft muted"><span class="ellip" style="max-width:150px">${esc(a.account_type || '—')}</span></td>
+        <td class="textleft">${classSelect(a)}</td>
+        <td class="textleft ${a.class ? 'muted' : 'warn'}" style="font-size:11px">${esc(roleOf(a))}</td>
+        <td>${+a.invoiced_cents ? fmt$(+a.invoiced_cents) : '<span class="muted">—</span>'}</td>
+        <td>${+a.costed_cents ? fmt$(+a.costed_cents) : '<span class="muted">—</span>'}</td>
+      </tr>`).join('')
+      : `<tr><td colspan="6" class="empty-note">No account matches "${esc(acctSearch)}".</td></tr>`}
+      </table>`;
+
+    wireSearch(document.getElementById('accounts'), '#acct-search', v => { acctSearch = v; renderAccounts(); });
+    document.querySelectorAll('.acct-filter').forEach(b => b.onclick = () => { acctFilter = b.dataset.filter; renderAccounts(); });
+
+    // Writing a class clears the acknowledgement in the SAME statement (082):
+    // a reclassified account has not been reviewed under its new class, and a
+    // stale "confirmed" badge would be worse than no badge at all.
+    document.querySelectorAll('.acct-class').forEach(sel => sel.onchange = async () => {
+      const value = sel.value || null;
+      sel.disabled = true;
+      const { error } = await supa.from('qbo_accounts').update({
+        override_class: value,
+        override_reason: value ? `Set in Settings > Finance, ${new Date().toISOString().slice(0, 10)}` : null,
+        override_by: value ? window.__email : null,
+        override_at: value ? new Date().toISOString() : null,
+        review_ack_at: null, review_ack_by: null, review_ack_reason: null
+      }).eq('id', sel.dataset.id);
+      sel.disabled = false;
+      if (error) { alert(error.message); return; }
+      await loadAccounts();
+    });
+
+    document.querySelectorAll('.acct-ack').forEach(btn => btn.onclick = async () => {
+      btn.disabled = true; btn.textContent = '…';
+      const { error } = await supa.from('qbo_accounts').update({
+        review_ack_at: new Date().toISOString(),
+        review_ack_by: window.__email,
+        review_ack_reason: btn.dataset.reason
+      }).eq('id', btn.dataset.id);
+      if (error) { btn.disabled = false; btn.textContent = error.message.slice(0, 24); return; }
+      await loadAccounts();
+    });
+  }
+
+  async function loadAccounts() {
+    const { data, error } = await supa.rpc('accounts_page');
+    if (error) {
+      document.getElementById('accounts').innerHTML =
+        `<div class="sc-eyebrow" style="margin-top:0">How money is counted</div>
+         <div class="warn">${esc(error.message)}</div>`;
+      return;
+    }
+    accountsData = data || { accounts: [], counts: {} };
+    renderAccounts();
+  }
 
   // Same 50 states + DC as Team's work_state dropdown — real workers' comp
   // rates are set per state, so exact calculation (042) needs one rate per
@@ -43,8 +269,9 @@ boot('settings', async (supa, el) => {
       supa.from('workers_comp_rates').select('state,rate,set_by').order('state'),
       supa.from('suta_rates').select('state,wage_base,rate,set_by').order('state')
     ]);
+    const knobVal = (key, dflt) => { const k = (knobs.data || []).find(x => x.key === key); return k ? k.value : dflt; };
 
-    document.getElementById('syncs').innerHTML = `<div class="muted" style="margin-bottom:8px">Syncs</div>
+    document.getElementById('syncs').innerHTML = `<div class="sc-eyebrow" style="margin-top:0">Syncs</div>
       <table><tr><th>source</th><th>last run</th><th>status</th><th>detail</th></tr>
       ${(syncs.data||[]).map(s=>{
         const log=s.last_run_log||{}; const ok=log.ok!==false;
@@ -63,6 +290,15 @@ boot('settings', async (supa, el) => {
         <span id="cutoff-msg" class="ok" style="font-size:12px"></span>
         ${qbt&&qbt.import_from_set_by?`<span class="muted" style="font-size:11px">last set by ${esc(qbt.import_from_set_by)}, ${new Date(qbt.import_from_set_at).toLocaleString()}</span>`:''}
       </div>`;})()}`;
+
+    document.getElementById('rawsettings').innerHTML = `<div class="sc-eyebrow" style="margin-top:0">Raw settings</div>
+      <div class="muted" style="font-size:11px;margin-bottom:8px;max-width:640px">
+        Every stored key, exactly as the database holds it. Read-only — each one
+        is edited by the control that owns it, on whichever tab that lives.</div>
+      <table><tr><th>key</th><th>value</th><th>set by</th></tr>
+      ${(knobs.data||[]).map(k=>`<tr><td>${esc(k.key)}</td>
+        <td style="text-align:left">${esc(JSON.stringify(k.value))}</td>
+        <td class="muted">${esc(k.set_by||'')}</td></tr>`).join('')}</table>`;
 
     // ---- HubSpot reconciliation: already-promoted deals whose flight dates
     // have since changed in HubSpot (review + approve). Promotion itself is no
@@ -141,7 +377,7 @@ boot('settings', async (supa, el) => {
           }).join('')}</table>`;
     }
 
-    document.getElementById('hsreview').innerHTML = `<div class="muted" style="margin-bottom:8px">HubSpot reconciliation</div>
+    document.getElementById('hsreview').innerHTML = `<div class="sc-eyebrow" style="margin-top:0">HubSpot reconciliation</div>
       <div class="sc-eyebrow" style="margin-top:0">Look up a deal</div>
       <div style="margin-bottom:6px">
         <input id="lookup-q" placeholder="deal or company name…" style="width:280px">
@@ -200,8 +436,8 @@ boot('settings', async (supa, el) => {
       else load();
     });
 
-    document.getElementById('banks').innerHTML = `<div class="muted" style="margin-bottom:8px">Bank accounts
-      <span class="muted">— operating accounts form the cashflow opening position</span></div>
+    document.getElementById('banks').innerHTML = `<div class="sc-eyebrow" style="margin-top:0">Bank accounts</div>
+      <div class="muted" style="font-size:11px;margin-bottom:8px">Operating accounts form the cashflow opening position.</div>
       <table><tr><th>account</th><th>balance</th><th>as of</th><th>operating</th></tr>
       ${(banks.data||[]).map(b=>`<tr><td>${esc(b.name)}</td><td>${fmt$(b.balance)}</td>
         <td class="muted">${b.as_of||''}</td>
@@ -218,23 +454,47 @@ boot('settings', async (supa, el) => {
       if (!error) load();
     };
 
-    document.getElementById('knobs').innerHTML = `<div class="sc-eyebrow">Settings</div>
-      <div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:12px">
-        <label class="mono" style="display:flex;flex-direction:column;gap:4px">
-          sales probability threshold %
-          <input id="k-threshold" style="width:120px;text-align:right"
-            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='sales_probability_threshold');return k?k.value:40})()}"></label>
+    // Margin and COGS timing are money questions, so they live on Finance;
+    // the sales probability threshold is a pipeline question and lives on CRM
+    // sync next to the promotion gate it belongs to. Splitting the old single
+    // Save button means each tab saves only its own keys.
+    document.getElementById('finknobs').innerHTML = `<div class="sc-eyebrow" style="margin-top:0">Margin and COGS timing</div>
+      <div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:4px">
         <label class="mono" style="display:flex;flex-direction:column;gap:4px">
           programmatic margin default %
-          <input id="k-margin" style="width:120px;text-align:right"
-            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='programmatic_margin_default');return k?k.value:35})()}"></label>
+          <input id="k-margin" style="width:120px;text-align:right" value="${esc(String(knobVal('programmatic_margin_default', 35)))}"></label>
         <label class="mono" style="display:flex;flex-direction:column;gap:4px">programmatic COGS due (days after spend-month end)
-          <input id="k-cogsdue" type="number" min="0" max="180" style="width:120px"
-            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='programmatic_cogs_due_days');return k?k.value:45})()}"></label>
-        <button class="primary" id="k-save" style="align-self:flex-end">Save</button>
-        <span id="k-msg" class="ok" style="align-self:flex-end;font-size:12px"></span>
-      </div>
-      <div class="sc-eyebrow">Payroll burden (employer FICA + FUTA, 040)</div>
+          <input id="k-cogsdue" type="number" min="0" max="180" style="width:120px" value="${esc(String(knobVal('programmatic_cogs_due_days', 45)))}"></label>
+        <button class="primary" id="fin-save" style="align-self:flex-end">Save</button>
+        <span id="fin-msg" class="ok" style="align-self:flex-end;font-size:12px"></span>
+      </div>`;
+    document.getElementById('fin-save').onclick = async () => {
+      const { error } = await supa.from('settings').upsert([
+        { key:'programmatic_margin_default', value:+document.getElementById('k-margin').value||35,
+          set_by:window.__email, set_at:new Date().toISOString() },
+        { key:'programmatic_cogs_due_days', value:+document.getElementById('k-cogsdue').value||45,
+          set_by:window.__email, set_at:new Date().toISOString() }], { onConflict:'key' });
+      document.getElementById('fin-msg').textContent = error ? error.message : 'saved';
+      if (!error) load();
+    };
+
+    document.getElementById('crmknobs').innerHTML = `<div class="sc-eyebrow" style="margin-top:0">Pipeline</div>
+      <div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:4px">
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">
+          sales probability threshold %
+          <input id="k-threshold" style="width:120px;text-align:right" value="${esc(String(knobVal('sales_probability_threshold', 40)))}"></label>
+        <button class="primary" id="crm-save" style="align-self:flex-end">Save</button>
+        <span id="crm-msg" class="ok" style="align-self:flex-end;font-size:12px"></span>
+      </div>`;
+    document.getElementById('crm-save').onclick = async () => {
+      const { error } = await supa.from('settings').upsert([
+        { key:'sales_probability_threshold', value:+document.getElementById('k-threshold').value||40,
+          set_by:window.__email, set_at:new Date().toISOString() }], { onConflict:'key' });
+      document.getElementById('crm-msg').textContent = error ? error.message : 'saved';
+      if (!error) load();
+    };
+
+    document.getElementById('hrknobs').innerHTML = `<div class="sc-eyebrow" style="margin-top:0">Payroll burden (employer FICA + FUTA, 040)</div>
       <div class="muted" style="font-size:11px;margin-bottom:8px;max-width:640px">
         Layered on top of base pay for full_time/part_time comp periods only —
         contractors are unaffected. The Social Security wage base is reindexed
@@ -244,24 +504,19 @@ boot('settings', async (supa, el) => {
       <div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:12px">
         <label class="mono" style="display:flex;flex-direction:column;gap:4px">
           FICA — Social Security %
-          <input id="k-ficass" style="width:120px;text-align:right"
-            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='fica_ss_rate');return k?k.value:6.2})()}"></label>
+          <input id="k-ficass" style="width:120px;text-align:right" value="${esc(String(knobVal('fica_ss_rate', 6.2)))}"></label>
         <label class="mono" style="display:flex;flex-direction:column;gap:4px">
           FICA — Medicare %
-          <input id="k-ficamed" style="width:120px;text-align:right"
-            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='fica_medicare_rate');return k?k.value:1.45})()}"></label>
+          <input id="k-ficamed" style="width:120px;text-align:right" value="${esc(String(knobVal('fica_medicare_rate', 1.45)))}"></label>
         <label class="mono" style="display:flex;flex-direction:column;gap:4px">
           Social Security wage base $/yr
-          <input id="k-ssbase" style="width:140px;text-align:right"
-            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='fica_ss_wage_base');return k?k.value:176100})()}"></label>
+          <input id="k-ssbase" style="width:140px;text-align:right" value="${esc(String(knobVal('fica_ss_wage_base', 176100)))}"></label>
         <label class="mono" style="display:flex;flex-direction:column;gap:4px">
           FUTA rate %
-          <input id="k-futarate" style="width:120px;text-align:right"
-            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='futa_rate');return k?k.value:0.6})()}"></label>
+          <input id="k-futarate" style="width:120px;text-align:right" value="${esc(String(knobVal('futa_rate', 0.6)))}"></label>
         <label class="mono" style="display:flex;flex-direction:column;gap:4px">
           FUTA wage base $/yr
-          <input id="k-futabase" style="width:120px;text-align:right"
-            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='futa_wage_base');return k?k.value:7000})()}"></label>
+          <input id="k-futabase" style="width:120px;text-align:right" value="${esc(String(knobVal('futa_wage_base', 7000)))}"></label>
         <button class="primary" id="k-save-burden" style="align-self:flex-end">Save</button>
         <span id="k-burden-msg" class="ok" style="align-self:flex-end;font-size:12px"></span>
       </div>
@@ -290,66 +545,40 @@ boot('settings', async (supa, el) => {
         charge a PEO like JustWorks bills on top of wages/taxes/benefits —
         same automatic, no-checkbox treatment as workers' comp/SUTA, for
         every W-2 person regardless of state.</div>
-      <div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:12px">
+      <div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:4px">
         <label class="mono" style="display:flex;flex-direction:column;gap:4px">
           401k match %
-          <input id="k-401krate" style="width:120px;text-align:right"
-            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='k401_match_rate');return k?k.value:3})()}"></label>
+          <input id="k-401krate" style="width:120px;text-align:right" value="${esc(String(knobVal('k401_match_rate', 3)))}"></label>
         <label class="mono" style="display:flex;flex-direction:column;gap:4px" title="Hired on or before this date skips the 6-month wait entirely — eligible immediately from their own hire date">
           401k grandfather cutoff (hired on/before = no wait)
-          <input id="k-401kgrandfather" type="date" style="width:160px"
-            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='k401_grandfather_cutoff');return k?k.value:'2026-01-01'})()}"></label>
+          <input id="k-401kgrandfather" type="date" style="width:160px" value="${esc(String(knobVal('k401_grandfather_cutoff', '2026-01-01')))}"></label>
         <label class="mono" style="display:flex;flex-direction:column;gap:4px">
           health insurance $/mo per enrolled person
-          <input id="k-himonthly" style="width:160px;text-align:right"
-            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='health_insurance_monthly_cost');return k?k.value:0})()}"></label>
+          <input id="k-himonthly" style="width:160px;text-align:right" value="${esc(String(knobVal('health_insurance_monthly_cost', 0)))}"></label>
         <label class="mono" style="display:flex;flex-direction:column;gap:4px">
           health insurance plan start date
-          <input id="k-histart" type="date" style="width:160px"
-            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='health_insurance_start_date');return k?k.value:'2099-01-01'})()}"></label>
+          <input id="k-histart" type="date" style="width:160px" value="${esc(String(knobVal('health_insurance_start_date', '2099-01-01')))}"></label>
         <label class="mono" style="display:flex;flex-direction:column;gap:4px">
           workers' comp fallback rate (per $100 of pay, as %)
-          <input id="k-wcrate" style="width:120px;text-align:right"
-            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='workers_comp_rate');return k?k.value:0})()}"></label>
+          <input id="k-wcrate" style="width:120px;text-align:right" value="${esc(String(knobVal('workers_comp_rate', 0)))}"></label>
         <label class="mono" style="display:flex;flex-direction:column;gap:4px">
           SUTA fallback rate (as %)
-          <input id="k-sutarate" style="width:120px;text-align:right"
-            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='suta_rate');return k?k.value:2.7})()}"></label>
+          <input id="k-sutarate" style="width:120px;text-align:right" value="${esc(String(knobVal('suta_rate', 2.7)))}"></label>
         <label class="mono" style="display:flex;flex-direction:column;gap:4px">
           SUTA fallback wage base $/yr
-          <input id="k-sutabase" style="width:140px;text-align:right"
-            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='suta_wage_base');return k?k.value:7000})()}"></label>
+          <input id="k-sutabase" style="width:140px;text-align:right" value="${esc(String(knobVal('suta_wage_base', 7000)))}"></label>
         <label class="mono" style="display:flex;flex-direction:column;gap:4px" title="Hawaii TDI — flat employer cost per covered person, not a % of pay">
           HI disability insurance $/mo per person
-          <input id="k-hisdi" style="width:160px;text-align:right"
-            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='hi_disability_monthly_cost');return k?k.value:0})()}"></label>
+          <input id="k-hisdi" style="width:160px;text-align:right" value="${esc(String(knobVal('hi_disability_monthly_cost', 0)))}"></label>
         <label class="mono" style="display:flex;flex-direction:column;gap:4px" title="New York DBL — flat employer cost per covered person, not a % of pay">
           NY disability insurance $/mo per person
-          <input id="k-nysdi" style="width:160px;text-align:right"
-            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='ny_disability_monthly_cost');return k?k.value:0})()}"></label>
+          <input id="k-nysdi" style="width:160px;text-align:right" value="${esc(String(knobVal('ny_disability_monthly_cost', 0)))}"></label>
         <label class="mono" style="display:flex;flex-direction:column;gap:4px" title="PEO platform/admin fee (e.g. JustWorks) — flat per W-2 employee per month, automatic, no per-person opt-in">
           PEO admin fee $/mo per W-2 person
-          <input id="k-peofee" style="width:160px;text-align:right"
-            value="${(()=>{const k=(knobs.data||[]).find(x=>x.key==='peo_admin_fee_monthly');return k?k.value:99})()}"></label>
+          <input id="k-peofee" style="width:160px;text-align:right" value="${esc(String(knobVal('peo_admin_fee_monthly', 99)))}"></label>
         <button class="primary" id="k-save-benefits" style="align-self:flex-end">Save</button>
         <span id="k-benefits-msg" class="ok" style="align-self:flex-end;font-size:12px"></span>
-      </div>
-      <table><tr><th>key</th><th>value</th><th>set by</th></tr>
-      ${(knobs.data||[]).map(k=>`<tr><td>${esc(k.key)}</td>
-        <td style="text-align:left">${esc(JSON.stringify(k.value))}</td>
-        <td class="muted">${esc(k.set_by||'')}</td></tr>`).join('')}</table>`;
-    document.getElementById('k-save').onclick = async () => {
-      const rows = [
-        { key:'sales_probability_threshold', value:+document.getElementById('k-threshold').value||40,
-          set_by:window.__email, set_at:new Date().toISOString() },
-        { key:'programmatic_cogs_due_days', value:+document.getElementById('k-cogsdue').value||45,
-          set_by:window.__email, set_at:new Date().toISOString() },
-        { key:'programmatic_margin_default', value:+document.getElementById('k-margin').value||35,
-          set_by:window.__email, set_at:new Date().toISOString() }];
-      const { error } = await supa.from('settings').upsert(rows, { onConflict:'key' });
-      document.getElementById('k-msg').textContent = error ? error.message : 'saved';
-      if (!error) load();
-    };
+      </div>`;
     document.getElementById('k-save-burden').onclick = async () => {
       const rows = [
         { key:'fica_ss_rate', value:+document.getElementById('k-ficass').value||6.2,
@@ -397,7 +626,7 @@ boot('settings', async (supa, el) => {
     // settings blob, so states get added one at a time as their real rate
     // is confirmed from the policy rather than requiring all 51 up front.
     const configuredStates = new Set((wcRates.data || []).map(r => r.state));
-    document.getElementById('wcrates').innerHTML = `<div class="sc-eyebrow">Workers' comp by state (042)</div>
+    document.getElementById('wcrates').innerHTML = `<div class="sc-eyebrow" style="margin-top:0">Workers' comp by state (042)</div>
       <div class="muted" style="font-size:11px;margin-bottom:8px;max-width:640px">
         Exact per-person calculation — add a rate for every state you actually
         confirmed from your policy. A state left out here just uses the flat
@@ -441,7 +670,7 @@ boot('settings', async (supa, el) => {
     // Rate can be blank/cleared independently of wage_base — a state can
     // have a solid wage base but no confirmed rate yet.
     const configuredSuta = new Map((sutaRates.data || []).map(r => [r.state, r]));
-    document.getElementById('sutarates').innerHTML = `<div class="sc-eyebrow">SUTA by state (046)</div>
+    document.getElementById('sutarates').innerHTML = `<div class="sc-eyebrow" style="margin-top:0">SUTA by state (046)</div>
       <div class="muted" style="font-size:11px;margin-bottom:8px;max-width:640px">
         Exact per-person calculation — wage base is real, state-set law; rate
         is experience-rated per employer, so even a filled-in number here is
@@ -487,6 +716,8 @@ boot('settings', async (supa, el) => {
       load();
     });
   }
-  await load();
+
+  showTab(tab);
+  await Promise.all([load(), loadAccounts()]);
 });
 </script></body></html>
