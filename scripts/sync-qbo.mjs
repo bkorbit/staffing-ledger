@@ -270,9 +270,14 @@ export function classifyAccount(type, subType, name) {
         /PayrollExpenses/i.test(st)) return 'payroll';
     return 'overhead';
   }
-  // Balance-sheet accounts move money without being a cost — excluded so they cannot
-  // inflate an expense run-rate.
-  if (['Bank','Accounts Receivable','Accounts Payable','Credit Card','Equity',
+  // Bank accounts are money the business can spend, and 'cash' is what the
+  // cashflow opening position selects on since 086 — a class rather than this
+  // account type, so a Stripe/PayPal/clearing balance QuickBooks types Other
+  // Current Asset can be opted in by hand without the type being able to say so.
+  if (t === 'Bank') return 'cash';
+  // The rest of the balance sheet moves money without being a cost — excluded
+  // so it cannot inflate an expense run-rate.
+  if (['Accounts Receivable','Accounts Payable','Credit Card','Equity',
        'Fixed Asset','Other Current Asset','Other Asset','Other Current Liability',
        'Long Term Liability'].includes(t)) return 'excluded';
   return 'other';

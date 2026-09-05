@@ -592,9 +592,6 @@ table.acct td select.acct-class { font-size:11px; padding:3px 6px; max-width:210
    not red: it is a thing to notice, not a thing that is broken. */
 .pill.stmt-pl { color:var(--slate); }
 .pill.stmt-bs { color:var(--amber); border-color:var(--gold); background:var(--gold-bg); }
-.bankcell { display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
-.bankcell label.mono { display:flex; align-items:center; gap:4px; font-size:9px; cursor:pointer; }
-.bankcell input { margin:0; }
 table.acct th[data-sort] { cursor:pointer; user-select:none; }
 table.acct th[data-sort]:hover { color:var(--brand); }
 table.acct th[data-sort]:focus-visible { outline:2px solid var(--brand-2); outline-offset:-2px; }

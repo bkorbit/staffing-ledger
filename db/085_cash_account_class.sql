@@ -1,0 +1,33 @@
+-- ============================================================================
+--  085 — a 'cash' account class. RUN THIS FILE ON ITS OWN, BEFORE 086.
+--
+--  Postgres will not let a newly added enum value be USED in the same
+--  transaction that created it, and 086 both reclassifies accounts to 'cash'
+--  and defines a view filtering on it. Splitting the ALTER into its own
+--  migration is the only way to make both runnable without a transaction
+--  dance in the SQL editor. Run 085, then 086.
+--
+--  WHY A CLASS AND NOT JUST THE QUICKBOOKS TYPE
+--  --------------------------------------------
+--  Which accounts are cash has always been read straight off QuickBooks'
+--  account_type = 'Bank' — in cashflow_forecast's opening position (007/011/
+--  016/071) and in the Settings bank panel. That is right until it isn't: a
+--  Stripe or PayPal balance, a payment-processor clearing account, a money
+--  market account are all cash the business can spend, and QuickBooks types
+--  them Other Current Asset. There is no type that means "this is money we
+--  have", so a company whose cash does not all sit in accounts QuickBooks
+--  calls Bank cannot state its own opening position.
+--
+--  Making it a class means the user says which accounts are cash, the same
+--  way they say which are deposits (081). Bank-typed accounts derive to
+--  'cash' automatically, so nobody has to do anything and the default set is
+--  byte-identical to what account_type = 'Bank' selects today — 086's fixture
+--  test proves the opening position does not move.
+--
+--  Credit Card accounts are deliberately NOT included. They are negative
+--  cash, they have never been in the opening position, and quietly adding
+--  them here would change every cashflow number in the app. A company that
+--  wants one counted can class it 'cash' by hand.
+-- ============================================================================
+
+alter type cost_class add value if not exists 'cash';

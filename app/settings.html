@@ -30,6 +30,7 @@ boot('settings', async (supa, el) => {
     <div class="settab-note muted" id="tabnote"></div>
     <section data-sec="finance" id="secpanel-finance" role="tabpanel" aria-labelledby="settab-finance" hidden>
       <div class="sc-panel" id="accounts">loading…</div>
+      <div class="sc-panel" id="banks"></div>
       <div class="sc-panel" id="finknobs"></div>
     </section>
     <section data-sec="hr" id="secpanel-hr" role="tabpanel" aria-labelledby="settab-hr" hidden>
@@ -82,6 +83,7 @@ boot('settings', async (supa, el) => {
     overhead: 'Overhead',
     other:    'Other',
     deposit:  'Deposits',
+    cash:     'Cash / Bank',
     excluded: 'Excluded'
   };
   // The picker spells out both roles an income account plays, because the
@@ -90,7 +92,7 @@ boot('settings', async (supa, el) => {
   // It is one class either way: a debit to an income account IS contra revenue,
   // which is how QuickBooks' own P&L nets it, and how 025/080 reproduce it.
   const PICKER_LABEL = Object.assign({}, CLASS_LABEL, { income: 'Revenue / Contra-Revenue' });
-  const CLASS_ORDER = ['income', 'cogs', 'payroll', 'overhead', 'other', 'deposit', 'excluded'];
+  const CLASS_ORDER = ['income', 'cogs', 'payroll', 'overhead', 'other', 'deposit', 'cash', 'excluded'];
   const CLASS_HELP = {
     income:   'Money earned. Counts as revenue when an invoice lands on it, and nets back OUT of revenue when a bill or journal debits it — that debit is what contra revenue is. QuickBooks has no separate contra-revenue account type either; both sides are the same account.',
     cogs:     'Direct cost of delivering the work. Subtracted from revenue to give gross profit.',
@@ -98,6 +100,7 @@ boot('settings', async (supa, el) => {
     overhead: 'Running the business.',
     other:    'A cost that belongs on the P&L but in none of the buckets above.',
     deposit:  'Customer money held before it is earned. Arrives as cash on the cashflow forecast, never counted as revenue.',
+    cash:     'Money the business can spend. Appears under Bank accounts below and forms the cashflow opening position. QuickBooks Bank accounts are already here; class a Stripe, PayPal or clearing balance this way to count it too.',
     excluded: 'Balance-sheet movement. Never counted as revenue or cost anywhere.'
   };
   const REASON_TEXT = {
@@ -119,7 +122,7 @@ boot('settings', async (supa, el) => {
   // rather than from anything anyone configured. A bank account is cash before
   // it is anything else, so it says so instead of "Not counted".
   function roleOf(a) {
-    if (a.is_bank) return a.is_operating ? 'Cash · opening position' : 'Cash';
+    if (a.class === 'cash') return a.is_operating ? 'Cash · opening position' : 'Cash';
     if (a.class === 'income') {
       const parts = [];
       if (+a.invoiced_lines > 0) parts.push('Revenue');
@@ -139,8 +142,7 @@ boot('settings', async (supa, el) => {
     means:     a => roleOf(a).toLowerCase(),
     invoiced:  a => +a.invoiced_cents || 0,
     costed:    a => +a.costed_cents || 0,
-    at_stake:  a => +a.at_stake_cents || 0,
-    bank:      a => (a.is_bank ? (+a.balance_cents || 0) : -Infinity)
+    at_stake:  a => +a.at_stake_cents || 0
   };
   const COLS = [
     ['account',   'account'],
@@ -149,8 +151,7 @@ boot('settings', async (supa, el) => {
     ['class',     'count it as'],
     ['means',     'which means'],
     ['invoiced',  'invoiced'],
-    ['costed',    'costed'],
-    ['bank',      'bank']
+    ['costed',    'costed']
   ];
 
   function classSelect(a) {
@@ -172,11 +173,12 @@ boot('settings', async (supa, el) => {
     const all = accountsData.accounts || [];
     const c = accountsData.counts || {};
     const review = all.filter(a => a.review_reason);
+    const cash = all.filter(a => a.class === 'cash');
     const q = acctSearch.trim().toLowerCase();
     const pool = acctFilter === 'review' ? review
       : acctFilter === 'overridden' ? all.filter(a => a.override_class)
       : acctFilter === 'unclassified' ? all.filter(a => !a.class)
-      : acctFilter === 'bank' ? all.filter(a => a.is_bank)
+      : acctFilter === 'cash' ? all.filter(a => a.class === 'cash')
       : all;
     const val = SORT_VAL[acctSort.key] || SORT_VAL.at_stake;
     const rows = pool.filter(a => !q || String(a.account).toLowerCase().includes(q))
@@ -198,7 +200,7 @@ boot('settings', async (supa, el) => {
         <span class="${review.length ? 'warn' : ''}"><b>${review.length}</b> need review</span>
         <span><b>${+c.acknowledged || 0}</b> confirmed</span>
         <span><b>${+c.overridden || 0}</b> overridden</span>
-        <span><b>${+c.banks || 0}</b> bank · <b>${+c.operating || 0}</b> operating</span>
+        <span><b>${cash.length}</b> cash · <b>${cash.filter(a => a.is_operating).length}</b> operating</span>
       </div>
 
       ${review.length ? `<div class="sc-eyebrow">Needs review — biggest exposure first</div>
@@ -220,7 +222,7 @@ boot('settings', async (supa, el) => {
         <input id="acct-search" placeholder="search accounts…" style="width:240px" value="${esc(acctSearch)}">
         ${[['review', `needs review (${review.length})`], ['all', `all (${+c.total || 0})`],
            ['overridden', `overridden (${+c.overridden || 0})`], ['unclassified', `unclassified (${+c.unclassified || 0})`],
-           ['bank', `bank (${+c.banks || 0})`]]
+           ['cash', `cash (${cash.length})`]]
           .map(([k, label]) => `<button class="ghost acct-filter${acctFilter === k ? ' current' : ''}"
             data-filter="${k}" aria-pressed="${acctFilter === k}">${esc(label)}</button>`).join('')}
         <span class="muted" style="font-size:11px">${rows.length} shown</span>
@@ -241,11 +243,6 @@ boot('settings', async (supa, el) => {
         <td class="textleft ${a.class ? 'muted' : 'warn'}" style="font-size:11px">${esc(roleOf(a))}</td>
         <td>${+a.invoiced_cents ? fmt$(+a.invoiced_cents) : '<span class="muted">—</span>'}</td>
         <td>${+a.costed_cents ? fmt$(+a.costed_cents) : '<span class="muted">—</span>'}</td>
-        <td>${a.is_bank
-          ? `<div class="bankcell">${fmt$(+a.balance_cents)}
-               <label class="mono" title="Operating accounts form the cashflow opening position${a.as_of ? ', balance as of ' + esc(a.as_of) : ''}">
-                 <input type="checkbox" data-bank="${esc(a.id)}" ${a.is_operating ? 'checked' : ''}>operating</label></div>`
-          : '<span class="muted">—</span>'}</td>
       </tr>`).join('')
       : `<tr><td colspan="${COLS.length}" class="empty-note">No account matches "${esc(acctSearch)}".</td></tr>`}
       </table>`;
@@ -260,21 +257,6 @@ boot('settings', async (supa, el) => {
       };
       th.onclick = activate;
       th.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); } };
-    });
-
-    // Which accounts ARE banks is QuickBooks' account type, never a choice.
-    // Which of them count toward the cashflow opening position is (005), and
-    // it is set here rather than in a second list of the same accounts.
-    document.querySelectorAll('input[data-bank]').forEach(cb => cb.onchange = async () => {
-      cb.disabled = true;
-      const { error } = await supa.from('qbo_accounts').update({ is_operating: cb.checked }).eq('id', cb.dataset.bank);
-      cb.disabled = false;
-      if (error) { alert(error.message); cb.checked = !cb.checked; return; }
-      const acct = (accountsData.accounts || []).find(x => x.id === cb.dataset.bank);
-      if (acct) acct.is_operating = cb.checked;
-      const counts = accountsData.counts || {};
-      counts.operating = (accountsData.accounts || []).filter(x => x.is_operating).length;
-      renderAccounts();
     });
 
     // Writing a class clears the acknowledgement in the SAME statement (082):
@@ -307,6 +289,44 @@ boot('settings', async (supa, el) => {
     });
   }
 
+  // Bank accounts, from the same payload — membership is the 'cash' class
+  // (085/086), so a Stripe balance classed by hand appears here beside the
+  // accounts QuickBooks happened to type Bank, and both feed the same opening
+  // position. No separate query: these are rows the accounts table already has.
+  function renderBanks() {
+    const cash = (accountsData.accounts || []).filter(a => a.class === 'cash')
+      .sort((a, b) => (+b.balance_cents || 0) - (+a.balance_cents || 0));
+    const anyOperating = cash.some(a => a.is_operating);
+    document.getElementById('banks').innerHTML =
+      `<div class="sc-eyebrow" style="margin-top:0">Bank accounts</div>
+      <div class="muted" style="font-size:11px;margin-bottom:8px;max-width:660px">
+        Operating accounts form the cashflow opening position.${anyOperating ? ''
+          : ' None are ticked, so all of them are counted — tick one to narrow it.'}
+        Anything classed <b>Cash / Bank</b> above appears here, so a Stripe or
+        clearing balance QuickBooks files as an asset can count too.</div>
+      ${cash.length ? `<table><tr><th class="textleft">account</th><th>balance</th><th>as of</th>
+        <th class="textleft">source</th><th>operating</th></tr>
+      ${cash.map(a => `<tr><td class="textleft">${esc(a.account)}</td>
+        <td>${fmt$(+a.balance_cents)}</td>
+        <td class="muted">${esc(a.as_of || '')}</td>
+        <td class="textleft muted" style="font-size:11px">${a.is_bank
+          ? 'QuickBooks bank account' : 'added by hand · ' + esc(a.account_type || 'no type')}</td>
+        <td><input type="checkbox" data-bank="${esc(a.id)}" ${a.is_operating ? 'checked' : ''}></td></tr>`).join('')}
+      </table>`
+      : `<div class="muted" style="padding:8px 0 4px">No cash accounts. QuickBooks bank accounts land here
+         automatically — if none have synced yet, class one <b>Cash / Bank</b> above.</div>`}`;
+
+    document.querySelectorAll('#banks input[data-bank]').forEach(cb => cb.onchange = async () => {
+      cb.disabled = true;
+      const { error } = await supa.from('qbo_accounts').update({ is_operating: cb.checked }).eq('id', cb.dataset.bank);
+      cb.disabled = false;
+      if (error) { alert(error.message); cb.checked = !cb.checked; return; }
+      const acct = (accountsData.accounts || []).find(x => x.id === cb.dataset.bank);
+      if (acct) acct.is_operating = cb.checked;
+      renderAccounts(); renderBanks();
+    });
+  }
+
   async function loadAccounts() {
     const { data, error } = await supa.rpc('accounts_page');
     if (error) {
@@ -317,6 +337,7 @@ boot('settings', async (supa, el) => {
     }
     accountsData = data || { accounts: [], counts: {} };
     renderAccounts();
+    renderBanks();
   }
 
   // Same 50 states + DC as Team's work_state dropdown — real workers' comp
