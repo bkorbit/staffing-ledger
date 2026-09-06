@@ -53,7 +53,7 @@ where coalesce(a.override_class, a.derived_class) = 'cash';
 comment on view v_cash_accounts is
   'Accounts holding money the business can spend — the cashflow opening '
   'position''s only source (086). Membership is the ''cash'' class, not '
-  'QuickBooks' account_type: Bank accounts derive into it automatically, and a '
+  'QuickBooks'' account_type: Bank accounts derive into it automatically, and a '
   'Stripe/PayPal/clearing balance QuickBooks types Other Current Asset joins by '
   'being classed cash in Settings > Finance. is_manual marks the ones a person '
   'opted in, as opposed to the ones QuickBooks called Bank. Credit Card '
