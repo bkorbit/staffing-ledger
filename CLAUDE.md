@@ -50,10 +50,16 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   forecast (chart, company rows). QB partial actuals never masquerade as a month.
 - **Contra revenue** (migration 025): EMG books search/social media pass-through
   against income-type contra accounts. Measured revenue = invoices MINUS
-  income-class cost lines, netted per month AND per project. Reconciled to the QB
-  P&L within ~$20k/mo; residual = refunds/credit memos (entities NOT synced, by
-  explicit decision — rare, ~1%, syncing them would destabilize AR aging and
-  payment-behaviour curves).
+  income-class cost lines, netted per month AND per project. The old "~$20k/mo
+  residual = refunds/credit memos" was mostly WRONG: most of that band was
+  customer deposits, fixed by 079/080. Verified 8 Sep 2026 on August: gross
+  1,177,471.50 − contra 467,865.34 − deposits 156,082.68 = **553,523.48**
+  against QuickBooks' Total Income of 554,546.25, a residual of 1,022.77
+  (0.18%). THAT is refunds/credit memos (entities NOT synced, by explicit
+  decision — rare, ~1%, syncing them would destabilize AR aging and
+  payment-behaviour curves). Re-check with
+  `scripts/diagnose-august-deposits.sql`, which prints the account-by-account
+  verdict and the whole reconciliation in one result set.
 - **Rebilled search/social media is not revenue, either way** (087). A
   search/social line set to `media_funding='agency'` (EMG pays the platforms,
   invoices the client back) forecasts its FEE as revenue and carries the media
