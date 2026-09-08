@@ -1,19 +1,24 @@
 -- Fixture test for 079 + 080 — NOT a migration, do not ship this file.
--- Run in a transaction against a scratch db (or prod, rolled back) that
--- already has 001-080 applied.
+-- Run against a scratch db (or prod, rolled back) with 001-087 applied.
 --
---   1. begin;
---   2. paste this whole file
---   3. look for the five "PASS" / "FAIL" lines
---   4. rollback;   -- ALWAYS, pass or fail: this file inserts fixture rows and
---                  -- nulls every invoice_lines.account_id to make test 1
---                  -- deterministic. Rolling back restores all of it.
+--   1. paste this whole file (it opens its own transaction)
+--   2. read the SIX rows of the single result set at the bottom
+--   3. it ends in ROLLBACK — the fixture rows AND the mass null-out of
+--      invoice_lines.account_id that test 1 needs are all undone. Never swap
+--      that rollback for a commit.
+--
+-- RESHAPED 8 Sep 2026. Every assertion is one ROW of one final select. The
+-- first cut of this file was six separate select statements, and the Supabase
+-- SQL editor returns only the LAST statement's result — so running it showed
+-- one line and the other five verdicts were computed and thrown away. That is
+-- how 087's fixture came to be "verified" by a hardcoded literal. Setup stays
+-- as separate statements (it has to); assertions do not.
 --
 -- What is being proved:
---   1. NO-OP  — with no account stamped (the state of every existing row until
---               a full QBO re-sync backfills them), 080's forecast_page returns
---               exactly what 076's did. This is what makes it safe to run 079
---               and 080 before the re-sync.
+--   1. NO-OP  — with no account stamped, 080's forecast_page returns exactly
+--               what 076's did. This was the safety argument for running 079
+--               and 080 before the re-sync; it is now a regression guard, and
+--               it is why the file force-nulls every account_id first.
 --   2. DELTA  — a balance-sheet invoice line is subtracted from revenue for
 --               exactly its own amount, no more, no less.
 --   3. FAIL-OPEN — the three ways resolution can come up short (account_id
@@ -24,11 +29,18 @@
 --   4. PROJ   — the same subtraction lands in rev_proj, per project.
 --   5. LOCKSTEP — rev_proj_page's rev_proj is digit-for-digit forecast_page's,
 --               which 051 requires by hand since it is a literal copy.
+--   6. (note) — 055's rev_proj_page must NOT match once the fixture deposits
+--               are stamped. If it does, 080 never reached it. A note, not a
+--               verdict.
 --
 -- The fixture is deliberately adversarial: two invoices, two months, four
 -- line kinds on one invoice, one project-attributed deposit and one that is
 -- not, and an income line on the same invoice as a deposit. A single-row
 -- fixture would pass while getting the fail-open branches wrong.
+--
+-- Unaffected by 087: both _fp_076 below and the live forecast_page read
+-- v_deal_month_forecast's billable, so plan_month is identical on both sides
+-- of every comparison here whatever that column means this month.
 
 begin;
 
@@ -228,13 +240,15 @@ $$ language sql stable;
 
 -- ------------------------------------------------------- 1. the no-op test --
 -- Force the pre-backfill state so this is deterministic even on a database
--- where a re-sync has already stamped some accounts. Rolled back with the rest.
+-- where the re-sync HAS stamped the accounts — which it now has (the invoice
+-- fetch is a window replace, so every nightly run re-stamps). Captured before
+-- the fixture goes in, because the fixture's own stamped lines are exactly
+-- what makes 080 diverge from 076.
 update invoice_lines set account_id = null, account_name = null;
 
-select case when _norm(forecast_page('2026-01-01', '2026-12-01'))
-               = _norm(_fp_076('2026-01-01', '2026-12-01'))
-       then '1. NO-OP BEFORE BACKFILL: PASS'
-       else '1. NO-OP BEFORE BACKFILL: FAIL' end as result;
+create temp table _t1 as
+select (_norm(forecast_page('2026-01-01', '2026-12-01'))
+        = _norm(_fp_076('2026-01-01', '2026-12-01'))) as ok;
 
 -- ------------------------------------------------------------- the fixture --
 insert into qbo_accounts (id, name, fully_qualified_name, account_type, derived_class) values
@@ -266,12 +280,15 @@ insert into invoice_lines (id, invoice_id, line_no, item_name, account_id, accou
   ('_fx_inv_b:2', '_fx_inv_b', 2, '_fx Deposit', '_fx_liab',   '_fx Media Deposit', 30000);
 
 -- --------------------------------------------- 2, 3. the delta and fail-open --
--- Expected, in cents, against the 076 baseline on the SAME fixture rows:
+-- Both sides computed on the SAME post-fixture rows: 076 counts the deposit as
+-- revenue because it had no concept of a posting account; 080 subtracts it.
+-- Expected, in cents:
 --   August: -50000  (the deposit alone; ghost, unstamped and class-less lines
 --                    all stay revenue, and the income line is untouched)
 --   July:   -30000
--- Anything else — a bigger delta means a fail-open branch is failing closed
--- and deleting revenue; a smaller one means the deposit is not being caught.
+-- A bigger delta means a fail-open branch is failing closed and deleting
+-- revenue; a smaller one means the deposit is not being caught.
+create temp table _rev as
 with pre as (
   select (e->>'month')::date as month, (e->>'total')::bigint as total
   from jsonb_array_elements(_fp_076('2026-07-01', '2026-08-01') -> 'rev_month') e
@@ -279,26 +296,15 @@ with pre as (
 post as (
   select (e->>'month')::date as month, (e->>'total')::bigint as total
   from jsonb_array_elements(forecast_page('2026-07-01', '2026-08-01') -> 'rev_month') e
-),
-d as (
-  select pre.month,
-         pre.total as rev_076, post.total as rev_080,
-         post.total - pre.total as delta
-  from pre join post on post.month = pre.month
 )
-select case when (select delta from d where month = '2026-08-01') = -50000
-             and (select delta from d where month = '2026-07-01') = -30000
-       then '2/3. DELTA + FAIL-OPEN: PASS'
-       else '2/3. DELTA + FAIL-OPEN: FAIL — ' ||
-            coalesce((select string_agg(month::text || ' ' || rev_076::text || ' -> '
-                                        || rev_080::text || ' (' || delta::text || ')',
-                                        '; ' order by month)
-                      from d), 'no rows')
-       end as result;
+select pre.month, pre.total as rev_076, post.total as rev_080,
+       post.total - pre.total as delta
+from pre join post on post.month = pre.month;
 
--- --------------------------------------------------------- 4. rev_proj --
+-- ------------------------------------------------------------ 4. rev_proj ---
 -- Invoice A's deposit is project-attributed, so _fx_proj's revenue must drop
 -- by exactly 50000. Invoice B has no project and cannot appear at all.
+create temp table _proj as
 with pre as (
   select (e->>'qbo_project_id') as pid, (e->>'total')::bigint as total
   from jsonb_array_elements(_fp_076('2026-07-01', '2026-08-01') -> 'rev_proj') e
@@ -307,32 +313,74 @@ post as (
   select (e->>'qbo_project_id') as pid, (e->>'total')::bigint as total
   from jsonb_array_elements(forecast_page('2026-07-01', '2026-08-01') -> 'rev_proj') e
 )
-select case when (select post.total - pre.total
-                  from pre join post on post.pid = pre.pid
-                  where pre.pid = '_fx_proj') = -50000
-       then '4. REV_PROJ PER PROJECT: PASS'
-       else '4. REV_PROJ PER PROJECT: FAIL — ' ||
-            coalesce((select 'pre ' || pre.total::text || ' post ' || post.total::text
-                      from pre join post on post.pid = pre.pid
-                      where pre.pid = '_fx_proj'), '_fx_proj missing from one side')
-       end as result;
+select pre.pid, pre.total as pre_total, post.total as post_total,
+       post.total - pre.total as delta
+from pre join post on post.pid = pre.pid;
 
--- ------------------------------------------------------- 5. 051 lockstep --
+-- -------------------------------------------------------- 5, 6. lockstep ----
 -- rev_proj_page is a literal copy of forecast_page's rev_proj, kept in step by
 -- hand. If these ever disagree that is a bug in 080, not a second opinion on
 -- what revenue means. Checked on the fixture AND on the whole real range.
-select case when _norm(jsonb_build_object('r', forecast_page('2026-01-01', '2026-12-01') -> 'rev_proj'))
-               = _norm(jsonb_build_object('r', rev_proj_page('2026-01-01', '2026-12-01')))
-            and _norm(jsonb_build_object('r', forecast_page('2026-07-01', '2026-08-01') -> 'rev_proj'))
-               = _norm(jsonb_build_object('r', rev_proj_page('2026-07-01', '2026-08-01')))
-       then '5. REV_PROJ_PAGE LOCKSTEP: PASS'
-       else '5. REV_PROJ_PAGE LOCKSTEP: FAIL' end as result;
+create temp table _lock as
+select
+  (_norm(jsonb_build_object('r', forecast_page('2026-01-01', '2026-12-01') -> 'rev_proj'))
+     = _norm(jsonb_build_object('r', rev_proj_page('2026-01-01', '2026-12-01')))
+   and _norm(jsonb_build_object('r', forecast_page('2026-07-01', '2026-08-01') -> 'rev_proj'))
+     = _norm(jsonb_build_object('r', rev_proj_page('2026-07-01', '2026-08-01')))) as ok,
+  (_norm(jsonb_build_object('r', rev_proj_page('2026-07-01', '2026-08-01')))
+     = _norm(jsonb_build_object('r', _rpp_055('2026-07-01', '2026-08-01')))) as same_as_055;
 
--- Sanity, for reading by eye: 055's rev_proj_page must NOT match once the
--- fixture deposits are stamped — if it does, 080 never reached it.
-select case when _norm(jsonb_build_object('r', rev_proj_page('2026-07-01', '2026-08-01')))
-               = _norm(jsonb_build_object('r', _rpp_055('2026-07-01', '2026-08-01')))
-       then '   (note) rev_proj_page is UNCHANGED from 055 — expected to differ'
-       else '   (note) rev_proj_page differs from 055, as expected' end as result;
+-- ======================= THE RESULT: six rows, read them all ==============
+with r(n, result) as (
+
+  select 1, case when (select ok from _t1)
+    then '1. NO-OP BEFORE BACKFILL: PASS'
+    else '1. NO-OP BEFORE BACKFILL: FAIL — 080 and 076 differ even with every '
+         || 'account_id nulled, so something other than the posting account moved' end
+
+  union all
+  select 2, case
+    when (select delta from _rev where month = '2026-08-01') = -50000
+     and (select delta from _rev where month = '2026-07-01') = -30000
+    then '2/3. DELTA + FAIL-OPEN: PASS (Aug -50000, Jul -30000 exactly)'
+    else '2/3. DELTA + FAIL-OPEN: FAIL — '
+         || coalesce((select string_agg(month::text || ' ' || rev_076::text || ' -> '
+                                        || rev_080::text || ' (' || delta::text || ')',
+                                        '; ' order by month) from _rev), 'no rows')
+         || case
+              when (select delta from _rev where month = '2026-08-01') < -50000
+              then ' — August over-subtracted: a fail-open branch is failing CLOSED and deleting revenue'
+              when (select delta from _rev where month = '2026-08-01') > -50000
+              then ' — August under-subtracted: the deposit line is not being caught'
+              else '' end end
+
+  union all
+  select 3, case when (select delta from _proj where pid = '_fx_proj') = -50000
+    then '4. REV_PROJ PER PROJECT: PASS (-50000 on _fx_proj)'
+    else '4. REV_PROJ PER PROJECT: FAIL — '
+         || coalesce((select 'pre ' || pre_total::text || ' post ' || post_total::text
+                      || ' (' || delta::text || ')'
+                      from _proj where pid = '_fx_proj'),
+                     '_fx_proj missing from one side entirely') end
+
+  union all
+  select 4, case when (select ok from _lock)
+    then '5. REV_PROJ_PAGE LOCKSTEP WITH FORECAST_PAGE: PASS'
+    else '5. REV_PROJ_PAGE LOCKSTEP: FAIL — 051''s hand-kept copy has drifted' end
+
+  union all
+  select 5, case when (select same_as_055 from _lock)
+    then '6. (note) rev_proj_page is UNCHANGED from 055 — it should have changed, '
+         || 'so 080 never reached rev_proj_page'
+    else '6. (note) rev_proj_page differs from 055, as expected' end
+
+  union all
+  -- what the fixture actually did, for reading by eye rather than asserting
+  select 6, '   context: ' || coalesce((
+      select string_agg(month::text || ' ' || round(rev_076/100.0, 2)::text
+                        || ' -> ' || round(rev_080/100.0, 2)::text, ' · ' order by month)
+      from _rev), 'no rows') || '  (dollars, 076 -> 080)'
+)
+select result from r order by n;
 
 rollback;
