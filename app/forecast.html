@@ -1124,7 +1124,7 @@ boot('forecast', async (supa, el) => {
 
     // one parallel wave: lines WITH their months embedded, the margin hint, and
     // the project's actuals — the editor opens in a single round trip's time
-    const [lr, marginHint, ai, ac] = await Promise.all([
+    const [lr, marginHint, ai, ac, an] = await Promise.all([
       supa.from('deal_lines').select('*, deal_line_months(*)')
         .eq('deal_id', d.id).order('set_at'),
       supa.from('v_client_achieved_margin')
@@ -1135,6 +1135,19 @@ boot('forecast', async (supa, el) => {
       d.qbo_project_id
         ? supa.from('v_cost_lines_classified').select('month,amount')
             .eq('qbo_project_id', d.qbo_project_id).in('class',['cogs','income'])
+        : Promise.resolve({ data: [] }),
+      // 080's `nonrev` CTE, client-side. Invoice lines posting somewhere other
+      // than an income account — customer deposits and prepayments, which
+      // QuickBooks keeps out of Total Income. forecast_page has excluded these
+      // since 080, but THIS row summed invoices.total (the whole document) and
+      // did not, so August's prebill inflated a deal's GP actual against a
+      // forecast that never contained it. Same conditions as the view and the
+      // same fail-open: a line the sync has not stamped, or whose account will
+      // not resolve, stays revenue rather than silently deleting money.
+      d.qbo_project_id
+        ? fetchAll(() => supa.from('v_invoice_lines_classified').select('month,amount')
+            .eq('qbo_project_id', d.qbo_project_id)
+            .not('account_id', 'is', null).eq('unjoined', false).neq('class', 'income'))
         : Promise.resolve({ data: [] })
     ]);
     if (lr.error) { box.innerHTML = `<span class="err">${lr.error.message}</span>`; return; }
@@ -1145,6 +1158,8 @@ boot('forecast', async (supa, el) => {
     // cogs subtracts as cost; income-class subtracts as contra-revenue — the
     // project's actual GP is what QuickBooks would recognize for it
     (ac.data||[]).forEach(c => { actualByM[c.month] = (actualByM[c.month]||0) - c.amount; });
+    // and the deposit/prepayment part of an invoice was never revenue at all
+    (an.data||[]).forEach(l => { actualByM[l.month] = (actualByM[l.month]||0) - l.amount; });
     const mr = { data: (lr.data||[]).flatMap(l =>
       (l.deal_line_months||[]).map(o => ({ ...o, deal_line_id: l.id }))) };
     const model = (lr.data||[]).map(l => {
@@ -1252,7 +1267,11 @@ boot('forecast', async (supa, el) => {
           ? `<span class="pill margintag" data-li="${li}" title="expected margin: margin % (default when blank) plus this line's fee %"></span>` : '';
         // the total box (budget kinds & hourly get a spreadable total)
         const useTotal = isBudgetL(l) || isHourlyL(l);
-        const curTotal = openM.reduce((s,m)=>s+(+l.cells[m]||0),0);
+        // rounded to cents: the cells are cents divided by 100, so summing a
+        // dozen of them accumulates binary-float dust and the box rendered
+        // "1370530.130000" for a budget of $1,370,530.13. Cents are the unit
+        // the money is stored in, so they are the right place to land.
+        const curTotal = Math.round(openM.reduce((s,m)=>s+(+l.cells[m]||0),0) * 100) / 100;
         const totalBox = useTotal
           ? `<label class="pf tb"><span class="pfl">${isBudgetL(l)?'Total budget $':'Total hours'}</span>
                <input class="totalbudget" type="number" step="any" inputmode="decimal" data-li="${li}" value="${curTotal||''}" placeholder="spread evenly"></label>`
@@ -1260,12 +1279,22 @@ boot('forecast', async (supa, el) => {
         // per-month override, tucked away
         const pmCells = openM.map(m=>`<label class="pmcell"><span>${mLabel(m)}</span>
             <input class="cell" type="number" step="any" inputmode="decimal" data-li="${li}" data-m="${m}" value="${l.cells[m] ?? ''}"></label>`).join('');
+        // Two groups, not six loose children. A nowrap flex row of badge +
+        // "EMG pays & rebills" + "line GP $138,448" + ✕ is wider than a card
+        // in a three-across grid, and none of it could shrink below its own
+        // min-content — so the GP and the ✕ overran the card's right border.
+        // Grouped, the right pair drops to a second line as a unit and stays
+        // together, and the select keeps its full width until there is truly
+        // no room (readable beats compact — same call as the client picker).
         return `<div class="linecard" data-li="${li}">
           <div class="cardhead">
-            <span class="kbadge">${kindLabelOf(l)}</span>${structSel}${fundSel}${marginTag}
-            <span style="flex:1"></span>
-            <span class="lgp" data-li="${li}"></span>
-            <button class="danger delline" data-li="${li}" title="remove line">✕</button>
+            <span class="chleft">
+              <span class="kbadge">${kindLabelOf(l)}</span>${structSel}${fundSel}${marginTag}
+            </span>
+            <span class="chright">
+              <span class="lgp" data-li="${li}"></span>
+              <button class="danger delline" data-li="${li}" title="remove line">✕</button>
+            </span>
           </div>
           <div class="cardbody">
             <div class="lparams">${bits.join('')}${totalBox}</div>

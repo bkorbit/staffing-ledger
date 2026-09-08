@@ -541,11 +541,23 @@ table.acct td { font-variant-numeric: tabular-nums; }
 .totalsgrid tr.linerow td { color:var(--slate); font-size:0.76rem; border-top:1px solid #e8e8e8; }
 .kbadge.sm { font-size:0.58rem; padding:2px 7px; }
 /* cards flow in a responsive grid — up to four across on wide screens */
-.linecards { display:grid; grid-template-columns:repeat(auto-fill,minmax(310px,1fr)); gap:10px; margin-top:14px; }
+.linecards { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:10px; margin-top:14px; }
 .linecard { border:1px solid var(--line); border-radius:8px; background:var(--paper-raised); min-width:0; }
-.cardhead { display:flex; align-items:center; gap:10px; padding:10px 12px;
-  border-bottom:1px solid #e8e8e8; }
-.cardhead .lgp { font-family:var(--font-mono); font-size:0.78rem; color:var(--brand); font-weight:700; }
+/* The head wraps as two groups (087). It used to be six loose children in a
+   nowrap row, and a flex item's min-width is auto: badge + "EMG pays &
+   rebills" + "line GP $138,448" + ✕ came to more than a card in a
+   three-across grid and simply overran the right border, taking the delete
+   button with it. Now .chright drops to a second line intact rather than
+   anything overflowing, and the select holds its width down to a 130px floor
+   before it truncates — an unreadable funding control is the worse failure. */
+.cardhead { display:flex; align-items:center; gap:10px 12px; padding:10px 12px;
+  border-bottom:1px solid #e8e8e8; flex-wrap:wrap; }
+.cardhead .chleft, .cardhead .chright { display:flex; align-items:center; gap:8px; min-width:0; }
+.cardhead .chleft  { flex:1 1 auto; flex-wrap:wrap; }
+.cardhead .chright { flex:none; margin-left:auto; }
+.cardhead select { min-width:130px; }
+.cardhead .lgp { font-family:var(--font-mono); font-size:0.78rem; color:var(--brand);
+  font-weight:700; white-space:nowrap; }
 .cardbody { padding:10px 12px 12px; }
 .cardbody .lparams { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; }
 .gpcallout { font-family:var(--font-mono); font-size:0.72rem; margin-top:8px; min-height:1em; }
