@@ -359,8 +359,13 @@ th[data-sort]:focus-visible { outline:none; box-shadow:inset 0 0 0 2px var(--bra
 /* ---- the deal editor as a focus overlay ---- */
 .modal-back { position:fixed; inset:0; background:rgba(20,24,22,.45); z-index:40;
   display:flex; align-items:flex-start; justify-content:center; padding:4vh 3vw; }
+/* Width is a share of the viewport, not a pixel count (087): the deal editor's
+   month grid and settings form were being compressed on a big display while
+   1180px of a 2560px screen sat unused. max(80vw,1180px) keeps the old width
+   as a FLOOR — nothing gets narrower on a laptop than it is today — and 96vw
+   is the ceiling the 3vw backdrop padding already implied. */
 .modal { background:var(--paper); border:1px solid var(--line); border-radius:8px;
-  width:min(1180px,96vw); max-height:92vh; overflow:auto; }
+  width:min(96vw, max(80vw, 1180px)); max-height:92vh; overflow:auto; }
 .modal-head { display:flex; align-items:center; gap:12px; padding:14px 18px;
   border-bottom:2px solid var(--brand); position:sticky; top:0; background:var(--paper); z-index:2; }
 .modal-title { font-family:var(--font-display); font-weight:700; font-size:15px; color:var(--brand); flex:1;
@@ -506,7 +511,15 @@ table.acct td { font-variant-numeric: tabular-nums; }
 .totalsgrid { width:auto; border-collapse:collapse; table-layout:fixed; }
 .totalsgrid .rowlabelcol { text-align:left; width:190px; white-space:normal; }
 .totalsgrid .monthcol { width:84px; }
-.totalsgrid .closedcol { color:var(--slate); font-style:italic; }
+/* Closed months each get their own column now (087) rather than collapsing
+   into one "N closed" cell, so the frozen stretch needs to read as a region
+   at a glance: a flat tint behind it, the italic slate it always had. The
+   tint is paper on paper-raised — no new hue, and it stays underneath the GP
+   row's brand emphasis, which outranks it on specificity. The header cell
+   takes the same paper, a shade under the #f2f2f2 the head row already uses,
+   so the column reads as one block from its label down. */
+.totalsgrid .closedcol { color:var(--slate); font-style:italic; background:var(--paper); }
+.totalsgrid tr.colheadrow th.closedcol { background:var(--paper); }
 .pf { display:inline-flex; flex-direction:column; gap:3px; }
 .pf.tb .pfl { color:var(--brand); }
 .pf .pfl { font-family:var(--font-mono); font-size:0.58rem; letter-spacing:.05em; text-transform:uppercase; color:var(--slate); }
@@ -556,7 +569,21 @@ details.permonth summary:hover { color:var(--brand); }
 .setrow input.dname { font-family:var(--font-body); }
 
 /* exact-date flight pickers need more room than the old month inputs */
-.setrow .month { width:170px; }
+.setrow .month { width:170px; flex:none; }
+
+/* the deal editor's own settings form (087). The shared .settings auto-fit
+   grid is right for Team's eight short fields, and wrong here: at the wider
+   modal it made five skinny columns, so the client <select> got ~150px after
+   its label and the selected client name was unreadable, while the Flight
+   row's two date pickers wrapped onto separate lines. Two real halves
+   instead: deal name beside client on the top row, then Flight and QB
+   Project each spanning the full width. One column once there is no room
+   for two. */
+.settings.dealform { grid-template-columns:repeat(2,minmax(0,1fr)); }
+@media (max-width:860px) { .settings.dealform { grid-template-columns:1fr; } }
+/* the flight pair is one line, always — it is a single value with two ends */
+.setrow.flight { flex-wrap:nowrap; }
+.setrow.flight .sep { flex:none; }
 
 /* Settings tabs (082/083). Six flat panels made everything equally hard to
    find; the tab bar groups them by who is asking, not by which table the value

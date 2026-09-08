@@ -54,6 +54,15 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   P&L within ~$20k/mo; residual = refunds/credit memos (entities NOT synced, by
   explicit decision — rare, ~1%, syncing them would destabilize AR aging and
   payment-behaviour curves).
+- **Rebilled search/social media is not revenue, either way** (087). A
+  search/social line set to `media_funding='agency'` (EMG pays the platforms,
+  invoices the client back) forecasts its FEE as revenue and carries the media
+  as `pass_through`: invoiced and collected as cash, charged to the card as
+  cash, netted out of the measured months by the contra accounts above, never a
+  sale. It used to sit inside `billable`, so a forecast month claimed revenue
+  the closed month then removed. **Programmatic is the deliberate exception** —
+  its media bills through as real gross revenue (Boris, explicitly). The client
+  twins are `revMonth`/`passMonth` in `app/forecast.html`.
 - **Flights carry exact dates** (022; schema month-checks dropped). Covered
   months = date_trunc both ends. **Day-weighting is media-only** (024): the Total
   Budget spread for search/social/programmatic allocates by covered days;
@@ -73,23 +82,31 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
 - Fixed costs: edited on Settings, subtracted from projected net only.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 078. Key views/functions
+## Current migration head: 087. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
-- `v_deal_month_forecast` [058] — the commercial plan as money. Day-weighted
-  media spread from 024; 058 stopped hidden deals leaking into the plan.
+- `v_deal_month_forecast` [087] — the commercial plan as money. Day-weighted
+  media spread from 024; 058 stopped hidden deals leaking into the plan; 087
+  split `pass_through` (rebilled search/social media: cash, never revenue) out
+  of `billable`. Revenue wants `billable`; cash wants `billable + pass_through`.
 - `v_cost_lines_classified` [056] — bill/purchase/journal lines with cost_class
   (cogs/payroll/overhead/other/income/excluded); overrides via
   qbo_accounts.override_class. 056 fixed Other Income and labor sub-accounts
   against the real QB P&L.
-- `forecast_page(p_from,p_to)` [076] — whole Forecast page in one jsonb.
+- `forecast_page(p_from,p_to)` [080] — whole Forecast page in one jsonb.
   025 added contra revenue; 068-071 wired in bottoms-up labor; 076 made it scan
   v_cost_lines_classified ONCE instead of ~15-20 times (it was the page's load
-  cost, not a behaviour change — 076_fixture_test.sql proves byte-identical output).
-- `cashflow_forecast(...)` [071] — half-month periods (016), programmatic COGS
-  terms knob (017), EB-shrunk per-client payment curves, overdue clamps, and
-  since 071 the same real labor numbers the Forecast uses.
+  cost, not a behaviour change — 076_fixture_test.sql proves byte-identical output);
+  079/080 stopped balance-sheet invoice lines (customer deposits) counting as
+  revenue, which needs a full QBO re-sync to stamp invoice_lines.account_id.
+- `cashflow_forecast(...)` [087] — half-month periods (016), programmatic COGS
+  terms knob (017), EB-shrunk per-client payment curves, overdue clamps, the
+  same real labor numbers the Forecast uses (071), an opening position from
+  `v_cash_accounts` [086] rather than QuickBooks' Bank type, and since 087 a
+  contracted inflow of `billable + pass_through` plus a programmatic-only
+  `out_contracted_cogs` (its `billable > gp` filter had been subtracting
+  agency-funded search/social media from cash a second time).
 - `labor_page` / `labor_forecast_breakdown` / `staff_burdened_cost_breakdown` [077]
   — the Labor page, sourced entirely from Team setup, deliberately NOT tied to
   logged or planned hours.
@@ -100,7 +117,8 @@ is always a new migration, so grep for the highest one before reading an old bod
 - `staff_base_labor_forecast_month` [075], `health_insurance_forecast_month` [072],
   `payroll_loose_runrate` [074], `labor_addendum_runrate` [070],
   `staff_bonus_burdened_cost` [070] — the forward labor cost pieces.
-- `hours_page` [064], `rev_proj_page` [055].
+- `hours_page` [064], `rev_proj_page` [080], `accounts_page` [084],
+  `v_cash_accounts` [086].
 - `snapshot_forecast`, `v_forecast_accuracy`, `v_invoice_settlement_calibration`
   [067] — measuring the model against itself.
 - `promote_approval(hubspot_deal_id)` [078] — the promotion door: deal +

@@ -67,18 +67,31 @@ boot('forecast', async (supa, el) => {
                             search:'last', social:'last', programmatic:'last', hourly:'last' };
   // how a line's revenue is structured, for creative's two modes
   const creativeMode = l => (l.label||'').startsWith('creative:hourly') ? 'hourly' : 'retainer';
-  // billable revenue per month — media lines bill budget+fee (or fee only when the
-  // client funds search/social directly); service lines bill what they earn
+  // REVENUE per month — the twin of v_deal_month_forecast.billable [087].
+  // Programmatic bills its media through as real gross revenue. Search and
+  // social bill their FEE and nothing more, however the media is funded: when
+  // EMG fronts it, the media EMG rebills is pass-through cash, not a sale (it
+  // lands in the contra-revenue accounts and nets straight back out of
+  // measured revenue), so mediaFunding no longer changes revenue at all — it
+  // is passMonth's business now. Service lines bill what they earn.
   function revMonth(l, m, mediaFunding, flight) {
     const fee = l.params.fee_pct || 0;
     const b = l.cells[m] !== undefined ? l.cells[m]*100 : 0;
     switch (l.kind) {
       case 'programmatic': return Math.round(b * (1 + fee/100));
-      case 'search': case 'social':
-        return mediaFunding === 'agency' ? Math.round(b * (1 + fee/100))
-                                         : Math.round(b * fee/100);
+      case 'search': case 'social': return Math.round(b * fee/100);
       default: return gpMonth(l, m, flight);   // retainer / creative / hourly bill what they earn
     }
+  }
+  // PASS-THROUGH per month — the twin of v_deal_month_forecast.pass_through
+  // [087]: the media an EMG-funded search/social line rebills. Invoiced to the
+  // client and collected as cash, charged to the card as cash, never revenue
+  // and never GP on either leg. Zero for every other kind, programmatic
+  // included — its media is inside revMonth by decision.
+  function passMonth(l, m, mediaFunding) {
+    if (mediaFunding !== 'agency') return 0;
+    if (l.kind !== 'search' && l.kind !== 'social') return 0;
+    return l.cells[m] !== undefined ? Math.round(l.cells[m]*100) : 0;
   }
   let marginDefault = 35;
   // covered-day fraction of month m within the flight — 1 for fully covered
@@ -597,9 +610,16 @@ boot('forecast', async (supa, el) => {
           forward months use six-month trailing averages for overhead/other and a
           Team-setup-based roster projection for labour (comp rates + burden,
           honoring known future hires/departures/raises — excludes bonuses,
-          severance and commissions, which aren't in Team yet). Search or edit any
-          account's class below — saves immediately, reclassifies it everywhere at
-          once (past months included).</div>
+          severance and commissions, which aren't in Team yet).
+          <b>Search &amp; social media EMG fronts</b> is never revenue in either
+          direction (087): the budget on a line set to "EMG pays &amp; rebills" is
+          invoiced to the client and charged to the card, both of which are cash,
+          and the contra accounts net it out of the measured months. Those lines
+          forecast their fee only — the same number that survives once the month
+          closes. Programmatic media is different by decision: it bills through as
+          real gross revenue. Search or edit any account's class below — saves
+          immediately, reclassifies it everywhere at once (past months
+          included).</div>
         <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap">
           <input type="search" id="acct-search" placeholder="search accounts…" value="${esc(acctSearch)}" style="width:240px">
           <span class="muted" id="acct-count" style="font-size:11px"></span>
@@ -1159,26 +1179,36 @@ boot('forecast', async (supa, el) => {
     function draw() {
       const fm = monthsBetween(flight.start, flight.end);
       const openM = fm.filter(m=>!closed(m));
-      const closedM = fm.filter(m=>closed(m));
       const asSold = d.promotions?.[0]?.as_sold;
       const field = (li, p, label, val, ph='0') =>
         `<label class="pf"><span class="pfl">${label}</span>
            <input class="p" type="number" step="any" inputmode="decimal" data-li="${li}" data-p="${p}" value="${val}" placeholder="${ph}"></label>`;
 
-      // month columns: one collapsed closed column (if any), then each open month
-      const cols = (closedM.length ? [{ closed:true, label:`${closedM.length} closed`, months:closedM }] : [])
-        .concat(openM.map(m => ({ closed:false, label:mLabel(m), months:[m] })));
+      // month columns: EVERY month of the flight gets one, closed months
+      // included. They used to collapse into a single "N closed ✓" cell, which
+      // added a month that had a forecast to a month that never got one and
+      // set the pair against one lump of QuickBooks actuals — so a large Δ
+      // could mean the forecast was wrong or mean there was no forecast at
+      // all, and the column could not tell you which. One month, one column.
+      const cols = fm.map(m => ({ closed: closed(m), label: mLabel(m), months:[m] }));
       const colHead = cols.map(c =>
         `<th class="monthcol${c.closed?' closedcol':''}">${c.label}${c.closed?' ✓':''}</th>`).join('');
+      const cc = c => c.closed ? ' closedcol' : '';
 
       const kindLabelOf = l => l.kind === 'creative' ? `creative · ${creativeMode(l)}` : l.kind;
       const isHourlyL = l => l.kind==='hourly' || (l.kind==='creative' && creativeMode(l)==='hourly');
       const isBudgetL = l => KIND[l.kind].cells==='budget';
+      // does this deal rebill any media? if so the grid carries a pass-through
+      // row, so the invoiced total is still visible now that it is not revenue.
+      // The funding select re-draws (not just previews) so this row appears and
+      // disappears with the choice that creates it.
+      const isPassL = l => (l.kind==='search' || l.kind==='social') && l.media_funding==='agency';
+      const anyPass = model.some(isPassL);
 
       // ---- the overview TABLE: one display row per line, then the totals ----
       const lineRows = model.map((l, li) => `<tr class="linerow">
           <td class="rowlabelcol"><span class="kbadge sm">${kindLabelOf(l)}</span></td>
-          ${cols.map((c,ci)=>`<td class="muted" data-lrc="${li}:${ci}"></td>`).join('')}
+          ${cols.map((c,ci)=>`<td class="muted${cc(c)}" data-lrc="${li}:${ci}"></td>`).join('')}
           <td class="linegpcol muted" data-lrt="${li}"></td>
         </tr>`).join('');
 
@@ -1250,8 +1280,8 @@ boot('forecast', async (supa, el) => {
       }).join('');
 
       box.innerHTML = `
-        <div class="settings">
-          <div class="setrow wide"><span class="setlabel">Deal name</span>
+        <div class="settings dealform">
+          <div class="setrow"><span class="setlabel">Deal name</span>
             <input class="dname" value="${esc(d.name)}"></div>
           <div class="setrow"><span class="setlabel">Client</span>
             <select class="cl">
@@ -1259,9 +1289,9 @@ boot('forecast', async (supa, el) => {
                 .map(c=>`<option value="${c.id}" ${c.id===d.client_id?'selected':''}>${esc(c.name)}</option>`).join('')}
               <option value="__new__">+ new client…</option>
             </select></div>
-          <div class="setrow"><span class="setlabel">Flight</span>
+          <div class="setrow wide flight"><span class="setlabel">Flight</span>
             <input type="date" class="month fstart" value="${flight.start.slice(0,10)}">
-            <span class="muted">→</span>
+            <span class="muted sep">→</span>
             <input type="date" class="month fend" value="${flight.end.slice(0,10)}"></div>
           <div class="setrow wide"><span class="setlabel">QB Project</span>
             <div class="qbpicker">
@@ -1277,17 +1307,28 @@ boot('forecast', async (supa, el) => {
             <tr class="colheadrow"><th class="rowlabelcol">Line / month</th>${colHead}<th class="linegpcol">line GP</th></tr>
             ${lineRows}
             <tr><td class="rowlabelcol">Revenue forecast (billed)</td>
-              ${cols.map((c,ci)=>`<td data-revcol="${ci}"></td>`).join('')}<td data-revtotal class="linegpcol"></td></tr>
+              ${cols.map((c,ci)=>`<td class="${cc(c).trim()}" data-revcol="${ci}"></td>`).join('')}<td data-revtotal class="linegpcol"></td></tr>
+            ${anyPass ? `<tr class="passrow"><td class="rowlabelcol muted">Media rebilled (cash, not revenue)</td>
+              ${cols.map((c,ci)=>`<td class="muted${cc(c)}" data-passcol="${ci}"></td>`).join('')}<td data-passtotal class="muted linegpcol"></td></tr>` : ''}
             <tr class="gp"><td class="rowlabelcol">GP forecast</td>
-              ${cols.map((c,ci)=>`<td data-gpcol="${ci}"></td>`).join('')}<td data-gptotal class="linegpcol"></td></tr>
+              ${cols.map((c,ci)=>`<td class="${cc(c).trim()}" data-gpcol="${ci}"></td>`).join('')}<td data-gptotal class="linegpcol"></td></tr>
             <tr><td class="rowlabelcol muted">GP actual (QuickBooks)${d.qbo_project_id?'':' — no project'}</td>
-              ${cols.map(c=>`<td class="muted">${
-                c.months.some(m=>closed(m)&&actualByM[m]!==undefined)
-                  ? fmtMoney(c.months.reduce((s,m)=>s+(closed(m)?(actualByM[m]||0):0),0)) : ''
-              }</td>`).join('')}
+              ${cols.map(c=>{
+                // an em dash is not a blank: it says "this month is closed, the
+                // project is linked, and QuickBooks has nothing here" — which is
+                // a fact about the month, not a gap in the page. An open month
+                // stays blank, because nothing is owed there yet.
+                const m = c.months[0];
+                if (!c.closed) return `<td class="muted"></td>`;
+                if (actualByM[m] !== undefined)
+                  return `<td class="muted closedcol">${fmtMoney(actualByM[m])}</td>`;
+                return `<td class="muted closedcol" title="${d.qbo_project_id
+                  ? 'no QuickBooks revenue landed in this month'
+                  : 'this deal has no QB project linked'}">—</td>`;
+              }).join('')}
               <td class="muted linegpcol">${fmtMoney(fm.reduce((s,m)=>s+(closed(m)?(actualByM[m]||0):0),0))||''}</td></tr>
             <tr><td class="rowlabelcol muted">Δ actual vs forecast</td>
-              ${cols.map((c,ci)=>`<td data-diffcol="${ci}"></td>`).join('')}<td class="linegpcol"></td></tr>
+              ${cols.map((c,ci)=>`<td class="${cc(c).trim()}" data-diffcol="${ci}"></td>`).join('')}<td class="linegpcol"></td></tr>
           </table>
         </div>
         <div class="muted lockednote">✓ months are locked: their actuals come from QuickBooks
@@ -1313,8 +1354,11 @@ boot('forecast', async (supa, el) => {
       }
 
       box.querySelectorAll('select.mf').forEach(sel => sel.onchange = () => {
-        model[+sel.dataset.li].media_funding = sel.value;   // revenue depends on funding
-        preview();
+        // 087: funding no longer moves revenue — it moves money between the
+        // revenue row and the pass-through row, and that row's existence
+        // depends on it, so this re-draws rather than re-previewing
+        model[+sel.dataset.li].media_funding = sel.value;
+        draw();
       });
       box.querySelectorAll('input.p').forEach(inp => inp.oninput = () => {
         const l = model[+inp.dataset.li];
@@ -1450,11 +1494,13 @@ boot('forecast', async (supa, el) => {
       preview();
 
       function preview() {
-        let total = 0, revTotal = 0; const mgp = {}, mrev = {};
+        let total = 0, revTotal = 0, passTotal = 0;
+        const mgp = {}, mrev = {}, mpass = {};
         model.forEach((l, li) => {
           let lt = 0;
           fm.forEach(m => { const g = gpMonth(l, m, flight);
             if (g) { mgp[m]=(mgp[m]||0)+g; lt += g; } });
+          const lpass = fm.reduce((s,m)=>s+passMonth(l,m,l.media_funding),0);
           // card title GP + the greyed callout under the entry box
           const lg = box.querySelector(`.lgp[data-li="${li}"]`);
           if (lg) lg.textContent = lt ? `line GP $${fmtN(lt)}` : '';
@@ -1470,7 +1516,15 @@ boot('forecast', async (supa, el) => {
               const mgn = l.params.margin_pct ?? marginDefault;
               co.textContent = lt ? `Revenue ${fmtMoney(lrev)} · GP ${fmtMoney(lt)} — margin ${mgn}% + fee ${l.params.fee_pct||0}%` : '';
             } else if (isBudgetL(l)) {
-              co.textContent = lt ? `Revenue ${fmtMoney(lrev)} · GP ${fmtMoney(lt)} — fee ${l.params.fee_pct||0}%${l.media_funding==='agency'?' (EMG bills media + fee)':' (client pays media direct)'}` : '';
+              // 087: an EMG-funded line's media is spelled out as what it is —
+              // cash through the business, not revenue. Saying "EMG bills media
+              // + fee" is how the old revenue number got believed.
+              co.textContent = lt || lpass
+                ? `Revenue ${fmtMoney(lrev)} · GP ${fmtMoney(lt)} — fee ${l.params.fee_pct||0}%`
+                  + (l.media_funding==='agency'
+                     ? ` · media ${fmtMoney(lpass)} rebilled: cash in and out, not revenue`
+                     : ' (client pays media direct)')
+                : '';
             } else {
               co.textContent = lt ? `Revenue = GP ${fmtMoney(lt)} across ${openM.length} open month(s)` : '';
             }
@@ -1486,7 +1540,12 @@ boot('forecast', async (supa, el) => {
                 : '';
             }
           });
-          fm.forEach(m => { const r = revMonth(l, m, l.media_funding, flight); if (r) mrev[m]=(mrev[m]||0)+r; revTotal += r; });
+          fm.forEach(m => {
+            const r = revMonth(l, m, l.media_funding, flight);
+            if (r) mrev[m]=(mrev[m]||0)+r; revTotal += r;
+            const p = passMonth(l, m, l.media_funding);
+            if (p) mpass[m]=(mpass[m]||0)+p; passTotal += p;
+          });
           const lrt = box.querySelector(`td[data-lrt="${li}"]`);
           if (lrt) lrt.textContent = lt ? fmtMoney(lt) : '';
           total += lt;
@@ -1498,21 +1557,38 @@ boot('forecast', async (supa, el) => {
           const rtd = box.querySelector(`td[data-revcol="${ci}"]`);
           if (rtd) { const rv = c.months.reduce((s,m)=>s+(mrev[m]||0),0);
             rtd.textContent = rv ? fmtMoney(rv) : ''; }
+          const ptd = box.querySelector(`td[data-passcol="${ci}"]`);
+          if (ptd) { const pv = c.months.reduce((s,m)=>s+(mpass[m]||0),0);
+            ptd.textContent = pv ? fmtMoney(pv) : ''; }
           const dtd = box.querySelector(`td[data-diffcol="${ci}"]`);
           if (dtd) {
-            const a = c.months.reduce((s,m)=>s+(closed(m)&&actualByM[m]!==undefined?actualByM[m]:0),0);
-            const hasA = c.months.some(m=>closed(m)&&actualByM[m]!==undefined);
-            if (!hasA || !gp) { dtd.innerHTML=''; }
-            else { const pct = Math.round((a/gp - 1)*100);
-              dtd.innerHTML = `<span class="${Math.abs(pct)>15?'err':'ok'}" style="font-size:0.62rem">${pct>=0?'+':''}${pct}%</span>`; }
+            // Four states, and the two lopsided ones used to render as an empty
+            // cell — indistinguishable from a month that matched. A closed
+            // month with money and no plan is the interesting one: it is not a
+            // forecast miss, it is revenue the plan never had.
+            const m = c.months[0];
+            const hasA = c.closed && actualByM[m] !== undefined;
+            const a = hasA ? actualByM[m] : 0;
+            if (!c.closed)     dtd.innerHTML = '';
+            else if (hasA && gp) {
+              const pct = Math.round((a/gp - 1)*100);
+              dtd.innerHTML = `<span class="${Math.abs(pct)>15?'err':'ok'}" style="font-size:0.62rem">${pct>=0?'+':''}${pct}%</span>`;
+            }
+            else if (hasA)     dtd.innerHTML = `<span class="muted" style="font-size:0.62rem"
+              title="QuickBooks booked ${fmtMoney(a)} here and this deal forecast nothing for the month">no forecast</span>`;
+            else if (gp)       dtd.innerHTML = `<span class="muted" style="font-size:0.62rem"
+              title="forecast ${fmtMoney(gp)}, nothing booked against this deal's project">no actual</span>`;
+            else               dtd.innerHTML = '';
           }
         });
         const tt = box.querySelector('td[data-gptotal]'); if (tt) tt.textContent = total?fmtMoney(total):'';
         const rt = box.querySelector('td[data-revtotal]'); if (rt) rt.textContent = revTotal?fmtMoney(revTotal):'';
+        const pt = box.querySelector('td[data-passtotal]'); if (pt) pt.textContent = passTotal?fmtMoney(passTotal):'';
         const cls = asSold && total && Math.abs(total-asSold)/asSold < 0.02 ? 'total-match' : 'total-off';
         box.querySelector('.totals').innerHTML = (total||asSold)
           ? `<span class="${cls}">GP total $${fmtN(total)}</span>` +
-            (asSold?`<span class="muted" style="font-size:0.78rem"> · sold $${fmtN(asSold)}</span>`:'') : '';
+            (asSold?`<span class="muted" style="font-size:0.78rem"> · sold $${fmtN(asSold)}</span>`:'') +
+            (passTotal?`<span class="muted" style="font-size:0.78rem"> · media rebilled $${fmtN(passTotal)} (cash, not revenue)</span>`:'') : '';
       }
 
       async function save() {
