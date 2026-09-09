@@ -224,7 +224,8 @@ tr.expand-row td { padding:0; border-bottom:1px solid var(--line); background:#f
    panel's white explicitly. .sc-panel's 14px bottom margin is zeroed on the
    stacked charts: it is invisible inside the grid yet stretched the people
    panel 14px past the last chart. */
-.expand-split { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,3fr); gap:16px; padding:16px 18px 18px; align-items:stretch; }   /* zero minimums: see .client-charts */
+.expand-split { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,3fr); gap:16px; padding:16px 18px 18px; align-items:stretch;
+  contain:inline-size; width:0; min-width:100%; box-sizing:border-box; }   /* zero minimums + containment: see .client-charts */
 .expand-split .people-panel, .expand-split .charts, .expand-split .chartpanel { min-width:0; }
 .expand-split .charts { display:flex; flex-direction:column; gap:14px; }
 .expand-split .chartpanel { position:relative; margin-bottom:0; }
@@ -255,7 +256,14 @@ tr.expand-row td { padding:0; border-bottom:1px solid var(--line); background:#f
    revenue panel got the remainder, and toggling Proj/Dept (different labels)
    reflowed the whole block. Zero minimums keep the two tracks equal whatever
    the legend says; the legend ellipsizes inside its share as designed. */
-.client-charts { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; padding:14px 18px 18px; align-items:stretch; }
+.client-charts { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; padding:14px 18px 18px; align-items:stretch;
+  /* contain:inline-size makes this row's content invisible to the TABLE's
+     width algorithm: Client Profitability's table is auto-layout, and a colspan
+     cell's min-content (here, the legend's longest words) still redistributes
+     every column above it — so toggling Proj/Dept moved the whole table. The
+     fallback pair (width:0 + min-width:100%) does the same for engines
+     without containment: zero intrinsic width, then stretched to the cell. */
+  contain:inline-size; width:0; min-width:100%; box-sizing:border-box; }
 .client-charts .chartpanel { min-width:0; }
 .client-charts .chartpanel { position:relative; margin-bottom:0; display:flex; flex-direction:column; }
 .client-charts .chartpanel > div:last-child { flex:1; display:flex; flex-direction:column; }
