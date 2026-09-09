@@ -326,6 +326,13 @@ svg.chart .bandcol:focus-visible { outline:2px solid var(--brand-2); outline-off
 .chart-legend .lg-item { display:flex; align-items:center; gap:7px; font-family:var(--font-mono);
   font-size:10px; color:var(--ink); white-space:nowrap; }
 .chart-legend .lg-dot { width:11px; height:11px; border-radius:2px; display:inline-block; flex:none; }
+/* the detail charts' legend stays on ONE line: items shrink and their text
+   ellipsizes (full name on hover) instead of the bar wrapping to two rows and
+   pushing the two side-by-side panels out of step. .lg-txt is the text span
+   the module wraps every label in — text-overflow needs a block to clip. */
+.chart-legend.one-line { flex-wrap:nowrap; gap:8px 16px; overflow:hidden; }
+.chart-legend.one-line .lg-item { min-width:0; flex:0 1 auto; }
+.chart-legend .lg-txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
 /* restate font-family/size/color explicitly rather than "inherit" — a plain
    inherit here would resolve to the browser's native button font (a bare
    button.lg-item beats .chart-legend .lg-item on specificity), not to the

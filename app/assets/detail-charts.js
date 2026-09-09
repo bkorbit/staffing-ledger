@@ -95,6 +95,16 @@ export function hoursByWeekChart(el, detail, rangeFrom, rangeTo, deptOrder, opts
   if (byDeal) {
     const deals = detail.deals || [];
     const names = {}; deals.forEach(d => names[d.id] = d.name || '(unnamed deal)');
+    // a prefix every deal shares up to a " - " / ": " separator is the client
+    // naming itself ("Material+ - MIT Sloan - 2026") — the client is known
+    // here, so the legend drops it and keeps the part that tells deals apart
+    const all = Object.values(names);
+    if (all.length > 1) {
+      const m = all[0].match(/^(.+?)(\s[-–—:]\s|:\s)/);
+      const prefix = m ? m[0] : null;
+      if (prefix && all.every(n => n.startsWith(prefix) && n.length > prefix.length))
+        for (const id in names) names[id] = names[id].slice(prefix.length);
+    }
     rows = (detail.weeks_by_deal || []).map(r => ({ week: r.week, key: r.deal_id, hours: +r.hours }));
     label = k => names[k] || '(unknown deal)';
     // slots by total hours, biggest first: with more projects than colours,
@@ -175,12 +185,12 @@ export function hoursByWeekChart(el, detail, rangeFrom, rangeTo, deptOrder, opts
   const xl = buckets.map((k, i) => i % every ? '' :
     `<text x="${P.l + i * bw + bw / 2}" y="${H - 8}" fill="var(--slate)" font-size="10" font-family="IBM Plex Mono" text-anchor="middle">${fmtBucket(k)}</text>`).join('');
   const cols = buckets.map((k, i) => `<rect class="hit" data-i="${i}" x="${P.l + i * bw}" y="${P.t}" width="${bw}" height="${H - P.t - P.b}" fill="transparent" tabindex="0" role="img" aria-label="${esc(`${monthly ? '' : 'week of '}${fmtBucket(k)}: ${fmtHours(totals[i])}h`)}"/>`).join('');
-  const legend = series.map(sr => `<span class="lg-item"><i class="lg-dot" style="background:${sr.color}"></i>${esc(sr.name)}</span>`).join('')
-    + `<span class="lg-item"><i class="lg-dot" style="background:var(--mint);border:1px solid var(--line)"></i>selected range</span>`
-    + `<span class="lg-item" style="color:var(--slate)">${monthly ? 'by month' : 'by week'}</span>`;
+  const legend = series.map(sr => `<span class="lg-item" title="${esc(sr.name)}"><i class="lg-dot" style="background:${sr.color}"></i><span class="lg-txt">${esc(sr.name)}</span></span>`).join('')
+    + `<span class="lg-item"><i class="lg-dot" style="background:var(--mint);border:1px solid var(--line)"></i><span class="lg-txt">selected range</span></span>`
+    + `<span class="lg-item" style="color:var(--slate)"><span class="lg-txt">${monthly ? 'by month' : 'by week'}</span></span>`;
   el.style.position = 'relative';
   el.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Hours logged per ${monthly ? 'month' : 'week'} by ${byDeal ? 'project' : 'department'}">${band}${grid}${bars}<g class="hover"></g>${xl}${cols}</svg>
-    <div class="chart-tip"></div><div class="chart-legend">${legend}</div>`;
+    <div class="chart-tip"></div><div class="chart-legend one-line">${legend}</div>`;
   wireChartTip(el,
     i => `<div class="tip-label">${monthly ? '' : 'wk of '}${esc(fmtBucket(buckets[i]))} · ${fmtHours(totals[i])}h</div>` +
       series.filter(sr => sr.values[i]).map(sr => sr.key === OTHER
@@ -265,11 +275,11 @@ export function revGpChart(el, detail, opts = {}) {
   const cols = months.map((m, i) => { const l = Math.max(P.l, x(i) - stepX / 2), r = Math.min(W - P.r, x(i) + stepX / 2);
     return `<rect class="hit" data-i="${i}" x="${l}" y="${P.t}" width="${r - l}" height="${H - P.t - P.b}" fill="transparent" tabindex="0" role="img" aria-label="${esc(`${fmtMonYY(m.month)}: revenue ${m.rev_actual === null ? 'forecast' : fmt$0(m.rev_actual)} vs ${fmt$0(m.rev_plan)} plan`)}"/>`; }).join('');
   const legend = SERIES.map(s => s.plan
-    ? `<span class="lg-item" style="color:var(--slate)"><i class="lg-dash" style="color:${s.color}"></i>${esc(s.name)}</span>`
-    : `<span class="lg-item"><i class="lg-dot" style="background:${s.color}"></i>${esc(s.name)}</span>`).join('');
+    ? `<span class="lg-item" style="color:var(--slate)"><i class="lg-dash" style="color:${s.color}"></i><span class="lg-txt">${esc(s.name)}</span></span>`
+    : `<span class="lg-item"><i class="lg-dot" style="background:${s.color}"></i><span class="lg-txt">${esc(s.name)}</span></span>`).join('');
   el.style.position = 'relative';
   el.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Revenue and gross profit, actual vs plan, by month">${grid}${zero}${lines}${todayLine}<g class="hover"></g>${xl}${cols}</svg>
-    <div class="chart-tip"></div><div class="chart-legend">${legend}</div>`;
+    <div class="chart-tip"></div><div class="chart-legend one-line">${legend}</div>`;
   const delta = (a, p) => (a === null || !p) ? '' :
     `<span style="color:${a - p < 0 ? 'var(--rust)' : 'var(--brand-2)'};margin-left:6px">${a - p < 0 ? '−' : '+'}${Math.abs((a - p) / p * 100).toFixed(1)}%</span>`;
   wireChartTip(el,
