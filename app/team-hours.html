@@ -7,20 +7,6 @@
    role="button" tr pattern — team-hours.html was missing its own copy. */
 tr.namerow:focus-visible { outline:none; box-shadow:inset 0 0 0 2px var(--brand-2), inset 0 0 0 4px var(--mint); }
 
-/* Quick-range preset pill group — same .rp/.seg pattern index.html/sales.html
-   already use for their own range/span toggles, copied local here rather
-   than promoted to style.css for one control. border-radius:0 on the
-   grouped .seg is load-bearing: without it each button keeps its own
-   corner radius under the shared group border and the pill looks notched
-   instead of one continuous shape. */
-.rp { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; background:var(--paper-raised); }
-.rp .seg { font-family:var(--font-mono); font-size:10px; padding:0 11px; height:34px;
-  display:inline-flex; align-items:center; border:none; border-left:1px solid var(--line);
-  border-radius:0; background:var(--paper-raised); cursor:pointer; color:var(--slate); }
-.rp .seg:first-child { border-left:none; }
-.rp .seg.on { background:var(--brand); color:#fff; }
-.rp .seg:hover:not(.on) { color:var(--ink); }
-
 /* Range/ribbon itself stays crisp and clickable while a range change is in
    flight (see syncRangeControls) — only the data underneath it dims, so the
    button you just clicked visibly responds immediately instead of waiting

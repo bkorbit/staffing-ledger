@@ -50,3 +50,19 @@ for (const dead of ['agg.revenue','agg.cogs','agg.fcCogs','agg.forecastGP','agg.
 }
 if (bad) { console.log('RETIRED KEYS'); process.exit(1); }
 console.log('forecast checks clean: syntax ok, renderTable self-contained, no retired keys');
+
+// -- 4. every other page's module script parses too. The scope/retired-key
+//    audits above are forecast.html-specific; a syntax error anywhere else
+//    is just as much a blank page in production.
+import { readdirSync } from 'fs';
+const appDir = new URL('../app/', import.meta.url);
+for (const f of readdirSync(appDir).filter(f => f.endsWith('.html') && f !== 'forecast.html')) {
+  const m = readFileSync(new URL(f, appDir), 'utf8').match(/<script type="module">([\s\S]*?)<\/script>/);
+  if (!m) continue;
+  const stubbed = m[1].replace(/import\s*\{([^}]*)\}\s*from '[^']*';/, (_, names) =>
+    'const ' + names.split(',').map(n => n.trim().split(/\s+as\s+/).pop()).filter(Boolean).map(n => `${n}=()=>{}`).join(',') + ';');
+  writeFileSync('/tmp/_page_check.mjs', stubbed);
+  try { execSync('node --check /tmp/_page_check.mjs', { stdio: 'pipe' }); }
+  catch (e) { console.log(`SYNTAX ERROR in app/${f}:\n` + e.stderr.toString()); process.exit(1); }
+}
+console.log('page checks clean: every app/*.html module script parses');

@@ -196,6 +196,40 @@ tr.expand-row td { padding:0; border-bottom:1px solid var(--line); background:#f
 .alloc-dot { width:10px; height:10px; border-radius:4px; flex:none; display:inline-block; }
 @media (max-width:900px) { .expand-grid { grid-template-columns:1fr; } }
 
+/* Project Hours' expanded project — the THIRD shape an opened row takes, and
+   still .expand-row underneath: the detail is different content (people, two
+   charts), not the parent's record on the parent's columns. Two tracks, 2:3 —
+   the people table on the left, the two reports stacked on the right.
+   align-items:stretch + the flex column on .people-panel put its border on the
+   revenue chart's bottom edge; the rows keep their natural height at the top
+   and the totals bar is pinned to the bottom, with .chart-legend's own 10/12px
+   vertical padding so the three footers share one height. Its four column
+   tracks are declared twice on purpose — the table's <colgroup> and the footer
+   grid — so the totals sit under their columns without being table cells.
+   `tr.expand-row td { background:#f6f6f6 }` above reaches every td INSIDE the
+   expand row too, nested table included, so the people cells restate the
+   panel's white explicitly. .sc-panel's 14px bottom margin is zeroed on the
+   stacked charts: it is invisible inside the grid yet stretched the people
+   panel 14px past the last chart. */
+.expand-split { display:grid; grid-template-columns:2fr 3fr; gap:16px; padding:16px 18px 18px; align-items:stretch; }
+.expand-split .charts { display:flex; flex-direction:column; gap:14px; }
+.expand-split .chartpanel { position:relative; margin-bottom:0; }
+.chart-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; padding:9px 14px 4px; flex-wrap:wrap; }
+.chart-head .sc-eyebrow { padding:0; margin:0; }
+.stat-inline { font-family:var(--font-mono); font-size:10.5px; color:var(--slate); display:flex; gap:12px; flex-wrap:wrap; }
+.stat-inline b { color:var(--ink); font-weight:600; }
+.people-panel { position:relative; background:var(--paper-raised); border:1px solid var(--line); border-radius:6px;
+  overflow:hidden; display:flex; flex-direction:column; }
+.people-scroll { flex:1; min-height:0; overflow-y:auto; }
+.people-panel table.ledger td { background:var(--paper-raised); }
+.people-total { display:grid; grid-template-columns:34% 40% 13% 13%; background:var(--brand); color:#fff; font-weight:700;
+  font-family:var(--font-mono); font-size:10.5px; padding:10px 0 12px; border-top:2px solid var(--brand); }
+.people-total span { padding:0 10px; text-align:right; }
+.people-total span:first-child, .people-total span:nth-child(2) { text-align:left; }
+/* a dashed legend swatch for a plan/forecast line, beside .lg-dot's solid square */
+.chart-legend .lg-dash { width:14px; height:0; border-top:2px dashed currentColor; display:inline-block; flex:none; opacity:.7; }
+@media (max-width:1000px) { .expand-split { grid-template-columns:1fr; } }
+
 /* Client Profitability's per-project breakout — the OTHER shape an expanded
    row can take. Team Hours' .expand-row above pops out a free-form panel
    under the row (bars, a time split: content that has no column to sit in);
@@ -314,6 +348,20 @@ input.p { width:64px; height:28px; text-align:right; }
    smaller padding-derived height — the mismatch reads as misaligned rows */
 .range button, .toolbar button { height:34px; display:inline-flex; align-items:center; }
 .rl { font-family:var(--font-mono); font-size:9px; text-transform:uppercase; letter-spacing:.09em; color:var(--slate); }
+
+/* Quick-range preset pill group — Team Hours and Project Hours share this one
+   copy (it lived inline on Team Hours while it was the only user). Same
+   .rp/.seg pattern index.html/sales.html use for their own toggles.
+   border-radius:0 on the grouped .seg is load-bearing: without it each button
+   keeps its own corner radius under the shared group border and the pill
+   looks notched instead of one continuous shape. */
+.rp { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; background:var(--paper-raised); }
+.rp .seg { font-family:var(--font-mono); font-size:10px; padding:0 11px; height:34px;
+  display:inline-flex; align-items:center; border:none; border-left:1px solid var(--line);
+  border-radius:0; background:var(--paper-raised); cursor:pointer; color:var(--slate); }
+.rp .seg:first-child { border-left:none; }
+.rp .seg.on { background:var(--brand); color:#fff; }
+.rp .seg:hover:not(.on) { color:var(--ink); }
 @media (max-width:760px){ .layout{flex-direction:column;} nav.side{width:100%;height:auto;position:static;} }
 
 .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
