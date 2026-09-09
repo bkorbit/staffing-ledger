@@ -37,7 +37,9 @@ const dealByJobcode = new Map([['26acme260101', { id: 'deal-1', client_id: 'clie
 eq(m.classifyEntry({ childName: 'Acme Corp:26acme260101', parentName: 'Acme Corp', childType: 'regular' }, dealByJobcode),
   { type: 'billable', dealId: 'deal-1', clientId: 'client-1' }, 'child jobcode carries the code, matches a deal');
 eq(m.classifyEntry({ childName: 'Acme Corp', parentName: '', childType: 'regular' }, dealByJobcode),
-  { type: 'internal' }, 'a real customer name with no embedded code at all -> internal, not unmatched');
+  { type: 'internal', uncoded: 'Acme Corp' }, 'a real customer name with no embedded code at all -> internal, not unmatched — but tagged so the log can name it');
+eq(m.classifyEntry({ childName: 'UC Health - 2H', parentName: 'MaterialPlus', childType: 'regular' }, dealByJobcode),
+  { type: 'internal', uncoded: 'MaterialPlus › UC Health - 2H' }, 'two-level uncoded chain reports parent › child, hours still land in internal');
 eq(m.classifyEntry({ childName: '26acme260101', parentName: 'Acme Corp', childType: 'regular' }, new Map()),
   { type: 'unmatched', code: '26acme260101' }, 'real-looking code but no deal carries it — flagged, not silently dropped');
 eq(m.classifyEntry({ childName: 'Time off', parentName: '', childType: 'pto' }, dealByJobcode),

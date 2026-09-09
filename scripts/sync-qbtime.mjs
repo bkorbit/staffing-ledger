@@ -99,6 +99,13 @@ export function jobcodeFromName(name) {
 // project carrying it (see the join built in main()) — matching is
 // case-insensitive to agree with match_deals_to_projects()'s own
 // `lower(q.jobcode) = lower(d.jobcode)` equality.
+//
+// A jobcode whose names are NOT on the internal list but carry no parsable
+// code still lands in the internal bucket (never guess a client from a bare
+// name) — but it comes back tagged `uncoded` with the "Parent › Child" label,
+// so main() can report which real-looking jobcodes are silently swallowing
+// hours. Before this tag existed, the UC Health project (Sep 2026) lost a
+// whole month of hours into deal_id null with nothing in the log to say so.
 export function classifyEntry(e, dealByJobcode) {
   const lowerChild = (e.childName || '').toLowerCase(), lowerParent = (e.parentName || '').toLowerCase();
   const childIsTimeoffType = !!(e.childType && TIMEOFF_JOBCODE_TYPES.has(e.childType));
@@ -117,6 +124,8 @@ export function classifyEntry(e, dealByJobcode) {
       if (deal) return { type: 'billable', dealId: deal.id, clientId: deal.client_id };
       return { type: 'unmatched', code };
     }
+    const label = [e.parentName, e.childName].filter(Boolean).join(' › ');
+    if (label) return { type: 'internal', uncoded: label };
   }
   return { type: 'internal' };
 }
@@ -430,6 +439,7 @@ async function main() {
   const dayEntries = new Map(); // 'staffId|dealId|date' -> {staffId, dealId, clientId, department, hours}
   const timeOffDays = new Map(); // 'staffId|kind' -> Map(date -> hours)
   const unmatchedJobcodes = new Map(); // code -> hours, seen but no deal carries it
+  const uncodedJobcodes = new Map();   // 'Parent › Child' -> hours, no parsable code, not on the internal list
   const internalHours = { count: 0, hours: 0 };
 
   for (const e of entries) {
@@ -443,6 +453,7 @@ async function main() {
       continue;
     }
     if (c.type === 'unmatched') unmatchedJobcodes.set(c.code, (unmatchedJobcodes.get(c.code) || 0) + e.hours);
+    if (c.uncoded) uncodedJobcodes.set(c.uncoded, (uncodedJobcodes.get(c.uncoded) || 0) + e.hours);
     const dealId = c.type === 'billable' ? c.dealId : null;
     const clientId = c.type === 'billable' ? c.clientId : null;
     if (!dealId) { internalHours.count++; internalHours.hours += e.hours; }
@@ -457,6 +468,16 @@ async function main() {
     console.log(`  ⚠ ${unmatchedJobcodes.size} jobcode(s) looked like a real project code but matched no won/active deal's claimed QBO project:`);
     [...unmatchedJobcodes.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20)
       .forEach(([code, hrs]) => console.log(`      ${code}: ${hrs.toFixed(2)}h`));
+  }
+  if (uncodedJobcodes.size) {
+    // These are the silent losses: not internal by name, but nothing to match
+    // on, so their hours sit in deal_id null. Fix is on the QuickBooks Time
+    // side (put the project's code in the jobcode name) — the row here tells
+    // you which jobcode and how much is at stake.
+    const total = [...uncodedJobcodes.values()].reduce((a, b) => a + b, 0);
+    console.log(`  ⚠ ${uncodedJobcodes.size} jobcode(s) are not on the internal list but carry no parsable code (${total.toFixed(2)}h written as internal). Top 30:`);
+    [...uncodedJobcodes.entries()].sort((a, b) => b[1] - a[1]).slice(0, 30)
+      .forEach(([name, hrs]) => console.log(`      ${name}: ${hrs.toFixed(2)}h`));
   }
   console.log(`  Internal/non-billable/unmatched: ${internalHours.count} entries (${internalHours.hours.toFixed(2)}h) — written with deal_id null.`);
 
@@ -498,7 +519,7 @@ async function main() {
   await sbPatchState({
     import_from: startDate, // unchanged; kept explicit so a manual edit to widen the window is visible in the diff
     last_run_at: new Date().toISOString(),
-    last_run_log: { ok: true, entries: teRows.length, timeOffRanges: offRows.length, unmatchedJobcodes: unmatchedJobcodes.size, at: new Date().toISOString() }
+    last_run_log: { ok: true, entries: teRows.length, timeOffRanges: offRows.length, unmatchedJobcodes: unmatchedJobcodes.size, uncodedJobcodes: uncodedJobcodes.size, at: new Date().toISOString() }
   });
   console.log('✔ Synced.');
 }
