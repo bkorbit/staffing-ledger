@@ -31,8 +31,10 @@ import { hoursByWeekChart, revGpChart, hoursStat, revStat, departmentOrder } fro
 // mechanism yet (db/034/035), so there is no "planned labor cost" to add.
 //
 // An open client closes with the two reports Project Hours shows per project
-// — hours per week by department, revenue and gross profit actual vs plan per
-// month — summed across the client's deals by client_detail() (db/089) and
+// — hours per week stacked by PROJECT here (a client's question is which
+// project is eating the hours; Project Hours stacks its one project by
+// department), revenue and gross profit actual vs plan per month — summed
+// across the client's deals by client_detail() (db/089, weeks_by_deal 090) and
 // drawn by assets/detail-charts.js, the one copy both pages use. Fetched
 // lazily per opened client and cached for the visit. The unclaimed remainder
 // is NOT in the charts, for the same reason it is not in the client total.
@@ -324,7 +326,7 @@ boot('clientprofit', async (supa, el) => {
     return `<tr class="expand-row"><td colspan="12">
       <div class="client-charts">
         <div class="sc-panel chartpanel">
-          <div class="chart-head"><div class="sc-eyebrow">Hours logged by week — all projects</div>
+          <div class="chart-head"><div class="sc-eyebrow">Hours logged by week — by project</div>
             <div class="stat-inline">${ready && !d.error ? hoursStat(d, rangeFrom, rangeTo) : ''}</div></div>
           ${body(`hours-${c.clientId}`)}
         </div>
@@ -467,7 +469,7 @@ boot('clientprofit', async (supa, el) => {
       if (!d) { ensureDetail(c.clientId); return; }
       if (d instanceof Promise || d.error) return;
       const h = document.querySelector(`[id="hours-${c.clientId}"]`), v = document.querySelector(`[id="rev-${c.clientId}"]`);
-      if (h) hoursByWeekChart(h, d, rangeFrom, rangeTo, deptOrder, { height: 220 });
+      if (h) hoursByWeekChart(h, d, rangeFrom, rangeTo, deptOrder, { height: 220, by: 'deal' });
       if (v) revGpChart(v, d, { height: 220 });
     });
 

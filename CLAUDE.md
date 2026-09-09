@@ -101,7 +101,7 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
 - Fixed costs: edited on Settings, subtracted from projected net only.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 089. Key views/functions
+## Current migration head: 090. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
@@ -153,6 +153,12 @@ is always a new migration, so grep for the highest one before reading an old bod
   the charts from `app/assets/detail-charts.js` — one copy, imported with the
   same `?v=` stamp; it must NOT import shell.js (a second module instance
   would create a second Supabase client).
+  090: every month before the current one is MEASURED in both RPCs (0 when
+  nothing happened; null only for months not yet closed — a null was read as
+  "not measured" and broke the chart's line across an empty month), and
+  client_detail adds `weeks_by_deal` + `deals` so the client chart stacks by
+  project (Boris's call) while Project Hours stacks its one project by
+  department.
 - `snapshot_forecast`, `v_forecast_accuracy`, `v_invoice_settlement_calibration`
   [067] — measuring the model against itself.
 - `promote_approval(hubspot_deal_id)` [078] — the promotion door: deal +
