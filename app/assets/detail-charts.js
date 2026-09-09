@@ -181,7 +181,12 @@ export function revGpChart(el, detail, opts = {}) {
   // gridline step: the smallest of these that keeps the axis under ~7 lines
   const STEPS = [100000, 250000, 500000, 1000000, 2500000, 5000000, 10000000, 25000000, 50000000, 100000000];
   const step = STEPS.find(s => (rawMax - rawMin) / s <= 7) || STEPS[STEPS.length - 1];
-  const max = Math.max(Math.ceil(rawMax / step) * step, step), min = Math.floor(rawMin / step) * step;
+  // headroom: the highest point must sit clear of the frame, never on the top
+  // gridline — if the snapped bound leaves it less than a fifth of a step of
+  // air, add one more gridline (and the same below zero on the negative side)
+  let max = Math.max(Math.ceil(rawMax / step) * step, step), min = Math.floor(rawMin / step) * step;
+  if (max - rawMax < step * 0.2) max += step;
+  if (rawMin < 0 && rawMin - min < step * 0.2) min -= step;
   const x = i => P.l + (W - P.l - P.r) * (n === 1 ? .5 : i / (n - 1));
   const y = v => P.t + (H - P.t - P.b) * (1 - (v - min) / (max - min));
   let grid = '';
