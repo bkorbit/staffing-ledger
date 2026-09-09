@@ -67,6 +67,41 @@ export function departmentOrder(staff) {
   return order.filter(Boolean);
 }
 
+// ---- one time axis for both charts -------------------------------------------
+// The window is where the information is, taken over BOTH charts: from the
+// earlier of (first week with hours, first month with revenue or plan) to the
+// later of (last week with hours, last month with revenue or plan). Each
+// chart then draws that whole span — the revenue chart fills months only the
+// hours side reaches with measured $0 (or nothing, ahead of today), the hours
+// chart shows empty months only the revenue side reaches — so a reader can
+// run a finger down from a bar to the month under it. Boris: "you might
+// correlate the two but the time axes are not the same." A dribble at either
+// end of the hours (a bucket under 1% of the tallest) is ignored when placing
+// the window, so a stray entry logged a year early cannot stretch both axes.
+const DRIBBLE = 0.01;
+const informative = m => +m.rev_actual || +m.gp_actual || +m.rev_plan || +m.gp_plan;
+export function detailWindow(detail) {
+  const totals = {};
+  [...(detail.weeks || []), ...(detail.weeks_by_deal || [])].forEach(r => {
+    if (+r.hours > 0) totals[r.week] = (totals[r.week] || 0) + +r.hours; });
+  // weeks and weeks_by_deal are two views of the same hours, so a client payload
+  // counts each hour twice here — harmless: only the RATIO to the tallest
+  // bucket is used, for the dribble trim
+  let weeks = Object.keys(totals).sort();
+  if (weeks.length) {
+    const tallest = Math.max(...weeks.map(w => totals[w]));
+    while (weeks.length > 1 && totals[weeks[0]] < tallest * DRIBBLE) weeks.shift();
+    while (weeks.length > 1 && totals[weeks[weeks.length - 1]] < tallest * DRIBBLE) weeks.pop();
+  }
+  const months = (detail.months || []).filter(informative).map(m => m.month).sort();
+  const starts = [weeks[0] && weeks[0].slice(0, 7) + '-01', months[0]].filter(Boolean).sort();
+  const ends = [weeks.length && weeks[weeks.length - 1].slice(0, 7) + '-01', months[months.length - 1]].filter(Boolean).sort();
+  if (!starts.length) return null;
+  const startMonth = starts[0], endMonth = ends[ends.length - 1];
+  let n = 0; for (let m = startMonth; m <= endMonth; m = shiftM(m, 1)) n++;
+  return { startMonth, endMonth, months: n, firstWeek: weeks[0] || null, lastWeek: weeks[weeks.length - 1] || null };
+}
+
 // ---- hours logged, stacked — by week, or by month once the window is long ----
 // opts.by = 'department' (default; detail.weeks, coloured by the company-wide
 // department order) or 'deal' (detail.weeks_by_deal, one series per project,
@@ -75,18 +110,12 @@ export function departmentOrder(staff) {
 // by-department switch is the page's (a small pill on the card), not the
 // chart's.
 //
-// The window is where the information is: from the first week with hours to
-// the last, never the flight or the future — an empty flight start or a lull
-// after the last entry is not drawn as empty track. A dribble at either end
-// (a bucket under 1% of the tallest, e.g. a stray quarter-hour logged a year
-// early) is trimmed too, so one mislogged entry cannot stretch the axis back
-// across a year of nothing; the table's totals still count it. Once the
-// trimmed window is longer than four months the bars become MONTHS (a week
-// is bucketed by the month its Monday falls in) — 26+ weekly bars read as
-// noise where six monthly ones read as a trend. The page's own range is
+// The window is detailWindow()'s — shared with the revenue chart, so the two
+// axes line up. Once it is longer than four months the bars become MONTHS (a
+// week is bucketed by the month its Monday falls in) — 26+ weekly bars read
+// as noise where six monthly ones read as a trend. The page's own range is
 // shaded whichever grain is drawn.
-const DRIBBLE = 0.01;
-const MONTHLY_AFTER_WEEKS = 18;   // ~4 months
+const MONTHLY_AFTER_MONTHS = 4;
 export function hoursByWeekChart(el, detail, rangeFrom, rangeTo, deptOrder, opts = {}) {
   const W = 940, H = opts.height || 190, P = { l: 48, r: 28, t: 14, b: 24 };
   const byDeal = opts.by === 'deal';
@@ -121,23 +150,16 @@ export function hoursByWeekChart(el, detail, rangeFrom, rangeTo, deptOrder, opts
     const extra = [...new Set(rows.map(r => r.key))].filter(k => !deptOrder.includes(k)).sort();
     order = [...deptOrder, ...extra];
   }
-  const totalsByWeek = {};
-  rows.forEach(r => { if (r.hours > 0) totalsByWeek[r.week] = (totalsByWeek[r.week] || 0) + r.hours; });
-  let dataWeeks = Object.keys(totalsByWeek).sort();
-  if (!dataWeeks.length) {
+  const win = opts.window || detailWindow(detail);
+  if (!win || !rows.some(r => r.hours > 0)) {
     el.innerHTML = `<div class="empty-note" style="padding:28px 14px">No hours logged here yet.</div>`; return;
   }
-  // trim the dribble at either end
-  const tallest = Math.max(...dataWeeks.map(w => totalsByWeek[w]));
-  while (dataWeeks.length > 1 && totalsByWeek[dataWeeks[0]] < tallest * DRIBBLE) dataWeeks.shift();
-  while (dataWeeks.length > 1 && totalsByWeek[dataWeeks[dataWeeks.length - 1]] < tallest * DRIBBLE) dataWeeks.pop();
-  const first = dataWeeks[0], last = dataWeeks[dataWeeks.length - 1];
-  const weeksSpan = Math.round((new Date(last) - new Date(first)) / 6048e5) + 1;
-  const monthly = weeksSpan > MONTHLY_AFTER_WEEKS;
-  // buckets: every week (or month) from first to last, gaps included
+  const monthly = win.months > MONTHLY_AFTER_MONTHS;
+  // buckets: every week (or month) across the shared window, gaps included
   const bucketOf = w => monthly ? w.slice(0, 7) + '-01' : w;
+  const first = mondayOf(win.startMonth), last = mondayOf(endOfMonth(win.endMonth));
   const buckets = [];
-  if (monthly) { for (let m = first.slice(0, 7) + '-01'; m <= bucketOf(last); m = shiftM(m, 1)) buckets.push(m); }
+  if (monthly) { for (let m = win.startMonth; m <= win.endMonth; m = shiftM(m, 1)) buckets.push(m); }
   else { for (let w = first; w <= last; w = addDays(w, 7)) buckets.push(w); }
   const idx = {}; buckets.forEach((k, i) => idx[k] = i);
   const slot = k => order.indexOf(k);
@@ -146,7 +168,7 @@ export function hoursByWeekChart(el, detail, rangeFrom, rangeTo, deptOrder, opts
   const seriesByName = {};
   const folded = {};   // Other's members: key -> per-bucket hours, for the tooltip
   rows.forEach(r => {
-    if (r.week < first || r.week > last) return;
+    if (r.week < first || r.week > last) return;   // outside the shared window (a trimmed dribble)
     const name = nameOf(r.key);
     const s = seriesByName[name] = seriesByName[name] || { name, key: name === OTHER ? OTHER : r.key, color: colorOf(r.key), values: buckets.map(() => 0) };
     const i = idx[bucketOf(r.week)]; if (i === undefined) return;
@@ -215,15 +237,19 @@ export function revGpChart(el, detail, opts = {}) {
   let months = (detail.months || []).map(m => ({ ...m,
     rev_actual: meas(m, m.rev_actual), gp_actual: meas(m, m.gp_actual),
     rev_plan: +(m.rev_plan || 0), gp_plan: +(m.gp_plan || 0) }));
-  // the window is where the information is: a month carries information when
-  // any of the four series is non-zero. Leading and trailing empty months are
-  // trimmed; a $0 month stays only between two months that have something —
-  // that gap IS information (nothing invoiced), a year of nothing before the
-  // first invoice is not.
-  const informative = m => m.rev_actual || m.gp_actual || m.rev_plan || m.gp_plan;
-  let lo = months.findIndex(informative), hi = months.length - 1;
-  while (hi > lo && !informative(months[hi])) hi--;
-  months = lo < 0 ? [] : months.slice(lo, hi + 1);
+  // the shared window (detailWindow): every month from its start to its end.
+  // A month the payload has no row for — reached only because the hours side
+  // extends there — is measured $0 if closed, nothing if still ahead.
+  const win = opts.window || detailWindow(detail);
+  if (win) {
+    const byMonth = {}; months.forEach(m => byMonth[m.month] = m);
+    const filled = [];
+    for (let k = win.startMonth; k <= win.endMonth; k = shiftM(k, 1)) {
+      filled.push(byMonth[k] || { month: k, rev_actual: through && k <= through ? 0 : null,
+        gp_actual: through && k <= through ? 0 : null, rev_plan: 0, gp_plan: 0 });
+    }
+    months = filled;
+  } else months = [];
   if (!months.length) {
     const noProj = detail.deal && !detail.deal.qbo_project_id;
     el.innerHTML = `<div class="empty-note" style="padding:28px 14px">${noProj ? 'No QB project claimed and no plan — nothing to measure.' : 'No plan or invoices here yet.'}</div>`; return;
