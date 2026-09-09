@@ -1223,9 +1223,9 @@ boot('forecast', async (supa, el) => {
       const fm = monthsBetween(flight.start, flight.end);
       const openM = fm.filter(m=>!closed(m));
       const asSold = d.promotions?.[0]?.as_sold;
-      const field = (li, p, label, val, ph='0') =>
+      const field = (li, p, label, val, ph='0', extra='') =>
         `<label class="pf"><span class="pfl">${label}</span>
-           <input class="p" type="number" step="any" inputmode="decimal" data-li="${li}" data-p="${p}" value="${val}" placeholder="${ph}"></label>`;
+           <input class="p" type="number" step="any" inputmode="decimal" data-li="${li}" data-p="${p}" value="${val}" placeholder="${ph}" ${extra}></label>`;
 
       // month columns: EVERY month of the flight gets one, closed months
       // included. They used to collapse into a single "N closed ✓" cell, which
@@ -1238,7 +1238,11 @@ boot('forecast', async (supa, el) => {
         `<th class="monthcol${c.closed?' closedcol':''}">${c.label}${c.closed?' ✓':''}</th>`).join('');
       const cc = c => c.closed ? ' closedcol' : '';
 
-      const kindLabelOf = l => l.kind === 'creative' ? `creative · ${creativeMode(l)}` : l.kind;
+      // an hourly line's label is the WORK it is ("SEO audit") — two hourly
+      // lines on one deal were two identical badges with nothing to tell them
+      // apart. creative's label is structure, not a name, and stays as is.
+      const kindLabelOf = l => l.kind === 'creative' ? `creative · ${creativeMode(l)}`
+        : (l.kind === 'hourly' && l.label) ? `hourly · ${l.label}` : l.kind;
       const isHourlyL = l => l.kind==='hourly' || (l.kind==='creative' && creativeMode(l)==='hourly');
       const isBudgetL = l => KIND[l.kind].cells==='budget';
       // does this deal rebill any media? if so the grid carries a pass-through
@@ -1250,7 +1254,7 @@ boot('forecast', async (supa, el) => {
 
       // ---- the overview TABLE: one display row per line, then the totals ----
       const lineRows = model.map((l, li) => `<tr class="linerow">
-          <td class="rowlabelcol"><span class="kbadge sm">${kindLabelOf(l)}</span></td>
+          <td class="rowlabelcol"><span class="kbadge sm" data-lk="${li}">${kindLabelOf(l)}</span></td>
           ${cols.map((c,ci)=>`<td class="muted${cc(c)}" data-lrc="${li}:${ci}"></td>`).join('')}
           <td class="linegpcol muted" data-lrt="${li}"></td>
         </tr>`).join('');
@@ -1285,12 +1289,33 @@ boot('forecast', async (supa, el) => {
                  <option value="agency" ${l.media_funding==='agency'?'selected':''}>EMG pays &amp; rebills</option>
                </select></label>`
           : '';
+        // the total box (budget kinds & hourly get a spreadable total). Computed
+        // first because the hours fields below need to know whether one is set.
+        // rounded to cents: the cells are cents divided by 100, so summing a
+        // dozen of them accumulates binary-float dust and the box rendered
+        // "1370530.130000" for a budget of $1,370,530.13. Cents are the unit
+        // the money is stored in, so they are the right place to land.
+        const useTotal = isBudgetL(l) || isHourlyL(l);
+        const curTotal = Math.round(openM.reduce((s,m)=>s+(+l.cells[m]||0),0) * 100) / 100;
         const bits = shapeSel ? [shapeSel] : [];
+        // what the work IS, for a plain hourly line — free text, saved as the
+        // line's label (KIND.hourly declared label:true from the start; the
+        // field was never drawn). Leads the row: it is the line's name.
+        if (l.kind === 'hourly')
+          bits.push(`<label class="pf work"><span class="pfl">work</span>
+            <input class="llabel" type="text" data-li="${li}" value="${esc(l.label||'')}" placeholder="e.g. SEO audit, landing pages" maxlength="80"></label>`);
         if (l.kind==='retainer'||l.kind==='custom'||(l.kind==='creative'&&mode==='retainer'))
           bits.push(field(li,'amount','$ / flight month', l.params.amount||''));
         if (isHourlyL(l)) {
           bits.push(field(li,'rate','rate $/hr', l.params.rate||''));
-          bits.push(field(li,'hours_per_month','hrs/mo default', l.params.hours_per_month||''));
+          // two ways to say how many hours, and they used to sit side by side
+          // with nothing relating them ("hrs/mo default" greyed at 0 beside
+          // "Total hours 50"). The total, once set, writes every open month's
+          // cell and the monthly figure stops mattering — so it is disabled and
+          // says why while a total exists, and comes back when the total is
+          // cleared (see the totalbudget handler).
+          bits.push(field(li,'hours_per_month','hrs / month', l.params.hours_per_month||'', '0',
+            curTotal > 0 ? 'disabled title="overridden while a total is set — the total is spread across the open months"' : ''));
         }
         (cfg.defaults||[]).forEach(([p,label]) => {
           if (p==='amount'||p==='rate'||p==='hours_per_month') return;
@@ -1306,15 +1331,8 @@ boot('forecast', async (supa, el) => {
         // updated live in preview() as margin%/fee% change
         const marginTag = l.kind==='programmatic'
           ? `<span class="pill margintag" data-li="${li}" title="expected margin: margin % (default when blank) plus this line's fee %"></span>` : '';
-        // the total box (budget kinds & hourly get a spreadable total)
-        const useTotal = isBudgetL(l) || isHourlyL(l);
-        // rounded to cents: the cells are cents divided by 100, so summing a
-        // dozen of them accumulates binary-float dust and the box rendered
-        // "1370530.130000" for a budget of $1,370,530.13. Cents are the unit
-        // the money is stored in, so they are the right place to land.
-        const curTotal = Math.round(openM.reduce((s,m)=>s+(+l.cells[m]||0),0) * 100) / 100;
         const totalBox = useTotal
-          ? `<label class="pf tb"><span class="pfl">${isBudgetL(l)?'Total budget $':'Total hours'}</span>
+          ? `<label class="pf tb"><span class="pfl">${isBudgetL(l)?'Total budget $':'total hours (spread)'}</span>
                <input class="totalbudget" type="number" step="any" inputmode="decimal" data-li="${li}" value="${curTotal||''}" placeholder="spread evenly"></label>`
           : '';
         // per-month override, tucked away
@@ -1326,7 +1344,7 @@ boot('forecast', async (supa, el) => {
         return `<div class="linecard" data-li="${li}">
           <div class="cardhead">
             <span class="chleft">
-              <span class="kbadge">${kindLabelOf(l)}</span>${marginTag}
+              <span class="kbadge" data-lk="${li}">${kindLabelOf(l)}</span>${marginTag}
             </span>
             <span class="chright">
               <span class="lgp" data-li="${li}"></span>
@@ -1433,6 +1451,11 @@ boot('forecast', async (supa, el) => {
           ? (inp.dataset.p==='margin_pct'?null:0) : n;
         preview();
       });
+      box.querySelectorAll('input.llabel').forEach(inp => inp.oninput = () => {
+        const l = model[+inp.dataset.li];
+        l.label = inp.value.trim() || null;
+        box.querySelectorAll(`[data-lk="${inp.dataset.li}"]`).forEach(b => b.textContent = kindLabelOf(l));
+      });
       box.querySelectorAll('select.cmode').forEach(sel => sel.onchange = () => {
         const l = model[+sel.dataset.li];
         l.label = 'creative:' + sel.value;
@@ -1464,6 +1487,10 @@ boot('forecast', async (supa, el) => {
         box.querySelectorAll(`.linecard[data-li="${inp.dataset.li}"] input.cell`).forEach(ci => {
           ci.value = l.cells[ci.dataset.m] ?? '';
         });
+        // hrs / month is overridden while a total exists — grey it and say so
+        const hpm = box.querySelector(`.linecard[data-li="${inp.dataset.li}"] input.p[data-p="hours_per_month"]`);
+        if (hpm) { hpm.disabled = total > 0;
+          hpm.title = total > 0 ? 'overridden while a total is set — the total is spread across the open months' : ''; }
         preview();
       });
       // per-month override cells inside the card

@@ -736,6 +736,11 @@ details.permonth summary:hover { color:var(--brand); }
 
 .cardbody .lparams .pf input { width:104px; }
 .cardbody .lparams .pf.tb input { width:128px; }
+/* the hourly line's "work" field is a name, not a quantity: body face, left
+   aligned, wide enough for "landing pages + QA"; a disabled hrs/month field
+   (overridden by a spread total) reads as greyed, with the reason in its title */
+.cardbody .lparams .pf.work input { width:220px; text-align:left; font-family:var(--font-body); font-size:0.8rem; }
+.cardbody .lparams .pf input:disabled { background:#f2f2f2; color:var(--slate); border-style:dashed; cursor:not-allowed; }
 .subrev { font-size:0.6rem; color:var(--slate); }
 .totalsgrid td .subrev { line-height:1.3; }
 .setrow input.dname { font-family:var(--font-body); }
