@@ -45,6 +45,34 @@ boot('forecast', async (supa, el) => {
       d=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,1)); } return out; };
   const past = m => m < thisMonth;
 
+  /* ---- how actual GP vs forecast is coloured, in ONE place (087) ----
+     Both the client/deal table's Variance column and the deal editor's
+     "Δ actual vs forecast" row ask the same question, so they answer it with
+     the same function rather than with two copies of a threshold.
+
+     ASYMMETRIC on purpose. The old rule keyed on |pct| against a ±15 band, so
+     -12% — a real shortfall — rendered green because it fit inside the band.
+     Landing UNDER plan is the failure that costs money; beating plan is not
+     the same event and must not share a threshold with it. Under is flagged
+     from -10%, over is not flagged at the mirror of that.
+
+     A very large overshoot keeps a colour, though, because it is almost never
+     good news: it means the deal has closed months carrying no forecast, or is
+     matched to the wrong QuickBooks project — the "+305%" sitting next to a
+     "2 missing forecast" badge. Amber, not red: a question about the data
+     rather than a verdict on the deal. The old magnitude rule caught this case
+     by accident, and a plain sign flip would have lost it. */
+  // -10 is itself a miss, so it flags (<=); +50 is still a plausibly great
+  // month, so only past it reads as a data question (>).
+  const VAR_UNDER = -10, VAR_WILD = 50;
+  const varClass = v => v <= VAR_UNDER ? 'err' : v > VAR_WILD ? 'warn' : 'ok';
+  const varTitle = v => v <= VAR_UNDER
+    ? `actual GP came in ${Math.abs(v)}% under the forecast for the closed months`
+    : v > VAR_WILD
+    ? 'far above forecast — usually closed months with no forecast, or a deal '
+      + 'matched to the wrong QuickBooks project, rather than a win'
+    : 'actual GP is on or ahead of the forecast for the closed months';
+
   // the range: six back, six forward, editable
   let rangeFrom = shiftM(thisMonth,-6), rangeTo = shiftM(thisMonth,6);
 
@@ -813,7 +841,7 @@ boot('forecast', async (supa, el) => {
 
     const num = v => v ? fmtM(v) : '';
     const varCell = v => v===null||v===undefined ? '' :
-      `<span class="${Math.abs(v)>15?'err':'ok'}">${v>=0?'+':''}${v}%</span>`;
+      `<span class="${varClass(v)}" title="${varTitle(v)}">${v>=0?'+':''}${v}%</span>`;
 
     const q = tableQuery.trim().toLowerCase();
     // active in the period = the flight overlaps the range window. A deal spanning
@@ -1610,7 +1638,8 @@ boot('forecast', async (supa, el) => {
             if (!c.closed)     dtd.innerHTML = '';
             else if (hasA && gp) {
               const pct = Math.round((a/gp - 1)*100);
-              dtd.innerHTML = `<span class="${Math.abs(pct)>15?'err':'ok'}" style="font-size:0.62rem">${pct>=0?'+':''}${pct}%</span>`;
+              dtd.innerHTML = `<span class="${varClass(pct)}" title="${varTitle(pct)}"
+                style="font-size:0.62rem">${pct>=0?'+':''}${pct}%</span>`;
             }
             else if (hasA)     dtd.innerHTML = `<span class="muted" style="font-size:0.62rem"
               title="QuickBooks booked ${fmtMoney(a)} here and this deal forecast nothing for the month">no forecast</span>`;
