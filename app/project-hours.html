@@ -135,15 +135,32 @@ function hoursCell(planned, logged, hasRevenue, showLogged = true, cls = '') {
     <div class="delta-note flat">${showLogged && logged > 0 ? fmtHours(logged) + 'h logged · ' : ''}not assigned yet</div></div></td>`;
 }
 
-// Department series colors: the closed brand palette, in a fixed order chosen
-// so the two closest greens (--brand-2 / --brand-4) are never stacked next to
-// each other. Assigned by department NAME across the whole company (sorted
-// once from hours_page's staff list), never by a project's own ranking, so
-// the same department is the same color on every project. A sixth or later
-// department folds into "Other" rather than inventing a hue (DESIGN.md).
-const DEPT_COLORS = ['var(--brand)', 'var(--accent)', 'var(--brand-2)', 'var(--slate)', 'var(--brand-4)'];
-const OTHER_COLOR = '#b5b5b5';
+// Department series colours: the chart categorical ramp (--cat-1..7 in
+// style.css — a documented exception to the closed palette, department series
+// only; slot 1 is the brand's own muted green). Assigned by department NAME
+// company-wide, never by a project's own ranking, so the same department is
+// the same colour on every project: departments are ordered by headcount on
+// hours_page's staff list (ties alphabetical), which puts the brand green on
+// the largest team and only changes when the roster does. DEPT_SLOTS pins a
+// department to a slot explicitly and wins over that order — fill it in once
+// the department names are settled. An eighth department folds into grey
+// "Other" rather than inventing a hue: no brand-compatible eighth passes.
+const DEPT_COLORS = ['var(--cat-1)', 'var(--cat-2)', 'var(--cat-3)', 'var(--cat-4)', 'var(--cat-5)', 'var(--cat-6)', 'var(--cat-7)'];
+const DEPT_SLOTS = {};            // e.g. { 'Paid Media': 0, 'Creative': 2 } — slot index into DEPT_COLORS
+const OTHER_COLOR = 'var(--cat-other)';
 const OTHER = 'Other';
+// company-wide department order: pinned slots first, then by headcount desc,
+// then name — the key every project's chart colours by
+function departmentOrder(staff) {
+  const count = {};
+  staff.forEach(s => { if (s.department) count[s.department] = (count[s.department] || 0) + 1; });
+  const free = Object.keys(count).filter(d => DEPT_SLOTS[d] === undefined)
+    .sort((a, b) => count[b] - count[a] || a.localeCompare(b));
+  const order = [];
+  Object.entries(DEPT_SLOTS).forEach(([d, i]) => { if (count[d] !== undefined) order[i] = d; });
+  free.forEach(d => { let i = 0; while (order[i] !== undefined) i++; order[i] = d; });
+  return order.filter(Boolean);
+}
 
 // ---- (4) hours logged per ISO week, stacked by department ------------------
 // Shares shell.js barChart's frame, grid and grey legend footer; drawn here
@@ -378,7 +395,7 @@ boot('projhours', async (supa, el) => {
     const dealsById = {}; deals.forEach(d => dealsById[d.id] = d);
     const clientsById = {}; clients.forEach(c => clientsById[c.id] = c);
     const staffById = {}; (H.staff || []).forEach(s => staffById[s.id] = s);
-    deptOrder = [...new Set((H.staff || []).map(s => s.department).filter(Boolean))].sort();
+    deptOrder = departmentOrder(H.staff || []);
     const revProjByProj = {}; (P.rev_proj || []).forEach(r => revProjByProj[r.qbo_project_id] = +r.total);
     const cogsProjByProj = {}; (P.cogs_proj || []).forEach(r => cogsProjByProj[r.qbo_project_id] = +r.total);
     const planByDeal = {}; (P.plan_deal || []).forEach(r => planByDeal[r.deal_id] =

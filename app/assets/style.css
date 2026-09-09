@@ -9,6 +9,17 @@
   --rust:#d1453b; --rust-bg:#fbe7e4; --amber:#b07a14; --amber-bg:#fdf3dc;
   --font-display:'Montserrat',sans-serif; --font-body:'Montserrat',sans-serif;
   --font-mono:'IBM Plex Mono',monospace;
+  /* Chart categorical ramp — department series on Project Hours' weekly hours
+     chart, and NOTHING else (a confirmed exception to the closed palette, like
+     the sales pipeline ramp; see DESIGN.md). Slot 1 is --brand-2. The ORDER is
+     the colour-blindness mechanism: it alternates cool/warm and light/dark so
+     adjacent stacked segments never merge — every adjacent pair clears ΔE≥15
+     normal vision, ≥8 for all three CVD types, ≥3:1 on white (dataviz
+     validator, 8 Sep 2026). Seven is the ceiling: no brand-compatible eighth
+     hue passes, so an eighth series folds into grey "Other". Never re-order
+     without re-validating. */
+  --cat-1:#48a278; --cat-2:#4e7bc0; --cat-3:#c05a86; --cat-4:#5b5fc4;
+  --cat-5:#2196a8; --cat-6:#7d8f2f; --cat-7:#9a5fb5; --cat-other:#b5b5b5;
 }
 * { box-sizing:border-box; }
 .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
