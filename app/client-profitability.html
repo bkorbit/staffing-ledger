@@ -247,18 +247,18 @@ boot('clientprofit', async (supa, el) => {
     </td>`;
   }
 
-  // The nine hours/money cells shared by both levels. `split` adds the
-  // measured-vs-forecast line under revenue — deal rows only, since that's
-  // the question drilling into a client is usually asking, and only when
-  // the row actually has both halves to split.
+  // The nine hours/money cells shared by both levels. `split` puts the
+  // measured-vs-forecast breakdown on the revenue cell's hover title — deal
+  // rows only, and only when the row actually has both halves to split.
   function moneyCells(r, b, split) {
-    const splitLine = split && !historicalOnly && r.forecastRevenue !== 0 && r.actualRevenue !== 0
-      ? `<div class="delta-note flat">${fmt$0(r.actualRevenue)} measured · ${fmt$0(r.forecastRevenue)} forecast</div>`
-      : '';
+    // the measured · forecast split lives in the revenue cell's hover title,
+    // not under the figure — a second line per deal row cluttered the block
+    const splitTitle = split && !historicalOnly && r.forecastRevenue !== 0 && r.actualRevenue !== 0
+      ? ` title="${esc(fmt$0(r.actualRevenue) + ' measured · ' + fmt$0(r.forecastRevenue) + ' forecast')}"` : '';
     return `
       <td>${fmtHours(r.plannedHours)}</td>
       <td>${fmtHours(r.actualHours)}</td>
-      <td>${fmt$0(b.revenue)}${splitLine}</td>
+      <td${splitTitle}>${fmt$0(b.revenue)}</td>
       <td>${fmt$0(b.cogs)}</td>
       <td class="${b.gp < 0 ? 'err' : 'ok'}">${fmt$0(b.gp)}</td>
       <td>${fmt$0(r.laborCost)}</td>
@@ -272,11 +272,8 @@ boot('clientprofit', async (supa, el) => {
     const b = blend(d);
     const cls = ['subrow', b.profitAfterLabor < 0 ? 'risk' : '', isLast ? 'last' : ''].filter(Boolean).join(' ');
     return `<tr class="${cls}">
-      <td class="textleft">
-        <div class="sub-name">${esc(d.name)}</div>
-        <div class="sub-proj">${d.qboProjectId
-          ? esc(d.projName || d.qboProjectId)
-          : '<span class="pill warn">no QB project</span>'}</div>
+      <td class="textleft" title="${esc(d.name)}${d.projName ? ' · ' + esc(d.projName) : ''}">
+        <div class="sub-name" style="display:flex;align-items:center;gap:8px">${esc(d.name)}${d.qboProjectId ? '' : '<span class="pill warn">no QB project</span>'}</div>
       </td>
       <td class="textleft">${fmtDate(d.flightStart)} → ${fmtDate(d.flightEnd)}</td>
       ${hoursCell(d)}

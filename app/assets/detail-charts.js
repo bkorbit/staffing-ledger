@@ -94,14 +94,22 @@ export function hoursByWeekChart(el, detail, rangeFrom, rangeTo, deptOrder, opts
   let rows, order, label;
   if (byDeal) {
     const deals = detail.deals || [];
-    order = deals.map(d => d.id);
     const names = {}; deals.forEach(d => names[d.id] = d.name || '(unnamed deal)');
     rows = (detail.weeks_by_deal || []).map(r => ({ week: r.week, key: r.deal_id, hours: +r.hours }));
     label = k => names[k] || '(unknown deal)';
+    // slots by total hours, biggest first: with more projects than colours,
+    // the six that matter are the six you can tell apart
+    const tot = {}; rows.forEach(r => tot[r.key] = (tot[r.key] || 0) + r.hours);
+    order = Object.keys(tot).sort((a, b) => tot[b] - tot[a] || label(a).localeCompare(label(b)));
   } else {
-    order = deptOrder;
     rows = (detail.weeks || []).map(r => ({ week: r.week, key: r.department, hours: +r.hours }));
     label = k => k;
+    // the company-wide order first (same colour for the same department on
+    // every chart), then any department the staff list does not know — an
+    // entry's own QB Time department standing in for a person with none —
+    // appended so it gets a colour while slots remain instead of going grey
+    const extra = [...new Set(rows.map(r => r.key))].filter(k => !deptOrder.includes(k)).sort();
+    order = [...deptOrder, ...extra];
   }
   const toggleHtml = opts.toggle ? `<span class="lg-sep"></span>` +
     [['deal', 'by project'], ['department', 'by department']].map(([v, t]) =>
@@ -131,12 +139,19 @@ export function hoursByWeekChart(el, detail, rangeFrom, rangeTo, deptOrder, opts
   const colorOf = k => { const i = slot(k); return i >= 0 && i < DEPT_COLORS.length ? DEPT_COLORS[i] : OTHER_COLOR; };
   const nameOf = k => { const i = slot(k); return i >= 0 && i < DEPT_COLORS.length ? label(k) : OTHER; };
   const seriesByName = {};
+  const folded = {};   // Other's members: key -> per-bucket hours, for the tooltip
   rows.forEach(r => {
     if (r.week < first || r.week > last) return;
     const name = nameOf(r.key);
     const s = seriesByName[name] = seriesByName[name] || { name, key: name === OTHER ? OTHER : r.key, color: colorOf(r.key), values: buckets.map(() => 0) };
-    const i = idx[bucketOf(r.week)]; if (i !== undefined) s.values[i] += r.hours;
+    const i = idx[bucketOf(r.week)]; if (i === undefined) return;
+    s.values[i] += r.hours;
+    if (name === OTHER) { const f = folded[r.key] = folded[r.key] || buckets.map(() => 0); f[i] += r.hours; }
   });
+  // the fold is named by what it holds, not "Other": "+3 smaller projects"
+  const foldedKeys = Object.keys(folded).sort((a, b) => label(a).localeCompare(label(b)));
+  if (seriesByName[OTHER]) seriesByName[OTHER].name =
+    `+${foldedKeys.length} smaller ${byDeal ? (foldedKeys.length === 1 ? 'project' : 'projects') : (foldedKeys.length === 1 ? 'department' : 'departments')}`;
   // stack order = the fixed palette order, Other last — so the colours read
   // the same way top-to-bottom everywhere
   const series = Object.values(seriesByName).sort((a, b) =>
@@ -174,7 +189,10 @@ export function hoursByWeekChart(el, detail, rangeFrom, rangeTo, deptOrder, opts
   wireToggle();
   wireChartTip(el,
     i => `<div class="tip-label">${monthly ? '' : 'wk of '}${esc(fmtBucket(buckets[i]))} · ${fmtHours(totals[i])}h</div>` +
-      series.filter(sr => sr.values[i]).map(sr => `<div class="tip-row"><span class="tip-dot" style="background:${sr.color}"></span>${esc(sr.name)} <b>${fmtHours(sr.values[i])}h</b></div>`).join(''),
+      series.filter(sr => sr.values[i]).map(sr => sr.key === OTHER
+        // the fold, itemised: each small project/department on its own line
+        ? foldedKeys.filter(k => folded[k][i]).map(k => `<div class="tip-row"><span class="tip-dot" style="background:${OTHER_COLOR}"></span>${esc(label(k))} <b>${fmtHours(folded[k][i])}h</b></div>`).join('')
+        : `<div class="tip-row"><span class="tip-dot" style="background:${sr.color}"></span>${esc(sr.name)} <b>${fmtHours(sr.values[i])}h</b></div>`).join(''),
     i => { const x = P.l + i * bw + bw / 2; return `<line x1="${x}" y1="${P.t}" x2="${x}" y2="${H - P.b}" stroke="var(--slate)" stroke-dasharray="2 3"/>`; });
 }
 
