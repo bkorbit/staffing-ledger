@@ -101,7 +101,7 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
 - Fixed costs: edited on Settings, subtracted from projected net only.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 090. Key views/functions
+## Current migration head: 091. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
@@ -159,6 +159,13 @@ is always a new migration, so grep for the highest one before reading an old bod
   client_detail adds `weeks_by_deal` + `deals` so the client chart stacks by
   project (Boris's call) while Project Hours stacks its one project by
   department.
+  091: both count exactly the time entries hours_page counts — `attribution`
+  not in ('excluded','timeoff') (090_qbtime_hours_provenance, a PARALLEL
+  session's migration that shares the number 090 with
+  090_detail_zero_months_and_weeks_by_deal; both load, filenames differ).
+  Two sessions worked this tree on 8 Sep 2026: `git add -A` swept the other
+  session's untracked 090 into commit 1a1005f — stage explicit paths when
+  another session may be active.
 - `snapshot_forecast`, `v_forecast_accuracy`, `v_invoice_settlement_calibration`
   [067] — measuring the model against itself.
 - `promote_approval(hubspot_deal_id)` [078] — the promotion door: deal +
