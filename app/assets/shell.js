@@ -124,7 +124,6 @@ const NAV = [
   { id: 'projhours', label: 'Project Hours',   href: './project-hours.html' },
   { id: 'teamhours', label: 'Team Hours',      href: './team-hours.html' },
   { sect: 'Setup' },
-  { id: 'clients',   label: 'Clients',         href: './clients.html' },
   { id: 'team',      label: 'Team',            href: './team.html' },
   { id: 'labor',     label: 'Labor',           href: './labor.html' },
   { id: 'settings',  label: 'Settings',        href: './settings.html' },
@@ -145,7 +144,6 @@ const NAV_ICONS = {
   clientprofit: `<path d="M8.5 3.5c0 1-.7 1.7-1.6 2.4C5.3 7 4.2 8.8 4.2 11.2a5.8 5.8 0 0 0 11.6 0c0-2.4-1.1-4.2-2.7-5.3-.9-.7-1.6-1.4-1.6-2.4"/><path d="M8.5 3.5h3"/><path d="M1 8 3.6 9.6 1 11.2"/><path d="M19 8l-2.6 1.6L19 11.2"/>`,
   projhours: `<path d="M2.5 6a1 1 0 0 1 1-1h3.6l1.2 1.5H16a1 1 0 0 1 1 1V15a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V6Z"/><circle cx="13.3" cy="13" r="3.1"/><path d="M13.3 11.2v1.8l1.4 1.1"/>`,
   teamhours: `<circle cx="10" cy="6.5" r="3"/><path d="M4 17c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/>`,
-  clients: `<rect x="3" y="7" width="14" height="9" rx="1.5"/><path d="M7.5 7V5.5a1.5 1.5 0 0 1 1.5-1.5h2a1.5 1.5 0 0 1 1.5 1.5V7"/><path d="M3 11h14"/>`,
   team: `<circle cx="7" cy="6.5" r="2.3"/><circle cx="14" cy="7.5" r="2"/><path d="M2.5 16c0-2.8 2-4.7 4.5-4.7s4.5 1.9 4.5 4.7"/><path d="M12.5 12.2c2 .2 3.5 1.8 3.5 3.8"/>`,
   labor: `<path d="M10 3v14M6.5 5.8h4.7a2.2 2.2 0 0 1 0 4.4H8.8a2.2 2.2 0 0 0 0 4.4h4.7"/>`,
   settings: `<circle cx="10" cy="10" r="3"/>${[0,45,90,135,180,225,270,315].map(a =>

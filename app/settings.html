@@ -2,7 +2,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EMG — Settings</title><link rel="stylesheet" href="./assets/style.css?v=9655024"></head><body>
 <script type="module">
-import { boot, fmt$, esc, wireSearch } from './assets/shell.js?v=9655024';
+import { boot, fmt$, esc, wireSearch, fetchAll } from './assets/shell.js?v=9655024';
 
 boot('settings', async (supa, el) => {
   // Four tabs, because one flat stack of six panels made everything equally
@@ -12,6 +12,11 @@ boot('settings', async (supa, el) => {
   const TABS = [
     ['finance', 'Finance',      'How money is counted, bank accounts, margin defaults'],
     ['hr',      'HR',           'Payroll burden, benefits, and per-state rates'],
+    // Clients sits directly before CRM sync because the two share a boundary:
+    // the "don't match" flag set here IS the door the promotion gate on that
+    // tab describes. It was its own sidebar page under a Setup group until it
+    // moved here — a setup screen belongs with the other setup screens.
+    ['clients', 'Clients',      'Which QuickBooks customer each client is, and which names HubSpot may never match'],
     ['crm',     'CRM sync',     'HubSpot reconciliation and the promotion gate'],
     ['int',     'Integrations', 'Sync health, import windows, raw settings']
   ];
@@ -37,6 +42,19 @@ boot('settings', async (supa, el) => {
       <div class="sc-panel" id="hrknobs"></div>
       <div class="sc-panel" id="wcrates"></div>
       <div class="sc-panel" id="sutarates"></div>
+    </section>
+    <section data-sec="clients" id="secpanel-clients" role="tabpanel" aria-labelledby="settab-clients" hidden>
+      <div class="toolbar" style="margin-top:14px">
+        <input id="cl-filter" type="text" placeholder="filter clients…" style="max-width:260px">
+        <label class="mono" style="display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="cl-onlytodo" checked style="height:auto"> only unlinked</label>
+        <label class="mono" style="display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="cl-showinactive" style="height:auto"> show inactive</label>
+        <span class="muted" id="cl-count" style="font-size:12px"></span>
+        <span style="flex:1"></span>
+        <button class="ghost" id="cl-refresh">Refresh</button>
+      </div>
+      <div id="cl-list">loading…</div>
     </section>
     <section data-sec="crm" id="secpanel-crm" role="tabpanel" aria-labelledby="settab-crm" hidden>
       <div class="sc-panel" id="hsreview"></div>
@@ -807,7 +825,156 @@ boot('settings', async (supa, el) => {
     });
   }
 
+  // ---- clients <-> QuickBooks ----------------------------------------------
+  // Was app/clients.html, its own item under a Setup group in the sidebar.
+  // It is a setup screen and nothing else, so it lives here now. Ported whole:
+  // the roster, the QuickBooks customer each client is linked to, the
+  // active/inactive flag, and the "don't match" list HubSpot is held against.
+  // Ids are cl- prefixed and every query is scoped to this section, so the
+  // panel can't reach a control belonging to another tab.
+  // Its own loader, not a limb of load() above — same shape as loadAccounts(),
+  // and it reloads itself after every write.
+  let clientRoster = [], qboParents = [], parentTakenBy = {}, blockedNames = new Set();
+  const clientSetBy = () => window.__email || 'matching-page';
+  const clSec = () => el.querySelector('#secpanel-clients');
+  const clEl = sel => clSec().querySelector(sel);
+
+  async function loadClients() {
+    const [c, q, b] = await Promise.all([
+      supa.from('clients').select('id,name,qbo_customer_id,active').order('name'),
+      // every QuickBooks parent customer — unbounded, so it pages (habit #7).
+      // The page this came from hand-rolled a sequential pager; fetchAll is
+      // the wave-parallel one shell.js already exports.
+      fetchAll(() => supa.from('qbo_projects').select('id,name,active')
+        .is('parent_id', null).eq('hidden', false).order('name')),
+      supa.from('blocked_company_names').select('name_key')
+    ]);
+    if (c.error || q.error || b.error) {
+      clEl('#cl-list').innerHTML = `<div class="sc-panel err">${esc((c.error || q.error || b.error).message)}</div>`;
+      return;
+    }
+    clientRoster = c.data; qboParents = q.data;
+    blockedNames = new Set((b.data || []).map(r => r.name_key));
+    parentTakenBy = {};
+    clientRoster.forEach(cl => { if (cl.qbo_customer_id) parentTakenBy[cl.qbo_customer_id] = cl.name; });
+    renderClients();
+  }
+
+  function renderClients() {
+    const f = clEl('#cl-filter').value.trim().toLowerCase();
+    const onlyTodo = clEl('#cl-onlytodo').checked;
+    const showInactive = clEl('#cl-showinactive').checked;
+    const shown = clientRoster.filter(c =>
+      (showInactive || c.active !== false) &&
+      (!onlyTodo || !c.qbo_customer_id) &&
+      (!f || c.name.toLowerCase().includes(f)));
+    const act = clientRoster.filter(c => c.active !== false);
+    clEl('#cl-count').textContent =
+      `${act.filter(c => !c.qbo_customer_id).length} unlinked of ${act.length} active` +
+      (clientRoster.length > act.length ? ` (${clientRoster.length - act.length} inactive hidden)` : '');
+    clEl('#cl-list').innerHTML = shown.map(c => {
+      const linkedName = c.qbo_customer_id
+        ? (qboParents.find(p => p.id === c.qbo_customer_id) || {}).name || c.qbo_customer_id
+        : null;
+      // Free parents first, then taken ones (visible but marked) — a wrong link is
+      // fixable here, so nothing is hidden, only labelled.
+      const opts = qboParents.map(p => {
+        const taken = parentTakenBy[p.id] && parentTakenBy[p.id] !== c.name;
+        const sel = p.id === c.qbo_customer_id;
+        return `<option value="${p.id}" ${sel ? 'selected' : ''} ${taken ? 'data-taken="1"' : ''}>` +
+               `${esc(p.name)}${taken ? ` — already linked to ${esc(parentTakenBy[p.id])}` : ''}</option>`;
+      }).join('');
+      const inactive = c.active === false;
+      const dontMatch = blockedNames.has(nameKey(c.name));
+      return `<div class="sc-panel" data-client-id="${esc(c.id)}" ${inactive ? 'style="opacity:.6"' : ''}>
+        <div class="row">
+          <div class="grow">
+            <div class="name">${esc(c.name)}${inactive ? ' <span class="pill">inactive</span>' : ''}${dontMatch ? ' <span class="pill bad">don’t match</span>' : ''}</div>
+            <div class="hint">${linkedName ? 'linked to ' + esc(linkedName) : 'not linked to QuickBooks'}${dontMatch ? ' — HubSpot deals for this name are held at the door' : ''}</div>
+          </div>
+          <span class="pill ${linkedName ? 'good' : 'warn'}">${linkedName ? 'linked' : 'needs link'}</span>
+          <div class="grow">
+            <select class="pick">
+              <option value="">${c.qbo_customer_id ? '— unchanged —' : '— choose QuickBooks customer —'}</option>${opts}
+            </select>
+          </div>
+          <button class="save primary" disabled>Save</button>
+          ${linkedName ? '<button class="unlink">Unlink</button>' : ''}
+          <button class="toggleactive ${inactive ? '' : 'danger'}">${inactive ? 'Reactivate' : 'Deactivate'}</button>
+          <button class="toggleblock ${dontMatch ? '' : 'danger'}" title="${dontMatch ? 'let HubSpot match this company name to a client again' : 'never let a HubSpot deal auto-create or attach to a client for this company name again'}">${dontMatch ? 'Allow matching' : "Don’t match"}</button>
+        </div>
+        <div class="hint msg"></div>
+      </div>`;
+    }).join('') || '<div class="sc-panel muted">Nothing to show.</div>';
+
+    clSec().querySelectorAll('.sc-panel[data-client-id]').forEach(card => {
+      const pick = card.querySelector('.pick');
+      const save = card.querySelector('.save');
+      const msg  = card.querySelector('.msg');
+      pick.onchange = () => { save.disabled = !pick.value; };
+      save.onclick = async () => {
+        save.disabled = true;
+        const chosen = pick.selectedOptions[0];
+        if (chosen.dataset.taken &&
+            !confirm(`${chosen.textContent.trim()}\n\nThis QuickBooks customer is already linked to another client. Move the link here?`)) {
+          save.disabled = false; return;
+        }
+        // Moving a link: clear it from the previous holder first (unique column).
+        if (chosen.dataset.taken) {
+          const prev = clientRoster.find(x => x.qbo_customer_id === pick.value);
+          if (prev) {
+            const { error } = await supa.from('clients')
+              .update({ qbo_customer_id: null, set_by: clientSetBy(), set_at: new Date().toISOString() })
+              .eq('id', prev.id);
+            if (error) { msg.textContent = error.message; msg.className = 'hint err'; return; }
+          }
+        }
+        const { error } = await supa.from('clients')
+          .update({ qbo_customer_id: pick.value, set_by: clientSetBy(), set_at: new Date().toISOString() })
+          .eq('id', card.dataset.clientId);
+        msg.textContent = error ? error.message : 'saved';
+        msg.className = error ? 'hint err' : 'hint ok';
+        if (!error) loadClients();
+      };
+      const unlink = card.querySelector('.unlink');
+      if (unlink) unlink.onclick = async () => {
+        const { error } = await supa.from('clients')
+          .update({ qbo_customer_id: null, set_by: clientSetBy(), set_at: new Date().toISOString() })
+          .eq('id', card.dataset.clientId);
+        if (!error) loadClients();
+      };
+      card.querySelector('.toggleactive').onclick = async () => {
+        const c = clientRoster.find(x => x.id === card.dataset.clientId);
+        const willActivate = c.active === false;
+        if (!willActivate && !confirm(`Deactivate "${c.name}"?\n\nIt disappears from Forecast and from this list by default (reversible any time from "show inactive"). Its deals and history are untouched.`)) return;
+        const { error } = await supa.from('clients')
+          .update({ active: willActivate, set_by: clientSetBy(), set_at: new Date().toISOString() })
+          .eq('id', card.dataset.clientId);
+        if (!error) loadClients();
+      };
+      card.querySelector('.toggleblock').onclick = async () => {
+        const c = clientRoster.find(x => x.id === card.dataset.clientId);
+        const key = nameKey(c.name);
+        const isBlocked = blockedNames.has(key);
+        if (isBlocked) {
+          const { error } = await supa.from('blocked_company_names').delete().eq('name_key', key);
+          if (!error) loadClients();
+          return;
+        }
+        if (!confirm(`Don't match "${c.name}"?\n\nAny HubSpot deal whose company matches this name will be held at the door on every future sync — never creating or attaching to any client, this one included. Fix the mismatch in HubSpot, or come back here to allow matching again.`)) return;
+        const { error } = await supa.from('blocked_company_names')
+          .upsert({ name_key: key, name: c.name, set_by: clientSetBy(), set_at: new Date().toISOString() });
+        if (!error) loadClients();
+      };
+    });
+  }
+
+  clEl('#cl-filter').oninput = renderClients;
+  clEl('#cl-onlytodo').onchange = renderClients;
+  clEl('#cl-showinactive').onchange = renderClients;
+  clEl('#cl-refresh').onclick = loadClients;
+
   showTab(tab);
-  await Promise.all([load(), loadAccounts()]);
+  await Promise.all([load(), loadAccounts(), loadClients()]);
 });
 </script></body></html>
