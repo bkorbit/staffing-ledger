@@ -502,10 +502,15 @@ th[data-sort]:focus-visible { outline:none; box-shadow:inset 0 0 0 2px var(--bra
 /* Width is a share of the viewport, not a pixel count (087): the deal editor's
    month grid and settings form were being compressed on a big display while
    1180px of a 2560px screen sat unused. max(80vw,1180px) keeps the old width
-   as a FLOOR — nothing gets narrower on a laptop than it is today — and 96vw
-   is the ceiling the 3vw backdrop padding already implied. */
+   as a FLOOR — nothing gets narrower on a laptop than it is today.
+   A CEILING too, 1520px (8 Sep 2026, Boris: "the spacing still looks weird
+   on a larger screen"): 96vw alone let a 2560px display open a 2048px editor
+   whose content — a ~550px month grid, two form fields, two or three cards
+   capped at 820px — wants about 1400, so the fields stretched and the cards
+   floated at the left of 1000px tracks with dead space beside each. Past
+   1520 the editor stays put and the backdrop takes the rest. */
 .modal { background:var(--paper); border:1px solid var(--line); border-radius:8px;
-  width:min(96vw, max(80vw, 1180px)); max-height:92vh; overflow:auto; }
+  width:min(96vw, max(80vw, 1180px), 1520px); max-height:92vh; overflow:auto; }
 .modal-head { display:flex; align-items:center; gap:12px; padding:14px 18px;
   border-bottom:2px solid var(--brand); position:sticky; top:0; background:var(--paper); z-index:2; }
 .modal-title { font-family:var(--font-display); font-weight:700; font-size:15px; color:var(--brand); flex:1;
