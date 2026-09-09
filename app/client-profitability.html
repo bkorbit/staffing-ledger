@@ -9,6 +9,13 @@ import { boot, esc, wireSearch, fetchAll } from './assets/shell.js?v=35d97d4';
 // Project Hours instead; the two answer different questions and are kept as
 // separate pages rather than one view drilling into the other.
 //
+// A client row opens into the deals behind it, rendered as rows of THIS
+// table rather than a nested one, so every figure sits under the header it
+// belongs to and the client row above reads as the sum of the rows beneath
+// it. The deal rows carry the two things a client row can't: which QBO
+// project each deal claims (or a flag that it claims none), and how much of
+// the revenue is measured vs. still forecast.
+//
 // Every dollar column here blends two sources exactly the way Forecast
 // itself does, per deal: for months already closed, the ACTUAL figure
 // (forecast_page()'s own rev_proj/cogs_proj — invoices netted against
@@ -54,6 +61,7 @@ boot('clientprofit', async (supa, el) => {
   let query = '';
   let historicalOnly = false;
   let allClientRows = []; // cached between load() (network) and render() (local re-filter/toggle)
+  const openClients = new Set();  // client ids whose deal rows are showing
 
   el.innerHTML = `<div class="range">
       <span class="rl">Range</span>
@@ -72,7 +80,7 @@ boot('clientprofit', async (supa, el) => {
       supa.rpc('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) }),
       supa.rpc('forecast_page', { p_from: rangeFrom, p_to: rangeTo }),
       fetchAll(() => supa.from('deals').select('id,name,client_id,qbo_project_id,flight_start,flight_end')),
-      supa.from('clients').select('id,name')
+      supa.from('clients').select('id,name,qbo_customer_id')
     ]);
     for (const r of [hp, fp, dl, cl]) if (r.error) {
       el.innerHTML = `<div class="sc-panel err">${esc(r.error.message)}</div>`; return;
@@ -86,6 +94,23 @@ boot('clientprofit', async (supa, el) => {
       { gpAll: +r.gp_all, gpSettled: +r.gp_settled, billFuture: +r.bill_future });
     const laborByDeal = {}; (H.deal_labor || []).forEach(r => laborByDeal[r.deal_id] = r);
     const plannedByDeal = {}; (H.deal_planned || []).forEach(r => plannedByDeal[r.deal_id] = +r.planned_hours);
+
+    // The QBO project tree, for naming the project a deal claims and for
+    // finding a client's UNCLAIMED parent remainder — the same three
+    // structures forecast.html's clientRow/projRows build. projects rides
+    // along in forecast_page's payload, so this costs no extra round trip.
+    const projectsById = {}; (P.projects || []).forEach(p => projectsById[p.id] = p);
+    const projsUnder = {}; (P.projects || []).forEach(p => {
+      const parent = p.parent_id || p.id;
+      (projsUnder[parent] = projsUnder[parent] || []).push(p.id);
+    });
+    // Claims come from the FULL deal list (this page's `deals` select is
+    // already unfiltered — no status/hidden/flight gate), for the reason
+    // forecast.html spells out: a hidden or pre-2026-flight deal still
+    // really owns its project, and computing claims from a scoped subset
+    // made a correctly-matched deal look unclaimed.
+    const projClaimedBy = {};
+    (dl.data || []).forEach(d => { if (d.qbo_project_id) projClaimedBy[d.qbo_project_id] = d.client_id; });
 
     // one row per deal that has EITHER actual labor hours, a claimed QBO
     // project, or a plan entry — so a deal that's all-forecast (no hours
@@ -106,8 +131,11 @@ boot('clientprofit', async (supa, el) => {
         const forecastGP = plan.gpAll - plan.gpSettled;
         const forecastRevenue = plan.billFuture;
         const forecastCogs = Math.max(0, forecastRevenue - forecastGP);
+        const proj = deal.qbo_project_id ? projectsById[deal.qbo_project_id] : null;
         return {
-          dealId: id, clientId: deal.client_id, flightStart: deal.flight_start, flightEnd: deal.flight_end,
+          dealId: id, name: deal.name || '(unnamed deal)', clientId: deal.client_id,
+          flightStart: deal.flight_start, flightEnd: deal.flight_end,
+          qboProjectId: deal.qbo_project_id || null, projName: proj ? proj.name : null,
           actualHours: +labor.hours, laborCost: +labor.cost, plannedHours: plannedByDeal[id] || 0,
           actualRevenue, actualCogs, actualGP: actualRevenue - actualCogs,
           forecastRevenue, forecastCogs, forecastGP
@@ -125,8 +153,24 @@ boot('clientprofit', async (supa, el) => {
     allClientRows = Object.entries(byClient).map(([cid, deals]) => {
       const starts = deals.map(d => d.flightStart).filter(Boolean).sort();
       const ends = deals.map(d => d.flightEnd).filter(Boolean).sort();
+      const client = clientsById[cid] || {};
+      // Money on this client's own QBO parent that no deal claims. Listed in
+      // the drill-down, deliberately NOT added into the client's totals:
+      // every other figure in this table is per-deal (labor, plan, hours),
+      // and a remainder has no deal to belong to. Forecast's client row DOES
+      // fold it in (its clientRow unions fromParent with fromDeals) — that
+      // discrepancy is real and pre-dates this view; showing the rows here
+      // makes it visible instead of silently missing.
+      const unclaimed = (client.qbo_customer_id ? (projsUnder[client.qbo_customer_id] || []) : [])
+        .filter(pid => !projClaimedBy[pid])
+        .map(pid => ({
+          projectId: pid, name: (projectsById[pid] || {}).name || pid,
+          revenue: revProjByProj[pid] || 0, cogs: cogsProjByProj[pid] || 0
+        }))
+        .filter(u => u.revenue !== 0 || u.cogs !== 0)
+        .sort((a, b) => b.revenue - a.revenue);
       return {
-        clientId: cid, name: (clientsById[cid] || {}).name || '(unknown client)',
+        clientId: cid, name: client.name || '(unknown client)', deals, unclaimed,
         flightStart: starts[0] || null, flightEnd: ends[ends.length - 1] || null,
         actualHours: sum(deals, 'actualHours'), plannedHours: sum(deals, 'plannedHours'), laborCost: sum(deals, 'laborCost'),
         actualRevenue: sum(deals, 'actualRevenue'), actualCogs: sum(deals, 'actualCogs'), actualGP: sum(deals, 'actualGP'),
@@ -137,7 +181,9 @@ boot('clientprofit', async (supa, el) => {
     render();
   }
 
-  // blended figures for one client row, honoring the Historical-only toggle
+  // blended figures for one row — a client and a deal carry the same keys,
+  // which is what lets both levels share every renderer below — honoring
+  // the Historical-only toggle
   function blend(c) {
     const revenue = c.actualRevenue + (historicalOnly ? 0 : c.forecastRevenue);
     const cogs = c.actualCogs + (historicalOnly ? 0 : c.forecastCogs);
@@ -149,6 +195,91 @@ boot('clientprofit', async (supa, el) => {
     // for," not "what does it net"
     const effectiveRate = c.actualHours > 0 ? revenue / c.actualHours : null;
     return { revenue, cogs, gp, profitAfterLabor, profitPerHour, effectiveRate };
+  }
+
+  // The hours bar cell — identical for a client row and a deal row, which is
+  // the whole point of putting both in one table.
+  function hoursCell(r) {
+    const hasPlan = r.plannedHours > 0;
+    const bar = hasPlan
+      ? stackSegments(r.plannedHours, [[r.actualHours > r.plannedHours ? 'seg-over' : 'seg-good', r.actualHours]])
+      : null;
+    return `<td class="textleft">
+      ${hasPlan ? `<div class="mini-track wide">${bar.html}</div>
+        <div class="delta-note flat">${fmtHours(r.actualHours)}h / ${fmtHours(r.plannedHours)}h planned</div>
+        ${bar.overBy > 0.05 ? `<div class="delta-note neg">+${fmtHours(bar.overBy)}h over plan</div>` : ''}`
+        : `<div class="mini-track wide"></div><div class="delta-note flat">not assigned yet</div>`}
+    </td>`;
+  }
+
+  // The nine hours/money cells shared by both levels. `split` adds the
+  // measured-vs-forecast line under revenue — deal rows only, since that's
+  // the question drilling into a client is usually asking, and only when
+  // the row actually has both halves to split.
+  function moneyCells(r, b, split) {
+    const splitLine = split && !historicalOnly && r.forecastRevenue !== 0 && r.actualRevenue !== 0
+      ? `<div class="delta-note flat">${fmt$0(r.actualRevenue)} measured · ${fmt$0(r.forecastRevenue)} forecast</div>`
+      : '';
+    return `
+      <td>${fmtHours(r.plannedHours)}</td>
+      <td>${fmtHours(r.actualHours)}</td>
+      <td>${fmt$0(b.revenue)}${splitLine}</td>
+      <td>${fmt$0(b.cogs)}</td>
+      <td class="${b.gp < 0 ? 'err' : 'ok'}">${fmt$0(b.gp)}</td>
+      <td>${fmt$0(r.laborCost)}</td>
+      <td class="${b.effectiveRate === null ? 'muted' : ''}">${b.effectiveRate === null ? '—' : fmt$0(b.effectiveRate) + '/h'}</td>
+      <td class="${b.profitAfterLabor < 0 ? 'err' : 'ok'}">${fmt$0(b.profitAfterLabor)}</td>
+      <td class="${b.profitPerHour === null ? 'muted' : b.profitPerHour < 0 ? 'err' : 'ok'}">${b.profitPerHour === null ? '—' : fmt$0(b.profitPerHour) + '/h'}</td>`;
+  }
+
+  // One deal, on the parent table's own columns.
+  function dealRowHtml(d, isLast) {
+    const b = blend(d);
+    const cls = ['subrow', b.profitAfterLabor < 0 ? 'risk' : '', isLast ? 'last' : ''].filter(Boolean).join(' ');
+    return `<tr class="${cls}">
+      <td class="textleft">
+        <div class="sub-name">${esc(d.name)}</div>
+        <div class="sub-proj">${d.qboProjectId
+          ? esc(d.projName || d.qboProjectId)
+          : '<span class="pill warn">no QB project</span>'}</div>
+      </td>
+      <td class="textleft">${fmtDate(d.flightStart)} → ${fmtDate(d.flightEnd)}</td>
+      ${hoursCell(d)}
+      ${moneyCells(d, b, true)}
+    </tr>`;
+  }
+
+  // A QBO project under this client's parent that no deal claims: money with
+  // no deal attached, so only the three columns it can honestly fill are
+  // filled, and it sits below the deals behind a dashed rule.
+  function remainderRowHtml(u, isLast) {
+    const gp = u.revenue - u.cogs;
+    return `<tr class="subrow remainder${isLast ? ' last' : ''}">
+      <td class="textleft">
+        <div class="sub-name muted">${esc(u.name)}</div>
+        <div class="sub-proj">unclaimed QB project — not in the client total above</div>
+      </td>
+      <td class="textleft muted">—</td>
+      <td class="textleft muted">—</td>
+      <td class="muted">—</td><td class="muted">—</td>
+      <td>${fmt$0(u.revenue)}</td>
+      <td>${fmt$0(u.cogs)}</td>
+      <td class="${gp < 0 ? 'err' : 'ok'}">${fmt$0(gp)}</td>
+      <td class="muted">—</td><td class="muted">—</td><td class="muted">—</td><td class="muted">—</td>
+    </tr>`;
+  }
+
+  // What the open block holds, before you read a single figure.
+  function contextRowHtml(c) {
+    const matched = c.deals.filter(d => d.qboProjectId).length;
+    const unmatched = c.deals.length - matched;
+    return `<tr class="subnote"><td colspan="12">
+      <div class="subnote-line">
+        <span>${c.deals.length} project${c.deals.length === 1 ? '' : 's'} in range</span>
+        ${matched ? `<span class="pill good">${matched} matched to QB</span>` : ''}
+        ${unmatched ? `<span class="pill warn">${unmatched} no QB project</span>` : ''}
+        ${c.unclaimed.length ? `<span class="pill">${c.unclaimed.length} unclaimed QB project${c.unclaimed.length === 1 ? '' : 's'}</span>` : ''}
+      </div></td></tr>`;
   }
 
   // column definitions for the table: key drives both the sort comparator
@@ -183,7 +314,12 @@ boot('clientprofit', async (supa, el) => {
 
   function render() {
     const q = query.trim().toLowerCase();
-    const clientRows = (!q ? allClientRows : allClientRows.filter(c => c.name.toLowerCase().includes(q)))
+    // the search reaches deal names too, and a client matched only by one of
+    // its deals opens itself — otherwise the hit is invisible behind a
+    // collapsed row (the same rule forecast.html's client table uses)
+    const nameHit = c => !!q && c.name.toLowerCase().includes(q);
+    const dealHit = c => !!q && c.deals.some(d => d.name.toLowerCase().includes(q));
+    const clientRows = allClientRows.filter(c => !q || nameHit(c) || dealHit(c))
       .map(c => ({ ...c, b: blend(c) }))
       .sort((a, b) => {
         const x = sortValue(a, tableSort.key), y = sortValue(b, tableSort.key);
@@ -219,7 +355,8 @@ boot('clientprofit', async (supa, el) => {
       </div>
       <div class="sc-panel" style="padding:0">
         <div class="tbltools" style="padding:10px 14px">
-          <input id="q" placeholder="search client…" value="${esc(query)}" style="width:220px">
+          <input id="q" placeholder="search client or deal…" value="${esc(query)}" style="width:220px">
+          <span class="delta-note flat">click a client to see its projects</span>
         </div>
         <div class="gridwrap" style="margin-top:0">
         <table class="ledger"><tr>
@@ -231,30 +368,30 @@ boot('clientprofit', async (supa, el) => {
             }).join('')}
           </tr>
           ${!clientRows.length ? `<tr><td colspan="12" class="empty-note">No clients match the current search.</td></tr>` : clientRows.map(c => {
-              const hasPlan = c.plannedHours > 0;
-              const bar = hasPlan
-                ? stackSegments(c.plannedHours, [[c.actualHours > c.plannedHours ? 'seg-over' : 'seg-good', c.actualHours]])
-                : null;
               const b = c.b;
-              return `<tr class="${b.profitAfterLabor < 0 ? 'risk-row' : ''}">
-                  <td class="textleft">${esc(c.name)}</td>
-                  <td class="textleft">${fmtDate(c.flightStart)} → ${fmtDate(c.flightEnd)}</td>
+              // a deal-name-only search hit opens its client so the matching
+              // row is actually on screen
+              const open = openClients.has(c.clientId) || (dealHit(c) && !nameHit(c));
+              // whole-row click target — role=button on the <tr> with
+              // aria-expanded, DESIGN.md's accepted a11y tradeoff, same as
+              // Sales, Forecast and Team Hours
+              const head = `<tr class="${b.profitAfterLabor < 0 ? 'risk-row' : ''}" data-cid="${esc(c.clientId)}"
+                  role="button" tabindex="0" aria-expanded="${open}" style="cursor:pointer">
                   <td class="textleft">
-                    ${hasPlan ? `<div class="mini-track wide">${bar.html}</div>
-                      <div class="delta-note flat">${fmtHours(c.actualHours)}h / ${fmtHours(c.plannedHours)}h planned</div>
-                      ${bar.overBy > 0.05 ? `<div class="delta-note neg">+${fmtHours(bar.overBy)}h over plan</div>` : ''}`
-                      : `<div class="mini-track wide"></div><div class="delta-note flat">not assigned yet</div>`}
+                    <div>${open ? '▾' : '▸'} ${esc(c.name)}</div>
+                    <div class="summary-note">${c.deals.length} project${c.deals.length === 1 ? '' : 's'}</div>
                   </td>
-                  <td>${fmtHours(c.plannedHours)}</td>
-                  <td>${fmtHours(c.actualHours)}</td>
-                  <td>${fmt$0(b.revenue)}</td>
-                  <td>${fmt$0(b.cogs)}</td>
-                  <td class="${b.gp < 0 ? 'err' : 'ok'}">${fmt$0(b.gp)}</td>
-                  <td>${fmt$0(c.laborCost)}</td>
-                  <td class="${b.effectiveRate === null ? 'muted' : ''}">${b.effectiveRate === null ? '—' : fmt$0(b.effectiveRate) + '/h'}</td>
-                  <td class="${b.profitAfterLabor < 0 ? 'err' : 'ok'}">${fmt$0(b.profitAfterLabor)}</td>
-                  <td class="${b.profitPerHour === null ? 'muted' : b.profitPerHour < 0 ? 'err' : 'ok'}">${b.profitPerHour === null ? '—' : fmt$0(b.profitPerHour) + '/h'}</td>
+                  <td class="textleft">${fmtDate(c.flightStart)} → ${fmtDate(c.flightEnd)}</td>
+                  ${hoursCell(c)}
+                  ${moneyCells(c, b, false)}
                 </tr>`;
+              if (!open) return head;
+              const ds = [...c.deals].sort((x, y) => blend(y).revenue - blend(x).revenue);
+              const kids = ds.map((d, i) =>
+                dealRowHtml(d, i === ds.length - 1 && !c.unclaimed.length)).join('');
+              const rest = c.unclaimed.map((u, i) =>
+                remainderRowHtml(u, i === c.unclaimed.length - 1)).join('');
+              return head + contextRowHtml(c) + kids + rest;
             }).join('')}
         </table>
         </div>
@@ -269,6 +406,15 @@ boot('clientprofit', async (supa, el) => {
       };
       th.onclick = activate;
       th.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); } };
+    });
+    document.querySelectorAll('tr[data-cid]').forEach(tr => {
+      const activate = () => {
+        const cid = tr.dataset.cid;
+        if (openClients.has(cid)) openClients.delete(cid); else openClients.add(cid);
+        render();
+      };
+      tr.onclick = activate;
+      tr.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); } };
     });
   }
 
