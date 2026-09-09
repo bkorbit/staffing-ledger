@@ -299,6 +299,27 @@ export function jobcodeChain(id, jobcodes) {
   return { child: nameOf(jc), parent: parentJc ? nameOf(parentJc) : '', childType: String(jc.type || '').toLowerCase() };
 }
 
+// Full ancestry of a jobcode, root first — for the trace and the unresolved
+// count only. Attribution itself stays on jobcodeChain's two levels.
+function jobcodePath(id, jobcodes) {
+  const names = [];
+  let jc = jobcodes[id], guard = 0;
+  while (jc && guard++ < 10) {
+    names.unshift(String(jc.name || '').trim() || `#${jc.id}`);
+    jc = jc.parent_id && jc.parent_id !== 0 ? jobcodes[jc.parent_id] : null;
+  }
+  return names;
+}
+
+// QBTIME_TRACE=<substring> (workflow_dispatch input "trace") follows one
+// client's timesheets end to end: every jobcode whose ancestry contains the
+// term, then every timesheet under those jobcodes by person and month — kept
+// or dropped, and why. Built for the Materialplus UC Health hunt (Sep 2026),
+// where the deal and QBO project were matched perfectly, the uncoded report
+// showed nothing, and the hours were still missing.
+const TRACE = String(process.env.QBTIME_TRACE || '').trim().toLowerCase();
+const traceHit = names => !!TRACE && names.some(n => String(n || '').toLowerCase().includes(TRACE));
+
 async function pullTimesheets(startDate, endDate) {
   const entries = []; // {qbtimeUserId, person, dept, date, hours, jobcode, childName, parentName, childType}
   const users = {};
@@ -306,7 +327,9 @@ async function pullTimesheets(startDate, endDate) {
   let page = 1;
   const stat = { sheets: 0, rawHours: 0, kept: 0, keptHours: 0,
                  noPerson: 0, noPersonHours: 0, excluded: 0, excludedHours: 0,
-                 zero: 0, noDate: 0, truncated: false };
+                 zero: 0, noDate: 0, truncated: false,
+                 unresolved: 0, unresolvedHours: 0, unresolvedIds: new Map() };
+  const trace = new Map(); // 'path | person | month | status' -> hours
 
   for (;;) {
     const data = await qbFetch('/timesheets', { start_date: startDate, end_date: endDate, page, per_page: 200 });
@@ -320,10 +343,27 @@ async function pullTimesheets(startDate, endDate) {
       const u = users[ts.user_id];
       const person = u ? `${u.first_name || ''} ${u.last_name || ''}`.trim() : '';
       const dept = u && u.group_id ? (GROUP_NAMES[u.group_id] || '') : '';
+      const path = jobcodePath(ts.jobcode_id, jobcodes);
+      const status = !ts.date ? 'dropped: no date'
+        : !person ? 'dropped: unknown user'
+        : EXCLUDED_PEOPLE.has(person.toLowerCase()) ? 'dropped: excluded person'
+        : hours <= 0 ? 'dropped: zero duration'
+        : 'kept';
+      if (traceHit(path) || traceHit([person])) {
+        const key = `${path.join(' › ') || '(unresolved jobcode #' + ts.jobcode_id + ')'} | ${person || '(unknown user)'} | ${String(ts.date || '').slice(0, 7)} | ${status}`;
+        trace.set(key, (trace.get(key) || 0) + hours);
+      }
       if (!ts.date) { stat.noDate++; continue; }
       if (!person) { stat.noPerson++; stat.noPersonHours += hours; continue; }
       if (EXCLUDED_PEOPLE.has(person.toLowerCase())) { stat.excluded++; stat.excludedHours += hours; continue; }
       if (hours <= 0) { stat.zero++; continue; }
+      if (!jobcodes[ts.jobcode_id]) {
+        // The timesheet points at a jobcode neither /jobcodes nor the
+        // supplemental data returned. It still lands in internal (jobcodeChain
+        // gives empty names) — but silently, so count it and say which ids.
+        stat.unresolved++; stat.unresolvedHours += hours;
+        stat.unresolvedIds.set(ts.jobcode_id, (stat.unresolvedIds.get(ts.jobcode_id) || 0) + hours);
+      }
       const chain = jobcodeChain(ts.jobcode_id, jobcodes);
       stat.kept++; stat.keptHours += hours;
       entries.push({
@@ -346,7 +386,27 @@ async function pullTimesheets(startDate, endDate) {
     if (stat.zero) console.log(`      ${stat.zero} entries with zero duration (still running, or deleted)`);
     if (stat.noDate) console.log(`      ${stat.noDate} entries with no date`);
   }
+  if (stat.unresolved) {
+    console.log(`  ⚠ ${stat.unresolved} timesheet(s) (${stat.unresolvedHours.toFixed(2)}h) reference a jobcode id QuickBooks Time never returned — written as internal:`);
+    [...stat.unresolvedIds.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20)
+      .forEach(([id, hrs]) => console.log(`      jobcode #${id}: ${hrs.toFixed(2)}h`));
+  }
   if (stat.truncated) console.log('  ✖ PAGINATION GUARD HIT — results were truncated. Raise the page limit.');
+
+  if (TRACE) {
+    console.log(`\n  ── trace '${TRACE}' ──`);
+    const jcs = Object.values(jobcodes).filter(jc => traceHit(jobcodePath(jc.id, jobcodes)));
+    console.log(`  ${jcs.length} jobcode(s) whose ancestry contains the term:`);
+    jcs.sort((x, y) => jobcodePath(x.id, jobcodes).join(' › ').localeCompare(jobcodePath(y.id, jobcodes).join(' › ')))
+      .forEach(jc => console.log(`      #${jc.id} ${jobcodePath(jc.id, jobcodes).join(' › ')}  [type=${jc.type || '?'} active=${jc.active}]  → 2-level chain: parent='${jobcodeChain(jc.id, jobcodes).parent}' child='${jobcodeChain(jc.id, jobcodes).child}' code=${jobcodeFromName(jobcodeChain(jc.id, jobcodes).child) || jobcodeFromName(jobcodeChain(jc.id, jobcodes).parent) || '(none)'}`));
+    const ppl = Object.values(users).filter(u => traceHit([`${u.first_name || ''} ${u.last_name || ''}`]));
+    if (ppl.length) console.log(`  ${ppl.length} user(s) whose name contains the term: ${ppl.map(u => `${u.first_name} ${u.last_name} (#${u.id}, active=${u.active})`).join(', ')}`);
+    console.log(`  ${trace.size} timesheet group(s) under those jobcodes/people, ${startDate}→${endDate} (path | person | month | status: hours):`);
+    [...trace.entries()].sort((x, y) => x[0].localeCompare(y[0]))
+      .forEach(([k, hrs]) => console.log(`      ${k}: ${hrs.toFixed(2)}h`));
+    if (!trace.size) console.log('      (none — no timesheet in the window touches a matching jobcode or person)');
+    console.log('  ── end trace ──\n');
+  }
   return entries;
 }
 
@@ -441,10 +501,15 @@ async function main() {
   const unmatchedJobcodes = new Map(); // code -> hours, seen but no deal carries it
   const uncodedJobcodes = new Map();   // 'Parent › Child' -> hours, no parsable code, not on the internal list
   const internalHours = { count: 0, hours: 0 };
+  const traceClass = new Map();        // QBTIME_TRACE only: 'parent › child | month | classification' -> hours
 
   for (const e of entries) {
     const staff = staffByQbId.get(e.qbtimeUserId);
     const c = classifyEntry(e, dealByJobcode);
+    if (traceHit([e.parentName, e.childName, e.person])) {
+      const key = `${e.parentName || '(no parent)'} › ${e.childName || '(no child)'} | ${e.date.slice(0, 7)} | ${c.type}${c.dealId ? ' → deal ' + c.dealId : ''}${c.code ? ' code ' + c.code : ''}${c.kind ? ' ' + c.kind : ''}`;
+      traceClass.set(key, (traceClass.get(key) || 0) + e.hours);
+    }
     if (c.type === 'timeoff') {
       const key = staff.id + '|' + c.kind;
       if (!timeOffDays.has(key)) timeOffDays.set(key, new Map());
@@ -480,6 +545,13 @@ async function main() {
       .forEach(([name, hrs]) => console.log(`      ${name}: ${hrs.toFixed(2)}h`));
   }
   console.log(`  Internal/non-billable/unmatched: ${internalHours.count} entries (${internalHours.hours.toFixed(2)}h) — written with deal_id null.`);
+  if (TRACE) {
+    console.log(`\n  ── trace '${TRACE}': how the kept entries were classified (parent › child | month | result: hours) ──`);
+    [...traceClass.entries()].sort((x, y) => x[0].localeCompare(y[0]))
+      .forEach(([k, hrs]) => console.log(`      ${k}: ${hrs.toFixed(2)}h`));
+    if (!traceClass.size) console.log('      (none)');
+    console.log('  ── end trace ──\n');
+  }
 
   // ---- time_entries: SYNC-OWNED, day grain. Replace the whole synced window. ----
   await sbDelete(`time_entries?source=eq.qbtime&worked_on=gte.${startDate}&worked_on=lte.${endDate}`);

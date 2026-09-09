@@ -3,7 +3,12 @@ name: Sync QuickBooks Time actuals
 on:
   schedule:
     - cron: '0 7 * * *'   # daily at 07:00 UTC (~2–3am US Eastern)
-  workflow_dispatch: {}    # adds a "Run workflow" button for manual syncs
+  workflow_dispatch:       # adds a "Run workflow" button for manual syncs
+    inputs:
+      trace:
+        description: 'Trace one client through the sync (substring of a jobcode or person name, e.g. materialplus)'
+        required: false
+        default: ''
 
 jobs:
   test:
@@ -32,3 +37,4 @@ jobs:
           QBTIME_TOKEN: ${{ secrets.QBTIME_TOKEN }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          QBTIME_TRACE: ${{ inputs.trace }}
