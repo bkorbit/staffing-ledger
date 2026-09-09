@@ -72,6 +72,10 @@ boot('clientprofit', async (supa, el) => {
   let historicalOnly = false;
   let allClientRows = []; // cached between load() (network) and render() (local re-filter/toggle)
   const openClients = new Set();  // client ids whose deal rows are showing
+  // a search that matches a DEAL name auto-opens its client so the hit is on
+  // screen; a click on that client must still close it, so an explicit close
+  // is remembered here and beats the auto-open until the search text changes
+  const closedDespiteHit = new Set();
   // client_detail() results, per client, for the visit; an in-flight fetch is
   // stored as its promise so a second click can't start a second round trip
   const detailCache = new Map();
@@ -389,6 +393,10 @@ boot('clientprofit', async (supa, el) => {
     // collapsed row (the same rule forecast.html's client table uses)
     const nameHit = c => !!q && c.name.toLowerCase().includes(q);
     const dealHit = c => !!q && c.deals.some(d => d.name.toLowerCase().includes(q));
+    // open = clicked open, or auto-opened by a deal-name-only search hit so
+    // the matching row is on screen — unless the user closed it since typing
+    const isOpen = c => !closedDespiteHit.has(c.clientId)
+      && (openClients.has(c.clientId) || (dealHit(c) && !nameHit(c)));
     const clientRows = allClientRows.filter(c => !q || nameHit(c) || dealHit(c))
       .map(c => ({ ...c, b: blend(c) }))
       .sort((a, b) => {
@@ -439,9 +447,7 @@ boot('clientprofit', async (supa, el) => {
           </tr>
           ${!clientRows.length ? `<tr><td colspan="12" class="empty-note">No clients match the current search.</td></tr>` : clientRows.map(c => {
               const b = c.b;
-              // a deal-name-only search hit opens its client so the matching
-              // row is actually on screen
-              const open = openClients.has(c.clientId) || (dealHit(c) && !nameHit(c));
+              const open = isOpen(c);
               // whole-row click target — role=button on the <tr> with
               // aria-expanded, DESIGN.md's accepted a11y tradeoff, same as
               // Sales, Forecast and Team Hours
@@ -470,7 +476,7 @@ boot('clientprofit', async (supa, el) => {
     // charts for every open block whose detail has arrived; misses start their
     // fetch (a search hit can open a client without a click, so this is the
     // one place that guarantees an open block always has its fetch going)
-    clientRows.filter(c => openClients.has(c.clientId) || (dealHit(c) && !nameHit(c))).forEach(c => {
+    clientRows.filter(isOpen).forEach(c => {
       const d = detailCache.get(c.clientId);
       if (!d) { ensureDetail(c.clientId); return; }
       if (d instanceof Promise || d.error) return;
@@ -486,7 +492,7 @@ boot('clientprofit', async (supa, el) => {
       render();
     });
 
-    wireSearch(el, '#q', v => { query = v; render(); });
+    wireSearch(el, '#q', v => { query = v; closedDespiteHit.clear(); render(); });
     document.querySelectorAll('th[data-sort]').forEach(th => {
       const activate = () => {
         const key = th.dataset.sort;
@@ -499,7 +505,9 @@ boot('clientprofit', async (supa, el) => {
     document.querySelectorAll('tr[data-cid]').forEach(tr => {
       const activate = () => {
         const cid = tr.dataset.cid;
-        if (openClients.has(cid)) openClients.delete(cid); else { openClients.add(cid); ensureDetail(cid); }
+        const showing = tr.getAttribute('aria-expanded') === 'true';
+        if (showing) { openClients.delete(cid); closedDespiteHit.add(cid); }
+        else { openClients.add(cid); closedDespiteHit.delete(cid); ensureDetail(cid); }
         render();
       };
       tr.onclick = activate;
