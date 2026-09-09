@@ -24,9 +24,15 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
    production (picker wired inside a handler; render split stranding a local).
 2. **Run `node scripts/check-forecast.mjs` before every commit** (syntax + scope
    audit + retired-key audit). Gate the commit on it (`&&`, not newline).
-3. **Migrations are fixture-tested before shipping**: local pg16 (in the old
-   sandbox: /tmp/pgdata, port 5433, db m11) or any scratch db — insert a fixture,
-   assert exact cents, rollback. Adversarial fixtures (multi-invoice, mid-month
+3. **Migrations are fixture-tested before shipping**: the old pg16 sandbox
+   (/tmp/pgdata) is gone and this Mac has no Postgres/Docker/brew, so the test
+   bed is PGlite (Postgres-in-WASM under node): `npm i @electric-sql/pglite` in
+   a scratch dir, create roles authenticated/anon/service_role + a stub `auth`
+   schema (uid/role/jwt), load with `extensions:{pgcrypto}`, apply db/NNN_*.sql
+   in order (skip *_fixture_test.sql — the whole 001→088 chain loads clean),
+   then run the fixture file and print its last result set. Insert a fixture,
+   assert exact cents, rollback. Then MUTATE the function and confirm the test
+   fails — a test that cannot fail proves nothing (088 did this). Adversarial fixtures (multi-invoice, mid-month
    dates, explicit overrides) — single-row fixtures have missed real bugs.
 4. **Client and server math must agree digit-for-digit.** gpMonth/revMonth in
    `app/forecast.html` mirror `v_deal_month_forecast`. Change one → change both →
@@ -88,7 +94,7 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
 - Fixed costs: edited on Settings, subtracted from projected net only.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 087. Key views/functions
+## Current migration head: 088. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
@@ -125,6 +131,13 @@ is always a new migration, so grep for the highest one before reading an old bod
   `staff_bonus_burdened_cost` [070] — the forward labor cost pieces.
 - `hours_page` [064], `rev_proj_page` [080], `accounts_page` [084],
   `v_cash_accounts` [086].
+- `project_detail(deal_id)` [088] — one opened project on Project Hours: hours
+  per ISO week per department (staff.department first, the entry's own QB Time
+  department as fallback) and revenue/GP actual vs plan per month. The actual
+  side restates forecast_page's rev_proj/cogs_proj per month for ONE project —
+  same CTEs, same 080 fail-open rules — and 088_fixture_test asserts they agree
+  to the cent. Per-person hours are NOT here; hours_page's staff_hours_deal /
+  staff_deal_planned already carry them.
 - `snapshot_forecast`, `v_forecast_accuracy`, `v_invoice_settlement_calibration`
   [067] — measuring the model against itself.
 - `promote_approval(hubspot_deal_id)` [078] — the promotion door: deal +
