@@ -318,6 +318,39 @@ boot('projhours', async (supa, el) => {
     detailCache.set(dealId, p);
   }
 
+  // Draw the two charts, then size them to the people panel. The block is as
+  // tall as its taller side: with few people the charts set the height and
+  // the people panel stretches to meet them (rows at the top, totals bar at
+  // the bottom); with many people the panel is taller, and the charts are
+  // REDRAWN at the frame height that fills the stack — a real redraw at a
+  // taller viewBox, not a stretched SVG, so type and marks keep their size
+  // and the gridlines gain room instead. One measure-and-redraw pass per
+  // render; a window resize re-renders (below), which re-fits.
+  const BASE_H = 190;
+  function drawCharts(dealId, d) {
+    const h = el.querySelector(`[id="hours-${dealId}"]`), v = el.querySelector(`[id="rev-${dealId}"]`);
+    if (!h || !v) return;
+    const draw = height => {
+      hoursByWeekChart(h, d, rangeFrom, rangeTo, deptOrder, { height });
+      revGpChart(v, d, { height });
+    };
+    draw(BASE_H);
+    const split = h.closest('.expand-split'); if (!split) return;
+    const people = split.querySelector('.people-panel'), stack = split.querySelector('.charts');
+    const table = people && people.querySelector('table'), totals = people && people.querySelector('.people-total');
+    if (!table || !totals || !stack) return;
+    // the people panel's own height (it is stretched, so read its content)
+    const peopleNatural = table.offsetHeight + totals.offsetHeight + 2;
+    const stackNatural = [...stack.children].reduce((sum, el) => sum + el.offsetHeight, 0)
+      + (stack.children.length - 1) * parseFloat(getComputedStyle(stack).rowGap || 14);
+    const extra = peopleNatural - stackNatural;
+    if (extra <= 4) return;
+    // split the surplus across the two charts, in viewBox units
+    const svg = h.querySelector('svg.chart'); if (!svg) return;
+    const scale = 940 / svg.getBoundingClientRect().width;
+    draw(Math.round(BASE_H + (extra / 2) * scale));
+  }
+
   function render() {
     const q = query.trim().toLowerCase();
     const rows = allRows
@@ -419,9 +452,7 @@ boot('projhours', async (supa, el) => {
       const d = detailCache.get(r.dealId);
       if (!d) { ensureDetail(r.dealId); return; }
       if (d instanceof Promise || d.error) return;
-      const h = panel.querySelector(`[id="hours-${r.dealId}"]`), v = panel.querySelector(`[id="rev-${r.dealId}"]`);
-      if (h) hoursByWeekChart(h, d, rangeFrom, rangeTo, deptOrder);
-      if (v) revGpChart(v, d);
+      drawCharts(r.dealId, d);
     });
 
     // Ribbon controls update in place so a click lights up before the round
@@ -463,6 +494,14 @@ boot('projhours', async (supa, el) => {
       tr.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
     });
   }
+
+  // a resize changes the chart width, so the height that fills the people
+  // panel changes too — re-render (cheap) once the resize settles
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { if (openDeals.size && allRows.length) render(); }, 150);
+  });
 
   await load();
 });
