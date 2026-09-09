@@ -135,17 +135,18 @@ function hoursCell(planned, logged, hasRevenue, showLogged = true, cls = '') {
     <div class="delta-note flat">${showLogged && logged > 0 ? fmtHours(logged) + 'h logged · ' : ''}not assigned yet</div></div></td>`;
 }
 
-// Department series colours: the chart categorical ramp (--cat-1..7 in
-// style.css — a documented exception to the closed palette, department series
-// only; slot 1 is the brand's own muted green). Assigned by department NAME
+// Department series colours: the chart categorical ramp (--cat-1..6 in
+// style.css — six steps of the brand green from the extended kit, in the one
+// dark/light alternation that keeps adjacent stacked segments apart; slot 1
+// is Muted Ledger Green). Assigned by department NAME
 // company-wide, never by a project's own ranking, so the same department is
 // the same colour on every project: departments are ordered by headcount on
 // hours_page's staff list (ties alphabetical), which puts the brand green on
 // the largest team and only changes when the roster does. DEPT_SLOTS pins a
 // department to a slot explicitly and wins over that order — fill it in once
 // the department names are settled. An eighth department folds into grey
-// "Other" rather than inventing a hue: no brand-compatible eighth passes.
-const DEPT_COLORS = ['var(--cat-1)', 'var(--cat-2)', 'var(--cat-3)', 'var(--cat-4)', 'var(--cat-5)', 'var(--cat-6)', 'var(--cat-7)'];
+// "Other" rather than inventing a hue: the kit has no seventh legible step.
+const DEPT_COLORS = ['var(--cat-1)', 'var(--cat-2)', 'var(--cat-3)', 'var(--cat-4)', 'var(--cat-5)', 'var(--cat-6)'];
 const DEPT_SLOTS = {};            // e.g. { 'Paid Media': 0, 'Creative': 2 } — slot index into DEPT_COLORS
 const OTHER_COLOR = 'var(--cat-other)';
 const OTHER = 'Other';
