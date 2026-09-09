@@ -1,8 +1,16 @@
 name: Sync QuickBooks Time actuals
 
+# Every 2 hours during business hours (8am-8pm US Eastern), plus manual dispatch —
+# the same schedule as the HubSpot and QBO syncs, so hours logged this morning
+# are on Project Hours this afternoon. GitHub Actions cron has no timezone
+# support, so two lines cover DST: the first targets EDT (UTC-4, roughly
+# Mar-Nov), the second EST (UTC-5, Dec-Feb) — each maps to 8/10/12/14/16/18/20
+# Eastern. Safe to run this often since 090: rows are upserted and the previous
+# run's swept afterwards, so a run never blanks the window.
 on:
   schedule:
-    - cron: '0 7 * * *'   # daily at 07:00 UTC (~2–3am US Eastern)
+    - cron: '0 0,12,14,16,18,20,22 3-11 * *'   # EDT: 8am-8pm Eastern
+    - cron: '0 1,13,15,17,19,21,23 1,2,12 * *' # EST: 8am-8pm Eastern
   workflow_dispatch:       # adds a "Run workflow" button for manual syncs
     inputs:
       trace:
