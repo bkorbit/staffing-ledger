@@ -337,6 +337,12 @@ svg.chart .bandcol:focus-visible { outline:2px solid var(--brand-2); outline-off
   font-family:var(--font-mono); font-size:10px; color:var(--ink); }
 .chart-legend button.lg-item:hover { color:var(--brand); }
 .chart-legend button.lg-item:focus-visible { outline:2px solid var(--brand-2); outline-offset:3px; border-radius:4px; }
+/* a mode switch in the legend bar (Client Profitability's hours chart: by
+   project / by department): plain lg-item buttons, the active one in brand
+   green and bold, a hairline separating them from the swatches */
+.chart-legend button.lg-item.toggle { color:var(--slate); }
+.chart-legend button.lg-item.toggle.on { color:var(--brand); font-weight:700; }
+.chart-legend .lg-sep { width:1px; height:14px; background:var(--line); display:inline-block; margin:0 -6px; }
 .chart-detail { background:#f2f2f2; padding:0 18px 14px; font-family:var(--font-mono); font-size:10.5px;
   color:var(--ink); line-height:1.65; }
 .chart-detail > div + div { margin-top:8px; }

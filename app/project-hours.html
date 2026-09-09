@@ -296,7 +296,7 @@ boot('projhours', async (supa, el) => {
         </div>
         <div class="charts">
           <div class="sc-panel chartpanel">
-            <div class="chart-head"><div class="sc-eyebrow">Hours logged by week</div>
+            <div class="chart-head"><div class="sc-eyebrow">Hours logged</div>
               <div class="stat-inline">${ready && !d.error ? hoursStat(d, rangeFrom, rangeTo) : ''}</div></div>
             ${chartBody(`hours-${r.dealId}`)}
           </div>

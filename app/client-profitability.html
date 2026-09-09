@@ -76,6 +76,9 @@ boot('clientprofit', async (supa, el) => {
   // stored as its promise so a second click can't start a second round trip
   const detailCache = new Map();
   let deptOrder = [];             // company-wide department list, the chart colour key
+  // the hours chart's grouping — by project (default: which project is eating
+  // the hours) or by department — remembered per browser
+  let hoursBy = localStorage.getItem('cp_hours_by') === 'department' ? 'department' : 'deal';
 
   el.innerHTML = `<div class="range">
       <span class="rl">Range</span>
@@ -326,7 +329,7 @@ boot('clientprofit', async (supa, el) => {
     return `<tr class="expand-row"><td colspan="12">
       <div class="client-charts">
         <div class="sc-panel chartpanel">
-          <div class="chart-head"><div class="sc-eyebrow">Hours logged by week — by project</div>
+          <div class="chart-head"><div class="sc-eyebrow">Hours logged — all projects</div>
             <div class="stat-inline">${ready && !d.error ? hoursStat(d, rangeFrom, rangeTo) : ''}</div></div>
           ${body(`hours-${c.clientId}`)}
         </div>
@@ -469,7 +472,8 @@ boot('clientprofit', async (supa, el) => {
       if (!d) { ensureDetail(c.clientId); return; }
       if (d instanceof Promise || d.error) return;
       const h = document.querySelector(`[id="hours-${c.clientId}"]`), v = document.querySelector(`[id="rev-${c.clientId}"]`);
-      if (h) hoursByWeekChart(h, d, rangeFrom, rangeTo, deptOrder, { height: 220, by: 'deal' });
+      if (h) hoursByWeekChart(h, d, rangeFrom, rangeTo, deptOrder, { height: 220, by: hoursBy,
+        toggle: v => { hoursBy = v; try { localStorage.setItem('cp_hours_by', v); } catch {} render(); } });
       if (v) revGpChart(v, d, { height: 220 });
     });
 

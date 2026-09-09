@@ -31,6 +31,8 @@ const fmtK = c => { const d = c / 100, a = Math.abs(d), sign = d < 0 ? '-' : '';
 const iso = d => d.toISOString().slice(0, 10);
 const endOfMonth = m => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
   return iso(new Date(Date.UTC(y, mm, 0))); };
+const shiftM = (m, n) => { const [y, mm] = m.slice(0, 7).split('-').map(Number);
+  return iso(new Date(Date.UTC(y, mm - 1 + n, 1))); };
 const addDays = (s, n) => { const d = new Date(s + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return iso(d); };
 // Monday on or before s — the same bucket date_trunc('week') gives the weeks
 const mondayOf = s => { const d = new Date(s + 'T00:00:00Z'); const dow = (d.getUTCDay() + 6) % 7;
@@ -65,21 +67,29 @@ export function departmentOrder(staff) {
   return order.filter(Boolean);
 }
 
-// ---- hours logged per ISO week, stacked ---------------------------------------
+// ---- hours logged, stacked — by week, or by month once the window is long ----
 // opts.by = 'department' (default; detail.weeks, coloured by the company-wide
 // department order) or 'deal' (detail.weeks_by_deal, one series per project,
 // named and ordered by detail.deals — flight start then name, so a project
-// keeps its colour as hours shift between projects). The window is
-// detail.deal (088) or detail.engagement (089) — both carry
-// flight_start/flight_end. The axis runs from the window's first week to THIS
-// week: nothing can be logged in the future, so the rest of the flight is not
-// drawn as empty track (the revenue chart keeps the whole flight, because its
-// plan does extend). The page's own range is shaded; everything else on the
-// chart is the window.
+// keeps its colour as hours shift between projects). opts.toggle = fn(by)
+// renders a by-project / by-department switch in the legend bar and calls
+// back with the choice.
+//
+// The window is where the information is: from the first week with hours to
+// the last, never the flight or the future — an empty flight start or a lull
+// after the last entry is not drawn as empty track. A dribble at either end
+// (a bucket under 1% of the tallest, e.g. a stray quarter-hour logged a year
+// early) is trimmed too, so one mislogged entry cannot stretch the axis back
+// across a year of nothing; the table's totals still count it. Once the
+// trimmed window is longer than four months the bars become MONTHS (a week
+// is bucketed by the month its Monday falls in) — 26+ weekly bars read as
+// noise where six monthly ones read as a trend. The page's own range is
+// shaded whichever grain is drawn.
+const DRIBBLE = 0.01;
+const MONTHLY_AFTER_WEEKS = 18;   // ~4 months
 export function hoursByWeekChart(el, detail, rangeFrom, rangeTo, deptOrder, opts = {}) {
   const W = 940, H = opts.height || 190, P = { l: 48, r: 28, t: 14, b: 24 };
   const byDeal = opts.by === 'deal';
-  const today = iso(new Date());
   // rows normalised to {week, key, hours}; order[] is the fixed colour key
   let rows, order, label;
   if (byDeal) {
@@ -93,59 +103,77 @@ export function hoursByWeekChart(el, detail, rangeFrom, rangeTo, deptOrder, opts
     rows = (detail.weeks || []).map(r => ({ week: r.week, key: r.department, hours: +r.hours }));
     label = k => k;
   }
-  const win = detail.deal || detail.engagement || {};
-  const dataWeeks = rows.map(r => r.week);
-  const starts = [win.flight_start ? mondayOf(win.flight_start) : null, ...dataWeeks].filter(Boolean).sort();
-  if (!starts.length) {
-    el.innerHTML = `<div class="empty-note" style="padding:28px 14px">No hours logged here yet.</div>`; return;
+  const toggleHtml = opts.toggle ? `<span class="lg-sep"></span>` +
+    [['deal', 'by project'], ['department', 'by department']].map(([v, t]) =>
+      `<button type="button" class="lg-item toggle${byDeal === (v === 'deal') ? ' on' : ''}" data-by="${v}" aria-pressed="${byDeal === (v === 'deal')}">${t}</button>`).join('') : '';
+  const wireToggle = () => el.querySelectorAll('button[data-by]').forEach(btn => btn.onclick = () => opts.toggle(btn.dataset.by));
+  const totalsByWeek = {};
+  rows.forEach(r => { if (r.hours > 0) totalsByWeek[r.week] = (totalsByWeek[r.week] || 0) + r.hours; });
+  let dataWeeks = Object.keys(totalsByWeek).sort();
+  if (!dataWeeks.length) {
+    el.innerHTML = `<div class="empty-note" style="padding:28px 14px">No hours logged here yet.</div><div class="chart-legend">${toggleHtml}</div>`;
+    wireToggle(); return;
   }
-  const flightEndWeek = win.flight_end ? mondayOf(win.flight_end) : null;
-  const lastData = dataWeeks.slice().sort().pop() || starts[0];
-  let end = mondayOf(today);
-  if (flightEndWeek && flightEndWeek < end) end = flightEndWeek;
-  if (lastData > end) end = lastData;
-  const weeks = []; for (let w = starts[0]; w <= end; w = addDays(w, 7)) weeks.push(w);
-  const idx = {}; weeks.forEach((w, i) => idx[w] = i);
+  // trim the dribble at either end
+  const tallest = Math.max(...dataWeeks.map(w => totalsByWeek[w]));
+  while (dataWeeks.length > 1 && totalsByWeek[dataWeeks[0]] < tallest * DRIBBLE) dataWeeks.shift();
+  while (dataWeeks.length > 1 && totalsByWeek[dataWeeks[dataWeeks.length - 1]] < tallest * DRIBBLE) dataWeeks.pop();
+  const first = dataWeeks[0], last = dataWeeks[dataWeeks.length - 1];
+  const weeksSpan = Math.round((new Date(last) - new Date(first)) / 6048e5) + 1;
+  const monthly = weeksSpan > MONTHLY_AFTER_WEEKS;
+  // buckets: every week (or month) from first to last, gaps included
+  const bucketOf = w => monthly ? w.slice(0, 7) + '-01' : w;
+  const buckets = [];
+  if (monthly) { for (let m = first.slice(0, 7) + '-01'; m <= bucketOf(last); m = shiftM(m, 1)) buckets.push(m); }
+  else { for (let w = first; w <= last; w = addDays(w, 7)) buckets.push(w); }
+  const idx = {}; buckets.forEach((k, i) => idx[k] = i);
   const slot = k => order.indexOf(k);
   const colorOf = k => { const i = slot(k); return i >= 0 && i < DEPT_COLORS.length ? DEPT_COLORS[i] : OTHER_COLOR; };
   const nameOf = k => { const i = slot(k); return i >= 0 && i < DEPT_COLORS.length ? label(k) : OTHER; };
   const seriesByName = {};
   rows.forEach(r => {
+    if (r.week < first || r.week > last) return;
     const name = nameOf(r.key);
-    const s = seriesByName[name] = seriesByName[name] || { name, key: name === OTHER ? OTHER : r.key, color: colorOf(r.key), values: weeks.map(() => 0) };
-    if (idx[r.week] !== undefined) s.values[idx[r.week]] += r.hours;
+    const s = seriesByName[name] = seriesByName[name] || { name, key: name === OTHER ? OTHER : r.key, color: colorOf(r.key), values: buckets.map(() => 0) };
+    const i = idx[bucketOf(r.week)]; if (i !== undefined) s.values[i] += r.hours;
   });
   // stack order = the fixed palette order, Other last — so the colours read
   // the same way top-to-bottom everywhere
   const series = Object.values(seriesByName).sort((a, b) =>
     (a.key === OTHER ? 99 : slot(a.key)) - (b.key === OTHER ? 99 : slot(b.key)));
-  const totals = weeks.map((_, i) => series.reduce((s, sr) => s + sr.values[i], 0));
-  const max = Math.max(Math.ceil(Math.max(...totals, 1) / 10) * 10, 10);
-  const step = max / 10 > 8 ? Math.ceil(max / 50) * 10 : 10;
-  const bw = (W - P.l - P.r) / weeks.length;
+  const totals = buckets.map((_, i) => series.reduce((s, sr) => s + sr.values[i], 0));
+  const rawMax = Math.max(...totals, 1);
+  const unit = rawMax > 400 ? 100 : rawMax > 80 ? 20 : 10;
+  let max = Math.ceil(rawMax / unit) * unit; if (max - rawMax < unit * 0.2) max += unit;
+  const step = max / unit > 8 ? unit * Math.ceil(max / unit / 6) : unit;
+  const bw = (W - P.l - P.r) / buckets.length;
   const y = v => P.t + (H - P.t - P.b) * (1 - v / max);
   let grid = '';
   for (let v = 0; v <= max; v += step) grid += `<line x1="${P.l}" y1="${y(v)}" x2="${W - P.r}" y2="${y(v)}" stroke="var(--line)"/>
     <text x="${P.l - 6}" y="${y(v) + 4}" fill="var(--slate)" font-size="10" font-family="IBM Plex Mono" text-anchor="end">${v}h</text>`;
-  const rFrom = mondayOf(rangeFrom), rTo = mondayOf(endOfMonth(rangeTo));
-  const bi = weeks.findIndex(w => w >= rFrom), bj = weeks.findIndex(w => w > rTo);
-  const b0 = bi < 0 ? weeks.length : bi, b1 = bj < 0 ? weeks.length : bj;
+  // the page's own range, shaded, in whichever grain is drawn
+  const rFrom = bucketOf(mondayOf(rangeFrom)), rTo = bucketOf(mondayOf(endOfMonth(rangeTo)));
+  const bi = buckets.findIndex(k => k >= rFrom), bj = buckets.findIndex(k => k > rTo);
+  const b0 = bi < 0 ? buckets.length : bi, b1 = bj < 0 ? buckets.length : bj;
   const band = b1 > b0 ? `<rect x="${P.l + b0 * bw}" y="${P.t}" width="${(b1 - b0) * bw}" height="${H - P.t - P.b}" fill="var(--mint)" opacity=".7"/>` : '';
-  const bars = weeks.map((_, i) => { let acc = 0; return series.map(sr => {
+  const bars = buckets.map((_, i) => { let acc = 0; return series.map(sr => {
     const v = sr.values[i]; if (!v) return '';
     const y1 = y(acc + v), h = Math.max(y(acc) - y1 - 1, 0); acc += v;   // 1px gap between stacked fills
     return `<rect x="${P.l + i * bw + bw * .15}" y="${y1}" width="${bw * .7}" height="${h}" fill="${sr.color}"/>`; }).join(''); }).join('');
-  const every = Math.max(1, Math.ceil(weeks.length / 9));
-  const xl = weeks.map((w, i) => i % every ? '' :
-    `<text x="${P.l + i * bw + bw / 2}" y="${H - 8}" fill="var(--slate)" font-size="10" font-family="IBM Plex Mono" text-anchor="middle">${fmtDayMon(w)}</text>`).join('');
-  const cols = weeks.map((w, i) => `<rect class="hit" data-i="${i}" x="${P.l + i * bw}" y="${P.t}" width="${bw}" height="${H - P.t - P.b}" fill="transparent" tabindex="0" role="img" aria-label="${esc(`week of ${fmtDayMon(w)}: ${fmtHours(totals[i])}h`)}"/>`).join('');
+  const fmtBucket = k => monthly ? fmtMonYY(k) : fmtDayMon(k);
+  const every = Math.max(1, Math.ceil(buckets.length / 9));
+  const xl = buckets.map((k, i) => i % every ? '' :
+    `<text x="${P.l + i * bw + bw / 2}" y="${H - 8}" fill="var(--slate)" font-size="10" font-family="IBM Plex Mono" text-anchor="middle">${fmtBucket(k)}</text>`).join('');
+  const cols = buckets.map((k, i) => `<rect class="hit" data-i="${i}" x="${P.l + i * bw}" y="${P.t}" width="${bw}" height="${H - P.t - P.b}" fill="transparent" tabindex="0" role="img" aria-label="${esc(`${monthly ? '' : 'week of '}${fmtBucket(k)}: ${fmtHours(totals[i])}h`)}"/>`).join('');
   const legend = series.map(sr => `<span class="lg-item"><i class="lg-dot" style="background:${sr.color}"></i>${esc(sr.name)}</span>`).join('')
-    + `<span class="lg-item"><i class="lg-dot" style="background:var(--mint);border:1px solid var(--line)"></i>selected range</span>`;
+    + `<span class="lg-item"><i class="lg-dot" style="background:var(--mint);border:1px solid var(--line)"></i>selected range</span>`
+    + `<span class="lg-item" style="color:var(--slate)">${monthly ? 'by month' : 'by week'}</span>` + toggleHtml;
   el.style.position = 'relative';
-  el.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Hours logged per week by ${byDeal ? 'project' : 'department'}">${band}${grid}${bars}<g class="hover"></g>${xl}${cols}</svg>
+  el.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Hours logged per ${monthly ? 'month' : 'week'} by ${byDeal ? 'project' : 'department'}">${band}${grid}${bars}<g class="hover"></g>${xl}${cols}</svg>
     <div class="chart-tip"></div><div class="chart-legend">${legend}</div>`;
+  wireToggle();
   wireChartTip(el,
-    i => `<div class="tip-label">wk of ${esc(fmtDayMon(weeks[i]))} · ${fmtHours(totals[i])}h</div>` +
+    i => `<div class="tip-label">${monthly ? '' : 'wk of '}${esc(fmtBucket(buckets[i]))} · ${fmtHours(totals[i])}h</div>` +
       series.filter(sr => sr.values[i]).map(sr => `<div class="tip-row"><span class="tip-dot" style="background:${sr.color}"></span>${esc(sr.name)} <b>${fmtHours(sr.values[i])}h</b></div>`).join(''),
     i => { const x = P.l + i * bw + bw / 2; return `<line x1="${x}" y1="${P.t}" x2="${x}" y2="${H - P.b}" stroke="var(--slate)" stroke-dasharray="2 3"/>`; });
 }
@@ -162,9 +190,18 @@ export function revGpChart(el, detail, opts = {}) {
   // returns 0 there, and this keeps a pre-090 payload from breaking the line
   const through = detail.measured_through || '';
   const meas = (m, v) => v !== null && v !== undefined ? +v : (through && m.month <= through ? 0 : null);
-  const months = (detail.months || []).map(m => ({ ...m,
+  let months = (detail.months || []).map(m => ({ ...m,
     rev_actual: meas(m, m.rev_actual), gp_actual: meas(m, m.gp_actual),
     rev_plan: +(m.rev_plan || 0), gp_plan: +(m.gp_plan || 0) }));
+  // the window is where the information is: a month carries information when
+  // any of the four series is non-zero. Leading and trailing empty months are
+  // trimmed; a $0 month stays only between two months that have something —
+  // that gap IS information (nothing invoiced), a year of nothing before the
+  // first invoice is not.
+  const informative = m => m.rev_actual || m.gp_actual || m.rev_plan || m.gp_plan;
+  let lo = months.findIndex(informative), hi = months.length - 1;
+  while (hi > lo && !informative(months[hi])) hi--;
+  months = lo < 0 ? [] : months.slice(lo, hi + 1);
   if (!months.length) {
     const noProj = detail.deal && !detail.deal.qbo_project_id;
     el.innerHTML = `<div class="empty-note" style="padding:28px 14px">${noProj ? 'No QB project claimed and no plan — nothing to measure.' : 'No plan or invoices here yet.'}</div>`; return;
