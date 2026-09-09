@@ -327,7 +327,13 @@ boot('clientprofit', async (supa, el) => {
       <div class="client-charts">
         <div class="sc-panel chartpanel">
           <div class="chart-head"><div class="sc-eyebrow">Hours logged — all projects</div>
-            <div class="stat-inline">${ready && !d.error ? hoursStat(d, rangeFrom, rangeTo) : ''}</div></div>
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <div class="stat-inline">${ready && !d.error ? hoursStat(d, rangeFrom, rangeTo) : ''}</div>
+              <span class="rp rp-sm" role="group" aria-label="Group hours by">
+                <button type="button" class="seg${hoursBy === 'deal' ? ' on' : ''}" data-hours-by="deal" aria-pressed="${hoursBy === 'deal'}" title="by project">Proj</button>
+                <button type="button" class="seg${hoursBy === 'department' ? ' on' : ''}" data-hours-by="department" aria-pressed="${hoursBy === 'department'}" title="by department">Dept</button>
+              </span>
+            </div></div>
           ${body(`hours-${c.clientId}`)}
         </div>
         <div class="sc-panel chartpanel">
@@ -469,9 +475,15 @@ boot('clientprofit', async (supa, el) => {
       if (!d) { ensureDetail(c.clientId); return; }
       if (d instanceof Promise || d.error) return;
       const h = document.querySelector(`[id="hours-${c.clientId}"]`), v = document.querySelector(`[id="rev-${c.clientId}"]`);
-      if (h) hoursByWeekChart(h, d, rangeFrom, rangeTo, deptOrder, { height: 220, by: hoursBy,
-        toggle: v => { hoursBy = v; try { localStorage.setItem('cp_hours_by', v); } catch {} render(); } });
+      if (h) hoursByWeekChart(h, d, rangeFrom, rangeTo, deptOrder, { height: 220, by: hoursBy });
       if (v) revGpChart(v, d, { height: 220 });
+    });
+
+    // Proj / Dept pill on each open client's hours card
+    document.querySelectorAll('[data-hours-by]').forEach(btn => btn.onclick = () => {
+      hoursBy = btn.dataset.hoursBy;
+      try { localStorage.setItem('cp_hours_by', hoursBy); } catch {}
+      render();
     });
 
     wireSearch(el, '#q', v => { query = v; render(); });

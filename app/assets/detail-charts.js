@@ -71,9 +71,9 @@ export function departmentOrder(staff) {
 // opts.by = 'department' (default; detail.weeks, coloured by the company-wide
 // department order) or 'deal' (detail.weeks_by_deal, one series per project,
 // named and ordered by detail.deals — flight start then name, so a project
-// keeps its colour as hours shift between projects). opts.toggle = fn(by)
-// renders a by-project / by-department switch in the legend bar and calls
-// back with the choice.
+// keeps its colour as hours shift between projects). The by-project /
+// by-department switch is the page's (a small pill on the card), not the
+// chart's.
 //
 // The window is where the information is: from the first week with hours to
 // the last, never the flight or the future — an empty flight start or a lull
@@ -111,16 +111,11 @@ export function hoursByWeekChart(el, detail, rangeFrom, rangeTo, deptOrder, opts
     const extra = [...new Set(rows.map(r => r.key))].filter(k => !deptOrder.includes(k)).sort();
     order = [...deptOrder, ...extra];
   }
-  const toggleHtml = opts.toggle ? `<span class="lg-sep"></span>` +
-    [['deal', 'by project'], ['department', 'by department']].map(([v, t]) =>
-      `<button type="button" class="lg-item toggle${byDeal === (v === 'deal') ? ' on' : ''}" data-by="${v}" aria-pressed="${byDeal === (v === 'deal')}">${t}</button>`).join('') : '';
-  const wireToggle = () => el.querySelectorAll('button[data-by]').forEach(btn => btn.onclick = () => opts.toggle(btn.dataset.by));
   const totalsByWeek = {};
   rows.forEach(r => { if (r.hours > 0) totalsByWeek[r.week] = (totalsByWeek[r.week] || 0) + r.hours; });
   let dataWeeks = Object.keys(totalsByWeek).sort();
   if (!dataWeeks.length) {
-    el.innerHTML = `<div class="empty-note" style="padding:28px 14px">No hours logged here yet.</div><div class="chart-legend">${toggleHtml}</div>`;
-    wireToggle(); return;
+    el.innerHTML = `<div class="empty-note" style="padding:28px 14px">No hours logged here yet.</div>`; return;
   }
   // trim the dribble at either end
   const tallest = Math.max(...dataWeeks.map(w => totalsByWeek[w]));
@@ -182,11 +177,10 @@ export function hoursByWeekChart(el, detail, rangeFrom, rangeTo, deptOrder, opts
   const cols = buckets.map((k, i) => `<rect class="hit" data-i="${i}" x="${P.l + i * bw}" y="${P.t}" width="${bw}" height="${H - P.t - P.b}" fill="transparent" tabindex="0" role="img" aria-label="${esc(`${monthly ? '' : 'week of '}${fmtBucket(k)}: ${fmtHours(totals[i])}h`)}"/>`).join('');
   const legend = series.map(sr => `<span class="lg-item"><i class="lg-dot" style="background:${sr.color}"></i>${esc(sr.name)}</span>`).join('')
     + `<span class="lg-item"><i class="lg-dot" style="background:var(--mint);border:1px solid var(--line)"></i>selected range</span>`
-    + `<span class="lg-item" style="color:var(--slate)">${monthly ? 'by month' : 'by week'}</span>` + toggleHtml;
+    + `<span class="lg-item" style="color:var(--slate)">${monthly ? 'by month' : 'by week'}</span>`;
   el.style.position = 'relative';
   el.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Hours logged per ${monthly ? 'month' : 'week'} by ${byDeal ? 'project' : 'department'}">${band}${grid}${bars}<g class="hover"></g>${xl}${cols}</svg>
     <div class="chart-tip"></div><div class="chart-legend">${legend}</div>`;
-  wireToggle();
   wireChartTip(el,
     i => `<div class="tip-label">${monthly ? '' : 'wk of '}${esc(fmtBucket(buckets[i]))} · ${fmtHours(totals[i])}h</div>` +
       series.filter(sr => sr.values[i]).map(sr => sr.key === OTHER
