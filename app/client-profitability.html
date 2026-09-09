@@ -112,6 +112,18 @@ boot('clientprofit', async (supa, el) => {
     const projClaimedBy = {};
     (dl.data || []).forEach(d => { if (d.qbo_project_id) projClaimedBy[d.qbo_project_id] = d.client_id; });
 
+    // A deal belongs on this page only if its flight overlaps the selected
+    // range — the same activeInRange rule forecast.html's client table uses.
+    // Without it the qbo_project_id branch below reaches EVERY deal that ever
+    // claimed a project, from any year, and they arrive as rows of zeros
+    // (their revenue and plan are both range-scoped already). A null bound is
+    // open-ended, not a miss: an undated deal can't be judged by date, so it
+    // stays and is decided on whether it has any figures at all.
+    const rangeEndExcl = shiftM(rangeTo, 1);
+    const activeInRange = d =>
+      (!d.flight_start || d.flight_start < rangeEndExcl) &&
+      (!d.flight_end || d.flight_end >= rangeFrom);
+
     // one row per deal that has EITHER actual labor hours, a claimed QBO
     // project, or a plan entry — so a deal that's all-forecast (no hours
     // logged yet, nothing invoiced yet) still counts toward its client
@@ -121,6 +133,7 @@ boot('clientprofit', async (supa, el) => {
       .filter((id, i, a) => a.indexOf(id) === i)
       .map(id => {
         const deal = dealsById[id]; if (!deal) return null;
+        if (!activeInRange(deal)) return null;
         const labor = laborByDeal[id] || { hours: 0, cost: 0 };
         const plan = planByDeal[id] || { gpAll: 0, gpSettled: 0, billFuture: 0 };
         const actualRevenue = deal.qbo_project_id ? (revProjByProj[deal.qbo_project_id] || 0) : 0;
@@ -140,7 +153,11 @@ boot('clientprofit', async (supa, el) => {
           actualRevenue, actualCogs, actualGP: actualRevenue - actualCogs,
           forecastRevenue, forecastCogs, forecastGP
         };
-      }).filter(Boolean);
+      })
+      // a deal inside the range but with nothing on any of the four fronts is
+      // a row of zeros — the same emptiness test the client rows below apply
+      .filter(r => r && (r.actualRevenue !== 0 || r.actualCogs !== 0 || r.actualHours !== 0 ||
+                         r.forecastRevenue !== 0 || r.plannedHours !== 0));
 
     const byClient = {};
     dealRows.forEach(r => (byClient[r.clientId] = byClient[r.clientId] || []).push(r));
