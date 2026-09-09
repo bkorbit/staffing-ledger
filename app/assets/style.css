@@ -243,6 +243,18 @@ tr.expand-row td { padding:0; border-bottom:1px solid var(--line); background:#f
 .chart-legend .lg-dash { width:14px; height:0; border-top:2px dashed currentColor; display:inline-block; flex:none; opacity:.7; }
 @media (max-width:1000px) { .expand-split { grid-template-columns:1fr; } }
 
+/* Client Profitability's opened client closes with its two reports (the same
+   two Project Hours shows, summed across the client's deals), side by side at
+   full width under the deal rows. The two panels share one height whatever
+   their legends wrap to: the legend is pinned to the bottom and the chart
+   centres in the space above it. */
+.client-charts { display:grid; grid-template-columns:1fr 1fr; gap:16px; padding:14px 18px 18px; align-items:stretch; }
+.client-charts .chartpanel { position:relative; margin-bottom:0; display:flex; flex-direction:column; }
+.client-charts .chartpanel > div:last-child { flex:1; display:flex; flex-direction:column; }
+.client-charts .chartpanel > div:last-child svg.chart { margin:auto 0; }
+.client-charts .chart-legend { margin-top:auto; }
+@media (max-width:1000px) { .client-charts { grid-template-columns:1fr; } }
+
 /* Client Profitability's per-project breakout — the OTHER shape an expanded
    row can take. Team Hours' .expand-row above pops out a free-form panel
    under the row (bars, a time split: content that has no column to sit in);
@@ -264,11 +276,9 @@ table.ledger tr.subrow.last td { border-bottom:1px solid var(--line); }
    children to their parent row, in place of an indent the eye has to guess
    at. It stops halfway down the last row so the group visibly closes. */
 table.ledger tr.subrow td:first-child,
-table.ledger tr.subnote td { padding-left:28px; position:relative; }
-table.ledger tr.subrow td:first-child::before,
-table.ledger tr.subnote td::before { content:''; position:absolute;
-  left:13px; top:0; bottom:0; width:2px; background:var(--brand-2); }
-table.ledger tr.subrow.last td:first-child::before { bottom:50%; }
+table.ledger tr.subnote td { padding-left:28px; }
+/* No rail down the left edge (removed 8 Sep 2026, Boris: "it doesn't make any
+   sense") — the indent and the grey wash already say "inside the client". */
 .sub-name { font-family:var(--font-body); font-size:11.5px; }
 .sub-proj { font-family:var(--font-mono); font-size:10px; color:var(--slate); }
 /* Context line above the children: how many projects, how many matched to
@@ -282,8 +292,7 @@ table.ledger tr.subnote td { background:#f6f6f6; border-bottom:1px solid #e8e8e8
    but outside the client total above (Forecast folds it in, this table
    can't — every other figure here is per-deal). A dashed rule and a slate
    rail say "aside", not "sibling of the deals". */
-table.ledger tr.subrow.remainder td { border-top:1px dashed var(--line); }
-table.ledger tr.subrow.remainder td:first-child::before { background:var(--slate); }
+/* the unclaimed remainder is a muted deal row, nothing more — its sub-line says what it is */
 
 .placeholder { border:1px dashed var(--line); border-radius:6px; padding:44px; text-align:center;
   color:var(--slate); background:var(--paper-raised); }

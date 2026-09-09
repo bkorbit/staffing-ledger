@@ -145,6 +145,14 @@ is always a new migration, so grep for the highest one before reading an old bod
   same CTEs, same 080 fail-open rules — and 088_fixture_test asserts they agree
   to the cent. Per-person hours are NOT here; hours_page's staff_hours_deal /
   staff_deal_planned already carry them.
+- `client_detail(client_id)` [089] — project_detail unioned across a client's
+  deals for Client Profitability's open-client charts: hours per week per
+  department over all deals; revenue/GP actual per DISTINCT claimed QB project
+  (two deals on one project count it once), plan per deal. The unclaimed
+  remainder is excluded, matching the page's client total. Both pages draw
+  the charts from `app/assets/detail-charts.js` — one copy, imported with the
+  same `?v=` stamp; it must NOT import shell.js (a second module instance
+  would create a second Supabase client).
 - `snapshot_forecast`, `v_forecast_accuracy`, `v_invoice_settlement_calibration`
   [067] — measuring the model against itself.
 - `promote_approval(hubspot_deal_id)` [078] — the promotion door: deal +

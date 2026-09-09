@@ -3,6 +3,7 @@
 <title>EMG — Client Profitability</title><link rel="stylesheet" href="./assets/style.css?v=34554e5"></head><body>
 <script type="module">
 import { boot, esc, wireSearch, fetchAll } from './assets/shell.js?v=34554e5';
+import { hoursByWeekChart, revGpChart, hoursStat, revStat, departmentOrder } from './assets/detail-charts.js?v=34554e5';
 
 // Client-level evaluation — is this account healthy? For per-project detail
 // (scoping, tracking how much work is going into a specific deal), see
@@ -28,6 +29,13 @@ import { boot, esc, wireSearch, fetchAll } from './assets/shell.js?v=34554e5';
 // half entirely for a strict actuals-only read. Labor cost is hours-based
 // (db/031_hours_page.sql) and is always actual — assignments has no entry
 // mechanism yet (db/034/035), so there is no "planned labor cost" to add.
+//
+// An open client closes with the two reports Project Hours shows per project
+// — hours per week by department, revenue and gross profit actual vs plan per
+// month — summed across the client's deals by client_detail() (db/089) and
+// drawn by assets/detail-charts.js, the one copy both pages use. Fetched
+// lazily per opened client and cached for the visit. The unclaimed remainder
+// is NOT in the charts, for the same reason it is not in the client total.
 const fmtHours = h => (+h || 0).toLocaleString(undefined, { maximumFractionDigits: 1 });
 const fmt$0 = c => (c < 0 ? '-$' : '$') + Math.abs(Math.round((c || 0) / 100)).toLocaleString();
 const fmtDate = s => s ? new Date(s + 'T00:00:00Z')
@@ -62,6 +70,10 @@ boot('clientprofit', async (supa, el) => {
   let historicalOnly = false;
   let allClientRows = []; // cached between load() (network) and render() (local re-filter/toggle)
   const openClients = new Set();  // client ids whose deal rows are showing
+  // client_detail() results, per client, for the visit; an in-flight fetch is
+  // stored as its promise so a second click can't start a second round trip
+  const detailCache = new Map();
+  let deptOrder = [];             // company-wide department list, the chart colour key
 
   el.innerHTML = `<div class="range">
       <span class="rl">Range</span>
@@ -86,6 +98,7 @@ boot('clientprofit', async (supa, el) => {
       el.innerHTML = `<div class="sc-panel err">${esc(r.error.message)}</div>`; return;
     }
     const H = hp.data || {}, P = fp.data || {};
+    deptOrder = departmentOrder(H.staff || []);
     const dealsById = {}; (dl.data || []).forEach(d => dealsById[d.id] = d);
     const clientsById = {}; (cl.data || []).forEach(c => clientsById[c.id] = c);
     const revProjByProj = {}; (P.rev_proj || []).forEach(r => revProjByProj[r.qbo_project_id] = +r.total);
@@ -299,6 +312,38 @@ boot('clientprofit', async (supa, el) => {
       </div></td></tr>`;
   }
 
+  // The block's last row: the client's two reports, side by side. Reads from
+  // detailCache; a miss renders a loading state and starts the fetch, whose
+  // resolution re-renders.
+  function chartsRowHtml(c) {
+    const d = detailCache.get(c.clientId);
+    const ready = d && !(d instanceof Promise);
+    const body = id => ready
+      ? (d.error ? `<div class="empty-note err" style="padding:20px 14px">${esc(d.error)}</div>` : `<div id="${id}"></div>`)
+      : `<div class="empty-note" style="padding:28px 14px">loading…</div>`;
+    return `<tr class="expand-row"><td colspan="12">
+      <div class="client-charts">
+        <div class="sc-panel chartpanel">
+          <div class="chart-head"><div class="sc-eyebrow">Hours logged by week — all projects</div>
+            <div class="stat-inline">${ready && !d.error ? hoursStat(d, rangeFrom, rangeTo) : ''}</div></div>
+          ${body(`hours-${c.clientId}`)}
+        </div>
+        <div class="sc-panel chartpanel">
+          <div class="chart-head"><div class="sc-eyebrow">Revenue &amp; gross profit — actual vs plan, all projects</div>
+            <div class="stat-inline">${ready && !d.error ? revStat(d) : ''}</div></div>
+          ${body(`rev-${c.clientId}`)}
+        </div>
+      </div></td></tr>`;
+  }
+  function ensureDetail(clientId) {
+    if (detailCache.has(clientId)) return;
+    const p = supa.rpc('client_detail', { p_client_id: clientId }).then(res => {
+      detailCache.set(clientId, res.error ? { error: res.error.message } : (res.data || {}));
+      if (openClients.has(clientId)) render();
+    });
+    detailCache.set(clientId, p);
+  }
+
   // column definitions for the table: key drives both the sort comparator
   // (sortValue below) and the data-sort attribute; label is the header text.
   // The hours-vs-planned bar has no single scalar to sort by (it's already
@@ -408,11 +453,23 @@ boot('clientprofit', async (supa, el) => {
                 dealRowHtml(d, i === ds.length - 1 && !c.unclaimed.length)).join('');
               const rest = c.unclaimed.map((u, i) =>
                 remainderRowHtml(u, i === c.unclaimed.length - 1)).join('');
-              return head + contextRowHtml(c) + kids + rest;
+              return head + contextRowHtml(c) + kids + rest + chartsRowHtml(c);
             }).join('')}
         </table>
         </div>
       </div>`;
+
+    // charts for every open block whose detail has arrived; misses start their
+    // fetch (a search hit can open a client without a click, so this is the
+    // one place that guarantees an open block always has its fetch going)
+    clientRows.filter(c => openClients.has(c.clientId) || (dealHit(c) && !nameHit(c))).forEach(c => {
+      const d = detailCache.get(c.clientId);
+      if (!d) { ensureDetail(c.clientId); return; }
+      if (d instanceof Promise || d.error) return;
+      const h = document.querySelector(`[id="hours-${c.clientId}"]`), v = document.querySelector(`[id="rev-${c.clientId}"]`);
+      if (h) hoursByWeekChart(h, d, rangeFrom, rangeTo, deptOrder, { height: 220 });
+      if (v) revGpChart(v, d, { height: 220 });
+    });
 
     wireSearch(el, '#q', v => { query = v; render(); });
     document.querySelectorAll('th[data-sort]').forEach(th => {
@@ -427,7 +484,7 @@ boot('clientprofit', async (supa, el) => {
     document.querySelectorAll('tr[data-cid]').forEach(tr => {
       const activate = () => {
         const cid = tr.dataset.cid;
-        if (openClients.has(cid)) openClients.delete(cid); else openClients.add(cid);
+        if (openClients.has(cid)) openClients.delete(cid); else { openClients.add(cid); ensureDetail(cid); }
         render();
       };
       tr.onclick = activate;
