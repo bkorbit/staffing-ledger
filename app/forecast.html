@@ -1231,20 +1231,33 @@ boot('forecast', async (supa, el) => {
       const cards = model.map((l, li) => {
         const cfg = KIND[l.kind];
         const mode = l.kind === 'creative' ? creativeMode(l) : null;
-        const structSel = l.kind === 'creative'
-          ? `<select class="cmode" data-li="${li}">
-               <option value="retainer" ${mode==='retainer'?'selected':''}>retainer $/mo</option>
-               <option value="hourly" ${mode==='hourly'?'selected':''}>hourly</option>
-             </select>` : '';
-        // media funding is per LINE — a deal can mix a client-funded social line
-        // with an agency-funded search line. Only search/social ever read it;
-        // programmatic is always agency-funded regardless, everything else never.
-        const fundSel = (l.kind === 'search' || l.kind === 'social')
-          ? `<select class="mf" data-li="${li}" title="who pays for this line's media">
-               <option value="client" ${l.media_funding!=='agency'?'selected':''}>client pays</option>
-               <option value="agency" ${l.media_funding==='agency'?'selected':''}>EMG pays &amp; rebills</option>
-             </select>` : '';
-        const bits = [];
+        // The shape control — how a creative line is structured, who funds a
+        // media line — is an INPUT, and it now sits with the other inputs
+        // instead of in the title bar. It was the only control up there, it
+        // was the widest thing in the row (a <select> sizes to its longest
+        // option, "EMG pays & rebills", not to what is selected), and that is
+        // what pushed the GP and the ✕ onto a second line with a void above
+        // them. A header holding identity, a control, a result and a
+        // destructive action was one job too many.
+        //
+        // media funding is per LINE — a deal can mix a client-funded social
+        // line with an agency-funded search line. Only search/social ever read
+        // it; programmatic is always agency-funded regardless, everything else
+        // never. It leads the row because it decides what the fee applies to.
+        const shapeSel = l.kind === 'creative'
+          ? `<label class="pf shape"><span class="pfl">structure</span>
+               <select class="cmode" data-li="${li}">
+                 <option value="retainer" ${mode==='retainer'?'selected':''}>retainer $/mo</option>
+                 <option value="hourly" ${mode==='hourly'?'selected':''}>hourly</option>
+               </select></label>`
+          : (l.kind === 'search' || l.kind === 'social')
+          ? `<label class="pf shape"><span class="pfl">media funding</span>
+               <select class="mf" data-li="${li}" title="who pays for this line's media">
+                 <option value="client" ${l.media_funding!=='agency'?'selected':''}>client pays</option>
+                 <option value="agency" ${l.media_funding==='agency'?'selected':''}>EMG pays &amp; rebills</option>
+               </select></label>`
+          : '';
+        const bits = shapeSel ? [shapeSel] : [];
         if (l.kind==='retainer'||l.kind==='custom'||(l.kind==='creative'&&mode==='retainer'))
           bits.push(field(li,'amount','$ / flight month', l.params.amount||''));
         if (isHourlyL(l)) {
@@ -1279,17 +1292,13 @@ boot('forecast', async (supa, el) => {
         // per-month override, tucked away
         const pmCells = openM.map(m=>`<label class="pmcell"><span>${mLabel(m)}</span>
             <input class="cell" type="number" step="any" inputmode="decimal" data-li="${li}" data-m="${m}" value="${l.cells[m] ?? ''}"></label>`).join('');
-        // Two groups, not six loose children. A nowrap flex row of badge +
-        // "EMG pays & rebills" + "line GP $138,448" + ✕ is wider than a card
-        // in a three-across grid, and none of it could shrink below its own
-        // min-content — so the GP and the ✕ overran the card's right border.
-        // Grouped, the right pair drops to a second line as a unit and stays
-        // together, and the select keeps its full width until there is truly
-        // no room (readable beats compact — same call as the client picker).
+        // What this line IS on the left, what it comes to on the right, and
+        // the way to remove it. Three things, one line, no wrapping at any
+        // card width the grid produces — the controls moved to the body.
         return `<div class="linecard" data-li="${li}">
           <div class="cardhead">
             <span class="chleft">
-              <span class="kbadge">${kindLabelOf(l)}</span>${structSel}${fundSel}${marginTag}
+              <span class="kbadge">${kindLabelOf(l)}</span>${marginTag}
             </span>
             <span class="chright">
               <span class="lgp" data-li="${li}"></span>

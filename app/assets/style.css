@@ -526,6 +526,15 @@ table.acct td { font-variant-numeric: tabular-nums; }
 .pf input { width:120px; height:30px; border:1px solid var(--line); border-radius:6px; padding:0 9px;
   font-family:var(--font-mono); font-size:0.8rem; background:var(--paper-raised); color:var(--ink); text-align:right; }
 .pf.tb input { border-color:var(--brand); width:140px; }
+/* the shape control — media funding, creative structure — reads as one of the
+   card's fields rather than as furniture in the title bar, which is where it
+   used to sit (087). Same height and type as its numeric siblings; left-
+   aligned because it is a word, not a quantity, and auto-width because a
+   <select> must show its longest option ("EMG pays & rebills") without being
+   clipped. It leads the row: what the client funds decides what the fee
+   beside it is a fee ON. */
+.pf.shape select { height:30px; border:1px solid var(--line); border-radius:6px; padding:0 8px;
+  font-family:var(--font-mono); font-size:0.8rem; background:var(--paper-raised); color:var(--ink); }
 .rowlabelcol { font-family:var(--font-body); }
 /* totals grid alignment + emphasis */
 .totalsgrid td { padding:7px 8px; text-align:right; font-family:var(--font-mono); font-size:0.8rem;
@@ -540,8 +549,11 @@ table.acct td { font-variant-numeric: tabular-nums; }
 .totalsgrid tr.colheadrow th.rowlabelcol { text-align:left; }
 .totalsgrid tr.linerow td { color:var(--slate); font-size:0.76rem; border-top:1px solid #e8e8e8; }
 .kbadge.sm { font-size:0.58rem; padding:2px 7px; }
-/* cards flow in a responsive grid — up to four across on wide screens */
-.linecards { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:10px; margin-top:14px; }
+/* Cards flow in a responsive grid. The track grew 310 -> 340 -> 380 as the
+   card gained work: a media line now carries a funding select, a fee, a total
+   and a sentence explaining what the rebill is. Fewer, roomier cards beat more
+   cramped ones — at the 80vw modal this is still three across. */
+.linecards { display:grid; grid-template-columns:repeat(auto-fill,minmax(380px,1fr)); gap:10px; margin-top:14px; }
 .linecard { border:1px solid var(--line); border-radius:8px; background:var(--paper-raised); min-width:0; }
 /* The head wraps as two groups (087). It used to be six loose children in a
    nowrap row, and a flex item's min-width is auto: badge + "EMG pays &
@@ -555,7 +567,6 @@ table.acct td { font-variant-numeric: tabular-nums; }
 .cardhead .chleft, .cardhead .chright { display:flex; align-items:center; gap:8px; min-width:0; }
 .cardhead .chleft  { flex:1 1 auto; flex-wrap:wrap; }
 .cardhead .chright { flex:none; margin-left:auto; }
-.cardhead select { min-width:130px; }
 .cardhead .lgp { font-family:var(--font-mono); font-size:0.78rem; color:var(--brand);
   font-weight:700; white-space:nowrap; }
 .cardbody { padding:10px 12px 12px; }
