@@ -31,7 +31,10 @@
 // (never flight_start/flight_end/status/hidden — those stay human/policy-owned,
 // same as always) — a HubSpot rename used to silently orphan a deal from every
 // name-search picker forever; this closes that gap independent of the promotion
-// gate itself.
+// gate itself. Name refresh stops at deals.name_locked (089): once a human has
+// renamed a deal on the platform, the platform owns the name. The DB trigger
+// deals_name_lock enforces the same rule server-side, so this skip is the
+// polite path, not the only guard.
 //
 // Env: HUBSPOT_TOKEN, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 // State: sync_state where id='hubspot'.
@@ -294,17 +297,22 @@ async function main() {
   const byHsId = Object.fromEntries(mirrored.map(m => [m.hubspot_deal_id, m]));
 
   // ---- keep already-promoted deals findable: refresh name/jobcode from the
-  // fresh mirror. name unconditionally (a pure display label — nothing reads it
-  // expecting staleness); jobcode only when still null (never overwrite a
-  // human- or matcher-set value, same "never guess, never clobber" contract
-  // match_deals_to_projects() already holds itself to).
-  const promotedRows = await sbGet('deals?hubspot_deal_id=not.is.null&select=id,hubspot_deal_id,name,jobcode');
-  let refreshed = 0;
+  // fresh mirror. name only while the deal is not name_locked (089 — a human
+  // rename in the Forecast editor flips that, and the platform owns the name
+  // from then on; this loop used to copy HubSpot's back over it every run);
+  // jobcode only when still null (never overwrite a human- or matcher-set
+  // value, same "never guess, never clobber" contract match_deals_to_projects()
+  // already holds itself to).
+  const promotedRows = await sbGet('deals?hubspot_deal_id=not.is.null&select=id,hubspot_deal_id,name,name_locked,jobcode');
+  let refreshed = 0, lockedSkipped = 0;
   for (const d of promotedRows) {
     const m = byHsId[d.hubspot_deal_id];
     if (!m) continue;
     const patch = {};
-    if (m.name && m.name !== d.name) patch.name = m.name;
+    if (m.name && m.name !== d.name) {
+      if (d.name_locked) lockedSkipped++;
+      else patch.name = m.name;
+    }
     if (!d.jobcode && m.jobcode) patch.jobcode = m.jobcode;
     if (!Object.keys(patch).length) continue;
     patch.set_by = 'hubspot-sync:refresh'; patch.set_at = new Date().toISOString();
@@ -315,6 +323,7 @@ async function main() {
     refreshed++;
   }
   if (refreshed) console.log(`  refreshed name/jobcode for ${refreshed} already-promoted deal(s)`);
+  if (lockedSkipped) console.log(`  kept ${lockedSkipped} platform-renamed deal name(s) (name_locked)`);
 
   // ---- promotion retry. The Approve button already ran promote_approval()
   // for each of these the moment a human clicked it, so an approval reaching
@@ -383,6 +392,7 @@ async function main() {
       flighted, unflighted: unflighted.slice(0, 20),
       deals: mirrored.length, won: won.length,
       name_jobcode_refreshed: refreshed,
+      name_locked_skipped: lockedSkipped,
       promoted, held_back: heldBack.slice(0, 20), approvals_pending: approvals.length - promoted - stale,
       at: new Date().toISOString()
     }

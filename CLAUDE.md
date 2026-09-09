@@ -91,10 +91,17 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   bottom, clickable (localStorage 'fc_hidden'), y-axis rescales to visible.
 - Deals hide (deals.hidden), projects hide (qbo_projects.hidden) — human-owned
   flags, sync never writes them, money still rolls up via parent. Unhide via SQL.
+- **A platform rename of a deal sticks** (089, `deals.name_locked`, same shape as
+  `flight_locked`). The HubSpot sync used to copy pipeline_deals.name back over
+  it every run. Now the editor sets the lock, the `deals_name_lock` trigger sets
+  it for any rename not stamped `hubspot-…` + fresh set_at (bare SQL renames
+  included) and drops a hubspot-stamped rename of a locked row, and the sync
+  skips locked rows. Every page reads `deals.name`, so the new name shows
+  everywhere. Hand a name back to HubSpot: `set name_locked = false`.
 - Fixed costs: edited on Settings, subtracted from projected net only.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 088. Key views/functions
+## Current migration head: 089. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 

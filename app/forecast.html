@@ -1672,9 +1672,11 @@ boot('forecast', async (supa, el) => {
           chosenClient = data.id;
         }
         if (chosenClient !== d.client_id) patch.client_id = chosenClient;
+        // a human rename owns the name from here on: the HubSpot sync's
+        // name refresh (and the deals_name_lock trigger, 089) both stop at it
         const newName = box.querySelector('.dname').value.trim();
         if (newName && newName !== d.name) {
-          patch.name = newName;
+          patch.name = newName; patch.name_locked = true;
           const mt = document.querySelector('.modal-title');
           if (mt) mt.textContent = `${(clientsById[chosenClient]||{}).name||''} — ${newName}`;
           d.name = newName;
