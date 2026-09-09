@@ -157,6 +157,10 @@ boot('projhours', async (supa, el) => {
   const detailCache = new Map();
   let loadSeq = 0;
   let deals = [], clients = [], staticLoaded = false;
+  let dealsById = {};
+  // unmapped_hours() for the range (db/090): null until it has loaded, or when
+  // the function is not there yet (090 not applied) — the panel then stays off
+  let unmapped = null, resolveMsg = '';
 
   el.innerHTML = `<div id="panel">loading…</div>`;
 
@@ -167,19 +171,23 @@ boot('projhours', async (supa, el) => {
     const calls = [
       supa.rpc('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) }),
       supa.rpc('forecast_page', { p_from: rangeFrom, p_to: rangeTo }),
+      // 090: hours the sync could not place, for the resolve panel. Its
+      // failure is not the page's failure — missing function = panel off.
+      supa.rpc('unmapped_hours', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) }),
     ];
     if (!staticLoaded) calls.push(
-      fetchAll(() => supa.from('deals').select('id,name,client_id,qbo_project_id,flight_start,flight_end')),
+      fetchAll(() => supa.from('deals').select('id,name,client_id,qbo_project_id,flight_start,flight_end,status,hidden')),
       supa.from('clients').select('id,name'));
     const results = await Promise.all(calls);
     if (seq !== loadSeq) return;
-    const [hp, fp, dl, cl] = results;
-    for (const r of results) if (r.error) {
+    const [hp, fp, um, dl, cl] = results;
+    for (const r of [hp, fp, dl, cl]) if (r && r.error) {
       el.innerHTML = `<div class="sc-panel err">${esc(r.error.message)}</div>`; return;
     }
+    unmapped = um.error ? null : (um.data || { total_hours: 0, groups: [] });
     if (!staticLoaded) { deals = dl.data || []; clients = cl.data || []; staticLoaded = true; }
     const H = hp.data || {}, P = fp.data || {};
-    const dealsById = {}; deals.forEach(d => dealsById[d.id] = d);
+    dealsById = {}; deals.forEach(d => dealsById[d.id] = d);
     const clientsById = {}; clients.forEach(c => clientsById[c.id] = c);
     const staffById = {}; (H.staff || []).forEach(s => staffById[s.id] = s);
     deptOrder = departmentOrder(H.staff || []);
@@ -237,6 +245,105 @@ boot('projhours', async (supa, el) => {
       .filter(r => r && (r.actualRevenue !== 0 || r.actualCogs !== 0 || r.actualHours !== 0 ||
                          r.forecastRevenue !== 0 || r.plannedHours !== 0));
     render();
+  }
+
+  // ---- Unmapped hours (db/090) ----------------------------------------------
+  // Every QuickBooks Time hour the sync could not place on a deal, with why.
+  // Resolving writes qbtime_jobcode_map (the sync reads it first on every run)
+  // and re-labels the rows already in the table so the fix is visible now,
+  // not after tonight's sync. An excluded PERSON is a staff flag, not a
+  // jobcode decision, so that group gets an "include" action instead.
+  const ATTRIBUTION_LABEL = {
+    uncoded: 'no project code in the jobcode name',
+    unmatched: 'code matches no live project',
+    unresolved: 'jobcode unknown to QuickBooks Time',
+    unknown_user: 'user not on the QuickBooks Time roster',
+    excluded: 'excluded from labor',
+  };
+  function unmappedHtml() {
+    if (!unmapped) return '';
+    const groups = unmapped.groups || [];
+    const clientsById = {}; clients.forEach(c => clientsById[c.id] = c);
+    const msg = resolveMsg ? `<span class="delta-note ${resolveMsg.startsWith('✖') ? 'neg' : 'pos'}">${esc(resolveMsg)}</span>` : '';
+    if (!groups.length) return `
+      <div class="sc-panel" style="padding:10px 14px;display:flex;align-items:center;gap:14px">
+        <div class="sc-eyebrow" style="margin:0">Unmapped hours</div>
+        <span class="delta-note pos">every QuickBooks Time hour in range is attributed</span>${msg}
+      </div>`;
+    const liveDeals = deals.filter(d => !d.hidden && (d.status === 'won' || d.status === 'active'))
+      .map(d => ({ id: d.id, label: `${(clientsById[d.client_id] || {}).name || '?'} · ${d.name}` }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    const dealOptions = liveDeals.map(d => `<option value="deal:${d.id}">${esc(d.label)}</option>`).join('');
+    const rows = groups.map((g, i) => {
+      const people = (g.people || []).map(p => `${esc(p.name)} ${fmtHours(p.hours)}h`).join(', ');
+      const months = (g.months || []).map(m => `${new Date(m.month + 'T00:00:00Z').toLocaleDateString(undefined, { month: 'short', timeZone: 'UTC' })} ${fmtHours(m.hours)}h`).join(' · ');
+      const personExcluded = g.attribution === 'excluded' && !(g.mapping && g.mapping.resolution === 'exclude');
+      const pending = g.mapping ? `<div class="delta-note flat">resolved as ${esc(g.mapping.resolution)} by ${esc(g.mapping.set_by || '?')} — applies on the next sync</div>` : '';
+      let action;
+      if (personExcluded) action = `<button type="button" class="ghost" data-include="${esc(g.excluded_staff_id || '')}" ${g.excluded_staff_id ? '' : 'disabled'}>include this person's hours</button>`;
+      else if (g.attribution === 'unknown_user') action = `<span class="delta-note flat">fixes itself once the person exists in QuickBooks Time</span>`;
+      else action = `<select data-jc="${i}" aria-label="Resolve ${esc(g.jobcode_name)}">
+          <option value="">resolve…</option>
+          <optgroup label="Project">${dealOptions}</optgroup>
+          <optgroup label="Not a project">
+            <option value="internal">Internal (non-billable)</option>
+            <option value="timeoff">Time off</option>
+            <option value="exclude">Exclude from labor</option>
+          </optgroup>
+        </select>`;
+      return `<tr>
+        <td class="textleft"><div class="sub-name">${esc(g.jobcode_name)}</div><div class="sub-proj">${g.qbtime_jobcode_id > 0 ? '#' + esc(g.qbtime_jobcode_id) : ''}</div></td>
+        <td class="textleft"><span class="pill ${g.attribution === 'excluded' ? '' : 'warn'}">${esc(g.attribution)}</span> <span class="delta-note flat">${esc(ATTRIBUTION_LABEL[g.attribution] || '')}</span>${pending}</td>
+        <td class="textleft" style="white-space:normal">${people}</td>
+        <td class="textleft">${months}</td>
+        <td>${fmtHours(g.hours)}</td>
+        <td class="textleft">${action}</td>
+      </tr>`;
+    }).join('');
+    return `
+      <div class="sc-panel" style="padding:0">
+        <div class="tbltools" style="padding:10px 14px">
+          <div class="sc-eyebrow" style="margin:0">Unmapped hours</div>
+          <span class="delta-note neg">${fmtHours(unmapped.total_hours)}h in ${groups.length} group${groups.length === 1 ? '' : 's'} not on any project</span>
+          ${msg}
+        </div>
+        <table class="ledger" style="table-layout:fixed">
+          <colgroup><col style="width:24%"><col style="width:22%"><col style="width:20%"><col style="width:12%"><col style="width:6%"><col style="width:16%"></colgroup>
+          <tr><th class="textleft">QuickBooks Time jobcode</th><th class="textleft">why</th><th class="textleft">people</th><th class="textleft">months</th><th>hours</th><th class="textleft">resolve</th></tr>
+          ${rows}
+        </table>
+      </div>`;
+  }
+  async function resolveJobcode(g, value) {
+    if (!value) return;
+    const isDeal = value.startsWith('deal:');
+    const resolution = isDeal ? 'deal' : value;
+    const dealId = isDeal ? value.slice(5) : null;
+    const deal = dealId ? dealsById[dealId] : null;
+    if (isDeal && !deal) { resolveMsg = '✖ unknown project'; render(); return; }
+    const row = {
+      qbtime_jobcode_id: g.qbtime_jobcode_id, jobcode_name: g.jobcode_name, resolution,
+      deal_id: dealId, timeoff_kind: resolution === 'timeoff' ? 'Time off' : null,
+      set_by: window.__email, set_at: new Date().toISOString(),
+    };
+    let { error } = await supa.from('qbtime_jobcode_map').upsert(row, { onConflict: 'qbtime_jobcode_id' });
+    if (!error) {
+      // relabel the rows already here — only the ones nobody has decided on;
+      // a person-excluded row stays excluded until their flag changes
+      const attribution = resolution === 'deal' ? 'mapped' : resolution === 'exclude' ? 'excluded' : resolution;
+      ({ error } = await supa.from('time_entries')
+        .update({ deal_id: dealId, client_id: deal ? deal.client_id : null, attribution })
+        .eq('qbtime_jobcode_id', g.qbtime_jobcode_id)
+        .in('attribution', ['uncoded', 'unmatched', 'unresolved']));
+    }
+    resolveMsg = error ? '✖ ' + error.message
+      : `${g.jobcode_name} → ${isDeal ? deal.name : resolution}: saved, ${fmtHours(g.hours)}h moved`;
+    await load();
+  }
+  async function includePerson(staffId) {
+    const { error } = await supa.from('staff').update({ exclude_hours: false }).eq('id', staffId);
+    resolveMsg = error ? '✖ ' + error.message : 'included — their hours are re-attributed on the next QuickBooks Time sync';
+    await load();
   }
 
   // blended money for one deal, honoring the measured-only toggle — the same
@@ -412,6 +519,7 @@ boot('projhours', async (supa, el) => {
           <div class="summary-value ${atRisk > 0 ? 'neg' : 'pos'}">${atRisk} / ${working}</div>
           <div class="summary-note">logging hours at a loss</div></div>
       </div>
+      ${unmappedHtml()}
       <div class="sc-panel" style="padding:0">
         <div class="tbltools" style="padding:10px 14px">
           <input id="q" placeholder="search project or client…" value="${esc(query)}" aria-label="Search project or client" style="width:220px">
@@ -473,6 +581,13 @@ boot('projhours', async (supa, el) => {
     panel.querySelectorAll('[data-preset]').forEach(btn => btn.onclick = () => {
       [rangeFrom, rangeTo] = PRESETS[btn.dataset.preset]; syncRangeControls(); load(); });
     panel.querySelector('#ph-historical').onchange = e => { historicalOnly = e.target.checked; render(); };
+    panel.querySelectorAll('select[data-jc]').forEach(sel => sel.onchange = e => {
+      const g = (unmapped && unmapped.groups || [])[+sel.dataset.jc]; if (!g) return;
+      sel.disabled = true; resolveJobcode(g, e.target.value);
+    });
+    panel.querySelectorAll('[data-include]').forEach(btn => btn.onclick = () => {
+      btn.disabled = true; includePerson(btn.dataset.include);
+    });
     panel.querySelector('#dept-filter').onchange = e => { deptFilter = e.target.value; render(); };
     wireSearch(el, '#q', v => { query = v; render(); });
     panel.querySelectorAll('th[data-sort]').forEach(th => {

@@ -136,7 +136,20 @@ is always a new migration, so grep for the highest one before reading an old bod
 - `staff_base_labor_forecast_month` [075], `health_insurance_forecast_month` [072],
   `payroll_loose_runrate` [074], `labor_addendum_runrate` [070],
   `staff_bonus_burdened_cost` [070] — the forward labor cost pieces.
-- `hours_page` [064], `rev_proj_page` [080], `accounts_page` [084],
+- **QuickBooks Time → ledger is lossless** (090, `scripts/sync-qbtime.mjs`): every
+  timesheet hour lands in `time_entries` with `qbtime_jobcode_id`, `jobcode_name`
+  and `attribution` (deal|mapped|internal|uncoded|unmatched|unresolved|excluded|
+  unknown_user|timeoff — 090 header). `qbtime_jobcode_map` is the human-owned
+  answer per QBT jobcode id (deal|internal|timeoff|exclude), read FIRST by the
+  sync, never written by it; `staff.exclude_hours` replaced the hardcoded
+  exclusion list. `unmapped_hours(p_from,p_to)` [090] feeds Project Hours'
+  "Unmapped hours" panel, where a human resolves each group (writes the map,
+  relabels existing rows). hours_page/project_detail/client_detail skip
+  'excluded' and 'timeoff' rows. The sync detects an unapplied 090 and runs in
+  its pre-090 shape; it upserts then sweeps stale rows, so there is no blank
+  window mid-run. `workflow_dispatch` input `trace` follows one client end to
+  end in the log.
+- `hours_page` [090], `rev_proj_page` [080], `accounts_page` [084],
   `v_cash_accounts` [086].
 - `project_detail(deal_id)` [088] — one opened project on Project Hours: hours
   per ISO week per department (staff.department first, the entry's own QB Time

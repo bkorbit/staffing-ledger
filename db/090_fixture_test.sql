@@ -2,89 +2,102 @@
 -- Run against a scratch db (or prod, rolled back) with 001-090 applied.
 --
 --   1. paste this whole file (it opens its own transaction)
---   2. read the FIVE rows of the single result set at the bottom
+--   2. read the SEVEN rows of the single result set at the bottom
 --   3. it ends in ROLLBACK — every fixture row is undone. Do not commit it.
 --
--- What is being proved (088/089_fixture_test still cover the arithmetic;
--- this file covers only what 090 changed):
---   1. ZERO, NOT NULL — a closed month inside the flight with no invoice and
---      no bill reports rev_actual = 0, cogs_actual = 0, gp_actual = 0, for
---      BOTH project_detail and client_detail.
---   2. NULL STAYS NULL — the current month (not closed) still reports null,
---      even though it has an invoice.
---   3. NO NEW MONTHS — the zero fill does not add months: the list is still
---      the flight's months ∪ plan ∪ actual.
---   4. WEEKS BY DEAL — client_detail.weeks_by_deal sums to the same total as
---      weeks (by department), and per deal equals project_detail's total.
---   5. DEALS — client_detail.deals lists the client's deals with names, in
---      flight_start order.
+-- What is being proved:
+--   1. hours_page deal_labor counts 'deal' rows AND legacy (null attribution)
+--      rows, and leaves a 'timeoff' row on the same deal out.
+--   2. hours_page staff_hours_month: the excluded person contributes nothing;
+--      the working person's total is exact and includes uncoded/unmatched/
+--      internal rows (they are real hours, just not on a deal yet).
+--   3. unmapped_hours total and group count are exact: uncoded, unmatched,
+--      unknown_user and excluded — and NOT internal, deal, timeoff or legacy.
+--   4. the uncoded group carries exact hours, its one person, its one month,
+--      and no mapping.
+--   5. the excluded group is keyed to the excluded PERSON (excluded_staff_id),
+--      since the fix for it is staff.exclude_hours, not the jobcode.
+--   6. an unknown-user row (staff_id null) is kept and labelled '(unknown user)'.
+--   7. a qbtime_jobcode_map row shows up on its group so the panel can say
+--      "already mapped, waiting for the next sync".
+--
+-- Adversarial on purpose: two people, one excluded; the same jobcode split
+-- across an uncoded row and an excluded row; a legacy null-attribution row; a
+-- timeoff row ON the deal; a staff-less row. Single-row fixtures would pass
+-- while getting the group keys wrong.
 
 begin;
 
-create temp table _fx_m as
-select (date_trunc('month', current_date) - interval '3 month')::date as m1,
-       (date_trunc('month', current_date) - interval '2 month')::date as m2,   -- the empty month
-       (date_trunc('month', current_date) - interval '1 month')::date as m3,
-       date_trunc('month', current_date)::date                       as cur;
+insert into clients (id, name) values ('0f090000-0000-0000-0000-000000000001', 'fx090 client');
+insert into staff (id, name, department, active, exclude_hours) values
+  ('0f090000-0000-0000-0000-00000000000a', 'fx090 Worker', 'Creative', true, false),
+  ('0f090000-0000-0000-0000-00000000000b', 'fx090 Excluded', 'Creative', false, true);
+insert into deals (id, client_id, name, status, flight_start, flight_end) values
+  ('0f090000-0000-0000-0000-0000000000dd', '0f090000-0000-0000-0000-000000000001', 'fx090 deal', 'won', '2026-07-01', '2026-09-30');
 
-insert into qbo_projects (id, name, is_project) values ('fx090-p1', '_fx090 P1', true), ('fx090-p2', '_fx090 P2', true);
-insert into clients (id, name, active) values ('f0f0f0f0-0000-0000-0000-000000000090', '_fx090 Client', true);
-insert into deals (id, client_id, name, status, origin, flight_start, flight_end, qbo_project_id)
-select 'f0f0f0f0-0000-0000-0000-0000000000a0'::uuid, 'f0f0f0f0-0000-0000-0000-000000000090'::uuid,
-       '_fx090 later deal', 'active'::deal_status, 'manual'::deal_origin, (m2 + 5)::date, (m3 + 25)::date, 'fx090-p2' from _fx_m
-union all
-select 'f0f0f0f0-0000-0000-0000-0000000000b0'::uuid, 'f0f0f0f0-0000-0000-0000-000000000090'::uuid,
-       '_fx090 earlier deal', 'active'::deal_status, 'manual'::deal_origin, (m1 + 2)::date, (m3 + 25)::date, 'fx090-p1' from _fx_m;
+insert into time_entries (id, staff_id, deal_id, client_id, worked_on, hours, department, source, qbtime_jobcode_id, jobcode_name, attribution) values
+  ('fx090:1', '0f090000-0000-0000-0000-00000000000a', '0f090000-0000-0000-0000-0000000000dd', '0f090000-0000-0000-0000-000000000001', '2026-08-03', 5.00, 'Creative', 'qbtime', 900, 'Acme › 26acme260101 Acme Web', 'deal'),
+  ('fx090:2', '0f090000-0000-0000-0000-00000000000a', null, null, '2026-08-04', 3.00, 'Creative', 'qbtime', 111, 'Acme › Web', 'uncoded'),
+  ('fx090:3', '0f090000-0000-0000-0000-00000000000b', null, null, '2026-08-04', 2.00, 'Creative', 'qbtime', 111, 'Acme › Web', 'excluded'),
+  ('fx090:4', '0f090000-0000-0000-0000-00000000000a', null, null, '2026-08-05', 4.00, 'Creative', 'qbtime', 5, 'Internal', 'internal'),
+  ('fx090:5', '0f090000-0000-0000-0000-00000000000a', '0f090000-0000-0000-0000-0000000000dd', '0f090000-0000-0000-0000-000000000001', '2026-08-06', 1.00, 'Creative', 'qbtime', 900, 'Acme › 26acme260101 Acme Web', 'timeoff'),
+  ('fx090:6', null, null, null, '2026-08-07', 1.50, null, 'qbtime', 222, 'Foo › Bar', 'unknown_user'),
+  ('fx090:7', '0f090000-0000-0000-0000-00000000000a', null, null, '2026-08-10', 2.50, 'Creative', 'qbtime', 333, 'Zed › 26zzzz260101 Zed', 'unmatched'),
+  ('fx090:8', '0f090000-0000-0000-0000-00000000000a', '0f090000-0000-0000-0000-0000000000dd', '0f090000-0000-0000-0000-000000000001', '2026-08-11', 1.00, 'Creative', 'qbtime', null, null, null);
 
-insert into staff (id, name, department, active) values ('f0f0f0f0-0000-0000-0000-0000000000c0', '_fx090 Person', 'Paid Media', true);
-insert into time_entries (id, staff_id, deal_id, client_id, worked_on, hours, department)
-select 'fx090-t1', 'f0f0f0f0-0000-0000-0000-0000000000c0'::uuid, 'f0f0f0f0-0000-0000-0000-0000000000b0'::uuid, 'f0f0f0f0-0000-0000-0000-000000000090'::uuid, m1 + 8, 6.00, 'Paid Media' from _fx_m union all
-select 'fx090-t2', 'f0f0f0f0-0000-0000-0000-0000000000c0'::uuid, 'f0f0f0f0-0000-0000-0000-0000000000a0'::uuid, 'f0f0f0f0-0000-0000-0000-000000000090'::uuid, m1 + 8, 1.50, 'Paid Media' from _fx_m union all
-select 'fx090-t3', 'f0f0f0f0-0000-0000-0000-0000000000c0'::uuid, 'f0f0f0f0-0000-0000-0000-0000000000a0'::uuid, 'f0f0f0f0-0000-0000-0000-000000000090'::uuid, m3 + 1, 2.25, 'Paid Media' from _fx_m;
+insert into qbtime_jobcode_map (qbtime_jobcode_id, jobcode_name, resolution, set_by)
+  values (333, 'Zed › 26zzzz260101 Zed', 'internal', 'fx090');
 
--- invoices in m1 and m3 only — m2 is the closed, empty month; cur has one too
-insert into invoices (id, client_id, qbo_project_id, issued_on, total, balance)
-select 'fx090-i1', 'f0f0f0f0-0000-0000-0000-000000000090'::uuid, 'fx090-p1', m1 + 10, 1000000, 0 from _fx_m union all
-select 'fx090-i2', 'f0f0f0f0-0000-0000-0000-000000000090'::uuid, 'fx090-p1', m3 + 10, 2000000, 0 from _fx_m union all
-select 'fx090-i3', 'f0f0f0f0-0000-0000-0000-000000000090'::uuid, 'fx090-p1', cur + 1, 3000000, 3000000 from _fx_m;
+create temp table _fx_hp as select hours_page('2026-08-01', '2026-08-31') as j;
+create temp table _fx_um as select unmapped_hours('2026-08-01', '2026-08-31') as j;
+create temp table _fx_g as
+  select x as g from _fx_um, jsonb_array_elements(j -> 'groups') x;
 
-create temp table _fx_pd as select project_detail('f0f0f0f0-0000-0000-0000-0000000000b0') as j;
-create temp table _fx_cd as select client_detail('f0f0f0f0-0000-0000-0000-000000000090') as j;
-create temp table _fx_pd_m as select * from _fx_pd, jsonb_to_recordset(j -> 'months') as x(month date, rev_actual bigint, cogs_actual bigint, gp_actual bigint);
-create temp table _fx_cd_m as select * from _fx_cd, jsonb_to_recordset(j -> 'months') as x(month date, rev_actual bigint, cogs_actual bigint, gp_actual bigint);
-
-with r as (
-  select 1 as n, case when (select rev_actual from _fx_pd_m where month = (select m2 from _fx_m)) = 0
-                       and (select cogs_actual from _fx_pd_m where month = (select m2 from _fx_m)) = 0
-                       and (select gp_actual from _fx_pd_m where month = (select m2 from _fx_m)) = 0
-                       and (select rev_actual from _fx_cd_m where month = (select m2 from _fx_m)) = 0
-                       and (select gp_actual from _fx_cd_m where month = (select m2 from _fx_m)) = 0
-    then '1. EMPTY CLOSED MONTH IS 0 NOT NULL (project_detail and client_detail): PASS'
-    else '1. ZERO FILL: FAIL — project m2 rev=' || coalesce((select rev_actual::text from _fx_pd_m where month = (select m2 from _fx_m)), 'null')
-         || ' client m2 rev=' || coalesce((select rev_actual::text from _fx_cd_m where month = (select m2 from _fx_m)), 'null') end as result
+with r(n, result) as (
+  select 1, case when (select (x ->> 'hours')::numeric from _fx_hp, jsonb_array_elements(j -> 'deal_labor') x
+                       where x ->> 'deal_id' = '0f090000-0000-0000-0000-0000000000dd') = 6.00
+    then '1. DEAL LABOR = deal + legacy rows, timeoff row excluded (6.00h): PASS'
+    else '1. DEAL LABOR: FAIL — got ' || coalesce((select x ->> 'hours' from _fx_hp, jsonb_array_elements(j -> 'deal_labor') x
+                       where x ->> 'deal_id' = '0f090000-0000-0000-0000-0000000000dd'), 'null') end
   union all
-  select 2, case when not exists (select 1 from _fx_pd_m where month >= (select cur from _fx_m) and rev_actual is not null)
-                  and not exists (select 1 from _fx_cd_m where month >= (select cur from _fx_m) and rev_actual is not null)
-    then '2. CURRENT MONTH STAYS NULL (has an invoice, is not closed): PASS'
-    else '2. CURRENT MONTH: FAIL — reported as measured' end
+  select 2, case when (select (x ->> 'hours')::numeric from _fx_hp, jsonb_array_elements(j -> 'staff_hours_month') x
+                       where x ->> 'staff_id' = '0f090000-0000-0000-0000-00000000000a') = 15.50
+                 and not exists (select 1 from _fx_hp, jsonb_array_elements(j -> 'staff_hours_month') x
+                       where x ->> 'staff_id' = '0f090000-0000-0000-0000-00000000000b')
+    then '2. STAFF HOURS: worker 15.50h exact, excluded person contributes nothing: PASS'
+    else '2. STAFF HOURS: FAIL — worker ' || coalesce((select x ->> 'hours' from _fx_hp, jsonb_array_elements(j -> 'staff_hours_month') x
+                       where x ->> 'staff_id' = '0f090000-0000-0000-0000-00000000000a'), 'null')
+         || ', excluded rows ' || (select count(*) from _fx_hp, jsonb_array_elements(j -> 'staff_hours_month') x
+                       where x ->> 'staff_id' = '0f090000-0000-0000-0000-00000000000b')::text end
   union all
-  select 3, case when (select count(*) from _fx_pd_m) = 3 and (select min(month) from _fx_pd_m) = (select m1 from _fx_m)
-                  and (select count(*) from _fx_cd_m) = 3
-    then '3. MONTH LIST UNCHANGED (3 flight months, no extra rows from the zero fill): PASS'
-    else '3. MONTH LIST: FAIL — project ' || (select count(*)::text from _fx_pd_m) || ' rows, client ' || (select count(*)::text from _fx_cd_m) end
+  select 3, case when (select (j ->> 'total_hours')::numeric from _fx_um) = 9.00
+                 and (select count(*) from _fx_g) = 4
+    then '3. UNMAPPED TOTAL 9.00h IN 4 GROUPS (uncoded, excluded, unknown_user, unmatched; not internal/deal/timeoff/legacy): PASS'
+    else '3. UNMAPPED: FAIL — total ' || coalesce((select j ->> 'total_hours' from _fx_um), 'null')
+         || ', groups ' || (select count(*) from _fx_g)::text end
   union all
-  select 4, case when (select sum(hours) from _fx_cd, jsonb_to_recordset(j -> 'weeks_by_deal') as x(week date, deal_id uuid, hours numeric)) = 9.75
-                  and (select sum(hours) from _fx_cd, jsonb_to_recordset(j -> 'weeks') as x(week date, department text, hours numeric)) = 9.75
-                  and (select sum(hours) from _fx_cd, jsonb_to_recordset(j -> 'weeks_by_deal') as x(week date, deal_id uuid, hours numeric)
-                       where deal_id = 'f0f0f0f0-0000-0000-0000-0000000000b0') = 6.00
-                  and (select sum(hours) from _fx_pd, jsonb_to_recordset(j -> 'weeks') as x(week date, department text, hours numeric)) = 6.00
-    then '4. WEEKS_BY_DEAL SUMS TO WEEKS (9.75h) AND PER DEAL TO project_detail (6h): PASS'
-    else '4. WEEKS BY DEAL: FAIL — total ' || coalesce((select sum(hours)::text from _fx_cd, jsonb_to_recordset(j -> 'weeks_by_deal') as x(week date, deal_id uuid, hours numeric)), 'null') end
+  select 4, case when (select (g ->> 'hours')::numeric from _fx_g where (g ->> 'qbtime_jobcode_id') = '111' and g ->> 'attribution' = 'uncoded') = 3.00
+                 and (select g -> 'people' from _fx_g where (g ->> 'qbtime_jobcode_id') = '111' and g ->> 'attribution' = 'uncoded')
+                     = '[{"name":"fx090 Worker","hours":3.00}]'::jsonb
+                 and (select g -> 'months' from _fx_g where (g ->> 'qbtime_jobcode_id') = '111' and g ->> 'attribution' = 'uncoded')
+                     = '[{"month":"2026-08-01","hours":3.00}]'::jsonb
+                 and (select g -> 'mapping' from _fx_g where (g ->> 'qbtime_jobcode_id') = '111' and g ->> 'attribution' = 'uncoded') = 'null'::jsonb
+    then '4. UNCODED GROUP: 3.00h, one person, one month, no mapping: PASS'
+    else '4. UNCODED GROUP: FAIL — ' || coalesce((select g::text from _fx_g where (g ->> 'qbtime_jobcode_id') = '111' and g ->> 'attribution' = 'uncoded'), 'missing') end
   union all
-  select 5, case when (select string_agg(name, ' | ' order by ord) from _fx_cd, jsonb_array_elements(j -> 'deals') with ordinality as x(e, ord), lateral (select e ->> 'name' as name) n)
-                    = '_fx090 earlier deal | _fx090 later deal'
-    then '5. DEALS NAMED, IN FLIGHT-START ORDER: PASS'
-    else '5. DEALS: FAIL — ' || coalesce((select string_agg(e ->> 'name', ' | ') from _fx_cd, jsonb_array_elements(j -> 'deals') e), 'null') end
+  select 5, case when (select g ->> 'excluded_staff_id' from _fx_g where g ->> 'attribution' = 'excluded') = '0f090000-0000-0000-0000-00000000000b'
+                 and (select (g ->> 'hours')::numeric from _fx_g where g ->> 'attribution' = 'excluded') = 2.00
+    then '5. EXCLUDED GROUP keyed to the excluded person, 2.00h: PASS'
+    else '5. EXCLUDED GROUP: FAIL — ' || coalesce((select g::text from _fx_g where g ->> 'attribution' = 'excluded'), 'missing') end
+  union all
+  select 6, case when (select g -> 'people' -> 0 ->> 'name' from _fx_g where g ->> 'attribution' = 'unknown_user') = '(unknown user)'
+                 and (select (g ->> 'hours')::numeric from _fx_g where g ->> 'attribution' = 'unknown_user') = 1.50
+    then '6. UNKNOWN USER row kept, labelled, 1.50h: PASS'
+    else '6. UNKNOWN USER: FAIL — ' || coalesce((select g::text from _fx_g where g ->> 'attribution' = 'unknown_user'), 'missing') end
+  union all
+  select 7, case when (select g -> 'mapping' ->> 'resolution' from _fx_g where (g ->> 'qbtime_jobcode_id') = '333') = 'internal'
+    then '7. EXISTING MAPPING shown on its group: PASS'
+    else '7. MAPPING: FAIL — ' || coalesce((select g -> 'mapping' from _fx_g where (g ->> 'qbtime_jobcode_id') = '333')::text, 'missing') end
 )
 select result from r order by n;
 rollback;

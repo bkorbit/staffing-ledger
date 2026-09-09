@@ -35,13 +35,13 @@ eq(m.jobcodeChain(999, jobcodes), { child: '', parent: '', childType: '' }, 'unk
 console.log('classifyEntry');
 const dealByJobcode = new Map([['26acme260101', { id: 'deal-1', client_id: 'client-1' }]]);
 eq(m.classifyEntry({ childName: 'Acme Corp:26acme260101', parentName: 'Acme Corp', childType: 'regular' }, dealByJobcode),
-  { type: 'billable', dealId: 'deal-1', clientId: 'client-1' }, 'child jobcode carries the code, matches a deal');
+  { type: 'billable', attribution: 'deal', dealId: 'deal-1', clientId: 'client-1' }, 'child jobcode carries the code, matches a deal');
 eq(m.classifyEntry({ childName: 'Acme Corp', parentName: '', childType: 'regular' }, dealByJobcode),
-  { type: 'internal', uncoded: 'Acme Corp' }, 'a real customer name with no embedded code at all -> internal, not unmatched — but tagged so the log can name it');
+  { type: 'internal', attribution: 'uncoded', uncoded: 'Acme Corp' }, 'a real customer name with no embedded code at all -> internal, tagged uncoded so a human can resolve it');
 eq(m.classifyEntry({ childName: 'UC Health - 2H', parentName: 'MaterialPlus', childType: 'regular' }, dealByJobcode),
-  { type: 'internal', uncoded: 'MaterialPlus › UC Health - 2H' }, 'two-level uncoded chain reports parent › child, hours still land in internal');
+  { type: 'internal', attribution: 'uncoded', uncoded: 'MaterialPlus › UC Health - 2H' }, 'two-level uncoded chain reports parent › child');
 eq(m.classifyEntry({ childName: '26acme260101', parentName: 'Acme Corp', childType: 'regular' }, new Map()),
-  { type: 'unmatched', code: '26acme260101' }, 'real-looking code but no deal carries it — flagged, not silently dropped');
+  { type: 'unmatched', attribution: 'unmatched', code: '26acme260101' }, 'real-looking code but no deal carries it — flagged, not silently dropped');
 eq(m.classifyEntry({ childName: 'Time off', parentName: '', childType: 'pto' }, dealByJobcode),
   { type: 'timeoff', kind: 'pto' }, 'typed time-off prefers the QuickBooks Time type over the placeholder name');
 eq(m.classifyEntry({ childName: 'Sick Day', parentName: 'Acme Corp', childType: 'regular' }, dealByJobcode),
@@ -49,11 +49,33 @@ eq(m.classifyEntry({ childName: 'Sick Day', parentName: 'Acme Corp', childType: 
 eq(m.classifyEntry({ childName: 'Planning', parentName: 'Vacation', childType: 'regular' }, dealByJobcode),
   { type: 'timeoff', kind: 'Vacation' }, 'parent name matches time-off even though the child name does not');
 eq(m.classifyEntry({ childName: 'Design', parentName: 'Internal', childType: 'regular' }, dealByJobcode),
-  { type: 'internal' }, 'parent name matches the internal list');
+  { type: 'internal', attribution: 'internal' }, 'parent name matches the internal list');
 eq(m.classifyEntry({ childName: 'Admin', parentName: '', childType: 'regular' }, dealByJobcode),
-  { type: 'internal' }, 'child name matches the internal list directly (no jobcode to even try)');
+  { type: 'internal', attribution: 'internal' }, 'child name matches the internal list directly (no jobcode to even try)');
 eq(m.classifyEntry({ childName: '', parentName: '', childType: '' }, dealByJobcode),
-  { type: 'internal' }, 'unresolvable jobcode (id not found upstream) falls back to internal, never throws');
+  { type: 'internal', attribution: 'internal' }, 'empty names with no unresolved flag fall back to internal, never throw');
+eq(m.classifyEntry({ childName: '', parentName: '', childType: '', jobcodeId: 42, unresolved: true }, dealByJobcode),
+  { type: 'internal', attribution: 'unresolved' }, 'a jobcode id QuickBooks Time never described -> unresolved, kept');
+// the human's map beats the parse, in every direction
+const map = new Map([
+  ['7', { resolution: 'deal', deal: { id: 'deal-9', client_id: 'client-9' } }],
+  ['8', { resolution: 'internal' }],
+  ['9', { resolution: 'timeoff', timeoff_kind: 'Sick' }],
+  ['10', { resolution: 'exclude' }],
+  ['11', { resolution: 'deal', deal: null }],
+]);
+eq(m.classifyEntry({ jobcodeId: 7, childName: 'Acme Corp:26acme260101', parentName: 'Acme Corp', childType: 'regular' }, dealByJobcode, map),
+  { type: 'billable', attribution: 'mapped', dealId: 'deal-9', clientId: 'client-9' }, 'a mapped deal beats a code that parses to a different deal');
+eq(m.classifyEntry({ jobcodeId: 8, childName: 'Acme Corp:26acme260101', parentName: 'Acme Corp', childType: 'regular' }, dealByJobcode, map),
+  { type: 'internal', attribution: 'internal' }, 'mapped internal beats a matching code');
+eq(m.classifyEntry({ jobcodeId: 9, childName: 'Acme Corp', parentName: '', childType: 'regular' }, dealByJobcode, map),
+  { type: 'timeoff', kind: 'Sick' }, 'mapped time off carries the human kind');
+eq(m.classifyEntry({ jobcodeId: 10, childName: 'Acme Corp', parentName: '', childType: 'regular' }, dealByJobcode, map),
+  { type: 'excluded', attribution: 'excluded' }, 'mapped exclude keeps the hours out of labor');
+eq(m.classifyEntry({ jobcodeId: 11, childName: 'Acme Corp:26acme260101', parentName: 'Acme Corp', childType: 'regular' }, dealByJobcode, map),
+  { type: 'billable', attribution: 'deal', dealId: 'deal-1', clientId: 'client-1' }, 'a mapping whose deal was deleted falls back to the parse');
+eq(m.classifyEntry({ jobcodeId: 12, childName: 'Acme Corp', parentName: '', childType: 'regular' }, dealByJobcode, map),
+  { type: 'internal', attribution: 'uncoded', uncoded: 'Acme Corp' }, 'an unmapped id is unaffected by the map');
 
 console.log('planStaffUpdates');
 eq(m.planStaffUpdates(

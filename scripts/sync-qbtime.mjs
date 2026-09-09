@@ -30,6 +30,12 @@
 // via that QB-link rung, or any deal whose jobcode was never backfilled, even
 // though its QBO project is already correctly claimed.
 //
+// Zero data loss (db/090): every timesheet hour lands in time_entries with
+// its QuickBooks Time jobcode id/name and an `attribution` saying why it sits
+// where it does; a human resolves the leftovers on Project Hours, which writes
+// qbtime_jobcode_map — read FIRST here on every run. Until 090 is applied the
+// script detects that and runs in its pre-090 shape (see main()).
+//
 // Env: QBTIME_TOKEN, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 // State: sync_state where id='qbtime' — import_from, last_run_at, last_run_log.
 //   No refresh token: QuickBooks Time's token is long-lived, generated once in
@@ -91,22 +97,40 @@ export function jobcodeFromName(name) {
   return m ? m[0] : null;
 }
 
-// One timesheet entry (already resolved to childName/parentName/childType) ->
-// where its hours belong. Pure and exported so adversarial fixtures can pin
-// down the priority order without a live QuickBooks Time connection: type
-// beats name, child beats parent, a real jobcode beats the internal bucket.
+// One timesheet entry (already resolved to childName/parentName/childType,
+// plus jobcodeId and whether QuickBooks Time described that id) -> where its
+// hours belong and WHY (attribution — see db/090). Pure and exported so
+// adversarial fixtures can pin down the priority order without a live
+// QuickBooks Time connection:
+//
+//   1. a human's mapping for this jobcode id (qbtime_jobcode_map) beats
+//      everything — a deal resolution whose deal has since been deleted
+//      falls through to the parse rather than attributing hours to nothing
+//   2. time off, by QuickBooks Time type or by name
+//   3. a jobcode id QuickBooks Time never described -> internal, 'unresolved'
+//   4. a parsable code -> the deal claiming that QBO project ('deal'), or
+//      'unmatched' when no won/active deal does
+//   5. a real-looking name with no code -> internal, 'uncoded' (never guess
+//      a client from a bare name)
+//   6. everything else is plain internal time
+//
 // `dealByJobcode` maps a lowercased jobcode to the deal that CLAIMS the QBO
 // project carrying it (see the join built in main()) — matching is
 // case-insensitive to agree with match_deals_to_projects()'s own
-// `lower(q.jobcode) = lower(d.jobcode)` equality.
+// `lower(q.jobcode) = lower(d.jobcode)` equality. `jobcodeMap` maps a
+// String(jobcode id) to { resolution, deal, timeoff_kind }.
 //
-// A jobcode whose names are NOT on the internal list but carry no parsable
-// code still lands in the internal bucket (never guess a client from a bare
-// name) — but it comes back tagged `uncoded` with the "Parent › Child" label,
-// so main() can report which real-looking jobcodes are silently swallowing
-// hours. Before this tag existed, the UC Health project (Sep 2026) lost a
-// whole month of hours into deal_id null with nothing in the log to say so.
-export function classifyEntry(e, dealByJobcode) {
+// Person-level outcomes (excluded person, unknown user) are decided by the
+// caller: they depend on the staff row, not on the jobcode.
+export function classifyEntry(e, dealByJobcode, jobcodeMap = new Map()) {
+  const label = [e.parentName, e.childName].filter(Boolean).join(' › ');
+  const mapped = e.jobcodeId !== undefined && e.jobcodeId !== null ? jobcodeMap.get(String(e.jobcodeId)) : null;
+  if (mapped) {
+    if (mapped.resolution === 'deal' && mapped.deal) return { type: 'billable', attribution: 'mapped', dealId: mapped.deal.id, clientId: mapped.deal.client_id };
+    if (mapped.resolution === 'internal') return { type: 'internal', attribution: 'internal' };
+    if (mapped.resolution === 'timeoff') return { type: 'timeoff', kind: mapped.timeoff_kind || 'Time off' };
+    if (mapped.resolution === 'exclude') return { type: 'excluded', attribution: 'excluded' };
+  }
   const lowerChild = (e.childName || '').toLowerCase(), lowerParent = (e.parentName || '').toLowerCase();
   const childIsTimeoffType = !!(e.childType && TIMEOFF_JOBCODE_TYPES.has(e.childType));
   if (childIsTimeoffType || TIMEOFF_NAMES.includes(lowerChild) || TIMEOFF_NAMES.includes(lowerParent)) {
@@ -117,17 +141,17 @@ export function classifyEntry(e, dealByJobcode) {
       : TIMEOFF_NAMES.includes(lowerChild) ? e.childName : e.parentName;
     return { type: 'timeoff', kind };
   }
+  if (e.unresolved) return { type: 'internal', attribution: 'unresolved' };
   if (!INTERNAL_NAMES.includes(lowerChild) && !INTERNAL_NAMES.includes(lowerParent)) {
     const code = jobcodeFromName(e.childName) || jobcodeFromName(e.parentName);
     if (code) {
       const deal = dealByJobcode.get(code.toLowerCase());
-      if (deal) return { type: 'billable', dealId: deal.id, clientId: deal.client_id };
-      return { type: 'unmatched', code };
+      if (deal) return { type: 'billable', attribution: 'deal', dealId: deal.id, clientId: deal.client_id };
+      return { type: 'unmatched', attribution: 'unmatched', code };
     }
-    const label = [e.parentName, e.childName].filter(Boolean).join(' › ');
-    if (label) return { type: 'internal', uncoded: label };
+    if (label) return { type: 'internal', attribution: 'uncoded', uncoded: label };
   }
-  return { type: 'internal' };
+  return { type: 'internal', attribution: 'internal' };
 }
 
 // One row per distinct QuickBooks Time user id seen this run -> what to do
@@ -235,6 +259,20 @@ async function sbInsert(table, rows) {
     if (!r.ok) fail(`Supabase insert ${table} → ${r.status}: ${(await r.text()).slice(0, 500)}`);
   }
 }
+// Upsert on the primary key (PostgREST merge-duplicates). Used for
+// time_entries so a run can write its rows BEFORE sweeping the previous
+// run's — the page never sees the 2-3 minute blank window the old
+// delete-then-insert left every run.
+async function sbUpsertRows(table, rows) {
+  if (!rows.length) return;
+  for (let i = 0; i < rows.length; i += 500) {
+    const chunk = rows.slice(i, i + 500);
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+      method: 'POST', headers: { ...sb, Prefer: 'return=minimal,resolution=merge-duplicates' }, body: JSON.stringify(chunk)
+    });
+    if (!r.ok) fail(`Supabase upsert ${table} → ${r.status}: ${(await r.text()).slice(0, 500)}`);
+  }
+}
 async function sbPatchState(patch) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/sync_state?id=eq.${STATE_ID}`, {
     method: 'PATCH', headers: { ...sb, Prefer: 'return=minimal' },
@@ -321,13 +359,15 @@ const TRACE = String(process.env.QBTIME_TRACE || '').trim().toLowerCase();
 const traceHit = names => !!TRACE && names.some(n => String(n || '').toLowerCase().includes(TRACE));
 
 async function pullTimesheets(startDate, endDate) {
-  const entries = []; // {qbtimeUserId, person, dept, date, hours, jobcode, childName, parentName, childType}
+  // {qbtimeUserId, person, dept, date, hours, jobcodeId, unresolved, childName, parentName, childType}
+  // person is '' for a user QuickBooks Time did not describe — the entry is
+  // KEPT (090: zero data loss) and main() files it as 'unknown_user'.
+  const entries = [];
   const users = {};
   const jobcodes = Object.assign({}, JOBCODES);
   let page = 1;
   const stat = { sheets: 0, rawHours: 0, kept: 0, keptHours: 0,
-                 noPerson: 0, noPersonHours: 0, excluded: 0, excludedHours: 0,
-                 zero: 0, noDate: 0, truncated: false,
+                 noPerson: 0, noPersonHours: 0, zero: 0, noDate: 0, noDateHours: 0, truncated: false,
                  unresolved: 0, unresolvedHours: 0, unresolvedIds: new Map() };
   const trace = new Map(); // 'path | person | month | status' -> hours
 
@@ -344,23 +384,22 @@ async function pullTimesheets(startDate, endDate) {
       const person = u ? `${u.first_name || ''} ${u.last_name || ''}`.trim() : '';
       const dept = u && u.group_id ? (GROUP_NAMES[u.group_id] || '') : '';
       const path = jobcodePath(ts.jobcode_id, jobcodes);
+      const unresolved = !jobcodes[ts.jobcode_id];
       const status = !ts.date ? 'dropped: no date'
-        : !person ? 'dropped: unknown user'
-        : EXCLUDED_PEOPLE.has(person.toLowerCase()) ? 'dropped: excluded person'
         : hours <= 0 ? 'dropped: zero duration'
+        : !person ? 'kept: unknown user'
         : 'kept';
       if (traceHit(path) || traceHit([person])) {
         const key = `${path.join(' › ') || '(unresolved jobcode #' + ts.jobcode_id + ')'} | ${person || '(unknown user)'} | ${String(ts.date || '').slice(0, 7)} | ${status}`;
         trace.set(key, (trace.get(key) || 0) + hours);
       }
-      if (!ts.date) { stat.noDate++; continue; }
-      if (!person) { stat.noPerson++; stat.noPersonHours += hours; continue; }
-      if (EXCLUDED_PEOPLE.has(person.toLowerCase())) { stat.excluded++; stat.excludedHours += hours; continue; }
+      // The only two things not kept: a timesheet with no date (nowhere to
+      // put it — worked_on is not null) and one with no duration (a timer
+      // still running, or a deleted sheet). Both are counted and printed.
+      if (!ts.date) { stat.noDate++; stat.noDateHours += hours; continue; }
       if (hours <= 0) { stat.zero++; continue; }
-      if (!jobcodes[ts.jobcode_id]) {
-        // The timesheet points at a jobcode neither /jobcodes nor the
-        // supplemental data returned. It still lands in internal (jobcodeChain
-        // gives empty names) — but silently, so count it and say which ids.
+      if (!person) { stat.noPerson++; stat.noPersonHours += hours; }
+      if (unresolved) {
         stat.unresolved++; stat.unresolvedHours += hours;
         stat.unresolvedIds.set(ts.jobcode_id, (stat.unresolvedIds.get(ts.jobcode_id) || 0) + hours);
       }
@@ -368,6 +407,7 @@ async function pullTimesheets(startDate, endDate) {
       stat.kept++; stat.keptHours += hours;
       entries.push({
         qbtimeUserId: String(ts.user_id), person, dept, date: ts.date, hours,
+        jobcodeId: ts.jobcode_id, unresolved,
         childName: chain.child, parentName: chain.parent, childType: chain.childType
       });
     }
@@ -380,14 +420,13 @@ async function pullTimesheets(startDate, endDate) {
   console.log(`  Kept: ${stat.kept} entries (${stat.keptHours.toFixed(2)}h).`);
   const dropped = stat.rawHours - stat.keptHours;
   if (dropped > 0.01) {
-    console.log(`  ⚠ Dropped ${dropped.toFixed(2)}h:`);
-    if (stat.excludedHours > 0) console.log(`      ${stat.excludedHours.toFixed(2)}h — excluded people (${[...EXCLUDED_PEOPLE].join(', ')})`);
-    if (stat.noPersonHours > 0) console.log(`      ${stat.noPersonHours.toFixed(2)}h — unknown user`);
+    console.log(`  ⚠ Not kept ${dropped.toFixed(2)}h:`);
+    if (stat.noDate) console.log(`      ${stat.noDate} entries with no date (${stat.noDateHours.toFixed(2)}h)`);
     if (stat.zero) console.log(`      ${stat.zero} entries with zero duration (still running, or deleted)`);
-    if (stat.noDate) console.log(`      ${stat.noDate} entries with no date`);
   }
+  if (stat.noPerson) console.log(`  ⚠ ${stat.noPerson} timesheet(s) (${stat.noPersonHours.toFixed(2)}h) belong to a user QuickBooks Time did not describe — kept as 'unknown_user' (staff_id null).`);
   if (stat.unresolved) {
-    console.log(`  ⚠ ${stat.unresolved} timesheet(s) (${stat.unresolvedHours.toFixed(2)}h) reference a jobcode id QuickBooks Time never returned — written as internal:`);
+    console.log(`  ⚠ ${stat.unresolved} timesheet(s) (${stat.unresolvedHours.toFixed(2)}h) reference a jobcode id QuickBooks Time never returned — kept as 'unresolved':`);
     [...stat.unresolvedIds.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20)
       .forEach(([id, hrs]) => console.log(`      jobcode #${id}: ${hrs.toFixed(2)}h`));
   }
@@ -422,6 +461,15 @@ async function main() {
   if (!stateRows.length) fail(`No sync_state row for '${STATE_ID}'. Run db/001_init.sql.`);
   const importFrom = day(stateRows[0].import_from) || '2025-01-01';
 
+  // ---- schema probe: is db/090 applied? ----
+  // Until it is, this script runs exactly as it did before 090 (drops excluded
+  // people and unknown users, writes no provenance, reads no map) rather than
+  // failing the nightly run on columns that do not exist yet. The cron never
+  // dies on an unrun migration; it just says so, loudly, every run.
+  const probe = await fetch(`${SUPABASE_URL}/rest/v1/time_entries?select=attribution&limit=1`, { headers: sb });
+  const legacy = !probe.ok;
+  if (legacy) console.log('  ⚠ db/090_qbtime_hours_provenance.sql is NOT applied — legacy mode: excluded people and unknown users are dropped, no provenance is written, qbtime_jobcode_map is ignored. Run the migration.');
+
   GROUP_NAMES = await fetchGroups();
   JOBCODES = await fetchJobcodes();
   const startDate = importFrom;
@@ -432,11 +480,20 @@ async function main() {
   // ---- staff: upsert by qbtime_user_id (unique), never id — new rows let
   // Postgres assign their id via the column default, so nothing here has to
   // generate one. Existing rows only get a blank department backfilled, never
-  // an overwrite of one a human already set.
-  const existingStaff = await sbGet('staff?select=id,name,department,qbtime_user_id,active');
-  const seenUserIds = new Set(entries.map(e => e.qbtimeUserId));
-  const perUidEntries = [...seenUserIds].map(uid => entries.find(x => x.qbtimeUserId === uid));
+  // an overwrite of one a human already set. Unknown users (no person) have
+  // no roster row to plan for.
+  const staffCols = 'id,name,department,qbtime_user_id,active' + (legacy ? '' : ',exclude_hours');
+  const existingStaff = await sbGet(`staff?select=${staffCols}`);
+  const seenUserIds = new Set(entries.filter(e => e.person).map(e => e.qbtimeUserId));
+  const perUidEntries = [...seenUserIds].map(uid => entries.find(x => x.qbtimeUserId === uid && x.person));
   const { newStaffRows, newStaffNames, deptBackfills, qbIdBackfills } = planStaffUpdates(perUidEntries, existingStaff);
+  // The old hardcoded exclusion list only SEEDS staff.exclude_hours the first
+  // time it creates that person's row (090). The flag is the source of truth
+  // from then on — flip it on the Team page or in SQL.
+  if (!legacy) for (const row of newStaffRows) {
+    if (EXCLUDED_PEOPLE.has(row.name.toLowerCase())) { row.exclude_hours = true; row.active = false; }
+    else row.exclude_hours = false;
+  }
   // A plain insert, not an upsert: every row here is genuinely new (its
   // qbtime_user_id matched nothing above), so there is no conflict to resolve
   // and no risk of the union-of-keys shaping in sbUpsert nulling out a column
@@ -466,9 +523,12 @@ async function main() {
   // needs every just-backfilled qbtime_user_id to resolve this run's own
   // time_entries against the right staff row.
   const staffByQbId = new Map(
-    (await sbGet('staff?select=id,name,department,qbtime_user_id,active'))
+    (await sbGet(`staff?select=${staffCols}`))
       .filter(s => s.qbtime_user_id).map(s => [s.qbtime_user_id, s])
   );
+  const personExcluded = staff => legacy
+    ? EXCLUDED_PEOPLE.has(String(staff.name || '').trim().toLowerCase())
+    : !!staff.exclude_hours;
 
   // ---- jobcode -> qbo_project_id -> deal_id -> client_id lookup ----
   // qbo_projects.effective_jobcode is the source of truth (jobcode_override where
@@ -488,6 +548,9 @@ async function main() {
     projectIdByJobcode.set(code, p.id);
   }
   const deals = await sbGet(`deals?qbo_project_id=not.is.null&status=in.(won,active)&select=id,client_id,qbo_project_id`);
+  // Supabase caps a request at 1000 rows regardless of limit; a silently
+  // truncated list here would misattribute hours, so it is a hard stop.
+  if (projects.length >= 1000 || deals.length >= 1000) fail(`qbo_projects (${projects.length}) or deals (${deals.length}) hit the 1000-row response cap — page these reads before running again.`);
   const dealByProjectId = new Map(deals.map(d => [d.qbo_project_id, d]));
   const dealByJobcode = new Map();
   for (const [code, projectId] of projectIdByJobcode) {
@@ -495,19 +558,48 @@ async function main() {
     if (deal) dealByJobcode.set(code, deal);
   }
 
-  // ---- classify + aggregate to one row per staff+deal(or bucket)+day ----
-  const dayEntries = new Map(); // 'staffId|dealId|date' -> {staffId, dealId, clientId, department, hours}
+  // ---- the human's answers: qbtime_jobcode_map (090), read first in
+  // classifyEntry. A deal resolution is honoured for ANY existing deal (a
+  // person mapped it on purpose); one whose deal was deleted has deal null
+  // and classifyEntry falls back to the parse.
+  const jobcodeMap = new Map();
+  if (!legacy) {
+    const mapRows = await sbGet('qbtime_jobcode_map?select=qbtime_jobcode_id,resolution,deal_id,timeoff_kind');
+    const dealIds = [...new Set(mapRows.filter(m => m.deal_id).map(m => m.deal_id))];
+    const mapDeals = new Map();
+    for (let i = 0; i < dealIds.length; i += 100) {
+      (await sbGet(`deals?id=in.(${dealIds.slice(i, i + 100).join(',')})&select=id,client_id`))
+        .forEach(d => mapDeals.set(d.id, d));
+    }
+    for (const m of mapRows) {
+      jobcodeMap.set(String(m.qbtime_jobcode_id), { resolution: m.resolution, timeoff_kind: m.timeoff_kind, deal: m.deal_id ? (mapDeals.get(m.deal_id) || null) : null });
+    }
+    if (mapRows.length) console.log(`  ${mapRows.length} human jobcode mapping(s) loaded (qbtime_jobcode_map).`);
+  }
+
+  // ---- classify + aggregate to one row per staff+jobcode+day ----
+  const dayEntries = new Map(); // 'staffId|jobcodeId|date' -> row
   const timeOffDays = new Map(); // 'staffId|kind' -> Map(date -> hours)
   const unmatchedJobcodes = new Map(); // code -> hours, seen but no deal carries it
   const uncodedJobcodes = new Map();   // 'Parent › Child' -> hours, no parsable code, not on the internal list
-  const internalHours = { count: 0, hours: 0 };
+  const byAttribution = new Map();     // attribution -> hours, the run's whole story in one table
+  const legacyDropped = { excluded: 0, unknown: 0 };
   const traceClass = new Map();        // QBTIME_TRACE only: 'parent › child | month | classification' -> hours
 
   for (const e of entries) {
-    const staff = staffByQbId.get(e.qbtimeUserId);
-    const c = classifyEntry(e, dealByJobcode);
+    const staff = staffByQbId.get(e.qbtimeUserId) || null;
+    let c = classifyEntry(e, dealByJobcode, jobcodeMap);
+    if (!staff) {
+      // a user QuickBooks Time did not describe: no roster row, so no
+      // time_off row is possible either — kept as an hours row with staff_id null
+      if (legacy) { legacyDropped.unknown += e.hours; continue; }
+      c = { type: 'internal', attribution: 'unknown_user' };
+    } else if (personExcluded(staff)) {
+      if (legacy) { legacyDropped.excluded += e.hours; continue; }
+      c = { type: 'excluded', attribution: 'excluded' };
+    }
     if (traceHit([e.parentName, e.childName, e.person])) {
-      const key = `${e.parentName || '(no parent)'} › ${e.childName || '(no child)'} | ${e.date.slice(0, 7)} | ${c.type}${c.dealId ? ' → deal ' + c.dealId : ''}${c.code ? ' code ' + c.code : ''}${c.kind ? ' ' + c.kind : ''}`;
+      const key = `${e.parentName || '(no parent)'} › ${e.childName || '(no child)'} | ${e.date.slice(0, 7)} | ${c.type}${c.attribution ? '/' + c.attribution : ''}${c.dealId ? ' → deal ' + c.dealId : ''}${c.code ? ' code ' + c.code : ''}${c.kind ? ' ' + c.kind : ''}`;
       traceClass.set(key, (traceClass.get(key) || 0) + e.hours);
     }
     if (c.type === 'timeoff') {
@@ -515,36 +607,43 @@ async function main() {
       if (!timeOffDays.has(key)) timeOffDays.set(key, new Map());
       const days = timeOffDays.get(key);
       days.set(e.date, (days.get(e.date) || 0) + e.hours);
+      byAttribution.set('timeoff', (byAttribution.get('timeoff') || 0) + e.hours);
       continue;
     }
     if (c.type === 'unmatched') unmatchedJobcodes.set(c.code, (unmatchedJobcodes.get(c.code) || 0) + e.hours);
     if (c.uncoded) uncodedJobcodes.set(c.uncoded, (uncodedJobcodes.get(c.uncoded) || 0) + e.hours);
+    byAttribution.set(c.attribution, (byAttribution.get(c.attribution) || 0) + e.hours);
     const dealId = c.type === 'billable' ? c.dealId : null;
     const clientId = c.type === 'billable' ? c.clientId : null;
-    if (!dealId) { internalHours.count++; internalHours.hours += e.hours; }
-    const key = staff.id + '|' + (dealId || 'internal') + '|' + e.date;
+    const key = (staff ? staff.id : 'u' + e.qbtimeUserId) + '|' + (e.jobcodeId ?? 'none') + '|' + e.date;
     if (!dayEntries.has(key)) {
-      dayEntries.set(key, { staffId: staff.id, dealId, clientId, department: e.dept || null, date: e.date, hours: 0 });
+      dayEntries.set(key, {
+        staffId: staff ? staff.id : null, qbtimeUserId: e.qbtimeUserId, dealId, clientId,
+        department: e.dept || null, date: e.date, hours: 0,
+        jobcodeId: e.jobcodeId ?? null, jobcodeName: [e.parentName, e.childName].filter(Boolean).join(' › ') || null,
+        attribution: c.attribution
+      });
     }
     dayEntries.get(key).hours += e.hours;
   }
 
   if (unmatchedJobcodes.size) {
-    console.log(`  ⚠ ${unmatchedJobcodes.size} jobcode(s) looked like a real project code but matched no won/active deal's claimed QBO project:`);
+    console.log(`  ⚠ ${unmatchedJobcodes.size} jobcode(s) looked like a real project code but matched no won/active deal's claimed QBO project ('unmatched' — resolve on Project Hours):`);
     [...unmatchedJobcodes.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20)
       .forEach(([code, hrs]) => console.log(`      ${code}: ${hrs.toFixed(2)}h`));
   }
   if (uncodedJobcodes.size) {
-    // These are the silent losses: not internal by name, but nothing to match
-    // on, so their hours sit in deal_id null. Fix is on the QuickBooks Time
-    // side (put the project's code in the jobcode name) — the row here tells
-    // you which jobcode and how much is at stake.
     const total = [...uncodedJobcodes.values()].reduce((a, b) => a + b, 0);
-    console.log(`  ⚠ ${uncodedJobcodes.size} jobcode(s) are not on the internal list but carry no parsable code (${total.toFixed(2)}h written as internal). Top 30:`);
+    console.log(`  ⚠ ${uncodedJobcodes.size} jobcode(s) are not on the internal list but carry no parsable code (${total.toFixed(2)}h, 'uncoded' — resolve on Project Hours). Top 30:`);
     [...uncodedJobcodes.entries()].sort((a, b) => b[1] - a[1]).slice(0, 30)
       .forEach(([name, hrs]) => console.log(`      ${name}: ${hrs.toFixed(2)}h`));
   }
-  console.log(`  Internal/non-billable/unmatched: ${internalHours.count} entries (${internalHours.hours.toFixed(2)}h) — written with deal_id null.`);
+  if (legacy && (legacyDropped.excluded || legacyDropped.unknown)) {
+    console.log(`  ⚠ legacy mode dropped ${legacyDropped.excluded.toFixed(2)}h (excluded people) + ${legacyDropped.unknown.toFixed(2)}h (unknown users). Apply db/090 to keep them.`);
+  }
+  console.log('  Hours by attribution:');
+  [...byAttribution.entries()].sort((a, b) => b[1] - a[1])
+    .forEach(([k, hrs]) => console.log(`      ${(k || 'null').padEnd(13)} ${hrs.toFixed(2)}h`));
   if (TRACE) {
     console.log(`\n  ── trace '${TRACE}': how the kept entries were classified (parent › child | month | result: hours) ──`);
     [...traceClass.entries()].sort((x, y) => x[0].localeCompare(y[0]))
@@ -553,20 +652,28 @@ async function main() {
     console.log('  ── end trace ──\n');
   }
 
-  // ---- time_entries: SYNC-OWNED, day grain. Replace the whole synced window. ----
-  await sbDelete(`time_entries?source=eq.qbtime&worked_on=gte.${startDate}&worked_on=lte.${endDate}`);
+  // ---- time_entries: SYNC-OWNED, day grain. Write this run's rows first
+  // (upsert on id), THEN sweep everything older in the window — so there is
+  // never a moment with the window empty. Row ids are deterministic
+  // (staff, jobcode, day), so a re-run lands on the same rows.
+  const runStamp = new Date().toISOString();
+  const teRows = [...dayEntries.values()].map(d => {
+    const row = {
+      id: `qbtime:${d.staffId || 'u' + d.qbtimeUserId}:${d.jobcodeId ?? 'none'}:${d.date}`,
+      staff_id: d.staffId, deal_id: d.dealId, client_id: d.clientId,
+      worked_on: d.date, hours: Math.round(d.hours * 100) / 100,
+      department: d.department, source: 'qbtime', synced_at: runStamp
+    };
+    if (!legacy) { row.qbtime_jobcode_id = d.jobcodeId; row.jobcode_name = d.jobcodeName; row.attribution = d.attribution; }
+    return row;
+  });
+  await sbUpsertRows('time_entries', teRows);
+  await sbDelete(`time_entries?source=eq.qbtime&worked_on=gte.${startDate}&worked_on=lte.${endDate}&synced_at=lt.${encodeURIComponent(runStamp)}`);
   // Raising import_from (Settings) means "don't trust hours before this date at
   // all", not just "stop pulling new ones" — so anything already synced before
   // the current cutoff is purged too, every run, not only the day it moves.
   await sbDelete(`time_entries?source=eq.qbtime&worked_on=lt.${startDate}`);
-  const teRows = [...dayEntries.values()].map(d => ({
-    id: `qbtime:${d.staffId}:${d.dealId || 'internal'}:${d.date}`,
-    staff_id: d.staffId, deal_id: d.dealId, client_id: d.clientId,
-    worked_on: d.date, hours: Math.round(d.hours * 100) / 100,
-    department: d.department, source: 'qbtime', synced_at: new Date().toISOString()
-  }));
-  await sbInsert('time_entries', teRows);
-  console.log(`  Wrote ${teRows.length} time_entries rows (${startDate}→${endDate}).`);
+  console.log(`  Wrote ${teRows.length} time_entries rows (${startDate}→${endDate}), swept the previous run's.`);
 
   // ---- time_off: merge consecutive days per staff+kind into ranges, replace window ----
   // Scoped to set_by='qbtime-sync' throughout — time_off has no source column
@@ -588,10 +695,14 @@ async function main() {
   await sbInsert('time_off', offRows);
   console.log(`  Wrote ${offRows.length} time_off range(s).`);
 
+  const attributionLog = {};
+  for (const [k, v] of byAttribution) attributionLog[k || 'null'] = Math.round(v * 100) / 100;
   await sbPatchState({
     import_from: startDate, // unchanged; kept explicit so a manual edit to widen the window is visible in the diff
     last_run_at: new Date().toISOString(),
-    last_run_log: { ok: true, entries: teRows.length, timeOffRanges: offRows.length, unmatchedJobcodes: unmatchedJobcodes.size, uncodedJobcodes: uncodedJobcodes.size, at: new Date().toISOString() }
+    last_run_log: { ok: true, legacy, entries: teRows.length, timeOffRanges: offRows.length,
+      unmatchedJobcodes: unmatchedJobcodes.size, uncodedJobcodes: uncodedJobcodes.size,
+      hoursByAttribution: attributionLog, at: new Date().toISOString() }
   });
   console.log('✔ Synced.');
 }
