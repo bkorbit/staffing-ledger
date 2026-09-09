@@ -551,10 +551,19 @@ table.acct td { font-variant-numeric: tabular-nums; }
 .kbadge.sm { font-size:0.58rem; padding:2px 7px; }
 /* Cards flow in a responsive grid. The track grew 310 -> 340 -> 380 as the
    card gained work: a media line now carries a funding select, a fee, a total
-   and a sentence explaining what the rebill is. Fewer, roomier cards beat more
-   cramped ones — at the 80vw modal this is still three across. */
-.linecards { display:grid; grid-template-columns:repeat(auto-fill,minmax(380px,1fr)); gap:10px; margin-top:14px; }
-.linecard { border:1px solid var(--line); border-radius:8px; background:var(--paper-raised); min-width:0; }
+   and a sentence explaining what the rebill is.
+   auto-FIT, not auto-fill (087). auto-fill keeps the tracks it made room for
+   even when nothing occupies them, so a three-line deal on a 2000px modal got
+   five 393px tracks and rendered into three of them — leaving a hole exactly
+   two cards wide, which reads as a card that failed to draw rather than as
+   spare room. auto-fit collapses the empty ones and the survivors take the
+   width — three lines on that modal become three 596px cards spanning it.
+   max-width caps the other end: without it a one-line deal would get a single
+   card as wide as the whole modal. 820 is the point past which a card is all
+   whitespace; below it the fields row and the callout sentence still fill. */
+.linecards { display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:10px; margin-top:14px; }
+.linecard { border:1px solid var(--line); border-radius:8px; background:var(--paper-raised);
+  min-width:0; max-width:820px; }
 /* The head wraps as two groups (087). It used to be six loose children in a
    nowrap row, and a flex item's min-width is auto: badge + "EMG pays &
    rebills" + "line GP $138,448" + ✕ came to more than a card in a
