@@ -8,6 +8,27 @@ tr.namerow:focus-visible { outline:none; box-shadow:inset 0 0 0 2px var(--brand-
 /* Range/ribbon stay crisp while a range change is in flight; only the data
    underneath dims (same as Team Hours). */
 #panel.is-loading .sc-panel, #panel.is-loading .summary-strip { opacity:.55; pointer-events:none; transition:opacity .12s ease; }
+
+/* The project table fits its container instead of scrolling it (DESIGN.md's
+   Laptop Discipline Rule: names truncate, never wrap or force a horizontal
+   scroll). table-layout:fixed with a width class on every header makes the
+   header row the column grid; every cell is one line and ellipsizes. As the
+   container narrows, whole columns leave in priority order rather than every
+   figure getting clipped: the two derived per-hour rates first, then planned
+   hours (its bar caption already says it), then the client. The wrapper is a
+   size container so this follows the REAL width — the sidebar collapsing to
+   52px widens the table without a viewport change. */
+.fit { container-type:inline-size; overflow:hidden; }
+table.ledger.ph { table-layout:fixed; }
+table.ledger.ph td, table.ledger.ph td.textleft { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+table.ledger.ph .tname { display:flex; align-items:center; gap:8px; min-width:0; }
+table.ledger.ph .tname > span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+table.ledger.ph .tname .pill { flex:none; }
+.w-name { width:19%; } .w-client { width:11.5%; } .w-dates { width:12.5%; } .w-bar { width:13.5%; }
+.w-planned { width:5.5%; } .w-actual { width:5.5%; } .w-labor { width:6.5%; } .w-revenue { width:7%; }
+.w-rate { width:6%; } .w-profit { width:7%; } .w-pph { width:6%; }
+@container (max-width: 1120px) { table.ledger.ph .c-rate, table.ledger.ph .c-pph, table.ledger.ph .c-planned { display:none; } }
+@container (max-width: 900px)  { table.ledger.ph .c-client { display:none; } }
 </style>
 </head><body>
 <script type="module">
@@ -50,8 +71,9 @@ import { boot, esc, wireSearch, fetchAll } from './assets/shell.js?v=934cbd8';
 // most of the page's payload for rows nobody opens.
 const fmtHours = h => (+h || 0).toLocaleString(undefined, { maximumFractionDigits: 1 });
 const fmt$0 = c => (c < 0 ? '-$' : '$') + Math.abs(Math.round((c || 0) / 100)).toLocaleString();
+// two-digit year: the start → end cell is one line in a fixed-width column
 const fmtDate = s => s ? new Date(s + 'T00:00:00Z')
-  .toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—';
+  .toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'UTC' }) : '—';
 const fmtDayMon = s => new Date(s + 'T00:00:00Z')
   .toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' });
 const fmtMonYY = s => new Date(s + 'T00:00:00Z')
@@ -95,21 +117,21 @@ function stackSegments(cap, parts) {
 // bar. Planned = 0 is an explicit "not assigned yet" state, not a 0% bar; a
 // project with revenue but no hours at all is its own flag — its labor was
 // never logged against it. A person row already has its own logged column,
-// so it passes showLogged=false and the caption is just the state.
-function hoursCell(planned, logged, hasRevenue, showLogged = true) {
-  const hasPlan = planned > 0;
-  let caption;
-  if (hasPlan) {
+// so it passes showLogged=false and the caption is just the state. cls is
+// the column's own class (the project table's c-bar), on the <td> itself.
+function hoursCell(planned, logged, hasRevenue, showLogged = true, cls = '') {
+  const td = `<td class="textleft${cls ? ' ' + cls : ''}">`;
+  if (planned > 0) {
     const bar = stackSegments(planned, [[logged > planned ? 'seg-over' : 'seg-good', logged]]);
-    caption = `${fmtHours(logged)}h / ${fmtHours(planned)}h assigned`
+    const caption = `${fmtHours(logged)}h / ${fmtHours(planned)}h assigned`
       + (bar.overBy > 0.05 ? ` · <span class="delta-note neg" style="display:inline">+${fmtHours(bar.overBy)}h over</span>` : '');
-    return `<td class="textleft"><div class="barcell"><div class="mini-track wide">${bar.html}</div>
+    return `${td}<div class="barcell"><div class="mini-track wide">${bar.html}</div>
       <div class="delta-note flat">${caption}</div></div></td>`;
   }
   if (logged <= 0 && hasRevenue)
-    return `<td class="textleft"><div class="barcell"><div class="mini-track wide"></div>
+    return `${td}<div class="barcell"><div class="mini-track wide"></div>
       <div class="delta-note neg">revenue, no hours logged</div></div></td>`;
-  return `<td class="textleft"><div class="barcell"><div class="mini-track wide"></div>
+  return `${td}<div class="barcell"><div class="mini-track wide"></div>
     <div class="delta-note flat">${showLogged && logged > 0 ? fmtHours(logged) + 'h logged · ' : ''}not assigned yet</div></div></td>`;
 }
 
@@ -425,12 +447,15 @@ boot('projhours', async (supa, el) => {
       profitPerHour: r.actualHours > 0 ? profitAfterLabor / r.actualHours : null };
   }
 
+  // [sort key, label, cell classes]. The w-* class sets the column's share of
+  // the fixed-layout table; the c-* class is what the container queries hide.
   const COLUMNS = [
-    ['name', 'project', 'textleft'], ['client', 'client', 'textleft'], ['start', 'start → end', 'textleft'],
-    [null, 'hours vs planned', 'textleft'],
-    ['plannedHours', 'planned hrs'], ['actualHours', 'actual hrs'], ['laborCost', 'labor cost'],
-    ['revenue', 'revenue'], ['effectiveRate', 'effective rate'],
-    ['profitAfterLabor', 'profit after labor'], ['profitPerHour', 'profit / hr'],
+    ['name', 'project', 'textleft w-name c-name'], ['client', 'client', 'textleft w-client c-client'],
+    ['start', 'start → end', 'textleft w-dates c-dates'], [null, 'hours vs planned', 'textleft w-bar c-bar'],
+    ['plannedHours', 'planned hrs', 'w-planned c-planned'], ['actualHours', 'actual hrs', 'w-actual c-actual'],
+    ['laborCost', 'labor cost', 'w-labor c-labor'], ['revenue', 'revenue', 'w-revenue c-revenue'],
+    ['effectiveRate', 'effective rate', 'w-rate c-rate'], ['profitAfterLabor', 'profit after labor', 'w-profit c-profit'],
+    ['profitPerHour', 'profit / hr', 'w-pph c-pph'],
   ];
 
   // The expanded block: people (2) | the two charts stacked (3). The charts
@@ -560,27 +585,24 @@ boot('projhours', async (supa, el) => {
           <span class="delta-note flat">click a project to see who worked it</span>
           <span class="muted" style="font-size:11px;margin-left:auto">${rows.length} of ${allRows.length} shown</span>
         </div>
-        <div class="gridwrap" style="margin-top:0">
-        <table class="ledger">
+        <div class="fit">
+        <table class="ledger ph">
           <tr>${COLUMNS.map(sortTh).join('')}</tr>
           ${!rows.length ? `<tr><td colspan="${COLUMNS.length}" class="empty-note">No projects match the current filters.</td></tr>` : rows.map(r => {
             const b = r.b, open = openDeals.has(r.dealId);
             const risk = r.actualHours > 0 && b.profitAfterLabor < 0;
-            const splitLine = !historicalOnly && r.forecastRevenue !== 0 && r.actualRevenue !== 0
-              ? `<div class="delta-note flat">${fmt$0(r.actualRevenue)} measured · ${fmt$0(r.forecastRevenue)} forecast</div>` : '';
             const head = `<tr class="namerow${risk ? ' risk-row' : ''}" data-did="${esc(r.dealId)}" role="button" tabindex="0" aria-expanded="${open}" style="cursor:pointer">
-              <td class="textleft"><div>${open ? '▾' : '▸'} ${esc(r.name)}</div>
-                <div class="sub-proj">${r.qboProjectId ? esc(r.projName || r.qboProjectId) : '<span class="pill warn">no QB project</span>'}</div></td>
-              <td class="textleft">${esc(r.client)}</td>
-              <td class="textleft" style="white-space:nowrap">${fmtDate(r.flightStart)} → ${fmtDate(r.flightEnd)}</td>
-              ${hoursCell(r.plannedHours, r.actualHours, b.revenue !== 0)}
-              <td class="${r.plannedHours > 0 ? '' : 'muted'}">${r.plannedHours > 0 ? fmtHours(r.plannedHours) : '—'}</td>
-              <td>${fmtHours(r.actualHours)}</td>
-              <td>${fmt$0(r.laborCost)}</td>
-              <td>${fmt$0(b.revenue)}${splitLine}</td>
-              <td class="${b.effectiveRate === null ? 'muted' : ''}">${b.effectiveRate === null ? '—' : fmt$0(b.effectiveRate) + '/h'}</td>
-              <td class="${b.profitAfterLabor < 0 ? 'err' : 'ok'}">${fmt$0(b.profitAfterLabor)}</td>
-              <td class="${b.profitPerHour === null ? 'muted' : b.profitPerHour < 0 ? 'err' : 'ok'}">${b.profitPerHour === null ? '—' : fmt$0(b.profitPerHour) + '/h'}</td>
+              <td class="textleft c-name" title="${esc(r.name)}${r.projName ? ' · ' + esc(r.projName) : ''}"><div class="tname"><span>${open ? '▾' : '▸'} ${esc(r.name)}</span>${r.qboProjectId ? '' : '<span class="pill warn">no QB project</span>'}</div></td>
+              <td class="textleft c-client" title="${esc(r.client)}">${esc(r.client)}</td>
+              <td class="textleft c-dates">${fmtDate(r.flightStart)} → ${fmtDate(r.flightEnd)}</td>
+              ${hoursCell(r.plannedHours, r.actualHours, b.revenue !== 0, true, 'c-bar')}
+              <td class="c-planned ${r.plannedHours > 0 ? '' : 'muted'}">${r.plannedHours > 0 ? fmtHours(r.plannedHours) : '—'}</td>
+              <td class="c-actual">${fmtHours(r.actualHours)}</td>
+              <td class="c-labor">${fmt$0(r.laborCost)}</td>
+              <td class="c-revenue" title="${!historicalOnly && r.forecastRevenue !== 0 && r.actualRevenue !== 0 ? esc(fmt$0(r.actualRevenue) + ' measured · ' + fmt$0(r.forecastRevenue) + ' forecast') : ''}">${fmt$0(b.revenue)}</td>
+              <td class="c-rate ${b.effectiveRate === null ? 'muted' : ''}">${b.effectiveRate === null ? '—' : fmt$0(b.effectiveRate) + '/h'}</td>
+              <td class="c-profit ${b.profitAfterLabor < 0 ? 'err' : 'ok'}">${fmt$0(b.profitAfterLabor)}</td>
+              <td class="c-pph ${b.profitPerHour === null ? 'muted' : b.profitPerHour < 0 ? 'err' : 'ok'}">${b.profitPerHour === null ? '—' : fmt$0(b.profitPerHour) + '/h'}</td>
             </tr>`;
             return open ? head + expandHtml(r) : head;
           }).join('')}
