@@ -105,6 +105,12 @@ td.textleft { text-align:left; font-family:var(--font-body); }
 .pill.good { color:var(--brand); border-color:var(--brand-2); background:var(--mint); }
 .pill.warn { color:var(--amber); border-color:var(--amber); background:var(--amber-bg); }
 .pill.bad  { color:var(--rust); border-color:var(--rust); background:var(--rust-bg); }
+/* flight status on the Forecast table — Live is brand, Pending the accent gold
+   (waiting, not a warning), Ended recedes into paper */
+.pill.st-live    { color:var(--brand); border-color:var(--brand-2); background:var(--mint); }
+.pill.st-pending { color:var(--ink);   border-color:var(--gold);    background:var(--gold-bg); }
+.pill.st-ended   { color:var(--slate); border-color:var(--line);    background:var(--paper); }
+table.acct td.statuscell { text-align:center; }
 
 .ok { color:var(--brand-2); } .warn { color:var(--amber); } .err { color:var(--rust); white-space:pre-wrap; }
 .muted { color:var(--slate); }

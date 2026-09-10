@@ -34,6 +34,13 @@ boot('forecast', async (supa, el) => {
   const iso = d => d.toISOString().slice(0,10);
   const t0 = new Date(); t0.setUTCDate(1);
   const thisMonth = iso(t0).slice(0,8)+'01';
+  const todayISO = iso(new Date());
+  // Status pill: where the flight stands against today's DATE — Pending has
+  // not started, Ended is over, Live covers today. Ranked so a status sort
+  // puts Live first.
+  const dealStatus = d => d.flight_start > todayISO ? 'pending' : d.flight_end < todayISO ? 'ended' : 'live';
+  const STATUS = { live:{ label:'Live', rank:2 }, pending:{ label:'Pending', rank:1 }, ended:{ label:'Ended', rank:0 } };
+  const statusPill = (s, title='') => s ? `<span class="pill st-${s}"${title?` title="${title}"`:''}>${STATUS[s].label}</span>` : '';
   const shiftM = (m,n)=>{const[y,mm]=m.slice(0,7).split('-').map(Number);
     return new Date(Date.UTC(y,mm-1+n,1)).toISOString().slice(0,10);};
   const monthsBetween = (a,b) => { const out=[];
@@ -817,7 +824,16 @@ boot('forecast', async (supa, el) => {
       const ended = d.flight_end < thisMonth;
       const basis = ended ? (matched ? 'ended (actual)' : 'ended · no QB link')
         : (matched ? 'actual (QuickBooks) + ' : (revA||cogsA ? '' : 'no QB link · ')) + (ended ? '' : 'forecast');
-      return { value, gpBilled, gpFc, variance, basis, matched, ended };
+      return { value, gpBilled, gpFc, variance, basis, matched, ended, status: dealStatus(d) };
+    };
+    // a client's pill rolls its visible deals up: Live if any deal is live,
+    // else Pending if any is waiting, else Ended; the hover names the counts
+    const clientStatus = ds => {
+      const n = { live:0, pending:0, ended:0 };
+      ds.forEach(d => n[dealStatus(d)]++);
+      const s = n.live ? 'live' : n.pending ? 'pending' : n.ended ? 'ended' : null;
+      const title = ['live','pending','ended'].filter(k=>n[k]).map(k=>`${n[k]} ${k}`).join(' · ');
+      return { s, title };
     };
     const clientRow = c => {
       const ds = dealsByClient[c.id]||[];
@@ -857,12 +873,13 @@ boot('forecast', async (supa, el) => {
       if (!q) return true;
       return c.name.toLowerCase().includes(q) ||
              ds.some(d => d.name.toLowerCase().includes(q));
-    }).map(c => ({ c, agg: clientRow(c),
+    }).map(c => ({ c, agg: clientRow(c), status: clientStatus(visibleDeals(c)),
                    missing: visibleDeals(c).filter(d => !(d._agg||{}).gpAll && d.flight_end >= thisMonth).length,
                    noProj: visibleDeals(c).filter(d => !d.qbo_project_id).length }));
 
     const dir = tableSort.dir, key = tableSort.key;
     const sv = a => key==='name' ? a.c.name.toLowerCase()
+      : key==='status' ? (a.status.s ? STATUS[a.status.s].rank : -1)
       : key==='variance' ? (a.agg.variance ?? -1e15*dir)
       : key==='value' ? (a.agg.value||0)
       : key==='gpBilled' ? (a.agg.gpBilled ?? -1e15*dir)
@@ -875,7 +892,7 @@ boot('forecast', async (supa, el) => {
       .filter(d=>!(d._agg||{}).gpAll && d.flight_end >= thisMonth).length;
 
     let totals = { value:0, gpBilled:0, gpFc:0 };
-    const bodyRows = clients.map(({c, agg, missing, noProj}) => {
+    const bodyRows = clients.map(({c, agg, status, missing, noProj}) => {
       totals.value+=agg.value; totals.gpBilled+=agg.gpBilled||0; totals.gpFc+=agg.gpFc;
       const ds = visibleDeals(c)
         .filter(d => !q || d.name.toLowerCase().includes(q) || c.name.toLowerCase().includes(q))
@@ -888,6 +905,7 @@ boot('forecast', async (supa, el) => {
           <span class="namewrap">${esc(c.name)}</span>
           ${missing?`<span class="pill warn" style="margin-left:6px" title="${missing} deal(s) with no forecast">${missing} missing forecast</span>`:''}
           ${noProj?`<span class="pill bad" style="margin-left:6px" title="${noProj} deal(s) with no QuickBooks project — no actuals until linked">${noProj} no QB project</span>`:''}</td>
+        <td class="statuscell">${statusPill(status.s, status.title)}</td>
         <td>${num(agg.value)}</td>
         <td>${agg.gpBilled!==null?`<span class="${agg.gpBilled<0?'neg':''}">${fmtM(agg.gpBilled)}</span>`:'<span class="muted">—</span>'}</td>
         <td style="color:var(--brand)">${agg.gpFc?fmtM(agg.gpFc):''}</td>
@@ -904,6 +922,7 @@ boot('forecast', async (supa, el) => {
           return `<tr class="dealsub projrow" data-pid="${pid}" data-cid="${c.id}" title="click to link this project to one of ${esc(c.name)}'s deals" tabindex="0" role="button">
             <td class="namecell" style="padding-left:28px;color:var(--slate)">◦
               <span class="namewrap">${esc(pj.name||pid)}</span></td>
+            <td></td>
             <td>${rv?fmtM(rv):''}</td>
             <td>${(rv||cg)?fmtM(rv-cg):''}</td><td></td><td></td>
             <td style="text-align:left" class="muted linkcell">QB project — <u>link to a deal…</u></td></tr>`;
@@ -917,6 +936,7 @@ boot('forecast', async (supa, el) => {
               !(d._agg||{}).gpAll && d.flight_end >= thisMonth
                 ? ' <span class="pill warn" title="flight runs into the future but no forecast is shaped — open the deal and give it lines">!</span>' : ''
             }${r.matched?'':' <span class="pill bad" title="no QuickBooks project linked — open the deal and pick one">no QB project</span>'}</td>
+          <td class="statuscell">${statusPill(r.status, `${d.flight_start} → ${d.flight_end}`)}</td>
           <td>${num(r.value)}</td>
           <td>${r.gpBilled!==null?`<span class="${r.gpBilled<0?'neg':''}">${fmtM(r.gpBilled)}</span>`:'<span class="muted">—</span>'}</td>
           <td style="color:var(--brand)">${r.gpFc?fmtM(r.gpFc):''}</td>
@@ -947,6 +967,7 @@ boot('forecast', async (supa, el) => {
     // above, so name the gap instead of silently dropping it
     const untraced = unattributedRev - unattributedProjects.reduce((s,p)=>s+p.revenue,0);
     const HCOLS = [['name','Client / deal'],
+      ['status','Status','Against today: Live covers today, Pending has not started, Ended is over'],
       ['value','Value','Billed + forecasted, across the range'],
       ['gpBilled','GP Billed'],
       ['gpFc','GP Forecast'],
@@ -959,19 +980,23 @@ boot('forecast', async (supa, el) => {
       bodyRows +
       (Math.abs(unattributedRev) > 100 ? `<tr class="dealsub unattrow" tabindex="0" role="button" aria-expanded="${unattributedOpen}">
         <td class="namecell"><span class="muted">${unattributedProjects.length?(unattributedOpen?'▾':'▸'):'·'}</span> unattributed (no client link)</td>
+        <td></td>
         <td class="muted">${fmtM(unattributedRev)}</td>
         <td colspan="3"></td><td style="text-align:left" class="muted">${unattributedProjects.length?'click to see which QuickBooks projects':'link clients on the Clients tab'}</td></tr>` +
         (unattributedOpen ? unattributedProjects.map(p => `<tr class="dealsub">
             <td class="namecell" style="padding-left:28px;color:var(--slate)">◦ <span class="namewrap">${esc(p.name)}</span></td>
+            <td></td>
             <td>${p.revenue?fmtM(p.revenue):''}</td>
             <td>${(p.revenue||p.cogs)?fmtM(p.revenue-p.cogs):''}</td><td></td><td></td>
             <td style="text-align:left" class="muted">its QuickBooks parent isn't linked to any client — link it on the Clients tab</td></tr>`).join('')
           + (Math.abs(untraced) > 100 ? `<tr class="dealsub">
               <td class="namecell" style="padding-left:28px;color:var(--slate)">◦ no QuickBooks project at all</td>
+              <td></td>
               <td class="muted">${fmtM(untraced)}</td><td colspan="3"></td>
               <td style="text-align:left" class="muted">invoices or cost lines with no project code in QuickBooks</td></tr>` : '')
           : '') : '') +
       `<tr class="totalrow"><td>company — ${months.length} months</td>
+        <td></td>
         <td>${fmtM(plRows.reduce((s,r)=>s+r.revenue,0))}</td>
         <td>${fmtM(plRows.filter(r=>r.measured).reduce((s,r)=>s+(r.actualGP||0),0))}</td>
         <td>${fmtM(plRows.filter(r=>!r.measured).reduce((s,r)=>s+r.forecastGP,0))}</td>
