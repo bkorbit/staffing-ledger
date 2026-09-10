@@ -110,7 +110,7 @@ td.textleft { text-align:left; font-family:var(--font-body); }
 .pill.st-live    { color:var(--brand); border-color:var(--brand-2); background:var(--mint); }
 .pill.st-pending { color:var(--ink);   border-color:var(--gold);    background:var(--gold-bg); }
 .pill.st-ended   { color:var(--slate); border-color:var(--line);    background:var(--paper); }
-table.acct td.statuscell { text-align:center; }
+table.acct td.statuscell, table.acct th[data-sort="status"] { text-align:center; }
 
 .ok { color:var(--brand-2); } .warn { color:var(--amber); } .err { color:var(--rust); white-space:pre-wrap; }
 .muted { color:var(--slate); }
