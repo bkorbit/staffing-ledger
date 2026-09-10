@@ -113,6 +113,22 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   skips locked rows. Every page reads `deals.name`, so the new name shows
   everywhere. Hand a name back to HubSpot: `set name_locked = false`.
 - Fixed costs: edited on Settings, subtracted from projected net only.
+- **'Other' is never forecast** (093, Boris 10 Sep 2026). The class (accounts
+  with no recognisable type) holds one-off / incremental lines; measured months
+  show what was booked, forward months carry 0. forecast_page has no
+  runrates.other any more; both charts' rowFor (forecast.html, index.html) agree.
+- **EBITDA switch on the NET line** (093). The Forecast chart's legend bar has a
+  Net / EBITDA toggle (localStorage 'fc_netmode'; the KPI headline follows it).
+  EBITDA month = net + add-back: cost lines on accounts `account_ebitda_addback()`
+  says yes to — QuickBooks type Other Expense / Other Income (below the operating
+  line), or a depreciation / amortization / interest / income-tax subtype or name
+  (`\m…\M` word boundaries: Pinterest is not interest) — overhead and other
+  classes ONLY, never labour or COGS by rule. `qbo_accounts.ebitda_addback`
+  (null/true/false) overrides it, edited in "How costs are counted", human-owned,
+  the sync never writes it. Forward months add back the flagged share of the
+  overhead run-rate (`addback_trail`), nothing else — labour comes from Team,
+  COGS from the plan, other is not forecast. Interest EARNED is negative in the
+  view and so lowers EBITDA. Not on the Home chart (net only).
 - **Solidigm is one deal, by exception** (Boris, 10 Sep 2026). QB project 426
   (24forc3009250) belongs to "FMS - Solidigm - Programmatic - 8/27/25 - 9/30/25"
   — hours AND invoices; "FMS - Solidigm - Programmatic - Incremental" claims no
@@ -123,7 +139,7 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   finds the same shape for any other deal.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 092. Key views/functions
+## Current migration head: 093. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
@@ -131,18 +147,26 @@ is always a new migration, so grep for the highest one before reading an old bod
   media spread from 024; 058 stopped hidden deals leaking into the plan; 087
   split `pass_through` (rebilled search/social media: cash, never revenue) out
   of `billable`. Revenue wants `billable`; cash wants `billable + pass_through`.
-- `v_cost_lines_classified` [056] — bill/purchase/journal lines with cost_class
+- `v_cost_lines_classified` [093] — bill/purchase/journal lines with cost_class
   (cogs/payroll/overhead/other/income/excluded); overrides via
   qbo_accounts.override_class. 056 fixed Other Income and labor sub-accounts
-  against the real QB P&L.
-- `forecast_page(p_from,p_to)` [092] — whole Forecast page in one jsonb.
+  against the real QB P&L; 093 appended account_type, account_sub_type and
+  ebitda_addback per line (nothing before them moved).
+- `account_ebitda_addback(type, sub_type, name, class, override)` /
+  `v_account_class` [093] — the EBITDA add-back rule, ONE copy, and the
+  chart-of-accounts view that carries its answer (`ebitda_addback_auto`,
+  `ebitda_addback_effective`) so the Forecast page's accounts panel never
+  re-implements it in JS.
+- `forecast_page(p_from,p_to)` [093] — whole Forecast page in one jsonb.
   025 added contra revenue; 068-071 wired in bottoms-up labor; 076 made it scan
   v_cost_lines_classified ONCE instead of ~15-20 times (it was the page's load
   cost, not a behaviour change — 076_fixture_test.sql proves byte-identical output);
   079/080 stopped balance-sheet invoice lines (customer deposits) counting as
   revenue, which needs a full QBO re-sync to stamp invoice_lines.account_id.
   092 made rev_proj/cogs_proj closed-months-only (the current month was in both
-  the actual and the forecast half of the table's Value column).
+  the actual and the forecast half of the table's Value column). 093 dropped
+  runrates.other and added addback_month + runrates.addback for the EBITDA
+  line; 093_fixture_test proves everything else byte-identical to 092.
 - `cashflow_forecast(...)` [087] — half-month periods (016), programmatic COGS
   terms knob (017), EB-shrunk per-client payment curves, overdue clamps, the
   same real labor numbers the Forecast uses (071), an opening position from

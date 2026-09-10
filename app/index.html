@@ -500,7 +500,7 @@ async function mountForecastPanel(supa, el, initFrom, initTo) {
           ${segMeasured ? '' : 'stroke-dasharray="5 3"'}/>`;
       }
       rows.forEach((r, i) => { const cx = P.l + gap * i + gap / 2, cy = y(r.net);
-        const tip = `${mLabel(r.m)} net ${fmtM(r.net)} — ${r.measured ? 'measured' : 'forecast: GP − labour − overhead − other − fixed'}`;
+        const tip = `${mLabel(r.m)} net ${fmtM(r.net)} — ${r.measured ? 'measured' : 'forecast: GP − labour − overhead − fixed'}`;
         g += `<circle cx="${cx}" cy="${cy}" r="4" fill="${colorOf.net}" stroke="var(--paper-raised)" stroke-width="2" opacity="${r.measured ? 1 : 0.55}"><title>${tip}</title></circle>
         <text x="${cx}" y="${cy + 17}" fill="${INK}" font-size="9.5" font-weight="600" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(r.net)}</text>`; });
     }
@@ -574,7 +574,8 @@ async function mountForecastPanel(supa, el, initFrom, initTo) {
     const P = pg.data || {};
     const sv = k => (st.data || []).find(x => x.key === k)?.value;
     const fixedCosts = sv('forecast_fixed_costs') || [];
-    const runrate = { payroll: P.runrates?.payroll || 0, overhead: P.runrates?.overhead || 0, misc: P.runrates?.other || 0 };
+    // no 'other' run-rate: that class is measured, never forecast (093)
+    const runrate = { payroll: P.runrates?.payroll || 0, overhead: P.runrates?.overhead || 0 };
     const revByM = {}; (P.rev_month || []).forEach(r => revByM[r.month] = r.total);
     const costByCM = {}; (P.cost_month || []).forEach(r => { (costByCM[r.class] = costByCM[r.class] || {})[r.month] = r.total; });
     const planByM = {}, planBillByM = {};
@@ -589,7 +590,8 @@ async function mountForecastPanel(supa, el, initFrom, initTo) {
       const actualGP = measured ? revenue - cogs : null;
       const labour = measured ? ((costByCM.payroll || {})[m] || 0) : runrate.payroll;
       const other = measured ? ((costByCM.overhead || {})[m] || 0) : runrate.overhead;
-      const misc = measured ? ((costByCM.other || {})[m] || 0) : runrate.misc;
+      // 'other' is one-offs and incremental spend: measured, never forecast (093)
+      const misc = measured ? ((costByCM.other || {})[m] || 0) : 0;
       const fixed = measured ? 0 : fixedTotal();
       const net = (measured ? actualGP : forecastGP) - labour - other - misc - fixed;
       return { m, measured, revenue, cogs, forecastGP, actualGP, labour, other, misc, fixed, net };

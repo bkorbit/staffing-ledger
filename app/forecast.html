@@ -181,6 +181,40 @@ boot('forecast', async (supa, el) => {
      opex stack), so position plus the hover title disambiguate them. No hero
      figure (revisit as a KPI ribbon separately); sharp square bars; direct
      value labels on every bar and every net point. */
+  // The NET line shows net or EBITDA (093). Remembered per browser like the
+  // legend's hidden series. rowFor() computes both on every row, so switching
+  // is a redraw, not a reload — and the KPI ribbon follows the same choice so
+  // the headline and the line can never disagree.
+  let netMode = localStorage.getItem('fc_netmode') === 'ebitda' ? 'ebitda' : 'net';
+  const netOf = r => netMode === 'ebitda' ? r.ebitda : r.net;
+  const netLabel = () => netMode === 'ebitda' ? 'EBITDA' : 'net';
+  function setNetMode(mode, elc, rows) {
+    netMode = mode === 'ebitda' ? 'ebitda' : 'net';
+    localStorage.setItem('fc_netmode', netMode);
+    comboChart(elc, rows);
+    renderKpis(rows);
+  }
+  // headline numbers for the range, sourced from the exact same plRows the
+  // chart draws from — so the ribbon and the chart can never disagree
+  function renderKpis(plRows) {
+    const netTotal = plRows.reduce((s,r)=>s+netOf(r),0);
+    const revTotal = plRows.reduce((s,r)=>s+r.revenue,0);
+    const gpTotal = plRows.reduce((s,r)=>s+(r.measured?r.actualGP:r.forecastGP),0);
+    const measuredCount = plRows.filter(r=>r.measured).length;
+    el.querySelector('#kpis').innerHTML = `
+      <div class="summary-cell"><div class="summary-label">${netMode==='ebitda'?'EBITDA':'Net profit'}</div>
+        <div class="summary-value ${netTotal<0?'neg':'pos'}">${fmtM(netTotal)}</div>
+        <div class="summary-note">${plRows.length} months, ${mLabel(rangeFrom)}–${mLabel(rangeTo)}</div></div>
+      <div class="summary-cell"><div class="summary-label">Revenue</div>
+        <div class="summary-value">${fmtM(revTotal)}</div>
+        <div class="summary-note">billed + planned, this range</div></div>
+      <div class="summary-cell"><div class="summary-label">Gross profit</div>
+        <div class="summary-value ${gpTotal<0?'neg':'pos'}">${fmtM(gpTotal)}</div>
+        <div class="summary-note">actual + forecast, this range</div></div>
+      <div class="summary-cell"><div class="summary-label">Measured</div>
+        <div class="summary-value">${measuredCount} / ${plRows.length}</div>
+        <div class="summary-note">months fully closed</div></div>`;
+  }
   function comboChart(elc, rows) {
     const SERIES = [
       ['revenue',  'var(--brand)',   'revenue'],
@@ -189,7 +223,7 @@ boot('forecast', async (supa, el) => {
       ['other',    'var(--brand-4)', 'overhead'],
       ['misc',     'var(--accent)',  'other'],
       ['fixed',    'var(--slate)',   'fixed'],
-      ['net',      'var(--gold)',    'net (line)'],
+      ['net',      'var(--gold)',    netLabel() + ' (line)'],
     ];
     const colorOf = Object.fromEntries(SERIES.map(([k,c])=>[k,c]));
     const hidden = new Set(JSON.parse(localStorage.getItem('fc_hidden')||'[]'));
@@ -203,7 +237,7 @@ boot('forecast', async (supa, el) => {
     // scale adapts to what is visible
     const maxBar = Math.max(1, ...rows.map(r=>Math.max(
       on('revenue')?r.revenue:0, on('cogs')?r.cogs:0, opexOf(r))));
-    const nets = on('net') ? rows.map(r=>r.net) : [0];
+    const nets = on('net') ? rows.map(netOf) : [0];
     const SNAP = 25000000;
     const rawMin = Math.min(0, ...nets), rawMax = Math.max(maxBar, ...nets, 1);
     const min = Math.floor(rawMin/SNAP)*SNAP;
@@ -221,7 +255,7 @@ boot('forecast', async (supa, el) => {
     const y0=y(Math.max(min,0));
     // one plain-text line per month, shared by the keyboard focus label and
     // the mouse/touch tooltip below — same pattern as sales.html's chart
-    const rowVals = r => ({ revenue:r.revenue, cogs:r.cogs, labour:r.labour, other:r.other, misc:r.misc, fixed:r.fixed, net:r.net });
+    const rowVals = r => ({ revenue:r.revenue, cogs:r.cogs, labour:r.labour, other:r.other, misc:r.misc, fixed:r.fixed, net:netOf(r) });
     const rowParts = r => { const vals=rowVals(r);
       return SERIES.filter(([k])=>on(k) && (k==='net' || vals[k]>0)).map(([k,,lbl])=>`${lbl} ${fmtM(vals[k])}`); };
     rows.forEach((r,i)=>{
@@ -256,14 +290,18 @@ boot('forecast', async (supa, el) => {
       for (let i = 0; i < rows.length - 1; i++) {
         const segMeasured = rows[i].measured && rows[i+1].measured;
         const x1 = P.l+gap*i+gap/2, x2 = P.l+gap*(i+1)+gap/2;
-        g+=`<line x1="${x1}" y1="${y(rows[i].net)}" x2="${x2}" y2="${y(rows[i+1].net)}"
+        g+=`<line x1="${x1}" y1="${y(netOf(rows[i]))}" x2="${x2}" y2="${y(netOf(rows[i+1]))}"
           stroke="${colorOf.net}" stroke-width="2.5" opacity="${segMeasured?1:0.55}"
           ${segMeasured?'':'stroke-dasharray="5 3"'}/>`;
       }
-      rows.forEach((r,i)=>{const cx=P.l+gap*i+gap/2, cy=y(r.net);
-        const tip = `${mLabel(r.m)} net ${fmtM(r.net)} — ${r.measured?'measured':'forecast: GP − labour − overhead − other − fixed'}`;
+      // 'other' is measured, never forecast (093), so a forecast month's net
+      // is GP − labour − overhead − fixed; EBITDA puts the add-back lines back
+      const how = netMode==='ebitda' ? 'forecast: GP − labour − overhead − fixed + add-back'
+                                     : 'forecast: GP − labour − overhead − fixed';
+      rows.forEach((r,i)=>{const cx=P.l+gap*i+gap/2, v=netOf(r), cy=y(v);
+        const tip = `${mLabel(r.m)} ${netLabel()} ${fmtM(v)} — ${r.measured?'measured':how}`;
         g+=`<circle cx="${cx}" cy="${cy}" r="4" fill="${colorOf.net}" stroke="var(--paper-raised)" stroke-width="2" opacity="${r.measured?1:0.55}"><title>${tip}</title></circle>
-        <text x="${cx}" y="${cy+17}" fill="${INK}" font-size="9.5" font-weight="600" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(r.net)}</text>`;});
+        <text x="${cx}" y="${cy+17}" fill="${INK}" font-size="9.5" font-weight="600" font-family="IBM Plex Mono" text-anchor="middle">${fmtC(v)}</text>`;});
     }
     // the legend lives in the chart's grey footer bar (the app-wide standard —
     // see sales.html) and toggles series on click; real <button>s get Enter/Space
@@ -275,15 +313,21 @@ boot('forecast', async (supa, el) => {
         <i class="lg-dot" style="${off?'background:transparent;border:1.5px dashed var(--slate)':`background:${c}`}"></i>
         <span${off?' style="text-decoration:line-through"':''}>${label}</span></button>`;
     }).join('');
+    // the NET line's switch sits at the right end of the same footer bar —
+    // the .rp/.seg two-option pattern Client Profitability's chart head uses
+    const netSwitch = `<span class="rp rp-sm" role="group" aria-label="Net line shows" style="margin-left:auto">
+        <button type="button" class="seg${netMode==='net'?' on':''}" data-netmode="net" aria-pressed="${netMode==='net'}" title="net: GP − labour − overhead − other − fixed">Net</button>
+        <button type="button" class="seg${netMode==='ebitda'?' on':''}" data-netmode="ebitda" aria-pressed="${netMode==='ebitda'}" title="EBITDA: net + below-the-line, depreciation, amortization, interest and income tax lines (see How costs are counted)">EBITDA</button></span>`;
     elc.style.position='relative';
     elc.innerHTML=`<svg class="chart" viewBox="0 0 ${W} ${H}"><g>${g}</g></svg><div class="chart-tip"></div>
-      <div class="chart-legend">${legItems}</div>`;
+      <div class="chart-legend">${legItems}${netSwitch}</div>`;
     const toggleSeries = k => {
       hidden.has(k) ? hidden.delete(k) : hidden.add(k);
       localStorage.setItem('fc_hidden', JSON.stringify([...hidden]));
       comboChart(elc, rows);
     };
     elc.querySelectorAll('.lg-item.toggle').forEach(b => { b.onclick = () => toggleSeries(b.dataset.k); });
+    elc.querySelectorAll('[data-netmode]').forEach(b => { b.onclick = () => setNetMode(b.dataset.netmode, elc, rows); });
     // real hover tooltip, same pattern as sales.html: aggregates every
     // visible series for the whole month, not just the one segment under
     // the cursor. The per-rect <title> stays as a no-JS/a11y floor.
@@ -414,7 +458,10 @@ boot('forecast', async (supa, el) => {
   }
 
   let months, clientsById, dealsByClient, planByM, planBillByM, revByM, costByCM, laborForecastByM, openEditor = null;
-  let projects = [], projTakenBy = {}, projectClaims = [], fixedCosts = [], runrate = { overhead:0, misc:0 };
+  let projects = [], projTakenBy = {}, projectClaims = [], fixedCosts = [], runrate = { overhead:0, addback:0 };
+  // the EBITDA add-back per measured month (093) — the NET line's mode itself
+  // ('net' | 'ebitda') is netMode, declared with the chart helpers above
+  let addbackByM = {};
   let acctTotals = [], fullProjects = null, fullDeals = null;
   let allAccounts = [], acctSearch = '';
   let revByProj = {}, cogsByProj = {}, openClients = new Set();
@@ -443,7 +490,9 @@ boot('forecast', async (supa, el) => {
       // Every QuickBooks account, not just ones with cost lines in this
       // range — "How costs are counted" needs the FULL chart of accounts to
       // search/edit, independent of whatever date range happens to be open.
-      supa.from('qbo_accounts').select('id,name,fully_qualified_name,account_type,derived_class,override_class').order('name'),
+      // v_account_class (093) also answers the EBITDA add-back rule per account
+      // (ebitda_addback_auto), so the panel never re-implements the SQL rule.
+      supa.from('v_account_class').select('id,name,fully_qualified_name,account_type,account_sub_type,derived_class,override_class,ebitda_addback,ebitda_addback_auto').order('name'),
       // who actually claims each project — deliberately UNFILTERED (no
       // status/hidden/flight_end gate, unlike `dl` above). A deal whose own
       // flight predates 2026, or that's hidden, still really owns its project;
@@ -459,7 +508,7 @@ boot('forecast', async (supa, el) => {
     const sv = k => (st.data||[]).find(x=>x.key===k)?.value;
     marginDefault = +(sv('programmatic_margin_default') ?? 35);
     fixedCosts = sv('forecast_fixed_costs') || [];
-    runrate = { overhead: P.runrates?.overhead||0, misc: P.runrates?.other||0 };
+    runrate = { overhead: P.runrates?.overhead||0, addback: P.runrates?.addback||0 };
     projects = P.projects || [];
 
     revByM = {}; (P.rev_month||[]).forEach(r => revByM[r.month] = r.total);
@@ -467,6 +516,7 @@ boot('forecast', async (supa, el) => {
     costByCM = {}; (P.cost_month||[]).forEach(r => {
       (costByCM[r.class] = costByCM[r.class]||{})[r.month] = r.total; });
     laborForecastByM = {}; (P.labor_forecast_month||[]).forEach(r => laborForecastByM[r.month] = r.total);
+    addbackByM = {}; (P.addback_month||[]).forEach(r => addbackByM[r.month] = r.total);
     cogsByProj = {}; (P.cogs_proj||[]).forEach(r => cogsByProj[r.qbo_project_id] = r.total);
     acctTotals = P.accounts || [];
     planByM = {}; planBillByM = {};
@@ -635,14 +685,16 @@ boot('forecast', async (supa, el) => {
           contra-revenue lines on the invoice). <b>COGS</b> = expense lines on accounts
           QuickBooks types as Cost of Goods Sold. <b>Labour</b> = Expense accounts whose
           name or subtype says payroll/salaries/wages. <b>Overhead</b> = every other
-          Expense account. <b>Other</b> = lines on accounts with no recognisable type.
+          Expense account. <b>Other</b> = lines on accounts with no recognisable type — one-offs and
+          incremental spend, so it is measured but never forecast (093).
           <b>Income</b> = contra-revenue — nets AGAINST invoiced revenue rather than
           counting as its own cost (a positive amount here reduces revenue by that
           much; QuickBooks' own debit/credit convention on an income-type account,
           not a sign to read as "money out"). <b>Excluded</b> = balance-sheet lines
           (credit-card payments, transfers, AP/AR, equity) — they move money without
           being a cost, so they never enter the chart. Settled months are measured;
-          forward months use six-month trailing averages for overhead/other and a
+          forward months use a six-month trailing average for overhead (other is not
+          forecast) and a
           Team-setup-based roster projection for labour (comp rates + burden,
           honoring known future hires/departures/raises — excludes bonuses,
           severance and commissions, which aren't in Team yet).
@@ -652,9 +704,15 @@ boot('forecast', async (supa, el) => {
           and the contra accounts net it out of the measured months. Those lines
           forecast their fee only — the same number that survives once the month
           closes. Programmatic media is different by decision: it bills through as
-          real gross revenue. Search or edit any account's class below — saves
-          immediately, reclassifies it everywhere at once (past months
-          included).</div>
+          real gross revenue. <b>EBITDA</b> (the chart's Net / EBITDA switch) = net
+          with the add-back lines put back: everything QuickBooks books below
+          the operating line (Other Expense / Other Income) plus depreciation,
+          amortization, interest and income tax by subtype or name — overhead
+          and other accounts only, never labour or COGS by rule. Forward months
+          add back the flagged share of the overhead run-rate. Search or edit
+          any account's class or EBITDA answer below — saves immediately,
+          applies everywhere at once (past months included); the chart picks
+          it up on the next load.</div>
         <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap">
           <input type="search" id="acct-search" placeholder="search accounts…" value="${esc(acctSearch)}" style="width:240px">
           <span class="muted" id="acct-count" style="font-size:11px"></span>
@@ -703,20 +761,29 @@ boot('forecast', async (supa, el) => {
                      v: totalByName[a.fully_qualified_name] ?? totalByName[a.name] }))
         .sort((a,b) => (b.v||0) - (a.v||0) || a.name.localeCompare(b.name));
       el.querySelector('#acct-count').textContent = `${rows.length} of ${allAccounts.length} accounts`;
+      // the EBITDA column (093): blank = the SQL rule's own answer, read back
+      // from v_account_class.ebitda_addback_auto so the label always says what
+      // the rule decided; true/false = a human override, same shape as class
+      const ebitdaSelect = a => `<select class="acct-ebitda-select" data-id="${esc(a.id)}" title="Blank = follow the rule (below-the-line types; depreciation, amortization, interest, income tax; overhead and other only). An override applies everywhere, past months included">
+                <option value="" ${a.ebitda_addback==null?'selected':''}>${a.ebitda_addback_auto?'add back':'counts'} (auto)</option>
+                <option value="true" ${a.ebitda_addback===true?'selected':''}>override: add back</option>
+                <option value="false" ${a.ebitda_addback===false?'selected':''}>override: counts</option>
+              </select>`;
       el.querySelector('#how-table').innerHTML =
         `<table class="acct"><tr><th style="text-align:left">account</th><th style="text-align:left">QB type</th>
-           <th style="text-align:left">class</th><th>total in range</th><th style="text-align:left">counted?</th></tr>` +
+           <th style="text-align:left">class</th><th style="text-align:left">EBITDA</th><th>total in range</th><th style="text-align:left">counted?</th></tr>` +
         (rows.length ? rows.map(a => `<tr>
             <td style="text-align:left"><span class="ellip" style="max-width:300px" title="${esc(a.fully_qualified_name||a.name)}">${esc(a.fully_qualified_name||a.name)}</span></td>
-            <td style="text-align:left" class="muted"><span class="ellip" style="max-width:160px">${esc(a.account_type||'—')}</span></td>
+            <td style="text-align:left" class="muted"><span class="ellip" style="max-width:160px" title="${esc(a.account_sub_type||'')}">${esc(a.account_type||'—')}</span></td>
             <td style="text-align:left">
               <select class="acct-class-select" data-id="${esc(a.id)}" title="Blank = follow QuickBooks' own account type; picking a class here overrides it everywhere, past months included">
                 <option value="" ${!a.override_class?'selected':''}>${a.derived_class?esc(a.derived_class)+' (auto)':'— none —'}</option>
                 ${COST_CLASSES.map(c => `<option value="${c}" ${a.override_class===c?'selected':''}>override: ${c}</option>`).join('')}
               </select></td>
+            <td style="text-align:left">${ebitdaSelect(a)}</td>
             <td>${a.v!=null ? fmtM(a.v) : '<span class="muted">—</span>'}</td>
             <td style="text-align:left" class="${a.effective==='excluded'?'warn':'muted'}">${inChart[a.effective]||''}</td>
-          </tr>`).join('') : `<tr><td colspan="5" class="empty-note">No accounts match "${esc(acctSearch)}".</td></tr>`) +
+          </tr>`).join('') : `<tr><td colspan="6" class="empty-note">No accounts match "${esc(acctSearch)}".</td></tr>`) +
         `</table>`;
       el.querySelectorAll('.acct-class-select').forEach(sel => sel.onchange = async () => {
         const id = sel.dataset.id;
@@ -732,6 +799,22 @@ boot('forecast', async (supa, el) => {
         if (error) { alert(error.message); return; }
         const acct = allAccounts.find(a => a.id === id);
         if (acct) acct.override_class = value;
+        renderHowTable();
+      });
+      el.querySelectorAll('.acct-ebitda-select').forEach(sel => sel.onchange = async () => {
+        const id = sel.dataset.id;
+        const value = sel.value === '' ? null : sel.value === 'true';
+        sel.disabled = true;
+        const { error } = await supa.from('qbo_accounts').update({
+          ebitda_addback: value,
+          ebitda_addback_reason: value == null ? null : `Set via How costs are counted, ${new Date().toISOString().slice(0,10)}`,
+          ebitda_addback_by: value == null ? null : window.__email,
+          ebitda_addback_at: value == null ? null : new Date().toISOString()
+        }).eq('id', id);
+        sel.disabled = false;
+        if (error) { alert(error.message); return; }
+        const acct = allAccounts.find(a => a.id === id);
+        if (acct) acct.ebitda_addback = value;
         renderHowTable();
       });
     }
@@ -761,35 +844,25 @@ boot('forecast', async (supa, el) => {
       const actualGP = measured ? revenue - cogs : null;
       const labour = measured ? ((costByCM.payroll||{})[m]||0) : (laborForecastByM[m]||0);
       const other  = measured ? ((costByCM.overhead||{})[m]||0) : runrate.overhead;
-      const misc   = measured ? ((costByCM.other||{})[m]||0) : runrate.misc;
+      // 'other' (accounts with no recognisable type) is one-offs and incremental
+      // spend: measured when it happened, never forecast (093, Boris)
+      const misc   = measured ? ((costByCM.other||{})[m]||0) : 0;
       const fixed  = measured ? 0 : fixedTotal();
       const net = (measured ? actualGP : forecastGP) - labour - other - misc - fixed;
+      // EBITDA = net + the add-back lines (093): a measured month's come from
+      // forecast_page.addback_month, a forward month's is the flagged share of
+      // the overhead run-rate (runrates.addback) — the server twins are
+      // addback_month / addback_trail in 093's forecast_page
+      const addback = measured ? (addbackByM[m]||0) : runrate.addback;
+      const ebitda = net + addback;
       return { m, settled, current, measured, revenue, cogs, forecastGP, actualGP,
-               labour, other, misc, fixed, net };
+               labour, other, misc, fixed, net, addback, ebitda };
     };
     const plRows = months.map(rowFor);
     comboChart(el.querySelector('#chart'), plRows);
     plRowsCache = plRows;
 
-    // headline numbers for the range, sourced from the exact same plRows
-    // the chart draws from — so the ribbon and the chart can never disagree
-    const netTotal = plRows.reduce((s,r)=>s+r.net,0);
-    const revTotal = plRows.reduce((s,r)=>s+r.revenue,0);
-    const gpTotal = plRows.reduce((s,r)=>s+(r.measured?r.actualGP:r.forecastGP),0);
-    const measuredCount = plRows.filter(r=>r.measured).length;
-    el.querySelector('#kpis').innerHTML = `
-      <div class="summary-cell"><div class="summary-label">Net profit</div>
-        <div class="summary-value ${netTotal<0?'neg':'pos'}">${fmtM(netTotal)}</div>
-        <div class="summary-note">${plRows.length} months, ${mLabel(rangeFrom)}–${mLabel(rangeTo)}</div></div>
-      <div class="summary-cell"><div class="summary-label">Revenue</div>
-        <div class="summary-value">${fmtM(revTotal)}</div>
-        <div class="summary-note">billed + planned, this range</div></div>
-      <div class="summary-cell"><div class="summary-label">Gross profit</div>
-        <div class="summary-value ${gpTotal<0?'neg':'pos'}">${fmtM(gpTotal)}</div>
-        <div class="summary-note">actual + forecast, this range</div></div>
-      <div class="summary-cell"><div class="summary-label">Measured</div>
-        <div class="summary-value">${measuredCount} / ${plRows.length}</div>
-        <div class="summary-note">months fully closed</div></div>`;
+    renderKpis(plRows);
 
     renderTable();
   }
