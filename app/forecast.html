@@ -1345,9 +1345,17 @@ boot('forecast', async (supa, el) => {
           ? `<label class="pf tb"${wholeFlightL(l) ? ' title="the whole campaign: spread by covered days over every flight month, closed months included"' : ''}><span class="pfl">${wholeFlightL(l)?'Campaign budget $':isBudgetL(l)?'Total budget $':'total hours (spread)'}</span>
                <input class="totalbudget" type="number" step="any" inputmode="decimal" data-li="${li}" value="${curTotal||''}" placeholder="${wholeFlightL(l)?'whole flight':'spread evenly'}"></label>`
           : '';
-        // per-month override, tucked away
-        const pmCells = spanM(l).map(m=>`<label class="pmcell"><span>${mLabel(m)}${closed(m)?' ✓':''}</span>
-            <input class="cell" type="number" step="any" inputmode="decimal" data-li="${li}" data-m="${m}" value="${l.cells[m] ?? ''}"></label>`).join('');
+        // per-month override, tucked away. EVERY flight month is listed, closed
+        // ones ticked (Boris, 10 Sep 2026): a row that hid the closed months
+        // showed a campaign with no past. Search/social edit theirs (a
+        // campaign budget owns its whole flight); every other kind's closed
+        // month is frozen at its as-opened value, so it is shown, not editable.
+        const pmCells = fm.map(m => {
+          const locked = closed(m) && !wholeFlightL(l);
+          return `<label class="pmcell${locked?' locked':''}"><span>${mLabel(m)}${closed(m)?' ✓':''}</span>
+            <input class="cell" type="number" step="any" inputmode="decimal" data-li="${li}" data-m="${m}" value="${l.cells[m] ?? ''}"${locked
+              ? ' disabled title="closed month — frozen at the value it had when the month closed"' : ''}></label>`;
+        }).join('');
         // What this line IS on the left, what it comes to on the right, and
         // the way to remove it. Three things, one line, no wrapping at any
         // card width the grid produces — the controls moved to the body.

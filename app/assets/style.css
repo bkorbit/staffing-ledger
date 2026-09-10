@@ -738,6 +738,7 @@ details.permonth summary:hover { color:var(--brand); }
 .pmcell input { width:84px; height:26px; border:1px solid var(--line); border-radius:5px; text-align:right;
   padding:0 6px; font-family:var(--font-mono); font-size:0.72rem; background:var(--paper-raised); }
 .pmcell input:focus { outline:none; border-color:var(--brand); }
+.pmcell.locked input { color:var(--slate); font-style:italic; background:var(--paper); cursor:not-allowed; }
 
 .cardbody .lparams .pf input { width:104px; }
 .cardbody .lparams .pf.tb input { width:128px; }
