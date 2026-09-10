@@ -460,6 +460,13 @@ table.acct tr.totalrow .neg { color:#ffb4ac; }
    the derived comparison and gets its own edge */
 table.acct th:nth-child(2), table.acct td:nth-child(2),
 table.acct th:nth-child(5), table.acct td:nth-child(5) { border-left:1px solid var(--line); }
+/* the Forecast table (#sum) gained a Status column after the name, so its
+   edges sit one column further right: before Value (3) and Variance (6).
+   The other acct tables (account classification, Settings) keep 2 and 5. */
+table.acct#sum th:nth-child(2), table.acct#sum td:nth-child(2),
+table.acct#sum th:nth-child(5), table.acct#sum td:nth-child(5) { border-left:0; }
+table.acct#sum th:nth-child(3), table.acct#sum td:nth-child(3),
+table.acct#sum th:nth-child(6), table.acct#sum td:nth-child(6) { border-left:1px solid var(--line); }
 /* an out-of-tolerance variance (>15%) is the one number in this table that
    demands attention; give it a tint instead of relying on small colored text
    to compete with four columns of plain mono figures */
