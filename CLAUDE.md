@@ -107,6 +107,14 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   skips locked rows. Every page reads `deals.name`, so the new name shows
   everywhere. Hand a name back to HubSpot: `set name_locked = false`.
 - Fixed costs: edited on Settings, subtracted from projected net only.
+- **Solidigm is one deal, by exception** (Boris, 10 Sep 2026). QB project 426
+  (24forc3009250) belongs to "FMS - Solidigm - Programmatic - 8/27/25 - 9/30/25"
+  — hours AND invoices; "FMS - Solidigm - Programmatic - Incremental" claims no
+  project. Two deals on one QB project make sync-qbtime.mjs stamp every hour
+  on ONE of them (its lookup is a Map keyed by qbo_project_id, last row wins);
+  Boris chose to fix the claim, not to add per-date routing. Applied by
+  `scripts/fix-solidigm-regular-deal.sql`; `scripts/diagnose-deal-missing-hours.sql`
+  finds the same shape for any other deal.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
 ## Current migration head: 091. Key views/functions
