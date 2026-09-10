@@ -77,11 +77,19 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   twins are `revMonth`/`passMonth` in `app/forecast.html`.
 - **Flights carry exact dates** (022; schema month-checks dropped). Covered
   months = date_trunc both ends. **Day-weighting is media-only** (024): the Total
-  Budget spread for search/social/programmatic allocates by covered days;
+  Budget spread for search/social/programmatic allocates by covered days (over
+  the whole flight for search/social, the open months for programmatic);
   retainers/creative-retainer bill FULL months regardless of days; hours spread
   evenly. Explicit per-month overrides are human numbers — never scaled.
 - **Freeze-on-close**: closed months get explicit deal_line_months rows at the
   as-opened value on save; forecast accuracy is measured, never rewritten.
+  **Except search and social** (Boris, 10 Sep 2026, rolling back "never
+  forecast into the past" for these two): their box is the WHOLE campaign
+  budget, spread by covered days over every flight month, closed months
+  included, and save rewrites every flight month. A campaign is sold as one
+  number and that is the number to type. Programmatic, hours and manual flat
+  lines still spread over open months and freeze the closed ones
+  (`wholeFlightL`/`spanM` in the editor's draw()).
 - **line kinds**: retainer, search, social, programmatic, hourly, creative
   (creative's structure in label: 'creative:retainer'|'creative:hourly'),
   legacy 'custom' reads but is not offered.

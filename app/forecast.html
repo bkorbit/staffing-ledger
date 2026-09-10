@@ -1245,6 +1245,16 @@ boot('forecast', async (supa, el) => {
         : (l.kind === 'hourly' && l.label) ? `hourly · ${l.label}` : l.kind;
       const isHourlyL = l => l.kind==='hourly' || (l.kind==='creative' && creativeMode(l)==='hourly');
       const isBudgetL = l => KIND[l.kind].cells==='budget';
+      // A search or social budget is the WHOLE campaign's — the flight as sold,
+      // closed months included. Boris, 10 Sep 2026, rolling back "never
+      // forecast into the past" for these two kinds: a campaign that began in
+      // May is sold as one number, and whoever enters it should type that
+      // number, not what is left of it after the months already gone. So the
+      // box spreads over every flight month and save writes every flight
+      // month; closed months are NOT frozen for these kinds. Programmatic,
+      // hours and manual flat lines keep freeze-on-close and open-month spread.
+      const wholeFlightL = l => l.kind==='search' || l.kind==='social';
+      const spanM = l => wholeFlightL(l) ? fm : openM;
       // does this deal rebill any media? if so the grid carries a pass-through
       // row, so the invoiced total is still visible now that it is not revenue.
       // The funding select re-draws (not just previews) so this row appears and
@@ -1296,7 +1306,7 @@ boot('forecast', async (supa, el) => {
         // "1370530.130000" for a budget of $1,370,530.13. Cents are the unit
         // the money is stored in, so they are the right place to land.
         const useTotal = isBudgetL(l) || isHourlyL(l);
-        const curTotal = Math.round(openM.reduce((s,m)=>s+(+l.cells[m]||0),0) * 100) / 100;
+        const curTotal = Math.round(spanM(l).reduce((s,m)=>s+(+l.cells[m]||0),0) * 100) / 100;
         const bits = shapeSel ? [shapeSel] : [];
         // what the work IS, for a plain hourly line — free text, saved as the
         // line's label (KIND.hourly declared label:true from the start; the
@@ -1332,11 +1342,11 @@ boot('forecast', async (supa, el) => {
         const marginTag = l.kind==='programmatic'
           ? `<span class="pill margintag" data-li="${li}" title="expected margin: margin % (default when blank) plus this line's fee %"></span>` : '';
         const totalBox = useTotal
-          ? `<label class="pf tb"><span class="pfl">${isBudgetL(l)?'Total budget $':'total hours (spread)'}</span>
-               <input class="totalbudget" type="number" step="any" inputmode="decimal" data-li="${li}" value="${curTotal||''}" placeholder="spread evenly"></label>`
+          ? `<label class="pf tb"${wholeFlightL(l) ? ' title="the whole campaign: spread by covered days over every flight month, closed months included"' : ''}><span class="pfl">${wholeFlightL(l)?'Campaign budget $':isBudgetL(l)?'Total budget $':'total hours (spread)'}</span>
+               <input class="totalbudget" type="number" step="any" inputmode="decimal" data-li="${li}" value="${curTotal||''}" placeholder="${wholeFlightL(l)?'whole flight':'spread evenly'}"></label>`
           : '';
         // per-month override, tucked away
-        const pmCells = openM.map(m=>`<label class="pmcell"><span>${mLabel(m)}</span>
+        const pmCells = spanM(l).map(m=>`<label class="pmcell"><span>${mLabel(m)}${closed(m)?' ✓':''}</span>
             <input class="cell" type="number" step="any" inputmode="decimal" data-li="${li}" data-m="${m}" value="${l.cells[m] ?? ''}"></label>`).join('');
         // What this line IS on the left, what it comes to on the right, and
         // the way to remove it. Three things, one line, no wrapping at any
@@ -1462,23 +1472,26 @@ boot('forecast', async (supa, el) => {
         l.cells = {};
         draw();
       });
-      // Total box: spread evenly across the open months, remainder on the last
+      // Total box: spread across the months the line owns (spanM — the whole
+      // flight for search/social, the open months for everything else),
+      // remainder on the last so the typed total is preserved to the cent
       box.querySelectorAll('input.totalbudget').forEach(inp => inp.oninput = () => {
         const l = model[+inp.dataset.li];
         const n = +inp.value;
         const total = Number.isFinite(n) ? n : 0;
+        const span = spanM(l);
         l.cells = {};
-        if (total > 0 && openM.length) {
+        if (total > 0 && span.length) {
           // media budgets spread by covered days — dollars follow days in market.
           // hours (and anything non-media) spread evenly: a month is a month.
           const weighted = KIND[l.kind].cells === 'budget';
-          const w = openM.map(m => weighted
+          const w = span.map(m => weighted
             ? dayFrac(m, flight) * new Date(Date.UTC(+m.slice(0,4), +m.slice(5,7), 0)).getUTCDate()
             : 1);
           const wSum = w.reduce((a,b)=>a+b,0);
           let acc = 0;
-          openM.forEach((m,i) => {
-            const v = i===openM.length-1
+          span.forEach((m,i) => {
+            const v = i===span.length-1
               ? Math.round((total - acc)*100)/100
               : Math.round(total * w[i]/wSum * 100)/100;
             l.cells[m] = v; acc += v;
@@ -1501,7 +1514,7 @@ boot('forecast', async (supa, el) => {
         else l.cells[inp.dataset.m] = n;
         if (!KIND[l.kind].cells && !isHourlyL(l)) l.manual = Object.keys(l.cells).length > 0;
         const tb = box.querySelector(`input.totalbudget[data-li="${inp.dataset.li}"]`);
-        if (tb) { const t = openM.reduce((s,m)=>s+(+l.cells[m]||0),0); tb.value = t || ''; }
+        if (tb) { const t = Math.round(spanM(l).reduce((s,m)=>s+(+l.cells[m]||0),0) * 100) / 100; tb.value = t || ''; }
         preview();
       });
       box.querySelectorAll('.delline').forEach(btn => btn.onclick = async e => {
@@ -1754,9 +1767,15 @@ boot('forecast', async (supa, el) => {
             if (error) { msg.textContent = error.message; msg.className='msg err'; return; }
             l.id = data.id;
           }
+          // the months this save OWNS — rewritten from the cells. Search/social
+          // own the whole flight (a campaign budget, see wholeFlightL), so their
+          // closed months are written, not frozen. Every other kind owns the
+          // open months only and freezes the closed ones just below.
+          const flightM = monthsBetween(flight.start, flight.end);
+          const ownM = wholeFlightL(l) ? flightM : flightM.filter(m=>!closed(m));
+          const closedMonths = wholeFlightL(l) ? [] : flightM.filter(m=>closed(m));
           // freeze: closed flight months without an explicit row freeze at the
           // line's as-opened value, so editing today never rewrites settled history
-          const closedMonths = monthsBetween(flight.start, flight.end).filter(m=>closed(m));
           const freezeField = writesCells ? (cellCol==='hours' ? 'hours' : cellCol) : null;
           if (freezeField && l.hadDlm && closedMonths.length) {
             const freeze = closedMonths.filter(m => !l.hadDlm.has(m)).map(m => {
@@ -1772,13 +1791,12 @@ boot('forecast', async (supa, el) => {
             }
           }
           if (writesCells) {
-            const openMonths = monthsBetween(flight.start, flight.end).filter(m=>!closed(m));
-            if (openMonths.length) {
+            if (ownM.length) {
               const del = await supa.from('deal_line_months').delete()
-                .eq('deal_line_id', l.id).in('month', openMonths);
+                .eq('deal_line_id', l.id).in('month', ownM);
               if (del.error) { msg.textContent = del.error.message; msg.className='msg err'; return; }
             }
-            const rows = Object.entries(l.cells).filter(([m])=>!closed(m)).map(([m,v]) => {
+            const rows = Object.entries(l.cells).filter(([m])=>ownM.includes(m)).map(([m,v]) => {
               const r = { deal_line_id:l.id, month:m, set_by:window.__email, set_at:new Date().toISOString() };
               r[cellCol==='hours'?'hours':cellCol] = cellCol==='hours' ? v : Math.round(v*100);
               return r;
@@ -1789,10 +1807,9 @@ boot('forecast', async (supa, el) => {
             }
           } else {
             // flat auto line: clear any leftover month rows from a prior manual state
-            const openMonths = monthsBetween(flight.start, flight.end).filter(m=>!closed(m));
-            if (openMonths.length) {
+            if (ownM.length) {
               await supa.from('deal_line_months').delete()
-                .eq('deal_line_id', l.id).in('month', openMonths);
+                .eq('deal_line_id', l.id).in('month', ownM);
             }
           }
         }
