@@ -54,6 +54,12 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   (On Location WC vs On Location Events).
 - **Measured = month fully over.** The in-progress month runs entirely on
   forecast (chart, company rows). QB partial actuals never masquerade as a month.
+  Per-project actuals obey it too since 092: `rev_proj`/`cogs_proj`/`rev_proj_page`
+  count months `< current` while `bill_future` counts `>= current`, so a deal's
+  Value = billed through last month + planned from this month, never both for
+  the in-progress month (Disney Visa Retention showed 150k for a 70k retainer:
+  the 1 Sep invoice AND the September plan). `rev_month` still carries the
+  current month; the chart reads it only for measured months.
 - **Contra revenue** (migration 025): EMG books search/social media pass-through
   against income-type contra accounts. Measured revenue = invoices MINUS
   income-class cost lines, netted per month AND per project. The old "~$20k/mo
@@ -117,7 +123,7 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   finds the same shape for any other deal.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 091. Key views/functions
+## Current migration head: 092. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
@@ -129,12 +135,14 @@ is always a new migration, so grep for the highest one before reading an old bod
   (cogs/payroll/overhead/other/income/excluded); overrides via
   qbo_accounts.override_class. 056 fixed Other Income and labor sub-accounts
   against the real QB P&L.
-- `forecast_page(p_from,p_to)` [080] — whole Forecast page in one jsonb.
+- `forecast_page(p_from,p_to)` [092] — whole Forecast page in one jsonb.
   025 added contra revenue; 068-071 wired in bottoms-up labor; 076 made it scan
   v_cost_lines_classified ONCE instead of ~15-20 times (it was the page's load
   cost, not a behaviour change — 076_fixture_test.sql proves byte-identical output);
   079/080 stopped balance-sheet invoice lines (customer deposits) counting as
   revenue, which needs a full QBO re-sync to stamp invoice_lines.account_id.
+  092 made rev_proj/cogs_proj closed-months-only (the current month was in both
+  the actual and the forecast half of the table's Value column).
 - `cashflow_forecast(...)` [087] — half-month periods (016), programmatic COGS
   terms knob (017), EB-shrunk per-client payment curves, overdue clamps, the
   same real labor numbers the Forecast uses (071), an opening position from
@@ -165,7 +173,7 @@ is always a new migration, so grep for the highest one before reading an old bod
   its pre-090 shape; it upserts then sweeps stale rows, so there is no blank
   window mid-run. `workflow_dispatch` input `trace` follows one client end to
   end in the log.
-- `hours_page` [090], `rev_proj_page` [080], `accounts_page` [084],
+- `hours_page` [090], `rev_proj_page` [092], `accounts_page` [084],
   `v_cash_accounts` [086].
 - `project_detail(deal_id)` [088] — one opened project on Project Hours: hours
   per ISO week per department (staff.department first, the entry's own QB Time
