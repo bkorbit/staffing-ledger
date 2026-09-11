@@ -1,6 +1,7 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Client Profitability</title><link rel="stylesheet" href="./assets/style.css?v=7006c99"></head><body>
+<title>EMG — Client Profitability</title><link rel="stylesheet" href="./assets/style.css?v=7006c99">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script></head><body>
 <script type="module">
 import { boot, esc, wireSearch, fetchAll } from './assets/shell.js?v=7006c99';
 import { hoursByWeekChart, revGpChart, hoursStat, revStat, departmentOrder } from './assets/detail-charts.js?v=7006c99';
@@ -91,10 +92,12 @@ boot('clientprofit', async (supa, el) => {
       <input type="month" id="r-to" aria-label="Range to" value="${rangeTo.slice(0, 7)}">
       <label class="mono" style="display:flex;align-items:center;gap:6px;margin-left:auto">
         <input type="checkbox" id="cp-historical" style="height:auto"> measured only</label>
+      <button class="ghost" id="export-cp" title="Download the client rows below for the selected range as .xlsx">Export</button>
     </div>
     <div id="panel">loading…</div>`;
 
   document.getElementById('cp-historical').onchange = e => { historicalOnly = e.target.checked; render(); };
+  document.getElementById('export-cp').onclick = exportClients;
 
   async function load() {
     const [hp, fp, dl, cl] = await Promise.all([
@@ -386,23 +389,118 @@ boot('clientprofit', async (supa, el) => {
     }
   }
 
-  function render() {
-    const q = query.trim().toLowerCase();
-    // the search reaches deal names too, and a client matched only by one of
-    // its deals opens itself — otherwise the hit is invisible behind a
-    // collapsed row (the same rule forecast.html's client table uses)
-    const nameHit = c => !!q && c.name.toLowerCase().includes(q);
-    const dealHit = c => !!q && c.deals.some(d => d.name.toLowerCase().includes(q));
-    // open = clicked open, or auto-opened by a deal-name-only search hit so
-    // the matching row is on screen — unless the user closed it since typing
-    const isOpen = c => !closedDespiteHit.has(c.clientId)
-      && (openClients.has(c.clientId) || (dealHit(c) && !nameHit(c)));
-    const clientRows = allClientRows.filter(c => !q || nameHit(c) || dealHit(c))
+  // the search reaches deal names too, and a client matched only by one of
+  // its deals opens itself — otherwise the hit is invisible behind a
+  // collapsed row (the same rule forecast.html's client table uses)
+  const searchQ = () => query.trim().toLowerCase();
+  const nameHit = c => !!searchQ() && c.name.toLowerCase().includes(searchQ());
+  const dealHit = c => !!searchQ() && c.deals.some(d => d.name.toLowerCase().includes(searchQ()));
+
+  // The client rows as the table shows them: search-filtered, blended per
+  // the measured-only toggle, in the current sort. render() draws these and
+  // exportClients() writes exactly these, so the file never disagrees with
+  // the screen.
+  function visibleClientRows() {
+    const q = searchQ();
+    return allClientRows.filter(c => !q || nameHit(c) || dealHit(c))
       .map(c => ({ ...c, b: blend(c) }))
       .sort((a, b) => {
         const x = sortValue(a, tableSort.key), y = sortValue(b, tableSort.key);
         return (x < y ? -1 : x > y ? 1 : 0) * tableSort.dir;
       });
+  }
+
+  /* ---------------------------------------------------------- export (xlsx) */
+  // One row per client, the money columns of the table above, for the range
+  // in the picker. Dollars are written as dollars (the page holds cents);
+  // rates are $/hour; a client with no hours has no rate, so the cell is
+  // blank rather than 0. Two header lines first: the range, and whether the
+  // figures are measured only or invoiced + forecast — the same two things
+  // the screen's figures depend on, so the file says which read it holds.
+  const EXPORT_COLUMNS = [
+    ['Client', 'name', 34], ['Actual Hours', 'actualHours', 14], ['Revenue', 'revenue', 14],
+    ['COGS', 'cogs', 14], ['Gross Profit', 'gp', 14], ['Labor Cost', 'laborCost', 14],
+    ['Effective Rate', 'effectiveRate', 14], ['Profit after Labor', 'profitAfterLabor', 18],
+    ['Profit / Hr', 'profitPerHour', 14],
+  ];
+  const EXPORT_MONEY_FMT = '"$"#,##0;-"$"#,##0';
+  const EXPORT_RATE_FMT = '"$"#,##0.00;-"$"#,##0.00';
+  const fmtMonthLabel = m => new Date(m + 'T00:00:00Z')
+    .toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+  function exportCell(c, key) {
+    switch (key) {
+      case 'name': return c.name;
+      case 'actualHours': return Math.round(c.actualHours * 10) / 10;
+      case 'laborCost': return c.laborCost / 100;
+      case 'revenue': case 'cogs': case 'gp': case 'profitAfterLabor': return c.b[key] / 100;
+      case 'effectiveRate': case 'profitPerHour': return c.b[key] === null ? null : c.b[key] / 100;
+      default: return null;
+    }
+  }
+  async function exportClients() {
+    const btn = document.getElementById('export-cp');
+    if (!btn || btn.disabled) return;
+    const label = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Exporting…';
+    try {
+      const rows = visibleClientRows();
+      const rangeLabel = `${fmtMonthLabel(rangeFrom)} → ${fmtMonthLabel(rangeTo)}`;
+      const basis = historicalOnly ? 'measured only' : 'invoiced + forecasted';
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Client Profitability');
+      ws.columns = EXPORT_COLUMNS.map(([, , width]) => ({ width }));
+      ws.addRow([`Client Profitability — ${rangeLabel}`]).font = { bold: true, size: 12 };
+      ws.addRow([`Range ${rangeFrom.slice(0, 7)} to ${rangeTo.slice(0, 7)} · ${basis} · ${rows.length} client${rows.length === 1 ? '' : 's'}`])
+        .font = { color: { argb: 'FF666666' } };
+      ws.addRow([]);
+      const head = ws.addRow(EXPORT_COLUMNS.map(([h]) => h));
+      head.font = { bold: true };
+      head.eachCell((cell, col) => { if (col > 1) cell.alignment = { horizontal: 'right' }; });
+      rows.forEach(c => {
+        const r = ws.addRow(EXPORT_COLUMNS.map(([, key]) => exportCell(c, key)));
+        EXPORT_COLUMNS.forEach(([, key], i) => {
+          const cell = r.getCell(i + 1);
+          if (key === 'actualHours') cell.numFmt = '#,##0.0';
+          else if (key === 'effectiveRate' || key === 'profitPerHour') cell.numFmt = EXPORT_RATE_FMT;
+          else if (key !== 'name') cell.numFmt = EXPORT_MONEY_FMT;
+        });
+      });
+      // totals: sums for the additive columns, the two rates re-derived from
+      // the totals (a sum of per-client rates means nothing)
+      const tHours = rows.reduce((s, c) => s + c.actualHours, 0);
+      const tRev = rows.reduce((s, c) => s + c.b.revenue, 0);
+      const tCogs = rows.reduce((s, c) => s + c.b.cogs, 0);
+      const tGP = rows.reduce((s, c) => s + c.b.gp, 0);
+      const tLabor = rows.reduce((s, c) => s + c.laborCost, 0);
+      const tPAL = tGP - tLabor;
+      const total = ws.addRow(['Total', Math.round(tHours * 10) / 10, tRev / 100, tCogs / 100, tGP / 100, tLabor / 100,
+        tHours > 0 ? tRev / tHours / 100 : null, tPAL / 100, tHours > 0 ? tPAL / tHours / 100 : null]);
+      total.font = { bold: true };
+      total.getCell(2).numFmt = '#,##0.0';
+      [3, 4, 5, 6, 8].forEach(i => total.getCell(i).numFmt = EXPORT_MONEY_FMT);
+      [7, 9].forEach(i => total.getCell(i).numFmt = EXPORT_RATE_FMT);
+      ws.views = [{ state: 'frozen', ySplit: 4 }];
+
+      const buf = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `emg-client-profitability_${rangeFrom.slice(0, 7)}_${rangeTo.slice(0, 7)}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Export failed: ' + (err.message || err));
+    } finally {
+      btn.disabled = false; btn.textContent = label;
+    }
+  }
+
+  function render() {
+    // open = clicked open, or auto-opened by a deal-name-only search hit so
+    // the matching row is on screen — unless the user closed it since typing
+    const isOpen = c => !closedDespiteHit.has(c.clientId)
+      && (openClients.has(c.clientId) || (dealHit(c) && !nameHit(c)));
+    const clientRows = visibleClientRows();
     const allBlended = allClientRows.map(blend);
 
     const totalHours = allClientRows.reduce((s, c) => s + c.actualHours, 0);
