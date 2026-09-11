@@ -139,7 +139,7 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   finds the same shape for any other deal.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 093. Key views/functions
+## Current migration head: 094. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
@@ -199,14 +199,14 @@ is always a new migration, so grep for the highest one before reading an old bod
   end in the log.
 - `hours_page` [090], `rev_proj_page` [092], `accounts_page` [084],
   `v_cash_accounts` [086].
-- `project_detail(deal_id)` [088] — one opened project on Project Hours: hours
+- `project_detail(deal_id)` [094] — one opened project on Project Hours: hours
   per ISO week per department (staff.department first, the entry's own QB Time
   department as fallback) and revenue/GP actual vs plan per month. The actual
   side restates forecast_page's rev_proj/cogs_proj per month for ONE project —
   same CTEs, same 080 fail-open rules — and 088_fixture_test asserts they agree
   to the cent. Per-person hours are NOT here; hours_page's staff_hours_deal /
   staff_deal_planned already carry them.
-- `client_detail(client_id)` [089] — project_detail unioned across a client's
+- `client_detail(client_id)` [094] — project_detail unioned across a client's
   deals for Client Profitability's open-client charts: hours per week per
   department over all deals; revenue/GP actual per DISTINCT claimed QB project
   (two deals on one project count it once), plan per deal. The unclaimed
@@ -224,6 +224,14 @@ is always a new migration, so grep for the highest one before reading an old bod
   not in ('excluded','timeoff') (090_qbtime_hours_provenance, a PARALLEL
   session's migration that shares the number 090 with
   090_detail_zero_months_and_weeks_by_deal; both load, filenames differ).
+  094: every month row also carries `labor_actual` (the counted hours priced
+  exactly as hours_page's deal_labor — staff_hourly_cost per distinct
+  staff/day, MATERIALIZED) and `pal_actual` = gp − labor, both null until the
+  month closes; a month with hours and no money gets a row. The shared
+  `revGpChart` draws pal_actual as the GOLD line (measured only — assignments
+  carry no cost, so no plan twin) and skips it on a pre-094 payload;
+  `revStat` adds "after labor". 094_fixture_test asserts the cents against
+  staff_hourly_cost and against hours_page's deal_labor for the same deal.
   Two sessions worked this tree on 8 Sep 2026: `git add -A` swept the other
   session's untracked 090 into commit 1a1005f — stage explicit paths when
   another session may be active.

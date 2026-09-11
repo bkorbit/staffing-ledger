@@ -1,6 +1,7 @@
 // The two reports behind an opened project (Project Hours) or client (Client
 // Profitability): hours logged per ISO week stacked by department, and
-// revenue + gross profit actual vs plan per month. One copy, imported by both
+// revenue + gross profit actual vs plan per month, with profit after labor
+// (gross profit − hours-based labor, 094) as a measured line. One copy, imported by both
 // pages, so the two can never drift — they read project_detail (db/088) and
 // client_detail (db/089), which return the same `weeks` / `months` shapes.
 //
@@ -79,7 +80,7 @@ export function departmentOrder(staff) {
 // end of the hours (a bucket under 1% of the tallest) is ignored when placing
 // the window, so a stray entry logged a year early cannot stretch both axes.
 const DRIBBLE = 0.01;
-const informative = m => +m.rev_actual || +m.gp_actual || +m.rev_plan || +m.gp_plan;
+const informative = m => +m.rev_actual || +m.gp_actual || +m.rev_plan || +m.gp_plan || +m.labor_actual;
 export function detailWindow(detail) {
   const totals = {};
   [...(detail.weeks || []), ...(detail.weeks_by_deal || [])].forEach(r => {
@@ -226,7 +227,11 @@ export function hoursByWeekChart(el, detail, rangeFrom, rangeTo, deptOrder, opts
 // Two hues carry the measure (revenue = --brand, GP = --brand-4); line style
 // carries plan vs actual (plan dashed and lighter — DESIGN.md's measured-vs-
 // forecast rule). The actual line ends at the last fully-closed month; the
-// plan runs the whole window.
+// plan runs the whole window. Profit after labor (094) is the gold line —
+// the same accent the Forecast chart gives its net line — and is measured
+// only: gp_actual − labor_actual per closed month, no plan twin, because
+// assignments carry no cost. A payload from before 094 has no pal_actual at
+// all, and the line simply isn't drawn.
 export function revGpChart(el, detail, opts = {}) {
   // r:28 leaves room for the last month's centred label (10px clipped "Dec 2")
   const W = 940, H = opts.height || 190, P = { l: 48, r: 28, t: 14, b: 24 };
@@ -234,8 +239,12 @@ export function revGpChart(el, detail, opts = {}) {
   // returns 0 there, and this keeps a pre-090 payload from breaking the line
   const through = detail.measured_through || '';
   const meas = (m, v) => v !== null && v !== undefined ? +v : (through && m.month <= through ? 0 : null);
+  const hasPal = (detail.months || []).some(m => m.pal_actual !== undefined);
+  const closedZero = k => through && k <= through ? 0 : null;
   let months = (detail.months || []).map(m => ({ ...m,
     rev_actual: meas(m, m.rev_actual), gp_actual: meas(m, m.gp_actual),
+    labor_actual: hasPal ? meas(m, m.labor_actual) : null,
+    pal_actual: hasPal ? meas(m, m.pal_actual) : null,
     rev_plan: +(m.rev_plan || 0), gp_plan: +(m.gp_plan || 0) }));
   // the shared window (detailWindow): every month from its start to its end.
   // A month the payload has no row for — reached only because the hours side
@@ -245,8 +254,9 @@ export function revGpChart(el, detail, opts = {}) {
     const byMonth = {}; months.forEach(m => byMonth[m.month] = m);
     const filled = [];
     for (let k = win.startMonth; k <= win.endMonth; k = shiftM(k, 1)) {
-      filled.push(byMonth[k] || { month: k, rev_actual: through && k <= through ? 0 : null,
-        gp_actual: through && k <= through ? 0 : null, rev_plan: 0, gp_plan: 0 });
+      filled.push(byMonth[k] || { month: k, rev_actual: closedZero(k), gp_actual: closedZero(k),
+        labor_actual: hasPal ? closedZero(k) : null, pal_actual: hasPal ? closedZero(k) : null,
+        rev_plan: 0, gp_plan: 0 });
     }
     months = filled;
   } else months = [];
@@ -260,6 +270,7 @@ export function revGpChart(el, detail, opts = {}) {
     { key: 'rev_actual', name: 'revenue',      color: 'var(--brand)',   plan: false },
     { key: 'gp_plan',    name: 'GP plan',      color: 'var(--brand-4)', plan: true },
     { key: 'gp_actual',  name: 'gross profit', color: 'var(--brand-4)', plan: false },
+    ...(hasPal ? [{ key: 'pal_actual', name: 'profit after labor', color: 'var(--gold)', plan: false }] : []),
   ];
   const all = SERIES.flatMap(s => months.map(m => m[s.key])).filter(v => v !== null && v !== undefined);
   const rawMax = Math.max(0, ...all), rawMin = Math.min(0, ...all);
@@ -299,12 +310,13 @@ export function revGpChart(el, detail, opts = {}) {
   const xl = months.map((m, i) => i % every ? '' : `<text x="${x(i)}" y="${H - 8}" fill="var(--slate)" font-size="10" font-family="IBM Plex Mono" text-anchor="middle">${fmtMonYY(m.month)}</text>`).join('');
   const stepX = n > 1 ? (W - P.l - P.r) / (n - 1) : (W - P.l - P.r);
   const cols = months.map((m, i) => { const l = Math.max(P.l, x(i) - stepX / 2), r = Math.min(W - P.r, x(i) + stepX / 2);
-    return `<rect class="hit" data-i="${i}" x="${l}" y="${P.t}" width="${r - l}" height="${H - P.t - P.b}" fill="transparent" tabindex="0" role="img" aria-label="${esc(`${fmtMonYY(m.month)}: revenue ${m.rev_actual === null ? 'forecast' : fmt$0(m.rev_actual)} vs ${fmt$0(m.rev_plan)} plan`)}"/>`; }).join('');
+    const pal = hasPal && m.pal_actual !== null ? `, profit after labor ${fmt$0(m.pal_actual)}` : '';
+    return `<rect class="hit" data-i="${i}" x="${l}" y="${P.t}" width="${r - l}" height="${H - P.t - P.b}" fill="transparent" tabindex="0" role="img" aria-label="${esc(`${fmtMonYY(m.month)}: revenue ${m.rev_actual === null ? 'forecast' : fmt$0(m.rev_actual)} vs ${fmt$0(m.rev_plan)} plan${pal}`)}"/>`; }).join('');
   const legend = SERIES.map(s => s.plan
     ? `<span class="lg-item" style="color:var(--slate)"><i class="lg-dash" style="color:${s.color}"></i><span class="lg-txt">${esc(s.name)}</span></span>`
     : `<span class="lg-item"><i class="lg-dot" style="background:${s.color}"></i><span class="lg-txt">${esc(s.name)}</span></span>`).join('');
   el.style.position = 'relative';
-  el.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Revenue and gross profit, actual vs plan, by month">${grid}${zero}${lines}${todayLine}<g class="hover"></g>${xl}${cols}</svg>
+  el.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Revenue, gross profit${hasPal ? ' and profit after labor' : ''}, actual vs plan, by month">${grid}${zero}${lines}${todayLine}<g class="hover"></g>${xl}${cols}</svg>
     <div class="chart-tip"></div><div class="chart-legend one-line">${legend}</div>`;
   const delta = (a, p) => (a === null || !p) ? '' :
     `<span style="color:${a - p < 0 ? 'var(--rust)' : 'var(--brand-2)'};margin-left:6px">${a - p < 0 ? '−' : '+'}${Math.abs((a - p) / p * 100).toFixed(1)}%</span>`;
@@ -312,7 +324,10 @@ export function revGpChart(el, detail, opts = {}) {
     i => { const m = months[i];
       return `<div class="tip-label">${esc(fmtMonYY(m.month))}${m.rev_actual === null ? ' · forecast' : ''}</div>` +
         `<div class="tip-row"><span class="tip-dot" style="background:var(--brand)"></span>revenue <b>${m.rev_actual === null ? '—' : fmt$0(m.rev_actual)}</b> / ${fmt$0(m.rev_plan)} plan${delta(m.rev_actual, m.rev_plan)}</div>` +
-        `<div class="tip-row"><span class="tip-dot" style="background:var(--brand-4)"></span>GP <b>${m.gp_actual === null ? '—' : fmt$0(m.gp_actual)}</b> / ${fmt$0(m.gp_plan)} plan${delta(m.gp_actual, m.gp_plan)}</div>`; },
+        `<div class="tip-row"><span class="tip-dot" style="background:var(--brand-4)"></span>GP <b>${m.gp_actual === null ? '—' : fmt$0(m.gp_actual)}</b> / ${fmt$0(m.gp_plan)} plan${delta(m.gp_actual, m.gp_plan)}</div>` +
+        (hasPal && m.pal_actual !== null
+          ? `<div class="tip-row"><span class="tip-dot" style="background:var(--gold)"></span>after labor <b>${fmt$0(m.pal_actual)}</b> · labor ${fmt$0(m.labor_actual)}</div>`
+          : ''); },
     i => `<line x1="${x(i)}" y1="${P.t}" x2="${x(i)}" y2="${H - P.b}" stroke="var(--slate)" stroke-dasharray="2 3"/>`);
 }
 
@@ -350,5 +365,8 @@ export function revStat(detail) {
   const sum = k => measured.reduce((s, m) => s + +(m[k] || 0), 0);
   const pct = (a, p) => p ? `<span class="delta-note ${a - p < 0 ? 'neg' : 'pos'}" style="display:inline">${a - p < 0 ? '−' : '+'}${Math.abs((a - p) / p * 100).toFixed(1)}%</span>` : '';
   const ra = sum('rev_actual'), rp = sum('rev_plan'), ga = sum('gp_actual'), gp = sum('gp_plan');
-  return `<span>rev to date <b>${fmt$0(ra)}</b> vs <b>${fmt$0(rp)}</b> ${pct(ra, rp)}</span><span>GP to date <b>${fmt$0(ga)}</b> vs <b>${fmt$0(gp)}</b> ${pct(ga, gp)}</span>`;
+  // profit after labor to date (094) — only once the payload carries it
+  const hasPal = measured.some(m => m.pal_actual !== undefined);
+  const pal = hasPal ? `<span>after labor <b>${fmt$0(sum('pal_actual'))}</b></span>` : '';
+  return `<span>rev to date <b>${fmt$0(ra)}</b> vs <b>${fmt$0(rp)}</b> ${pct(ra, rp)}</span><span>GP to date <b>${fmt$0(ga)}</b> vs <b>${fmt$0(gp)}</b> ${pct(ga, gp)}</span>${pal}`;
 }
