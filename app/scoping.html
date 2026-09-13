@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Scoping</title><link rel="stylesheet" href="./assets/style.css?v=76ac43f">
+<title>EMG — Scoping</title><link rel="stylesheet" href="./assets/style.css?v=7ae3880">
 <style>
 /* page-local: the editor's sections and grids. Cards reuse forecast's .linecard system. */
 .sc-deal { border:1px solid var(--line); border-radius:8px; background:var(--paper-raised); padding:12px 14px; margin-top:14px; }
@@ -39,11 +39,11 @@ tr.namerow[data-open] { cursor:pointer; }
 @media (max-width:640px) { .sc-dealhead input.dname { flex-basis:100%; } .sc-grid input.hcell { width:56px; } }
 </style></head><body>
 <script type="module">
-import { boot, esc, fmt$, wireSearch, fetchAll } from './assets/shell.js?v=76ac43f';
-import { lineFee, progSuggestMargin, progParams, lineMonth, scopeMonths, monthsBetween, shiftM, spreadTotal, fitModel } from './assets/scope-math.js?v=76ac43f';
-import { loadStatus, statusPill, fmtH, mLabel, thisMonth } from './assets/capacity.js?v=76ac43f';
-import { scopeChart, verdictStrip, scopeStat, STATUS_LABEL, STATUS_PILL } from './assets/scope-chart.js?v=76ac43f';
-import { parseFile, mergeMonths, PLATFORMS, DRIVER_LABELS } from './assets/parsers/index.js?v=76ac43f';
+import { boot, esc, fmt$, wireSearch, fetchAll } from './assets/shell.js?v=7ae3880';
+import { lineFee, progSuggestMargin, progParams, lineMonth, scopeMonths, monthsBetween, shiftM, spreadTotal, fitModel } from './assets/scope-math.js?v=7ae3880';
+import { loadStatus, statusPill, fmtH, mLabel, thisMonth } from './assets/capacity.js?v=7ae3880';
+import { scopeChart, verdictStrip, scopeStat, STATUS_LABEL, STATUS_PILL } from './assets/scope-chart.js?v=7ae3880';
+import { parseFile, mergeMonths, PLATFORMS, DRIVER_LABELS } from './assets/parsers/index.js?v=7ae3880';
 
 // Is this deal viable? A scope is the commercial plan (channels, fee
 // structures, rebates, programmatic model) for one or several future deals,
