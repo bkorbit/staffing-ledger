@@ -1,10 +1,769 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Scoping</title><link rel="stylesheet" href="./assets/style.css?v=4658f81"></head><body>
+<title>EMG — Scoping</title><link rel="stylesheet" href="./assets/style.css?v=4658f81">
+<style>
+/* page-local: the editor's sections and grids. Cards reuse forecast's .linecard system. */
+.sc-deal { border:1px solid var(--line); border-radius:8px; background:var(--paper-raised); padding:12px 14px; margin-top:14px; }
+.sc-dealhead { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.sc-dealhead input.dname { flex:1 1 220px; min-width:160px; height:32px; font-family:var(--font-body); font-size:14px; font-weight:600; }
+.sc-dealhead .pf.shape select, .sc-dealhead input[type=date] { height:30px; }
+.sc-addline { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+.sc-addline button { padding:4px 10px; font-size:11px; }
+table.bands { width:auto; margin-top:4px; }
+table.bands th, table.bands td { padding:2px 4px; border:none; text-align:left; }
+table.bands input { width:96px; height:26px; text-align:right; font-family:var(--font-mono); font-size:11.5px; }
+table.bands button { padding:1px 7px; font-size:11px; }
+.sc-grid { width:auto; }
+.sc-grid th, .sc-grid td { padding:4px 6px; white-space:nowrap; }
+.sc-grid input.hcell { width:64px; height:26px; text-align:right; font-family:var(--font-mono); font-size:11.5px; padding:0 5px; }
+.sc-grid tr.dept td { background:#f2f2f2; font-family:var(--font-mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); text-align:left; }
+.sc-grid tr.ph td:first-child { color:var(--slate); font-style:italic; }
+.sc-grid tr.auto input.hcell { color:var(--slate); font-style:italic; }
+.sc-grid tr.gap td { color:var(--slate); font-style:italic; }
+.sc-grid tr.gap td.bad { color:var(--rust); font-style:normal; font-weight:600; }
+.sc-grid .cap { font-size:9px; padding:0 5px; margin-left:3px; vertical-align:middle; }
+.sc-hint { font-family:var(--font-mono); font-size:9.5px; color:var(--slate); margin-top:2px; }
+.sc-cands { font-size:10.5px; color:var(--slate); margin:4px 0 8px; }
+.sc-cands b { color:var(--ink); font-weight:600; }
+.sc-vstrip { display:flex; gap:6px; flex-wrap:wrap; padding:6px 14px 12px; }
+.sc-callout { border-left:3px solid var(--gold); background:var(--gold-bg); padding:8px 12px; font-size:12px; margin:10px 0; border-radius:0 6px 6px 0; }
+.sc-callout.bad { border-color:var(--rust); background:var(--rust-bg); }
+.sc-note { font-size:11px; color:var(--slate); }
+.sc-targets .rp .seg { height:30px; }
+.sc-quick { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; align-items:end; }
+.sc-quick label { display:flex; flex-direction:column; gap:3px; font-family:var(--font-mono); font-size:10px; color:var(--slate); }
+.sc-quick input, .sc-quick select { height:30px; }
+.gold-chip { display:inline-block; background:var(--gold-bg); color:var(--ink); padding:1px 6px; border-radius:4px; }
+.editorbar .pill { align-self:center; }
+tr.namerow[data-open] { cursor:pointer; }
+@media (max-width:640px) { .sc-dealhead input.dname { flex-basis:100%; } .sc-grid input.hcell { width:56px; } }
+</style></head><body>
 <script type="module">
-import { boot } from './assets/shell.js?v=4658f81';
+import { boot, esc, fmt$, wireSearch, fetchAll } from './assets/shell.js?v=4658f81';
+import { lineFee, progSuggestMargin, progParams, lineMonth, scopeMonths, monthsBetween, shiftM, spreadTotal } from './assets/scope-math.js?v=4658f81';
+import { loadStatus, statusPill, fmtH, mLabel, thisMonth } from './assets/capacity.js?v=4658f81';
+import { scopeChart, verdictStrip, scopeStat, STATUS_LABEL, STATUS_PILL } from './assets/scope-chart.js?v=4658f81';
+
+// Is this deal viable? A scope is the commercial plan (channels, fee
+// structures, rebates, programmatic model) for one or several future deals,
+// the hours it will take per department per month, who will do them, and the
+// verdict: GP − rebate − labor per month and overall, profit per hour against
+// the company target, capacity of the named people, and the client's
+// roll-up. Decided with Boris 13 Sep 2026; db/096 + 097.
+//
+// One RPC opens a scope (scope_page): the editable state plus econ, labor as
+// ONE number (never per person — salary privacy), staffing suggestions, the
+// verdict, versions and scenario siblings. Money totals are recomputed live
+// in the browser with scope-math.js — the JS twin of scope_months / line_fee —
+// while labor, capacity and the client roll-up come only from the server and
+// refresh on Save. Save = save_scope (atomic, appends a version); Propose /
+// Approve / Un-approve are their own RPCs; approve reserves the named hours
+// in assignments (Hour Planning shows them). Promote lands in 100.
 boot('scoping', async (supa, el) => {
-  el.innerHTML = `<div class="placeholder"><div style="font-size:15px;margin-bottom:6px">Not built yet</div>
-    Creates the deal on won, feeding Deals and Hour Planning.</div>`;
+  const KINDS = ['retainer', 'creative', 'search', 'social', 'programmatic', 'hourly'];
+  const MEDIA = k => k === 'search' || k === 'social' || k === 'programmatic';
+  const isHourlyL = l => l.kind === 'hourly' || (l.kind === 'creative' && String(l.label || '').startsWith('creative:hourly'));
+  const isFlatL = l => l.kind === 'retainer' || l.kind === 'custom' || (l.kind === 'creative' && !isHourlyL(l));
+  const kindLabel = l => l.kind === 'creative' ? `creative · ${isHourlyL(l) ? 'hourly' : 'retainer'}`
+    : (l.kind === 'hourly' && l.label) ? `hourly · ${l.label}` : l.kind;
+  const $ = c => (c / 100).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  const dollars = c => (c === null || c === undefined || c === '' || isNaN(c)) ? '' : String(Math.round(+c) / 100);
+  const cents = v => { const n = parseFloat(String(v).replace(/[$,\s]/g, '')); return Number.isFinite(n) ? Math.round(n * 100) : 0; };
+  const num = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+  const uuidRe = /^[0-9a-f-]{36}$/;
+  const me = () => (window.__email || '').toLowerCase();
+
+  let S = null;   // the editable scope (scope_state shape)
+  let X = null;   // the rest of scope_page
+  let L = null;   // list payload
+  let dirty = false;
+  let route = { view: 'list' };
+  const panel = () => el.querySelector('#panel');
+  el.innerHTML = `<div id="panel">loading…</div>`;
+
+  // ---- routing ------------------------------------------------------------
+  function parseHash() {
+    const h = (location.hash || '#list').replace(/^#/, '');
+    let m;
+    if ((m = h.match(/^s\/([0-9a-f-]{36})$/))) return { view: 'scope', id: m[1] };
+    if ((m = h.match(/^c\/([0-9a-f-]{36})$/))) return { view: 'list', client: m[1] };
+    if ((m = h.match(/^new(?:\?(\w+)=([^&]+))?$/))) return { view: 'new', kind: m[1] || 'new', ref: m[2] ? decodeURIComponent(m[2]) : null };
+    return { view: 'list' };
+  }
+  async function go() {
+    const r = parseHash();
+    if (dirty && route.view === 'scope' && !(r.view === 'scope' && r.id === route.id)) {
+      if (!confirm('Unsaved changes on this scope. Leave anyway?')) { location.hash = '#s/' + route.id; return; }
+      dirty = false;
+    }
+    route = r;
+    if (r.view === 'list') await loadList();
+    else if (r.view === 'new') await createFrom(r.kind, r.ref);
+    else await loadScope(r.id);
+  }
+  window.addEventListener('hashchange', go);
+  window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+  // ---- list --------------------------------------------------------------
+  async function loadList() {
+    panel().innerHTML = 'loading…';
+    const [scopes, pipe, promos, deals, clients, knobs] = await Promise.all([
+      fetchAll(() => supa.from('scopes').select('id,family_id,name,scenario,client_id,status,version,set_by,set_at,created_at').order('set_at', { ascending: false })),
+      fetchAll(() => supa.from('pipeline_deals').select('hubspot_deal_id,name,company,amount,campaign_start,campaign_end,stage,probability,pipeline,is_won,url')),
+      fetchAll(() => supa.from('promotions').select('hubspot_deal_id')),
+      fetchAll(() => supa.from('deals').select('id,name,client_id,status,flight_start,flight_end,hidden,hubspot_deal_id').in('status', ['won', 'active']).eq('hidden', false)),
+      supa.from('clients').select('id,name,active').eq('active', true).order('name'),
+      supa.from('settings').select('key,value').in('key', ['scope_target_profit_per_hour', 'scope_approver_emails'])
+    ]);
+    const err = [scopes, pipe, promos, deals, clients, knobs].find(r => r.error);
+    if (err) {
+      const missing = /scopes/.test(err.error.message) && /not exist|schema cache/i.test(err.error.message);
+      panel().innerHTML = `<div class="sc-panel err">${esc(err.error.message)}${missing ? '\n\nThis page needs db/096_scopes.sql and db/097_scope_page_verdict_staffing.sql applied in the Supabase SQL editor.' : ''}</div>`;
+      return;
+    }
+    const promoted = new Set((promos.data || []).map(p => p.hubspot_deal_id));
+    const scopedHs = new Set();
+    L = { scopes: scopes.data || [], pipeline: (pipe.data || []).filter(p => !promoted.has(p.hubspot_deal_id)),
+          deals: deals.data || [], clients: clients.data || [], knobs: Object.fromEntries((knobs.data || []).map(k => [k.key, k.value])),
+          q: '', tab: localStorage.getItem('sc_list_tab') || 'scopes', scopedHs };
+    renderList();
+  }
+
+  function renderList() {
+    const clientName = Object.fromEntries(L.clients.map(c => [c.id, c.name]));
+    const q = L.q.trim().toLowerCase();
+    const onClient = route.client || null;
+    const scopes = L.scopes.filter(s => (!onClient || s.client_id === onClient) && (!q || (s.name + ' ' + (clientName[s.client_id] || '') + ' ' + s.scenario).toLowerCase().includes(q)));
+    const pipeline = L.pipeline.filter(p => !q || ((p.company || '') + ' ' + p.name).toLowerCase().includes(q))
+      .sort((a, b) => (b.amount || 0) - (a.amount || 0)).slice(0, 80);
+    const deals = L.deals.filter(d => (!onClient || d.client_id === onClient) && (!q || ((clientName[d.client_id] || '') + ' ' + d.name).toLowerCase().includes(q)))
+      .sort((a, b) => ((clientName[a.client_id] || '') + a.name).localeCompare((clientName[b.client_id] || '') + b.name));
+    const statusPillCls = { draft: '', proposed: 'st-pending', approved: 'good', promoted: 'st-live' };
+    const tab = L.tab;
+    panel().innerHTML = `
+      <div class="toolbar">
+        <div class="rp" role="tablist">
+          ${[['scopes', 'Scopes'], ['pipeline', 'HubSpot pipeline'], ['deals', 'Live deals'], ['clients', 'Clients']].map(([k, lab]) =>
+            `<button class="seg ${tab === k ? 'on' : ''}" data-tab="${k}" role="tab">${lab}</button>`).join('')}
+        </div>
+        <input id="sc-q" type="text" placeholder="search…" value="${esc(L.q)}" style="max-width:240px" aria-label="Search">
+        ${onClient ? `<span class="pill">client: ${esc(clientName[onClient] || '?')}</span><a class="muted" href="#list" style="font-size:11px">all</a>` : ''}
+        <span style="flex:1"></span>
+        <button class="primary" data-go="#new">+ Blank scope</button>
+        ${onClient ? `<button class="ghost" data-go="#new?client=${onClient}">+ Scope for this client</button>` : ''}
+      </div>
+      <div class="sc-panel" id="sc-quick">
+        <div class="sc-eyebrow" style="margin-top:0">Quick check</div>
+        <div class="sc-quick">
+          <label>channel<select id="qc-kind">${['search', 'social', 'programmatic', 'retainer', 'hourly'].map(k => `<option>${k}</option>`).join('')}</select></label>
+          <label>media $ / month<input id="qc-budget" type="number" step="any" inputmode="decimal" placeholder="100000"></label>
+          <label>fee %<input id="qc-fee" type="number" step="any" inputmode="decimal" placeholder="10"></label>
+          <label>backend margin % (programmatic)<input id="qc-margin" type="number" step="any" inputmode="decimal" placeholder="default"></label>
+          <label>$ / month (retainer / hourly)<input id="qc-amount" type="number" step="any" inputmode="decimal" placeholder="10000"></label>
+          <label>months<input id="qc-months" type="number" min="1" value="6"></label>
+          <label>department<select id="qc-dept">${(L.departments || []).map(d => `<option>${esc(d)}</option>`).join('')}</select></label>
+          <label>hours / month<input id="qc-hours" type="number" step="any" inputmode="decimal" placeholder="40"></label>
+          <button class="primary" id="qc-run">Check</button>
+        </div>
+        <div id="qc-out" class="sc-note" style="margin-top:8px"></div>
+      </div>
+      ${tab === 'scopes' ? `<div class="sc-panel" style="padding:0"><div class="gridwrap" style="margin-top:0"><table class="ledger">
+        <thead><tr><th>Scope</th><th>Client</th><th>Scenario</th><th>Status</th><th>v</th><th>Last saved</th></tr></thead>
+        <tbody>${scopes.length ? scopes.map(s => `<tr class="namerow" data-open="s/${s.id}" tabindex="0" role="button">
+            <td class="textleft"><b>${esc(s.name)}</b></td>
+            <td class="textleft">${esc(clientName[s.client_id] || '—')}</td>
+            <td class="textleft">${esc(s.scenario)}</td>
+            <td><span class="pill ${statusPillCls[s.status] || ''}">${esc(s.status)}</span></td>
+            <td>${s.version}</td>
+            <td class="muted" style="white-space:nowrap">${new Date(s.set_at).toLocaleDateString()} · ${esc((s.set_by || '').split('@')[0])}</td>
+          </tr>`).join('') : `<tr><td colspan="6" class="empty-note">No scopes yet. Start from the HubSpot pipeline, a live deal, a client, or blank.</td></tr>`}</tbody></table></div></div>` : ''}
+      ${tab === 'pipeline' ? `<div class="sc-panel" style="padding:0"><div class="gridwrap" style="margin-top:0"><table class="ledger">
+        <thead><tr><th>HubSpot deal</th><th>Company</th><th>Stage</th><th>Amount</th><th>Campaign</th><th></th></tr></thead>
+        <tbody>${pipeline.length ? pipeline.map(p => `<tr>
+            <td class="textleft"><b>${esc(p.name)}</b>${p.is_won ? ' <span class="pill st-pending">won · not promoted</span>' : ''}</td>
+            <td class="textleft">${esc(p.company || '—')}</td>
+            <td class="textleft">${esc(p.stage || '')}${p.probability != null ? ` <span class="muted">${Math.round(p.probability * 100)}%</span>` : ''}</td>
+            <td>${p.amount != null ? fmt$(p.amount) : '—'}</td>
+            <td class="muted" style="white-space:nowrap">${esc(p.campaign_start || '?')} → ${esc(p.campaign_end || '?')}</td>
+            <td><button class="ghost" data-go="#new?hs=${encodeURIComponent(p.hubspot_deal_id)}" style="padding:3px 9px;font-size:11px">Scope</button></td>
+          </tr>`).join('') : `<tr><td colspan="6" class="empty-note">Nothing in the mirror that is not already promoted.</td></tr>`}</tbody></table></div></div>` : ''}
+      ${tab === 'deals' ? `<div class="sc-panel" style="padding:0"><div class="gridwrap" style="margin-top:0"><table class="ledger">
+        <thead><tr><th>Live deal</th><th>Client</th><th>Flight</th><th></th></tr></thead>
+        <tbody>${deals.length ? deals.map(d => `<tr>
+            <td class="textleft"><b>${esc(d.name)}</b></td>
+            <td class="textleft">${esc(clientName[d.client_id] || '—')}</td>
+            <td class="muted" style="white-space:nowrap">${esc(d.flight_start || '')} → ${esc(d.flight_end || '')}</td>
+            <td><button class="ghost" data-go="#new?deal=${d.id}" style="padding:3px 9px;font-size:11px">Re-scope</button></td>
+          </tr>`).join('') : `<tr><td colspan="4" class="empty-note">No live deals.</td></tr>`}</tbody></table></div></div>` : ''}
+      ${tab === 'clients' ? `<div class="sc-panel" style="padding:0"><div class="gridwrap" style="margin-top:0"><table class="ledger">
+        <thead><tr><th>Client</th><th>Live deals</th><th>Scopes</th><th></th></tr></thead>
+        <tbody>${L.clients.filter(c => !q || c.name.toLowerCase().includes(q)).map(c => `<tr>
+            <td class="textleft"><a href="#c/${c.id}"><b>${esc(c.name)}</b></a></td>
+            <td>${L.deals.filter(d => d.client_id === c.id).length}</td>
+            <td>${L.scopes.filter(s => s.client_id === c.id).length}</td>
+            <td><button class="ghost" data-go="#new?client=${c.id}" style="padding:3px 9px;font-size:11px">+ Scope</button></td>
+          </tr>`).join('')}</tbody></table></div></div>` : ''}`;
+    panel().querySelectorAll('.rp .seg').forEach(b => b.onclick = () => { L.tab = b.dataset.tab; localStorage.setItem('sc_list_tab', L.tab); renderList(); });
+    panel().querySelectorAll('button[data-go]').forEach(b => b.onclick = () => { location.hash = b.dataset.go; });
+    wireSearch(panel(), '#sc-q', v => { L.q = v; renderList(); });
+    panel().querySelectorAll('tr.namerow[data-open]').forEach(tr => {
+      const open = () => { location.hash = '#' + tr.dataset.open; };
+      tr.onclick = e => { if (e.target.closest('a,button')) return; open(); };
+      tr.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } };
+    });
+    // departments for the quick check come from the roster — load lazily once
+    if (!L.departments) {
+      supa.from('staff').select('department').eq('active', true).eq('tracks_capacity', true).then(r => {
+        L.departments = [...new Set((r.data || []).map(s => s.department).filter(Boolean))].sort();
+        const sel = panel().querySelector('#qc-dept');
+        if (sel) sel.innerHTML = L.departments.map(d => `<option>${esc(d)}</option>`).join('');
+      });
+    }
+    const qc = panel().querySelector('#qc-run');
+    if (qc) qc.onclick = async () => {
+      const kind = panel().querySelector('#qc-kind').value;
+      const hours = num(panel().querySelector('#qc-hours').value) || 0;
+      const dept = panel().querySelector('#qc-dept').value;
+      const out = panel().querySelector('#qc-out');
+      out.textContent = 'checking…';
+      const { data, error } = await supa.rpc('quick_check', {
+        p_kind: kind, p_budget_c: cents(panel().querySelector('#qc-budget').value), p_fee_pct: num(panel().querySelector('#qc-fee').value) || 0,
+        p_months: +panel().querySelector('#qc-months').value || 1, p_hours: dept ? { [dept]: hours } : {},
+        p_amount_c: cents(panel().querySelector('#qc-amount').value), p_margin_pct: num(panel().querySelector('#qc-margin').value) });
+      if (error) { out.innerHTML = `<span class="err">${esc(error.message)}</span>`; return; }
+      out.innerHTML = `<span class="pill ${STATUS_PILL[data.status] || ''}">${esc(STATUS_LABEL[data.status] || data.status)}</span>
+        &nbsp; GP <b>${fmt$(data.gp_month)}</b>/mo · labor <b>${fmt$(data.labor_month)}</b>/mo (${fmtH(data.hours_month)} at the ${esc(dept)} average) ·
+        after labor <b>${fmt$(data.pal_month)}</b>/mo${data.per_hour_c != null ? ` · <b>${fmt$(data.per_hour_c)}/h</b> vs ${fmt$(data.target_c)} target` : ''}
+        · over ${data.months} months: GP ${fmt$(data.gp)}, labor ${fmt$(data.labor)}`;
+    };
+  }
+
+  // ---- create from an entry point ------------------------------------------
+  async function createFrom(kind, ref) {
+    panel().innerHTML = 'creating…';
+    const map = { hs: 'hubspot', deal: 'deal', client: 'client', new: 'new' };
+    const { data, error } = await supa.rpc('create_scope', { p_origin_kind: map[kind] || 'new', p_ref: ref, p_name: null, p_by: window.__email, p_scenario: null });
+    if (error || !data || !data.ok) { panel().innerHTML = `<div class="sc-panel err">${esc(error ? error.message : (data && data.reason) || 'could not create')}</div>`; return; }
+    location.hash = '#s/' + data.scope_id;   // hashchange → loadScope
+  }
+
+  // ---- open a scope ------------------------------------------------------
+  async function loadScope(id) {
+    panel().innerHTML = 'loading…';
+    const { data, error } = await supa.rpc('scope_page', { p_scope_id: id });
+    if (error) { panel().innerHTML = `<div class="sc-panel err">${esc(error.message)}</div>`; return; }
+    if (!data || !data.id) { panel().innerHTML = `<div class="sc-panel err">Scope not found.</div>`; return; }
+    const { econ, labor, staffing, verdict, versions, siblings, staff, departments, clients, settings, sources, ...state } = data;
+    S = state; X = { econ, labor, staffing, verdict, versions, siblings, staff, departments, clients, settings, sources };
+    S.deals = (S.deals || []).map(d => ({ ...d, lines: (d.lines || []).map(l => ({ ...l, structure: l.structure || {}, months: l.months || {} })) }));
+    S.dept_months = S.dept_months || []; S.staff_months = S.staff_months || [];
+    dirty = false;
+    renderEditor();
+  }
+
+  const readOnly = () => S && (S.status === 'approved' || S.status === 'promoted');
+  const isApprover = () => (X.settings.approvers || []).map(e => String(e).toLowerCase().trim()).includes(me());
+  const ctx = () => ({ marginDefault: X.settings.margin_default, cpmShareDefault: X.settings.cpm_platform_share_pct });
+  const flightOf = d => ({ start: d.flight_start, end: d.flight_end });
+  const allMonths = () => { const s = new Set(); S.deals.forEach(d => monthsBetween(d.flight_start, d.flight_end).forEach(m => s.add(m))); return [...s].sort(); };
+  const staffById = () => Object.fromEntries((X.staff || []).map(s => [s.id, s]));
+  const departments = () => [...new Set([...(X.departments || []), ...S.dept_months.map(r => r.department), ...S.staff_months.map(r => r.department)])].filter(Boolean).sort();
+
+  // ---- editor ------------------------------------------------------------
+  function renderEditor() {
+    const months = allMonths();
+    const ro = readOnly();
+    const V = X.verdict || {}, T = V.total || {};
+    const target = +(X.settings.per_hour || 150) * 100;
+    const stPill = { draft: '', proposed: 'st-pending', approved: 'good', promoted: 'st-live' }[S.status] || '';
+    const sibs = (X.siblings || []);
+    const clientName = Object.fromEntries((X.clients || []).map(c => [c.id, c.name]));
+
+    panel().innerHTML = `
+      <div class="editorbar">
+        <a href="#list" class="muted" style="font-size:12px">← scopes</a>
+        <input class="dname" id="sc-name" value="${esc(S.name)}" ${ro ? 'disabled' : ''} style="flex:1 1 240px;min-width:180px;height:32px;font-family:var(--font-body);font-size:14px;font-weight:600" aria-label="Scope name">
+        <span class="pill ${stPill}">${esc(S.status)}</span>
+        <span class="pill">v${S.version}</span>
+        <div class="rp rp-sm" id="sc-scen" title="Scenarios of this target">
+          ${sibs.map(s => `<button class="seg ${s.id === S.id ? 'on' : ''}" data-scope="${s.id}" title="${esc(s.name)} · ${esc(STATUS_LABEL[s.kpis && s.kpis.status] || '')}">${esc(s.scenario)}</button>`).join('')}
+          <button class="seg" id="sc-newscen" title="Copy this scope as a new scenario">+</button>
+        </div>
+        <select id="sc-version" title="Versions" style="height:30px;font-size:11px">
+          <option value="">v${S.version} (current)</option>
+          ${(X.versions || []).filter(v => v.version !== S.version).map(v => `<option value="${v.id}">v${v.version} · ${esc(v.reason)}${v.label ? ' · ' + esc(v.label) : ''} · ${new Date(v.saved_at).toLocaleDateString()}</option>`).join('')}
+        </select>
+        <span style="flex:1"></span>
+        ${ro ? '' : `<button class="primary" id="sc-save">Save</button>`}
+        ${S.status === 'draft' ? `<button class="ghost" id="sc-propose">Propose</button>` : ''}
+        ${S.status === 'proposed' ? `<button class="ghost" id="sc-draft">Back to draft</button>` : ''}
+        ${S.status === 'proposed' && isApprover() ? `<button class="primary" id="sc-approve">Approve</button>` : ''}
+        ${S.status === 'approved' && isApprover() ? `<button class="ghost" id="sc-unapprove">Un-approve</button>` : ''}
+        ${S.status === 'approved' ? `<button class="ghost" disabled title="Promotion lands with migration 100">Promote</button>` : ''}
+        <span id="sc-msg" class="ok" style="font-size:12px"></span>
+      </div>
+
+      <div class="summary-strip" id="sc-strip">
+        <div class="summary-cell"><div class="summary-label">Revenue</div><div class="summary-value" data-out="rev">${fmt$(T.billable || 0)}</div><div class="summary-note" data-out="pass"></div></div>
+        <div class="summary-cell"><div class="summary-label">Gross profit</div><div class="summary-value" data-out="gp">${fmt$(T.gp || 0)}</div><div class="summary-note" data-out="rebate">${+T.rebate ? `rebate −${fmt$(T.rebate)}` : ''}</div></div>
+        <div class="summary-cell" title="Named people at their burdened cost, placeholders and uncovered demand at department averages — one number, never per person"><div class="summary-label">Labor</div><div class="summary-value">${fmt$(T.labor || 0)}</div><div class="summary-note">${fmtH(T.hours)}${+T.open_hours ? ` · ${fmtH(T.open_hours)} not yet named` : ''}${T.labor_lo != null && T.labor_lo !== T.labor_hi ? ` · range ${fmt$(T.labor_lo)}–${fmt$(T.labor_hi)}` : ''}</div></div>
+        <div class="summary-cell"><div class="summary-label">Profit after labor</div><div class="summary-value ${(T.pal || 0) < 0 ? 'neg' : ''}"><span class="gold-chip">${fmt$(T.pal || 0)}</span></div>
+          <div class="summary-note">${T.per_hour_c != null ? `<b>${fmt$(T.per_hour_c)}/h</b> vs ${fmt$(target)} target` : 'no hours planned'}</div></div>
+        <div class="summary-cell"><div class="summary-label">Verdict</div><div class="summary-value"><span class="pill ${STATUS_PILL[V.status] || ''}" style="font-size:12px">${esc(STATUS_LABEL[V.status] || '—')}</span></div>
+          <div class="summary-note">${verdictNotes(V)}</div></div>
+      </div>
+      <div id="sc-dirty" class="sc-note" style="margin:-14px 18px 14px;display:none">unsaved changes — money totals below are live; labor, capacity and the verdict refresh on Save</div>
+
+      <div class="settings dealform" style="padding:0 18px">
+        <div class="setrow"><span class="setlabel">Client</span>
+          <select id="sc-client" ${ro ? 'disabled' : ''}><option value="">— none yet —</option>
+            ${(X.clients || []).map(c => `<option value="${c.id}" ${c.id === S.client_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
+        <div class="setrow"><span class="setlabel">Payment terms</span>
+          <input id="sc-net" type="number" min="0" style="width:80px" value="${S.payment_net_days ?? 30}" ${ro ? 'disabled' : ''}><span class="muted">days</span></div>
+        <div class="setrow wide"><span class="setlabel">Notes</span>
+          <input id="sc-notes" class="dname" value="${esc(S.notes || '')}" ${ro ? 'disabled' : ''} placeholder="anything the terms or the reviewer should know"></div>
+      </div>
+
+      <div id="sc-deals" style="padding:0 18px">${S.deals.map((d, di) => dealHtml(d, di, ro)).join('')}
+        ${ro ? '' : `<div style="margin-top:10px"><button class="ghost" id="sc-adddeal">+ add a deal to this scope</button></div>`}
+      </div>
+
+      <div class="sc-panel" style="margin:18px 18px 0">
+        <div class="sc-eyebrow" style="margin-top:0">Hours needed, per department per month</div>
+        <div class="sc-note" style="margin-bottom:8px">Demand. Type it for now — the benchmark estimate (098) will fill it from comparable campaigns.</div>
+        <div class="gridwrap" style="margin-top:0"><table class="sc-grid">
+          <thead><tr><th>department</th>${months.map(m => `<th>${mLabel(m)}</th>`).join('')}<th>total</th></tr></thead>
+          <tbody>${demandRows(months, ro)}</tbody></table></div>
+        ${ro ? '' : `<div class="hp-addrow"><select id="sc-adddept"><option value="">+ department…</option>${departments().filter(d => !S.dept_months.some(r => r.department === d)).map(d => `<option>${esc(d)}</option>`).join('')}</select></div>`}
+      </div>
+
+      <div class="sc-panel" style="margin:14px 18px 0">
+        <div class="chart-head" style="padding:0 0 6px"><div class="sc-eyebrow" style="margin:0">Who does the work</div>
+          ${ro ? '' : `<span style="display:flex;gap:6px;flex-wrap:wrap"><button class="ghost" id="sc-autostaff" title="Fill the uncovered hours with the best-ranked free people, fewest people first">Auto-staff</button><button class="ghost" id="sc-clearauto" title="Remove the auto-staffed rows">Clear auto</button></span>`}
+        </div>
+        <div class="sc-note" style="margin-bottom:8px">Named people are priced at their own cost, placeholders at their band's average, uncovered hours at the department average — shown only as one labor total. Ranking: worked this client → worked this kind → free hours → cost.</div>
+        <div class="gridwrap" style="margin-top:0"><table class="sc-grid">
+          <thead><tr><th>person / placeholder</th>${months.map(m => `<th>${mLabel(m)}</th>`).join('')}<th>total</th><th></th></tr></thead>
+          <tbody>${supplyRows(months, ro)}</tbody></table></div>
+      </div>
+
+      <div class="sc-panel chartpanel" style="margin:14px 18px 0">
+        <div class="chart-head"><div class="sc-eyebrow">Monthly verdict</div><div class="stat-inline muted" style="font-size:11px;display:flex;gap:14px;flex-wrap:wrap">${scopeStat(T, target)}</div></div>
+        <div class="chart-body"><div id="sc-chart"></div></div>
+        <div class="sc-vstrip" id="sc-vstrip"></div>
+        ${hireHtml(V)}
+        ${clientRollupHtml(V, clientName)}
+      </div>
+
+      ${sibs.length > 1 ? `<div class="sc-panel" style="margin:14px 18px 0;padding:0"><div class="sc-eyebrow" style="padding:12px 14px 0">Scenarios</div>
+        <div class="gridwrap" style="margin-top:6px"><table class="ledger">
+          <thead><tr><th>Scenario</th><th>Status</th><th>Revenue</th><th>GP</th><th>Labor</th><th>After labor</th><th>$/h</th><th>Hours</th><th>Verdict</th></tr></thead>
+          <tbody>${sibs.map(s => { const k = s.kpis || {}; return `<tr class="namerow" data-open="s/${s.id}" tabindex="0" role="button" ${s.id === S.id ? 'style="font-weight:600"' : ''}>
+            <td class="textleft">${esc(s.scenario)} <span class="muted">v${s.version}</span></td><td><span class="pill">${esc(s.status)}</span></td>
+            <td>${fmt$(k.billable || 0)}</td><td>${fmt$(k.gp || 0)}</td><td>${fmt$(k.labor || 0)}</td><td>${fmt$(k.pal || 0)}</td>
+            <td>${k.per_hour_c != null ? fmt$(k.per_hour_c) : '—'}</td><td>${fmtH(k.hours)}</td>
+            <td><span class="pill ${STATUS_PILL[k.status] || ''}">${esc(STATUS_LABEL[k.status] || '—')}</span></td></tr>`; }).join('')}</tbody></table></div></div>` : ''}
+      <div style="height:24px"></div>`;
+
+    scopeChart(panel().querySelector('#sc-chart'), V.months || []);
+    verdictStrip(panel().querySelector('#sc-vstrip'), V.months || [], target);
+    wire(ro);
+    recompute();
+  }
+
+  function verdictNotes(V) {
+    const c = V.checks || {}, bits = [];
+    if (c.staff_unclear) bits.push('staff plan unclear');
+    if (c.capacity_ok === false) bits.push('someone is over capacity');
+    if (c.client_ok === false) bits.push('client roll-up goes negative');
+    if (c.monthly_positive === false && c.overall_positive !== false) bits.push('a month loses money');
+    if (c.unpriced) bits.push('hours nobody can price');
+    return bits.join(' · ') || (V.status === 'go' ? 'clears every check' : '');
+  }
+
+  function hireHtml(V) {
+    const h = V.hire || {};
+    if (!h.recommend) return '';
+    const parts = (X.staffing && X.staffing.hire || []).filter(x => x.recommend).map(x =>
+      `<b>${esc(x.department)}</b> ${fmtH(x.hours)}${x.cost_hire != null ? ` · hire ≈ ${fmt$(x.cost_hire)}` : ' · no hire cost in Settings'}${x.cost_contractor != null ? ` · contractor ≈ ${fmt$(x.cost_contractor)}` : ''}`);
+    const alt = V.status === 'go_with_hire' ? `Viable with a hire: after labor ${fmt$(h.pal_hire)}.` : V.status === 'go_with_contractor' ? `Viable with a contractor: after labor ${fmt$(h.pal_contractor)}.` : '';
+    return `<div class="sc-callout ${V.status === 'no_go' ? 'bad' : ''}" style="margin:6px 14px 12px">Not enough free capacity: ${parts.join('; ')}. ${alt}</div>`;
+  }
+
+  function clientRollupHtml(V, clientName) {
+    const rows = V.client || [];
+    if (!rows.length) return '';
+    return `<div style="padding:0 14px 12px"><div class="sc-eyebrow">Client roll-up · ${esc(clientName[S.client_id] || '')}</div>
+      <div class="gridwrap" style="margin-top:4px"><table class="sc-grid">
+        <thead><tr><th>month</th><th>existing GP</th><th>existing labor</th><th>this scope GP</th><th>this scope labor</th><th>combined after labor</th></tr></thead>
+        <tbody>${rows.map(r => `<tr><td class="textleft">${mLabel(r.month)}</td><td>${fmt$(r.gp_existing)}</td><td>${fmt$(r.labor_existing)}</td>
+          <td>${fmt$(r.gp_scope - r.rebate_scope)}</td><td>${fmt$(r.labor_scope)}</td><td class="${r.pal_combined < 0 ? 'bad' : ''}" style="${r.pal_combined < 0 ? 'color:var(--rust);font-weight:600' : ''}">${fmt$(r.pal_combined)}</td></tr>`).join('')}</tbody></table></div></div>`;
+  }
+
+  // ---- deal + line cards ---------------------------------------------------
+  function dealHtml(d, di, ro) {
+    const modes = d.origin_kind === 'hubspot' ? [['hubspot', 'promote through HubSpot approval']]
+      : d.origin_kind === 'deal' ? [['extend', 'extend the existing deal'], ['new', 'new deal']] : [['new', 'new deal']];
+    const src = d.origin_kind === 'hubspot' ? (X.sources.pipeline || []).find(p => p.hubspot_deal_id === d.hubspot_deal_id)
+      : d.origin_kind === 'deal' ? (X.sources.deals || []).find(x => x.id === d.source_deal_id) : null;
+    const months = monthsBetween(d.flight_start, d.flight_end);
+    return `<div class="sc-deal" data-di="${di}">
+      <div class="sc-dealhead">
+        <span class="kbadge">${esc(d.origin_kind === 'hubspot' ? 'HubSpot' : d.origin_kind === 'deal' ? 're-scope' : 'new deal')}</span>
+        <input class="dname" data-f="deal:${di}:name" value="${esc(d.name)}" ${ro ? 'disabled' : ''} aria-label="Deal name">
+        <label class="pf shape"><span class="pfl">flight</span><span style="display:flex;gap:4px;align-items:center">
+          <input type="date" data-f="deal:${di}:flight_start" value="${esc(d.flight_start || '')}" ${ro ? 'disabled' : ''}><span class="muted">→</span>
+          <input type="date" data-f="deal:${di}:flight_end" value="${esc(d.flight_end || '')}" ${ro ? 'disabled' : ''}></span></label>
+        <label class="pf shape"><span class="pfl">on promote</span><select data-f="deal:${di}:promote_mode" ${ro ? 'disabled' : ''}>
+          ${modes.map(([v, lab]) => `<option value="${v}" ${d.promote_mode === v ? 'selected' : ''}>${lab}</option>`).join('')}</select></label>
+        ${src ? `<span class="sc-note">${d.origin_kind === 'hubspot' ? `HubSpot: ${esc(src.company || '')} · ${src.amount != null ? fmt$(src.amount) : ''}${src.url ? ` · <a href="${esc(src.url)}" target="_blank" rel="noopener">open</a>` : ''}` : `source deal: ${esc(src.name)} (${esc(src.flight_start || '')} → ${esc(src.flight_end || '')})`}</span>` : ''}
+        <span style="flex:1"></span>
+        <span class="lgp" data-out="dealgp:${di}"></span>
+        ${ro || S.deals.length < 2 ? '' : `<button class="danger" data-act="rmdeal:${di}" title="remove this deal from the scope">✕</button>`}
+      </div>
+      ${!months.length ? `<div class="sc-note" style="margin-top:8px">Set the flight dates to see months.</div>` : ''}
+      <div class="linecards">${(d.lines || []).map((l, li) => lineCard(d, di, l, li, months, ro)).join('')}</div>
+      ${ro ? '' : `<div class="sc-addline">${KINDS.map(k => `<button class="ghost" data-act="addline:${di}:${k}">+ ${k}</button>`).join('')}</div>`}
+    </div>`;
+  }
+
+  const pf = (label, inner, cls = '') => `<label class="pf ${cls}"><span class="pfl">${label}</span>${inner}</label>`;
+  const inp = (di, li, p, val, extra = '') => `<input class="p" type="number" step="any" inputmode="decimal" data-f="line:${di}:${li}:${p}" value="${val ?? ''}" ${extra}>`;
+
+  function lineCard(d, di, l, li, months, ro) {
+    const st = l.structure = l.structure || {};
+    const dis = ro ? 'disabled' : '';
+    const bits = [];
+    if (l.kind === 'creative') bits.push(pf('structure', `<select data-f="line:${di}:${li}:cmode" ${dis}><option value="retainer" ${!isHourlyL(l) ? 'selected' : ''}>retainer $/mo</option><option value="hourly" ${isHourlyL(l) ? 'selected' : ''}>hourly</option></select>`, 'shape'));
+    if (l.kind === 'search' || l.kind === 'social') bits.push(pf('media funding', `<select data-f="line:${di}:${li}:media_funding" ${dis}><option value="client" ${l.media_funding !== 'agency' ? 'selected' : ''}>client pays</option><option value="agency" ${l.media_funding === 'agency' ? 'selected' : ''}>EMG pays &amp; rebills</option></select>`, 'shape'));
+    if (l.kind === 'hourly') bits.push(pf('work', `<input type="text" data-f="line:${di}:${li}:label" value="${esc(l.label || '')}" placeholder="e.g. SEO audit" maxlength="80" ${dis}>`, 'work'));
+    if (isFlatL(l)) bits.push(pf('$ / flight month', inp(di, li, 'amount', dollars(l.amount), dis)));
+    if (l.kind === 'retainer') {
+      bits.push(pf('hours included / mo', inp(di, li, 'hours_included', l.hours_included ?? '', dis + ' title="terms only: printed as “up to N hours/month”"')));
+      bits.push(pf('overage $ / hr', inp(di, li, 'overage_rate', dollars(l.overage_rate), dis + ' title="terms only"')));
+    }
+    if (isHourlyL(l)) { bits.push(pf('rate $ / hr', inp(di, li, 'rate', dollars(l.rate), dis))); bits.push(pf('hrs / month', inp(di, li, 'hours_per_month', l.hours_per_month ?? '', dis))); }
+    let structureHtml = '';
+    if (l.kind === 'search' || l.kind === 'social') {
+      const mode = (st.fee && st.fee.mode) || 'flat';
+      bits.push(pf('fee structure', `<select data-f="line:${di}:${li}:fee_mode" ${dis}><option value="flat" ${mode === 'flat' ? 'selected' : ''}>flat %</option><option value="marginal" ${mode === 'marginal' ? 'selected' : ''}>marginal bands</option><option value="whole" ${mode === 'whole' ? 'selected' : ''}>whole-spend band</option></select>`, 'shape'));
+      if (mode === 'flat') bits.push(pf('fee %', inp(di, li, 'fee_pct', l.fee_pct ?? '', dis)));
+      else structureHtml += bandsTable(di, li, st, dis);
+      bits.push(pf('min fee $ / mo', inp(di, li, 'fee_min', dollars(st.fee_min), dis)));
+      bits.push(pf('fee cap $ / mo', inp(di, li, 'fee_cap', dollars(st.fee_cap), dis)));
+    }
+    if (l.kind === 'programmatic') {
+      const model = (st.prog && st.prog.model) || 'fee_margin';
+      bits.push(pf('model', `<select data-f="line:${di}:${li}:prog_model" ${dis}><option value="fee_margin" ${model === 'fee_margin' ? 'selected' : ''}>fee % + backend margin</option><option value="cpm" ${model === 'cpm' ? 'selected' : ''}>CPM billing (margin only)</option></select>`, 'shape'));
+      if (model === 'cpm') bits.push(pf('platform share %', inp(di, li, 'platform_share_pct', st.prog && st.prog.platform_share_pct != null ? st.prog.platform_share_pct : '', dis + ` placeholder="${X.settings.cpm_platform_share_pct}"`)));
+      else { bits.push(pf('fee %', inp(di, li, 'fee_pct', l.fee_pct ?? '', dis))); bits.push(pf('backend margin %', inp(di, li, 'margin_pct', l.margin_pct ?? '', dis + ` placeholder="${X.settings.margin_default}"`))); }
+    }
+    if (MEDIA(l.kind)) {
+      bits.push(pf('rebate %', inp(di, li, 'rebate_pct', st.rebate && st.rebate.pct != null ? st.rebate.pct : '', dis + ' title="paid back to the client, booked COGS Other — reduces GP"')));
+      bits.push(pf('rebate on', `<select data-f="line:${di}:${li}:rebate_basis" ${dis}><option value="media" ${!(st.rebate && st.rebate.basis === 'fee') ? 'selected' : ''}>media spend</option><option value="fee" ${st.rebate && st.rebate.basis === 'fee' ? 'selected' : ''}>the fee</option></select>`, 'shape'));
+    }
+    const cellKey = MEDIA(l.kind) ? 'budget' : isHourlyL(l) ? 'hours' : 'amount';
+    const total = months.reduce((s, m) => s + (+((l.months[m] || {})[cellKey]) || 0), 0);
+    const totalBox = (MEDIA(l.kind) || isHourlyL(l))
+      ? pf(MEDIA(l.kind) ? (l.kind === 'programmatic' ? 'Total budget $' : 'Campaign budget $') : 'total hours (spread)',
+          `<input class="totalbudget" type="number" step="any" inputmode="decimal" data-f="line:${di}:${li}:total" value="${MEDIA(l.kind) ? (total ? total / 100 : '') : (total || '')}" placeholder="${MEDIA(l.kind) ? 'spread by days in market' : 'spread evenly'}" ${dis}>`, 'tb')
+      : '';
+    const cells = months.map(m => { const v = (l.months[m] || {})[cellKey];
+      return `<label class="pmcell"><span>${mLabel(m)}</span><input class="cell" type="number" step="any" inputmode="decimal" data-cell="${di}:${li}:${m}:${cellKey}" value="${v == null ? '' : (cellKey === 'hours' ? v : v / 100)}" ${dis}></label>`; }).join('');
+    const suggest = l.kind === 'programmatic' && (!st.prog || st.prog.model !== 'cpm')
+      ? `<div class="cardnote" data-out="suggest:${di}:${li}"></div>` : '';
+    return `<div class="linecard" data-li="${li}">
+      <div class="cardhead"><span class="chleft"><span class="kbadge" data-out="kbadge:${di}:${li}">${esc(kindLabel(l))}</span>${l.kind === 'programmatic' ? `<span class="pill margintag" data-out="margintag:${di}:${li}"></span>` : ''}</span>
+        <span class="chright"><span class="lgp" data-out="lgp:${di}:${li}"></span>${ro ? '' : `<button class="danger" data-act="rmline:${di}:${li}" title="remove line">✕</button>`}</span></div>
+      <div class="cardbody">
+        <div class="lparams">${bits.join('')}${totalBox}</div>
+        ${structureHtml}
+        <div class="gpcallout muted" data-out="callout:${di}:${li}"></div>
+        ${suggest}
+        ${months.length ? `<details class="permonth"><summary>per-month ${cellKey === 'hours' ? 'hours' : cellKey === 'budget' ? 'budget' : 'amount'}</summary><div class="pmrow">${cells}</div></details>` : ''}
+      </div></div>`;
+  }
+
+  function bandsTable(di, li, st, dis) {
+    const bands = (st.fee && st.fee.bands) || [];
+    return `<table class="bands"><thead><tr><th class="pfl">spend up to $ / mo</th><th class="pfl">fee %</th><th></th></tr></thead><tbody>
+      ${bands.map((b, bi) => `<tr>
+        <td><input type="number" step="any" inputmode="decimal" data-band="${di}:${li}:${bi}:upto" value="${b.upto == null ? '' : b.upto / 100}" placeholder="${bi === bands.length - 1 ? 'and above' : ''}" ${dis}></td>
+        <td><input type="number" step="any" inputmode="decimal" data-band="${di}:${li}:${bi}:pct" value="${b.pct ?? ''}" ${dis}></td>
+        <td>${dis ? '' : `<button class="ghost" data-act="rmband:${di}:${li}:${bi}" aria-label="remove band">×</button>`}</td></tr>`).join('')}
+      ${dis ? '' : `<tr><td colspan="3"><button class="ghost" data-act="addband:${di}:${li}">+ band</button> <span class="sc-note">last band: leave "up to" blank for "and above"</span></td></tr>`}
+    </tbody></table>`;
+  }
+
+  // ---- demand & supply grids ------------------------------------------------
+  function demandRows(months, ro) {
+    const depts = [...new Set(S.dept_months.map(r => r.department))].sort();
+    if (!depts.length) return `<tr><td colspan="${months.length + 2}" class="empty-note">No hours yet — add a department.</td></tr>`;
+    return depts.map(dep => {
+      const tot = S.dept_months.filter(r => r.department === dep && months.includes(r.month)).reduce((s, r) => s + (+r.hours || 0), 0);
+      return `<tr><td class="textleft"><b>${esc(dep)}</b>${ro ? '' : ` <button class="ghost" data-act="rmdept:${esc(dep)}" style="padding:0 6px;font-size:10px" aria-label="remove">×</button>`}</td>
+        ${months.map(m => { const r = S.dept_months.find(x => x.department === dep && x.month === m);
+          return `<td><input class="hcell" type="number" min="0" step="0.5" inputmode="decimal" data-dm="${esc(dep)}|${m}" value="${r ? +r.hours : ''}" title="${r && r.source !== 'manual' ? 'from ' + esc(r.source) : ''}" ${ro ? 'disabled' : ''}></td>`; }).join('')}
+        <td><b>${fmtH(tot)}</b></td></tr>`;
+    }).join('');
+  }
+
+  function supplyRows(months, ro) {
+    const sb = staffById();
+    const depts = departments().filter(dep => S.dept_months.some(r => r.department === dep) || S.staff_months.some(r => r.department === dep));
+    if (!depts.length) return `<tr><td colspan="${months.length + 3}" class="empty-note">Add hours per department first.</td></tr>`;
+    const capBy = {}; ((X.verdict || {}).capacity || []).forEach(c => capBy[`${c.staff_id}|${c.month}`] = c);
+    const cands = (X.staffing && X.staffing.candidates) || [];
+    return depts.map(dep => {
+      const rows = S.staff_months.filter(r => r.department === dep);
+      const people = [...new Map(rows.filter(r => r.staff_id).map(r => [r.staff_id + '|' + (r.source || 'manual'), { staff_id: r.staff_id, source: r.source || 'manual' }])).values()]
+        .sort((a, b) => ((sb[a.staff_id] || {}).name || '').localeCompare((sb[b.staff_id] || {}).name || '') || a.source.localeCompare(b.source));
+      const phs = [...new Set(rows.filter(r => !r.staff_id).map(r => r.band || ''))];
+      const demand = m => (S.dept_months.find(r => r.department === dep && r.month === m) || {}).hours || 0;
+      const supplied = m => rows.filter(r => r.month === m).reduce((s, r) => s + (+r.hours || 0), 0);
+      const topCands = cands.filter(c => c.department === dep && !people.some(p => p.staff_id === c.staff_id)).slice(0, 3);
+      const used = new Set(people.map(p => p.staff_id));
+      return `<tr class="dept"><td colspan="${months.length + 3}">${esc(dep)}</td></tr>
+        ${people.map(p => { const s = sb[p.staff_id] || { name: '(inactive)' };
+          return `<tr class="${p.source === 'auto' ? 'auto' : ''}"><td class="textleft">${esc(s.name)}${p.source === 'auto' ? ' <span class="pill" title="auto-staffed — edit to make it yours">auto</span>' : ''}</td>
+            ${months.map(m => { const r = rows.find(x => x.staff_id === p.staff_id && x.month === m && (x.source || 'manual') === p.source);
+              const c = capBy[`${p.staff_id}|${m}`];
+              const cap = c ? `<span class="pill cap ${c.over ? 'bad' : (c.free_after < (c.capacity_hours || 0) * 0.2 ? 'warn' : 'good')}" title="${fmtH(c.scope_hours)} here · ${fmtH(c.committed_other)} elsewhere · ${fmtH(c.capacity_hours)} plannable · ${fmtH(c.free_after)} left">${c.over ? 'over' : fmtH(c.free_after) + ' free'}</span>` : '';
+              return `<td><input class="hcell" type="number" min="0" step="0.5" inputmode="decimal" data-sm="${p.staff_id}|${p.source}|${dep}|${m}" value="${r ? +r.hours : ''}" ${ro ? 'disabled' : ''}>${cap}</td>`; }).join('')}
+            <td><b>${fmtH(rows.filter(x => x.staff_id === p.staff_id && (x.source || 'manual') === p.source).reduce((s2, r) => s2 + (+r.hours || 0), 0))}</b></td>
+            <td>${ro ? '' : `<button class="ghost" data-act="rmperson:${p.staff_id}:${p.source}:${esc(dep)}" aria-label="remove">×</button>`}</td></tr>`; }).join('')}
+        ${phs.map(band => `<tr class="ph"><td class="textleft">placeholder${band ? ` · ${esc(band)}` : ' · department average'}</td>
+            ${months.map(m => { const r = rows.find(x => !x.staff_id && (x.band || '') === band && x.month === m);
+              return `<td><input class="hcell" type="number" min="0" step="0.5" inputmode="decimal" data-ph="${esc(band)}|${dep}|${m}" value="${r ? +r.hours : ''}" ${ro ? 'disabled' : ''}></td>`; }).join('')}
+            <td><b>${fmtH(rows.filter(x => !x.staff_id && (x.band || '') === band).reduce((s2, r) => s2 + (+r.hours || 0), 0))}</b></td>
+            <td>${ro ? '' : `<button class="ghost" data-act="rmph:${esc(band)}:${esc(dep)}" aria-label="remove">×</button>`}</td></tr>`).join('')}
+        <tr class="gap"><td class="textleft">not yet planned</td>
+          ${months.map(m => { const g = Math.max(demand(m) - supplied(m), 0); return `<td class="${g > 0.005 ? 'bad' : ''}">${g > 0.005 ? fmtH(g) : '—'}</td>`; }).join('')}
+          <td>${(() => { const g = months.reduce((s, m) => s + Math.max(demand(m) - supplied(m), 0), 0); return g > 0.005 ? `<b style="color:var(--rust)">${fmtH(g)}</b>` : '—'; })()}</td><td></td></tr>
+        ${ro ? '' : `<tr><td colspan="${months.length + 3}" class="textleft">
+          <div class="hp-addrow">
+            <select data-addperson="${esc(dep)}"><option value="">+ person…</option>
+              ${(X.staff || []).filter(s => !used.has(s.id)).sort((a, b) => (a.department === dep ? 0 : 1) - (b.department === dep ? 0 : 1) || a.name.localeCompare(b.name))
+                .map(s => `<option value="${s.id}">${esc(s.name)}${s.department !== dep ? ` (${esc(s.department || '—')})` : ''}</option>`).join('')}</select>
+            <select data-addph="${esc(dep)}"><option value="">+ placeholder…</option><option value="">department average</option>
+              ${(X.settings.comp_bands || []).filter(b => !phs.includes(b.name)).map(b => `<option value="${esc(b.name)}">${esc(b.name)}${b.upto_c ? ` (≤ ${fmt$(b.upto_c)}/h)` : ' (top)'}</option>`).join('')}</select>
+          </div>
+          ${topCands.length ? `<div class="sc-cands">suggested: ${topCands.map(c => `<b>${esc(c.name)}</b> <span class="muted">(${c.client_hours ? `${fmtH(c.client_hours)} on this client` : c.kind_hours ? `${fmtH(c.kind_hours)} on this kind` : 'no history'} · free ${fmtH(Object.values(c.free || {}).reduce((s, v) => s + +v, 0))} over the flight)</span>`).join(' · ')}</div>` : ''}
+        </td></tr>`}`;
+    }).join('');
+  }
+
+  // ---- live money -----------------------------------------------------------
+  function recompute() {
+    if (!S) return;
+    const c = ctx();
+    let rev = 0, gp = 0, reb = 0, pass = 0;
+    S.deals.forEach((d, di) => {
+      const months = monthsBetween(d.flight_start, d.flight_end);
+      let dgp = 0;
+      (d.lines || []).forEach((l, li) => {
+        let lgp = 0, lrev = 0, lfee = 0, lreb = 0;
+        months.forEach(m => { const r = lineMonth(l, m, c); lgp += r.gp; lrev += r.billable; lfee += r.fee; lreb += r.rebate; pass += r.pass; });
+        dgp += lgp; gp += lgp; rev += lrev; reb += lreb;
+        const n = months.length || 1;
+        paint(`lgp:${di}:${li}`, `${fmt$(lgp - lreb)} GP`);
+        paint(`callout:${di}:${li}`, months.length ? `${MEDIA(l.kind) ? `fee ${fmt$(lfee / n)}` : `${fmt$(lgp / n)}`}${lreb ? ` · rebate −${fmt$(lreb / n)}` : ''} · GP ${fmt$((lgp - lreb) / n)} / mo avg · ${fmt$(lrev)} revenue over ${n} month${n === 1 ? '' : 's'}` : '');
+        paint(`kbadge:${di}:${li}`, esc(kindLabel(l)));
+        if (l.kind === 'programmatic') {
+          const p = progParams(l, c);
+          const rev1 = 1 + p.feePct / 100, gpPct = rev1 ? (p.marginPct + p.feePct) / rev1 : 0;
+          paint(`margintag:${di}:${li}`, `${p.cpm ? 'CPM · ' : ''}${gpPct.toFixed(1)}% GP on revenue`);
+          if (!p.cpm) { const sug = progSuggestMargin(p.feePct, X.settings.prog_target_gp_pct);
+            paint(`suggest:${di}:${li}`, `for ${X.settings.prog_target_gp_pct}% GP on revenue with a ${p.feePct}% fee, the backend margin should be <b>${sug}%</b>${Math.abs(sug - p.marginPct) > 0.0005 ? ` <button class="use-suggest" data-act="usesug:${di}:${li}:${sug}">use</button>` : ' ✓'}`); }
+        }
+      });
+      paint(`dealgp:${di}`, months.length ? `${fmt$(dgp)} GP` : '');
+    });
+    paint('rev', fmt$(rev)); paint('gp', fmt$(gp)); paint('rebate', reb ? `rebate −${fmt$(reb)}` : ''); paint('pass', pass ? `+ ${fmt$(pass)} media rebilled (cash, not revenue)` : '');
+  }
+  const paint = (k, html) => { const n = panel().querySelector(`[data-out="${k}"]`); if (n) n.innerHTML = html; };
+  const markDirty = () => { dirty = true; const n = panel().querySelector('#sc-dirty'); if (n) n.style.display = ''; };
+
+  // ---- wiring: delegated ----------------------------------------------------
+  function wire(ro) {
+    const p = panel();
+    p.querySelectorAll('#sc-scen .seg[data-scope]').forEach(b => b.onclick = () => { location.hash = '#s/' + b.dataset.scope; });
+    const ns = p.querySelector('#sc-newscen'); if (ns) ns.onclick = newScenario;
+    p.querySelector('#sc-version').onchange = e => { if (e.target.value) showVersion(e.target.value); };
+    const on = (id, fn) => { const n = p.querySelector('#' + id); if (n) n.onclick = fn; };
+    on('sc-save', () => save()); on('sc-propose', () => setStatus('proposed')); on('sc-draft', () => setStatus('draft'));
+    on('sc-approve', approve); on('sc-unapprove', unapprove); on('sc-adddeal', () => { S.deals.push({ ord: S.deals.length, name: 'Deal ' + (S.deals.length + 1), origin_kind: 'new', promote_mode: 'new', flight_start: null, flight_end: null, lines: [] }); markDirty(); renderEditor(); });
+    on('sc-autostaff', autoStaff); on('sc-clearauto', clearAuto);
+    p.querySelectorAll('tr.namerow[data-open]').forEach(tr => { tr.onclick = () => { location.hash = '#' + tr.dataset.open; }; });
+    if (ro) return;
+    p.querySelector('#sc-name').oninput = e => { S.name = e.target.value; markDirty(); };
+    p.querySelector('#sc-client').onchange = e => { S.client_id = e.target.value || null; markDirty(); };
+    p.querySelector('#sc-net').oninput = e => { S.payment_net_days = +e.target.value || 0; markDirty(); };
+    p.querySelector('#sc-notes').oninput = e => { S.notes = e.target.value; markDirty(); };
+    const ad = p.querySelector('#sc-adddept'); if (ad) ad.onchange = () => { if (!ad.value) return; allMonths().forEach(m => S.dept_months.push({ department: ad.value, month: m, hours: 0, source: 'manual' })); markDirty(); renderEditor(); };
+    p.querySelectorAll('select[data-addperson]').forEach(sel => sel.onchange = () => { if (!sel.value) return;
+      allMonths().forEach(m => S.staff_months.push({ staff_id: sel.value, department: sel.dataset.addperson, band: null, month: m, hours: 0, source: 'manual' })); markDirty(); renderEditor(); });
+    p.querySelectorAll('select[data-addph]').forEach(sel => sel.onchange = () => {
+      allMonths().forEach(m => S.staff_months.push({ staff_id: null, department: sel.dataset.addph, band: sel.value || null, month: m, hours: 0, source: 'manual' })); markDirty(); renderEditor(); });
+    p.querySelector('#sc-deals').oninput = e => { const t = e.target; if (t.dataset.f) onField(t); else if (t.dataset.cell) onCell(t); else if (t.dataset.band) onBand(t); };
+    p.querySelector('#sc-deals').onchange = e => { const t = e.target; if (t.tagName === 'SELECT' && t.dataset.f) onField(t, true); };
+    p.querySelectorAll('input[data-dm]').forEach(i => i.onchange = () => { const [dep, m] = i.dataset.dm.split('|'); let r = S.dept_months.find(x => x.department === dep && x.month === m);
+      if (!r) { r = { department: dep, month: m, hours: 0, source: 'manual' }; S.dept_months.push(r); } r.hours = Math.max(0, +i.value || 0); r.source = 'manual'; markDirty(); renderEditor(); });
+    p.querySelectorAll('input[data-sm]').forEach(i => i.onchange = () => { const [sid, source, dep, m] = i.dataset.sm.split('|');
+      let r = S.staff_months.find(x => x.staff_id === sid && x.month === m && (x.source || 'manual') === source && x.department === dep);
+      if (!r) { r = { staff_id: sid, department: dep, band: null, month: m, hours: 0, source }; S.staff_months.push(r); } r.hours = Math.max(0, +i.value || 0); if (source === 'auto') r.source = 'manual'; markDirty(); renderEditor(); });
+    p.querySelectorAll('input[data-ph]').forEach(i => i.onchange = () => { const [band, dep, m] = i.dataset.ph.split('|');
+      let r = S.staff_months.find(x => !x.staff_id && (x.band || '') === band && x.department === dep && x.month === m);
+      if (!r) { r = { staff_id: null, department: dep, band: band || null, month: m, hours: 0, source: 'manual' }; S.staff_months.push(r); } r.hours = Math.max(0, +i.value || 0); markDirty(); renderEditor(); });
+    p.onclick = e => { const b = e.target.closest('button[data-act]'); if (b) { e.preventDefault(); act(b.dataset.act); } };
+  }
+
+  function onField(t, isSelect) {
+    const [scope, a, b, prop] = t.dataset.f.split(':');
+    markDirty();
+    if (scope === 'deal') {
+      const d = S.deals[+a];
+      if (b === 'name') d.name = t.value;
+      else if (b === 'promote_mode') d.promote_mode = t.value;
+      else { d[b] = t.value || null; if (d.flight_start && d.flight_end && d.flight_end >= d.flight_start) renderEditor(); }
+      return;
+    }
+    const l = S.deals[+a].lines[+b];
+    const st = l.structure = l.structure || {};
+    const v = t.value;
+    switch (prop) {
+      case 'amount': case 'rate': case 'overage_rate': l[prop] = cents(v); break;
+      case 'fee_min': case 'fee_cap': st[prop] = v === '' ? null : cents(v); break;
+      case 'fee_pct': case 'margin_pct': l[prop] = v === '' ? (prop === 'margin_pct' ? null : 0) : num(v); break;
+      case 'hours_per_month': case 'hours_included': l[prop] = v === '' ? (prop === 'hours_included' ? null : 0) : num(v); break;
+      case 'label': l.label = v; paint(`kbadge:${a}:${b}`, esc(kindLabel(l))); break;
+      case 'media_funding': l.media_funding = v; break;
+      case 'cmode': l.label = 'creative:' + v; l.months = {}; renderEditor(); return;
+      case 'fee_mode': st.fee = { mode: v, bands: v === 'flat' ? undefined : ((st.fee && st.fee.bands && st.fee.bands.length) ? st.fee.bands : [{ upto: 5000000, pct: l.fee_pct || 15 }, { upto: null, pct: Math.max((l.fee_pct || 15) - 3, 0) }]) };
+        if (v === 'flat') delete st.fee.bands; renderEditor(); return;
+      case 'prog_model': st.prog = { ...(st.prog || {}), model: v }; if (v === 'cpm' && st.prog.platform_share_pct == null) st.prog.platform_share_pct = null; renderEditor(); return;
+      case 'platform_share_pct': st.prog = { ...(st.prog || { model: 'cpm' }), platform_share_pct: v === '' ? null : num(v) }; break;
+      case 'rebate_pct': st.rebate = { ...(st.rebate || { basis: 'media' }), pct: v === '' ? 0 : num(v) }; if (!st.rebate.pct) delete st.rebate; break;
+      case 'rebate_basis': st.rebate = { ...(st.rebate || { pct: 0 }), basis: v }; break;
+      case 'total': {
+        const months = monthsBetween(S.deals[+a].flight_start, S.deals[+a].flight_end);
+        const media = MEDIA(l.kind);
+        const total = media ? cents(v) : (num(v) || 0);
+        const spread = spreadTotal(total, months, { weighted: media, flight: flightOf(S.deals[+a]), decimals: media ? 0 : 2 });
+        const key = media ? 'budget' : 'hours';
+        months.forEach(m => { l.months[m] = { ...(l.months[m] || {}) }; if (total > 0) l.months[m][key] = spread[m]; else delete l.months[m][key]; });
+        panel().querySelectorAll(`input.cell[data-cell^="${a}:${b}:"]`).forEach(ci => { const m = ci.dataset.cell.split(':')[2]; const cv = (l.months[m] || {})[key]; ci.value = cv == null ? '' : (media ? cv / 100 : cv); });
+        break;
+      }
+    }
+    recompute();
+  }
+  function onCell(t) {
+    const [a, b, m, key] = t.dataset.cell.split(':');
+    const l = S.deals[+a].lines[+b];
+    l.months[m] = { ...(l.months[m] || {}) };
+    if (t.value === '') delete l.months[m][key]; else l.months[m][key] = key === 'hours' ? (num(t.value) || 0) : cents(t.value);
+    markDirty(); recompute();
+  }
+  function onBand(t) {
+    const [a, b, bi, prop] = t.dataset.band.split(':');
+    const l = S.deals[+a].lines[+b]; const band = l.structure.fee.bands[+bi];
+    if (prop === 'upto') band.upto = t.value === '' ? null : cents(t.value); else band.pct = num(t.value) || 0;
+    markDirty(); recompute();
+  }
+  function act(a) {
+    const [what, x, y, z] = a.split(':');
+    if (what === 'addline') { const d = S.deals[+x]; const k = y;
+      const l = { ord: d.lines.length, kind: k, label: k === 'creative' ? 'creative:retainer' : null, amount: 0, budget: 0, fee_pct: 0, margin_pct: null, rate: 0, hours_per_month: 0,
+        hours_included: null, overage_rate: null, media_funding: 'client', billing_day: (k === 'retainer' || k === 'creative') ? 'first' : 'last', structure: {}, months: {} };
+      d.lines.push(l); markDirty(); renderEditor(); return; }
+    if (what === 'rmline') { if (!confirm('Remove this line?')) return; S.deals[+x].lines.splice(+y, 1); markDirty(); renderEditor(); return; }
+    if (what === 'rmdeal') { if (!confirm('Remove this deal and its lines from the scope?')) return; S.deals.splice(+x, 1); markDirty(); renderEditor(); return; }
+    if (what === 'addband') { const l = S.deals[+x].lines[+y]; const bands = l.structure.fee.bands; const last = bands[bands.length - 1];
+      bands.splice(bands.length - 1, 0, { upto: (last && bands.length > 1 ? (bands[bands.length - 2].upto || 0) : 0) + 5000000, pct: last ? last.pct : 10 }); markDirty(); renderEditor(); return; }
+    if (what === 'rmband') { const bands = S.deals[+x].lines[+y].structure.fee.bands; if (bands.length <= 1) return; bands.splice(+z, 1); bands[bands.length - 1].upto = null; markDirty(); renderEditor(); return; }
+    if (what === 'usesug') { const l = S.deals[+x].lines[+y]; l.margin_pct = +z; markDirty(); renderEditor(); return; }
+    if (what === 'rmdept') { S.dept_months = S.dept_months.filter(r => r.department !== x); markDirty(); renderEditor(); return; }
+    if (what === 'rmperson') { S.staff_months = S.staff_months.filter(r => !(r.staff_id === x && (r.source || 'manual') === y && r.department === z)); markDirty(); renderEditor(); return; }
+    if (what === 'rmph') { S.staff_months = S.staff_months.filter(r => !(!r.staff_id && (r.band || '') === x && r.department === y)); markDirty(); renderEditor(); return; }
+  }
+
+  // ---- server actions --------------------------------------------------------
+  const msg = (t, bad) => { const n = panel().querySelector('#sc-msg'); if (n) { n.textContent = t; n.className = bad ? 'err' : 'ok'; n.style.fontSize = '12px'; } };
+  function payload() {
+    const p = JSON.parse(JSON.stringify(S));
+    p.deals = p.deals.map((d, i) => ({ ...d, ord: i, lines: (d.lines || []).map((l, j) => ({ ...l, ord: j })) }));
+    p.staff_months = p.staff_months.filter(r => +r.hours > 0);
+    return p;
+  }
+  async function save(label) {
+    if (label === undefined) { label = prompt('Label this version (optional):', '') ; if (label === null) return; }
+    msg('saving…');
+    const { data, error } = await supa.rpc('save_scope', { p_payload: payload(), p_by: window.__email, p_label: label || null });
+    if (error || !data.ok) { msg(error ? error.message : data.reason, true); return false; }
+    dirty = false;
+    await loadScope(S.id);
+    msg(`saved v${data.version}`);
+    return true;
+  }
+  async function setStatus(status) {
+    if (dirty && !(await save(''))) return;
+    const { data, error } = await supa.rpc('set_scope_status', { p_scope_id: S.id, p_status: status, p_by: window.__email });
+    if (error || !data.ok) { msg(error ? error.message : data.reason, true); return; }
+    await loadScope(S.id); msg(status);
+  }
+  async function approve() {
+    if (dirty && !(await save(''))) return;
+    const V = X.verdict || {}, c = V.checks || {};
+    const warn = [];
+    if (c.staff_unclear) warn.push(`${fmtH((V.total || {}).open_hours)} are not on a named person and will not reserve capacity`);
+    if (c.capacity_ok === false) warn.push('someone is over capacity');
+    if (V.status === 'no_go') warn.push('the verdict is NO-GO');
+    if (!confirm(`Approve this scope?${warn.length ? '\n\n• ' + warn.join('\n• ') : ''}\n\nNamed hours are reserved in Hour Planning.`)) return;
+    const { data, error } = await supa.rpc('approve_scope', { p_scope_id: S.id, p_by: window.__email });
+    if (error || !data.ok) { msg(error ? error.message : data.reason, true); return; }
+    await loadScope(S.id); msg(`approved · ${data.assignments_written} person-months reserved in Hour Planning`);
+  }
+  async function unapprove() {
+    if (!confirm('Un-approve? The reserved hours leave Hour Planning and the scope becomes editable.')) return;
+    const { data, error } = await supa.rpc('unapprove_scope', { p_scope_id: S.id, p_by: window.__email });
+    if (error || !data.ok) { msg(error ? error.message : data.reason, true); return; }
+    await loadScope(S.id); msg('un-approved');
+  }
+  async function autoStaff() {
+    if (dirty && !(await save(''))) return;
+    const { data, error } = await supa.rpc('auto_staff_scope', { p_scope_id: S.id, p_by: window.__email });
+    if (error || !data.ok) { msg(error ? error.message : data.reason, true); return; }
+    await loadScope(S.id); msg(`auto-staffed ${data.rows_written} person-months`);
+  }
+  async function clearAuto() { S.staff_months = S.staff_months.filter(r => r.source !== 'auto'); markDirty(); renderEditor(); }
+  async function newScenario() {
+    if (dirty && !(await save(''))) return;
+    const name = prompt('Scenario name:', 'Scenario ' + ((X.siblings || []).length + 1));
+    if (name === null) return;
+    const { data, error } = await supa.rpc('create_scope', { p_origin_kind: 'scenario', p_ref: S.id, p_name: null, p_by: window.__email, p_scenario: name || null });
+    if (error || !data.ok) { msg(error ? error.message : data.reason, true); return; }
+    location.hash = '#s/' + data.scope_id;
+  }
+  async function showVersion(versionId) {
+    const { data, error } = await supa.from('scope_versions').select('version,reason,label,saved_by,saved_at,payload').eq('id', versionId).single();
+    if (error) { msg(error.message, true); return; }
+    const v = data.payload || {};
+    const months = scopeMonths((v.deals || []).map(d => ({ ...d, lines: (d.lines || []).map(l => ({ ...l, structure: l.structure || {}, months: l.months || {} })) })), ctx());
+    const gp = months.reduce((s, m) => s + m.gp, 0), reb = months.reduce((s, m) => s + m.rebate, 0), rev = months.reduce((s, m) => s + m.billable, 0);
+    const lines = (v.deals || []).flatMap(d => (d.lines || []).map(l => kindLabel(l))).join(', ');
+    const restore = !readOnly() && confirm(`v${data.version} · ${data.reason}${data.label ? ' · ' + data.label : ''} · ${new Date(data.saved_at).toLocaleString()} by ${data.saved_by || '—'}\n\nrevenue ${fmt$(rev)} · GP ${fmt$(gp - reb)}\nlines: ${lines || 'none'}\n\nRestore this version into the editor (nothing is saved until you Save)?`);
+    panel().querySelector('#sc-version').value = '';
+    if (!restore) return;
+    const keep = { id: S.id, family_id: S.family_id, status: S.status, version: S.version };
+    S = { ...v, ...keep };
+    S.deals = (S.deals || []).map(d => ({ ...d, lines: (d.lines || []).map(l => ({ ...l, structure: l.structure || {}, months: l.months || {} })) }));
+    S.dept_months = S.dept_months || []; S.staff_months = S.staff_months || [];
+    markDirty(); renderEditor(); markDirty();
+    msg(`showing v${data.version} — Save to keep it`);
+  }
+
+  go();
 });
-</script></body></html>
+</script>
+</body></html>

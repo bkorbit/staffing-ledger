@@ -117,7 +117,7 @@ const NAV = [
   { id: 'cashflow',  label: 'Cashflow',        href: './cashflow.html' },
   { sect: 'Revenue' },
   { id: 'sales',     label: 'Sales Forecast',  href: './sales.html' },
-  { id: 'scoping',   label: 'Scoping',         href: './scoping.html', soon: true },
+  { id: 'scoping',   label: 'Scoping',         href: './scoping.html' },
   { sect: 'Delivery' },
   { id: 'hourplan',  label: 'Hour Planning',   href: './hour-planning.html' },
   { id: 'clientprofit', label: 'Client Profitability', href: './client-profitability.html' },

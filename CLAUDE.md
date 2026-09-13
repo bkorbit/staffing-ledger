@@ -139,7 +139,7 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   finds the same shape for any other deal.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 095. Key views/functions
+## Current migration head: 097. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
@@ -248,7 +248,37 @@ is always a new migration, so grep for the highest one before reading an old bod
   `set_by 'seed:trailing-actuals'`; a rerun replaces the seed layer and NEVER
   touches a human row; `clear_seed_assignments()` deletes only seed rows.
   Controls live on Settings › Scoping. A cell set to 0 deletes its row.
-  Scoping (096+) will write approved scopes' named hours here too.
+  Scoping (096+) writes approved scopes' named hours here too (`deal_id` null,
+  `scope_id` set, `set_by 'scope:approve'`; promotion relinks `deal_id`).
+- **Scoping** (096/097, `app/scoping.html`) — is a deal viable before it exists.
+  Tables: `scopes` (family_id = scenarios, status draft→proposed→approved→
+  promoted, version = snapshot count), `scope_deals` (several future deals per
+  scope; origin hubspot|deal|new; promote_mode hubspot|new|extend), `scope_lines`
+  (+ `structure` jsonb: fee bands marginal|whole with min/cap, rebate {pct,
+  basis media|fee}, prog {model fee_margin|cpm}), `scope_line_months`,
+  `scope_dept_months` (DEMAND per department), `scope_staff_months` (SUPPLY:
+  named or placeholder = department × comp band; source manual|auto),
+  `scope_versions` (append-only). Primitives, ONE copy each, twinned in
+  `app/assets/scope-math.js` (tested by `scripts/test/scope-math.test.mjs` on
+  097_fixture_test's numbers): `line_fee` (UNROUNDED; flat = budget×pct/100 so
+  the 099 view stays byte-identical; bands on EACH MONTH's spend, boundary
+  inclusive; min then cap), `line_rebate`, `prog_suggest_margin` = target×(100+
+  fee)/100 − fee (GP measured on revenue). CPM = margin_pct 100 − platform
+  share, fee 0. `scope_months` = the scope twin of v_deal_month_forecast (+ fee,
+  rebate; gp is PRE-rebate). `scope_labor` returns TOTALS ONLY — named ×
+  staff_hourly_cost, placeholders × `band_rate`, uncovered demand × department
+  average; no per-person or per-department cost ever leaves SQL (Boris: salary
+  privacy). `scope_staffing` ranks candidates client history → kind history →
+  free hours → cost (rank only) and computes the hire/contractor option
+  (`scope_hire_costs` per department, `hire_hourly_cost` = loaded annual ÷ 2080);
+  `auto_staff_scope` fills gaps fewest-people-first. `scope_verdict`: pal = gp −
+  rebate − labor, per-hour vs `scope_target_profit_per_hour`, capacity, client
+  roll-up (client_detail measured + v_deal_month_forecast/assignments planned),
+  status go|go_with_hire|go_with_contractor|no_go|unclear. `scope_page` = one
+  round trip. `save_scope` (atomic, refuses approved/promoted), `create_scope`
+  (hubspot via hs_flight_lines | deal | new | client | scenario), approve/
+  unapprove (approvers from `scope_approver_emails`, enforced by the
+  `scopes_status_guard` trigger too), `quick_check`. Promotion = 100 (pending).
 - `snapshot_forecast`, `v_forecast_accuracy`, `v_invoice_settlement_calibration`
   [067] — measuring the model against itself.
 - `promote_approval(hubspot_deal_id)` [078] — the promotion door: deal +
@@ -273,9 +303,9 @@ is always a new migration, so grep for the highest one before reading an old bod
 - Nightly schedule for sync-hubspot.yml; QB Time sync rewrite; People /
   Departments pages are placeholders. **Scoping tool in progress** (plan in
   `~/.claude/plans/i-want-to-start-iridescent-sonnet.md`, 13 Sep 2026): Phase 1
-  Hour Planning shipped (095); next 096/097 scope tables + editor + verdict,
-  098 benchmarks + product catalog, 099/100 forecast handoff + promotion door,
-  101 cashflow rebate, 102 terms. Decisions locked with Boris there — labor
+  Hour Planning shipped (095); Phase 2 scope tables + editor + verdict shipped
+  (096/097); next 098 benchmarks + product catalog, 099/100 forecast handoff +
+  promotion door, 101 cashflow rebate, 102 terms. Decisions locked with Boris there — labor
   cost is ONE rolled-up number (salary privacy), rebate is COGS not billable,
   fee bands are monthly, Paid Media pools search + social, scope dates win at
   promotion, excluded catalog items skip silently.

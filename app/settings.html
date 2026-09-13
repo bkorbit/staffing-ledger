@@ -21,7 +21,7 @@ boot('settings', async (supa, el) => {
     // Scoping owns what a plan is measured against: how much of a person's
     // time may be planned onto client work, and the seed that gives Hour
     // Planning a day-one baseline from what people actually logged (095).
-    ['scoping', 'Scoping',      'Planning targets and the Hour Planning seed'],
+    ['scoping', 'Scoping',      'Profit target, approvers, comp bands, hire costs, and the Hour Planning seed'],
     ['int',     'Integrations', 'Sync health, import windows, raw settings']
   ];
 
@@ -385,14 +385,15 @@ boot('settings', async (supa, el) => {
   const STATE_NAME = Object.fromEntries(US_STATES);
 
   async function load() {
-    const [syncs, knobs, pipelineDeals, hsDeals, clientsList, wcRates, sutaRates] = await Promise.all([
+    const [syncs, knobs, pipelineDeals, hsDeals, clientsList, wcRates, sutaRates, staffDepts] = await Promise.all([
       supa.from('sync_state').select('id,last_run_at,last_run_log,import_from,import_from_set_by,import_from_set_at'),
       supa.from('settings').select('key,value,set_by').order('key'),
       supa.from('pipeline_deals').select('hubspot_deal_id,name,company,campaign_start,campaign_end,pipeline,is_won,url,jobcode,stage'),
       supa.from('deals').select('id,name,client_id,hubspot_deal_id,flight_start,flight_end,flight_locked,status,hidden').not('hubspot_deal_id', 'is', null),
       supa.from('clients').select('id,name'),
       supa.from('workers_comp_rates').select('state,rate,set_by').order('state'),
-      supa.from('suta_rates').select('state,wage_base,rate,set_by').order('state')
+      supa.from('suta_rates').select('state,wage_base,rate,set_by').order('state'),
+      supa.from('staff').select('department').eq('active', true).eq('tracks_capacity', true)
     ]);
     const knobVal = (key, dflt) => { const k = (knobs.data || []).find(x => x.key === key); return k ? k.value : dflt; };
 
@@ -615,18 +616,67 @@ boot('settings', async (supa, el) => {
     // planned onto client work; the rest is internal time. staff_capacity
     // reads it, so Hour Planning's bars and Scoping's capacity check both
     // move when it changes.
+    // 096: the profit-per-hour target the verdict measures against, the
+    // programmatic GP target the backend-margin suggestion aims at, the CPM
+    // default, who may approve, the comp bands placeholders are priced by
+    // (thresholds on burdened $/h — titles are unclear, comp levels are not),
+    // and the fully loaded cost of a hypothetical hire / a contractor per
+    // department for the "viable with a hire" verdict. Labor is never shown
+    // per person anywhere; bands are the only comp signal that leaves SQL.
+    const bands = knobVal('scope_comp_bands', [{name:'Band 1',upto_c:4500},{name:'Band 2',upto_c:7500},{name:'Band 3',upto_c:11500},{name:'Band 4',upto_c:null}]);
+    const hireCosts = knobVal('scope_hire_costs', {});
+    const approvers = knobVal('scope_approver_emails', []);
+    const scDepts = [...new Set([...(staffDepts.data||[]).map(s=>s.department).filter(Boolean), ...Object.keys(hireCosts)])].sort();
     document.getElementById('scopeknobs').innerHTML = `<div class="sc-eyebrow" style="margin-top:0">Planning targets</div>
-      <div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:4px">
-        <label class="mono" style="display:flex;flex-direction:column;gap:4px">
-          target utilization % (plannable share of a person's hours)
+      <div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:12px">
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">profit per hour target $ (GP − rebate − labor, per planned hour)
+          <input id="k-sc-perhour" type="number" min="0" step="any" style="width:120px;text-align:right" value="${esc(String(knobVal('scope_target_profit_per_hour', 150)))}"></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">target utilization % (plannable share of a person's hours)
           <input id="k-sc-util" type="number" min="1" max="100" style="width:120px;text-align:right" value="${esc(String(knobVal('scope_target_utilization_pct', 80)))}"></label>
-        <button class="primary" id="sc-knobs-save" style="align-self:flex-end">Save</button>
-        <span id="sc-knobs-msg" class="ok" style="align-self:flex-end;font-size:12px"></span>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">programmatic GP target % (of revenue; drives the backend-margin suggestion)
+          <input id="k-sc-proggp" type="number" min="0" max="100" step="any" style="width:120px;text-align:right" value="${esc(String(knobVal('scope_prog_target_gp_pct', 40)))}"></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">CPM billing: default platform share %
+          <input id="k-sc-cpm" type="number" min="0" max="100" step="any" style="width:120px;text-align:right" value="${esc(String(knobVal('scope_cpm_platform_share_pct', 50)))}"></label>
+      </div>
+      <div class="sc-eyebrow">Approvers</div>
+      <div class="muted" style="font-size:11px;margin-bottom:6px;max-width:640px">Only these emails can approve a scope (reserving its hours in Hour Planning) or promote it. One per line. Enforced in the database, not just by the button.</div>
+      <textarea id="k-sc-approvers" class="mono" rows="3" style="width:min(420px,100%);font-size:12px">${esc((approvers||[]).join('\n'))}</textarea>
+      <div class="sc-eyebrow">Comp bands (burdened $ / hour, ascending)</div>
+      <div class="muted" style="font-size:11px;margin-bottom:6px;max-width:640px">A person's band follows their current comp automatically. A scope's placeholder "Paid Media · Band 3 · 40h" is priced at the real average of the people in that band and department. The last band's ceiling is blank (and above).</div>
+      <table style="width:auto"><tr><th>band</th><th>up to $ / h</th></tr>
+        ${(bands||[]).map((b,i)=>`<tr><td><input class="k-sc-bandname" data-i="${i}" value="${esc(b.name||'')}" style="width:140px"></td>
+          <td><input class="k-sc-bandupto" data-i="${i}" type="number" step="any" style="width:110px;text-align:right" value="${b.upto_c==null?'':(b.upto_c/100)}" placeholder="${i===(bands.length-1)?'and above':''}"></td></tr>`).join('')}</table>
+      <div class="sc-eyebrow">Hire &amp; contractor cost per department</div>
+      <div class="muted" style="font-size:11px;margin-bottom:6px;max-width:640px">Used only when a scope cannot be staffed from free capacity: "viable with a hire" prices the uncovered hours at the fully loaded annual cost ÷ 2,080, "viable with a contractor" at the hourly rate. Leave blank for departments you would not hire into.</div>
+      <table style="width:auto"><tr><th>department</th><th>new hire, loaded $ / yr</th><th>contractor $ / h</th></tr>
+        ${scDepts.map(d=>`<tr><td class="textleft">${esc(d)}</td>
+          <td><input class="k-sc-hire" data-dept="${esc(d)}" type="number" step="any" style="width:130px;text-align:right" value="${hireCosts[d]&&hireCosts[d].annual_c!=null?hireCosts[d].annual_c/100:''}"></td>
+          <td><input class="k-sc-contr" data-dept="${esc(d)}" type="number" step="any" style="width:110px;text-align:right" value="${hireCosts[d]&&hireCosts[d].contractor_hourly_c!=null?hireCosts[d].contractor_hourly_c/100:''}"></td></tr>`).join('')}</table>
+      <div style="display:flex;gap:12px;align-items:center;margin-top:12px">
+        <button class="primary" id="sc-knobs-save">Save</button>
+        <span id="sc-knobs-msg" class="ok" style="font-size:12px"></span>
       </div>`;
     document.getElementById('sc-knobs-save').onclick = async () => {
+      const stamp = { set_by:window.__email, set_at:new Date().toISOString() };
+      const newBands = [...document.querySelectorAll('.k-sc-bandname')].map((n,i)=>{
+        const up = document.querySelector(`.k-sc-bandupto[data-i="${i}"]`).value;
+        return { name: n.value.trim() || `Band ${i+1}`, upto_c: up==='' ? null : Math.round(+up*100) }; });
+      // ascending, only the last open — a bad order would misprice every placeholder
+      for (let i=0;i<newBands.length-1;i++) if (newBands[i].upto_c==null || (i>0 && newBands[i].upto_c<=newBands[i-1].upto_c)) {
+        document.getElementById('sc-knobs-msg').textContent = 'bands must be ascending, only the last one open'; document.getElementById('sc-knobs-msg').className='err'; return; }
+      const costs = {};
+      document.querySelectorAll('.k-sc-hire').forEach(i=>{ const d=i.dataset.dept; const c=document.querySelector(`.k-sc-contr[data-dept="${d}"]`);
+        const o={}; if(i.value!=='') o.annual_c=Math.round(+i.value*100); if(c&&c.value!=='') o.contractor_hourly_c=Math.round(+c.value*100);
+        if(Object.keys(o).length) costs[d]=o; });
       const { error } = await supa.from('settings').upsert([
-        { key:'scope_target_utilization_pct', value:+document.getElementById('k-sc-util').value||80,
-          set_by:window.__email, set_at:new Date().toISOString() }], { onConflict:'key' });
+        { key:'scope_target_profit_per_hour', value:+document.getElementById('k-sc-perhour').value||150, ...stamp },
+        { key:'scope_target_utilization_pct', value:+document.getElementById('k-sc-util').value||80, ...stamp },
+        { key:'scope_prog_target_gp_pct', value:+document.getElementById('k-sc-proggp').value||40, ...stamp },
+        { key:'scope_cpm_platform_share_pct', value:+document.getElementById('k-sc-cpm').value||50, ...stamp },
+        { key:'scope_approver_emails', value:document.getElementById('k-sc-approvers').value.split(/\n|,/).map(s=>s.trim().toLowerCase()).filter(Boolean), ...stamp },
+        { key:'scope_comp_bands', value:newBands, ...stamp },
+        { key:'scope_hire_costs', value:costs, ...stamp }], { onConflict:'key' });
+      document.getElementById('sc-knobs-msg').className = error ? 'err' : 'ok';
       document.getElementById('sc-knobs-msg').textContent = error ? error.message : 'saved';
       if (!error) load();
     };
