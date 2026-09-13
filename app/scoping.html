@@ -261,7 +261,17 @@ boot('scoping', async (supa, el) => {
     if (error) { panel().innerHTML = `<div class="sc-panel err">${esc(error.message)}</div>`; return; }
     if (!data || !data.id) { panel().innerHTML = `<div class="sc-panel err">Scope not found.</div>`; return; }
     const { econ, labor, staffing, verdict, versions, siblings, staff, departments, clients, settings, sources, ...state } = data;
-    S = state; X = { econ, labor, staffing, verdict, versions, siblings, staff, departments, clients, settings, sources };
+    S = state; X = { econ, labor, staffing, verdict, versions, siblings, staff, departments, clients, settings, sources, qbo: null };
+    // an approved scope is about to promote: the QuickBooks projects its deals
+    // will claim are picked here (101) — loaded only when that is possible
+    if (S.status === 'approved' && (settings.approvers || []).map(e => String(e).toLowerCase().trim()).includes(me())) {
+      const [pr, claimed] = await Promise.all([
+        fetchAll(() => supa.from('qbo_projects').select('id,name,parent_id').eq('hidden', false).order('name')),
+        fetchAll(() => supa.from('deals').select('qbo_project_id').not('qbo_project_id', 'is', null))
+      ]);
+      const taken = new Set((claimed.data || []).map(d => d.qbo_project_id));
+      X.qbo = (pr.data || []).filter(p => !taken.has(p.id));
+    }
     S.deals = (S.deals || []).map(d => ({ ...d, lines: (d.lines || []).map(l => ({ ...l, structure: l.structure || {}, months: l.months || {} })) }));
     S.dept_months = S.dept_months || []; S.staff_months = S.staff_months || [];
     dirty = false;
@@ -306,7 +316,7 @@ boot('scoping', async (supa, el) => {
         ${S.status === 'proposed' ? `<button class="ghost" id="sc-draft">Back to draft</button>` : ''}
         ${S.status === 'proposed' && isApprover() ? `<button class="primary" id="sc-approve">Approve</button>` : ''}
         ${S.status === 'approved' && isApprover() ? `<button class="ghost" id="sc-unapprove">Un-approve</button>` : ''}
-        ${S.status === 'approved' ? `<button class="ghost" disabled title="Promotion lands with migration 100">Promote</button>` : ''}
+        ${S.status === 'approved' && isApprover() ? `<button class="primary" id="sc-promote" title="Create the deals in the Forecast: HubSpot deals through the approval door, new deals as manual deals, re-scopes by extending the source deal">Promote</button>` : ''}
         <span id="sc-msg" class="ok" style="font-size:12px"></span>
       </div>
 
@@ -331,6 +341,7 @@ boot('scoping', async (supa, el) => {
           <input id="sc-notes" class="dname" value="${esc(S.notes || '')}" ${ro ? 'disabled' : ''} placeholder="anything the terms or the reviewer should know"></div>
       </div>
 
+      ${X.qbo ? `<datalist id="sc-qbo-list">${X.qbo.map(p => `<option value="${esc(p.name)}"></option>`).join('')}</datalist>` : ''}
       <div id="sc-deals" style="padding:0 18px">${S.deals.map((d, di) => dealHtml(d, di, ro)).join('')}
         ${ro ? '' : `<div style="margin-top:10px"><button class="ghost" id="sc-adddeal">+ add a deal to this scope</button></div>`}
       </div>
@@ -425,6 +436,9 @@ boot('scoping', async (supa, el) => {
         <label class="pf shape"><span class="pfl">on promote</span><select data-f="deal:${di}:promote_mode" ${ro ? 'disabled' : ''}>
           ${modes.map(([v, lab]) => `<option value="${v}" ${d.promote_mode === v ? 'selected' : ''}>${lab}</option>`).join('')}</select></label>
         ${src ? `<span class="sc-note">${d.origin_kind === 'hubspot' ? `HubSpot: ${esc(src.company || '')} · ${src.amount != null ? fmt$(src.amount) : ''}${src.url ? ` · <a href="${esc(src.url)}" target="_blank" rel="noopener">open</a>` : ''}` : `source deal: ${esc(src.name)} (${esc(src.flight_start || '')} → ${esc(src.flight_end || '')})`}</span>` : ''}
+        ${d.promoted_deal_id ? `<span class="pill st-live">promoted</span><a class="sc-note" href="./forecast.html?open=${d.promoted_deal_id}">open in Forecast →</a>` : ''}
+        ${!d.promoted_deal_id && X.qbo && d.promote_mode !== 'extend' ? `<label class="pf shape"><span class="pfl">QuickBooks project${d.promote_mode === 'hubspot' ? ' (required)' : ''}</span>
+          <input list="sc-qbo-list" data-qbo="${di}" placeholder="type to search…" value="${esc(((X.qbo || []).find(p => p.id === d.qbo_project_id) || {}).name || '')}" style="width:260px"></label>` : ''}
         <span style="flex:1"></span>
         <span class="lgp" data-out="dealgp:${di}"></span>
         ${ro || S.deals.length < 2 ? '' : `<button class="danger" data-act="rmdeal:${di}" title="remove this deal from the scope">✕</button>`}
@@ -614,7 +628,7 @@ boot('scoping', async (supa, el) => {
     p.querySelector('#sc-version').onchange = e => { if (e.target.value) showVersion(e.target.value); };
     const on = (id, fn) => { const n = p.querySelector('#' + id); if (n) n.onclick = fn; };
     on('sc-save', () => save()); on('sc-propose', () => setStatus('proposed')); on('sc-draft', () => setStatus('draft'));
-    on('sc-approve', approve); on('sc-unapprove', unapprove); on('sc-adddeal', () => { S.deals.push({ ord: S.deals.length, name: 'Deal ' + (S.deals.length + 1), origin_kind: 'new', promote_mode: 'new', flight_start: null, flight_end: null, lines: [] }); markDirty(); renderEditor(); });
+    on('sc-approve', approve); on('sc-unapprove', unapprove); on('sc-promote', promote); on('sc-adddeal', () => { S.deals.push({ ord: S.deals.length, name: 'Deal ' + (S.deals.length + 1), origin_kind: 'new', promote_mode: 'new', flight_start: null, flight_end: null, lines: [] }); markDirty(); renderEditor(); });
     on('sc-autostaff', autoStaff); on('sc-clearauto', clearAuto);
     p.querySelectorAll('tr.namerow[data-open]').forEach(tr => { tr.onclick = () => { location.hash = '#' + tr.dataset.open; }; });
     if (ro) return;
@@ -774,6 +788,29 @@ boot('scoping', async (supa, el) => {
     const { data, error } = await supa.rpc('approve_scope', { p_scope_id: S.id, p_by: window.__email });
     if (error || !data.ok) { msg(error ? error.message : data.reason, true); return; }
     await loadScope(S.id); msg(`approved · ${data.assignments_written} person-months reserved in Hour Planning`);
+  }
+  async function promote() {
+    // QuickBooks project per deal: required for HubSpot deals (the approval
+    // row needs one), optional for new deals, not asked for an extension
+    const projects = {};
+    const byName = Object.fromEntries((X.qbo || []).map(p => [p.name.toLowerCase(), p.id]));
+    for (const [di, d] of S.deals.entries()) {
+      if (d.promoted_deal_id || d.promote_mode === 'extend') continue;
+      const inp = panel().querySelector(`input[data-qbo="${di}"]`);
+      const name = inp ? inp.value.trim().toLowerCase() : '';
+      const id = name ? byName[name] : null;
+      if (name && !id) { msg(`"${inp.value}" is not an unclaimed QuickBooks project`, true); return; }
+      if (d.promote_mode === 'hubspot' && !id && !d.qbo_project_id) { msg(`pick the QuickBooks project for ${d.name}`, true); return; }
+      if (id) projects[d.id] = id;
+    }
+    const what = S.deals.filter(d => !d.promoted_deal_id).map(d => `• ${d.name}: ${d.promote_mode === 'hubspot' ? 'through the HubSpot approval door' : d.promote_mode === 'extend' ? 'extend the existing deal from this month' : 'new deal in the Forecast'}`).join('\n');
+    if (!confirm(`Promote this scope? All or nothing.\n\n${what}\n\nThe reserved hours move onto the deal in Hour Planning.`)) return;
+    msg('promoting…');
+    const { data, error } = await supa.rpc('promote_scope', { p_scope_id: S.id, p_by: window.__email, p_projects: projects });
+    if (error || !data.ok) { msg(error ? error.message : data.reason, true); return; }
+    await loadScope(S.id);
+    const ids = data.deal_ids || [];
+    msg(`promoted · ${ids.length} deal${ids.length === 1 ? '' : 's'} in the Forecast`);
   }
   async function unapprove() {
     if (!confirm('Un-approve? The reserved hours leave Hour Planning and the scope becomes editable.')) return;

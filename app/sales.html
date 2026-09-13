@@ -505,8 +505,10 @@ boot('sales', async (supa, el) => {
       : res.flighted
         ? `${res.lines} line${res.lines === 1 ? '' : 's'} flighted from the HubSpot line items — worth checking before you trust them.`
         : `No lines created (${esc(res.reason || 'nothing mappable')}) — shape it in the Forecast.`;
+    // 101: an approved scope supplied the lines and the flight dates instead
+    const scoped = res.scope_id ? ` <a href="./scoping.html#s/${esc(res.scope_id)}" style="font-size:10px">lines and dates from its approved scope →</a>` : '';
     return `<div style="min-width:220px"><b>${esc(name)}</b>
-        <div class="muted" style="font-size:10px">${detail}</div></div>
+        <div class="muted" style="font-size:10px">${detail}${scoped}</div></div>
       <span class="flag g">✓ promoted</span>
       <a href="./forecast.html">view in Forecast →</a>`;
   }

@@ -139,7 +139,7 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   finds the same shape for any other deal.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 100. Key views/functions
+## Current migration head: 101. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
@@ -318,14 +318,30 @@ is always a new migration, so grep for the highest one before reading an old bod
   `scripts/test/scope-parsers.test.mjs`.
 - `snapshot_forecast`, `v_forecast_accuracy`, `v_invoice_settlement_calibration`
   [067] — measuring the model against itself.
-- `promote_approval(hubspot_deal_id)` [078] — the promotion door: deal +
+- `promote_approval(hubspot_deal_id)` [101] — the promotion door: deal +
   promotion + flighted lines in ONE transaction, called by Sales Forecast's
-  Approve button (the normal path) and by sync-hubspot.mjs as a retry for
-  anything still queued. Both go through the single once-only check inside it,
-  under an advisory lock, so a deal can never promote twice. Its helpers
-  `hs_flight_lines` / `hs_line_item_map` [078] are the ONLY copy of the
+  Approve button (the normal path), by `promote_scope`, and by sync-hubspot.mjs
+  as a retry for anything still queued. All go through the single once-only
+  check inside it, under an advisory lock, so a deal can never promote twice.
+  101: when an APPROVED scope deal exists for the HubSpot id, the deal takes
+  the SCOPE's flight dates (`flight_locked`) and lines (structure + rebate)
+  instead of `hs_flight_lines`, the scope deal is marked promoted and its
+  reserved hours relink; result carries `scope_id`. Its helpers
+  `hs_flight_lines` [098] / `hs_line_item_map` [098] are the ONLY copy of the
   line-item flighting math — the JS twin in sync-hubspot.mjs was deleted, not
   left to drift.
+- `promote_scope(scope_id, by, projects)` [101] — approvers only, scope
+  approved, ALL OR NOTHING over the scope's deals: `hubspot` → upsert
+  `promotion_approvals` then `promote_approval` (lock order promote_scope →
+  promote_approval); `new` → manual won deal, flight_locked, scope_id; `extend`
+  → source deal grows to the scope's dates, its existing lines get explicit
+  ZERO month rows from this month on (closed months untouched), the scope's
+  lines are added from this month with their closed months pinned at 0. Then
+  `relink_scope_assignments` (scope reservations → first promoted deal,
+  merging duplicates) and `finish_scope_promotion` (status promoted + version).
+  `p_projects` = {scope_deal_id: qbo_project_id}. 101_fixture_test row 1 is the
+  handoff identity: every `v_deal_month_forecast` row of the new deal equals
+  `scope_months`.
 - `match_deals_to_projects()` [010/037] — residual deal↔QBO-project fill-gaps
   pass; never guesses, never clobbers a human's match.
 
@@ -342,8 +358,8 @@ is always a new migration, so grep for the highest one before reading an old bod
   `~/.claude/plans/i-want-to-start-iridescent-sonnet.md`, 13 Sep 2026): Phase 1
   Hour Planning shipped (095); Phase 2 scope tables + editor + verdict shipped
   (096/097); Phase 3 product catalog + benchmarks shipped (098/099); Phase 4a
-  forecast handoff shipped (100); next 101 promotion door (promote_scope,
-  promote_approval prefers an approved scope), 102 cashflow rebate, 103 terms. Decisions locked with Boris there — labor
+  forecast handoff shipped (100); Phase 4b promotion door shipped (101); next
+  102 cashflow rebate (optional, after 100 is trusted in prod), 103 terms. Decisions locked with Boris there — labor
   cost is ONE rolled-up number (salary privacy), rebate is COGS not billable,
   fee bands are monthly, Paid Media pools search + social, scope dates win at
   promotion, excluded catalog items skip silently.

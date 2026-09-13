@@ -1970,5 +1970,13 @@ boot('forecast', async (supa, el) => {
   }
 
   await loadAll();
+  // 101: Scoping links a promoted deal straight into its editor
+  // (forecast.html?open=<deal_id>); the param is dropped from the URL so a
+  // reload shows the plain page
+  const openParam = new URLSearchParams(location.search).get('open');
+  if (openParam && /^[0-9a-f-]{36}$/.test(openParam)) {
+    history.replaceState(null, '', location.pathname + location.hash);
+    toggleEditor(openParam);
+  }
 });
 </script></body></html>
