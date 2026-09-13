@@ -139,7 +139,7 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   finds the same shape for any other deal.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 094. Key views/functions
+## Current migration head: 095. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
@@ -235,6 +235,20 @@ is always a new migration, so grep for the highest one before reading an old bod
   Two sessions worked this tree on 8 Sep 2026: `git add -A` swept the other
   session's untracked 090 into commit 1a1005f — stage explicit paths when
   another session may be active.
+- **Hour Planning** (095, `app/hour-planning.html`) — the ONLY writer of
+  `assignments` (staff × deal × month planned hours; hours_page has read it
+  since 034). `assignments_page(p_from,p_to)` is its one payload, hours only —
+  never a cost or rate. `staff_capacity(p_from,p_to)` = weekly_capacity/5 ×
+  business days employed × `scope_target_utilization_pct` (Team Hours' rule,
+  clipped to start/end dates); `app/assets/capacity.js` is the one copy of the
+  red/amber classification, shared with Scoping (must not import shell.js).
+  `seed_assignments(lookback, by)` writes a day-one baseline from
+  `assignments_seed_basis` (counted hours over the trailing N whole months ÷ N,
+  live unhidden deals still flighting, active non-excluded staff), rows stamped
+  `set_by 'seed:trailing-actuals'`; a rerun replaces the seed layer and NEVER
+  touches a human row; `clear_seed_assignments()` deletes only seed rows.
+  Controls live on Settings › Scoping. A cell set to 0 deletes its row.
+  Scoping (096+) will write approved scopes' named hours here too.
 - `snapshot_forecast`, `v_forecast_accuracy`, `v_invoice_settlement_calibration`
   [067] — measuring the model against itself.
 - `promote_approval(hubspot_deal_id)` [078] — the promotion door: deal +
@@ -256,8 +270,15 @@ is always a new migration, so grep for the highest one before reading an old bod
 - April 2026 has a −$795k below-the-line one-off ("Non Operating Loss" account,
   classified overhead → already in our chart). override_class to 'excluded' if
   Boris wants it out of the operating trend.
-- Nightly schedule for sync-hubspot.yml; QB Time sync rewrite; People / Hour
-  Planning / Departments / Scoping pages are placeholders.
+- Nightly schedule for sync-hubspot.yml; QB Time sync rewrite; People /
+  Departments pages are placeholders. **Scoping tool in progress** (plan in
+  `~/.claude/plans/i-want-to-start-iridescent-sonnet.md`, 13 Sep 2026): Phase 1
+  Hour Planning shipped (095); next 096/097 scope tables + editor + verdict,
+  098 benchmarks + product catalog, 099/100 forecast handoff + promotion door,
+  101 cashflow rebate, 102 terms. Decisions locked with Boris there — labor
+  cost is ONE rolled-up number (salary privacy), rebate is COGS not billable,
+  fee bands are monthly, Paid Media pools search + social, scope dates win at
+  promotion, excluded catalog items skip silently.
 - Cashflow refinements deferred: retire COGS run-rate at high shaped coverage;
   invoiced deal-months exiting the contracted tier.
 - SECURITY: a GitHub PAT was embedded in the old sandbox's git remote — must be

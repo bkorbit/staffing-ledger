@@ -818,3 +818,28 @@ table.acct td select.acct-class { font-size:11px; padding:3px 6px; max-width:210
 table.acct th[data-sort] { cursor:pointer; user-select:none; }
 table.acct th[data-sort]:hover { color:var(--brand); }
 table.acct th[data-sort]:focus-visible { outline:2px solid var(--brand-2); outline-offset:-2px; }
+
+/* ---- Hour Planning (095): roster bars, editable month grid, ghost seeds ---- */
+/* the label column stays put while the month columns scroll inside .gridwrap
+   (laptop-discipline rule: month columns never collapse) */
+.hp table th:first-child, .hp table td:first-child { position:sticky; left:0; z-index:1; background:var(--paper-raised); }
+.hp tr.hp-client td { background:#f2f2f2; text-align:left; font-family:var(--font-mono); font-size:9.5px;
+  letter-spacing:.08em; text-transform:uppercase; color:var(--slate); position:static; }
+.hp .mcol { min-width:96px; }
+.hp .mcol .mini-track { margin-top:0; }
+.hp-capline { font-family:var(--font-mono); font-size:10px; margin-top:3px; white-space:nowrap; }
+.hp-expand { padding:10px 12px 12px; }
+table.hp-grid { width:auto; }
+table.hp-grid th, table.hp-grid td { padding:4px 6px; }
+.hp-cell { vertical-align:top; }
+input.hcell { width:72px; height:26px; text-align:right; font-family:var(--font-mono); font-size:11.5px; padding:0 6px; }
+/* a seeded value is a suggestion until a human edits it: italic slate, same
+   voice the Forecast's closed-month columns use for "not yours to type" */
+input.hcell.ghost { color:var(--slate); font-style:italic; }
+.hp-hint { font-family:var(--font-mono); font-size:9.5px; color:var(--slate); margin-top:2px; white-space:nowrap; }
+.hp-addrow { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; }
+.hp-addrow select { height:28px; font-size:11px; max-width:100%; }
+@media (max-width:640px) {
+  .hp .mcol { min-width:72px; }
+  input.hcell { width:60px; }
+}

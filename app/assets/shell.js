@@ -119,7 +119,7 @@ const NAV = [
   { id: 'sales',     label: 'Sales Forecast',  href: './sales.html' },
   { id: 'scoping',   label: 'Scoping',         href: './scoping.html', soon: true },
   { sect: 'Delivery' },
-  { id: 'hourplan',  label: 'Hour Planning',   href: './hour-planning.html', soon: true },
+  { id: 'hourplan',  label: 'Hour Planning',   href: './hour-planning.html' },
   { id: 'clientprofit', label: 'Client Profitability', href: './client-profitability.html' },
   { id: 'projhours', label: 'Project Hours',   href: './project-hours.html' },
   { id: 'teamhours', label: 'Team Hours',      href: './team-hours.html' },

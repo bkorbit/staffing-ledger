@@ -59,7 +59,11 @@ const appDir = new URL('../app/', import.meta.url);
 for (const f of readdirSync(appDir).filter(f => f.endsWith('.html') && f !== 'forecast.html')) {
   const m = readFileSync(new URL(f, appDir), 'utf8').match(/<script type="module">([\s\S]*?)<\/script>/);
   if (!m) continue;
-  const stubbed = m[1].replace(/import\s*\{([^}]*)\}\s*from '[^']*';/, (_, names) =>
+  // every import line, not just the first — pages may import shell.js AND a
+  // shared module (capacity.js, scope-math.js); a second import left in
+  // place would parse fine but hide nothing, and a stubbed first import next
+  // to a real second one is not what the browser runs either
+  const stubbed = m[1].replace(/import\s*\{([^}]*)\}\s*from '[^']*';/g, (_, names) =>
     'const ' + names.split(',').map(n => n.trim().split(/\s+as\s+/).pop()).filter(Boolean).map(n => `${n}=()=>{}`).join(',') + ';');
   writeFileSync('/tmp/_page_check.mjs', stubbed);
   try { execSync('node --check /tmp/_page_check.mjs', { stdio: 'pipe' }); }

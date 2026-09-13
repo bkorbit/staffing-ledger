@@ -18,6 +18,10 @@ boot('settings', async (supa, el) => {
     // moved here — a setup screen belongs with the other setup screens.
     ['clients', 'Clients',      'Which QuickBooks customer each client is, and which names HubSpot may never match'],
     ['crm',     'CRM sync',     'HubSpot reconciliation and the promotion gate'],
+    // Scoping owns what a plan is measured against: how much of a person's
+    // time may be planned onto client work, and the seed that gives Hour
+    // Planning a day-one baseline from what people actually logged (095).
+    ['scoping', 'Scoping',      'Planning targets and the Hour Planning seed'],
     ['int',     'Integrations', 'Sync health, import windows, raw settings']
   ];
 
@@ -59,6 +63,10 @@ boot('settings', async (supa, el) => {
     <section data-sec="crm" id="secpanel-crm" role="tabpanel" aria-labelledby="settab-crm" hidden>
       <div class="sc-panel" id="hsreview"></div>
       <div class="sc-panel" id="crmknobs"></div>
+    </section>
+    <section data-sec="scoping" id="secpanel-scoping" role="tabpanel" aria-labelledby="settab-scoping" hidden>
+      <div class="sc-panel" id="scopeknobs"></div>
+      <div class="sc-panel" id="scopeseed"></div>
     </section>
     <section data-sec="int" id="secpanel-int" role="tabpanel" aria-labelledby="settab-int" hidden>
       <div class="sc-panel" id="syncs">loading…</div>
@@ -599,6 +607,75 @@ boot('settings', async (supa, el) => {
         { key:'sales_probability_threshold', value:+document.getElementById('k-threshold').value||40,
           set_by:window.__email, set_at:new Date().toISOString() }], { onConflict:'key' });
       document.getElementById('crm-msg').textContent = error ? error.message : 'saved';
+      if (!error) load();
+    };
+
+    // ---- Scoping: planning targets + the Hour Planning seed (095) ---------
+    // Utilization is the share of a person's business-day hours that may be
+    // planned onto client work; the rest is internal time. staff_capacity
+    // reads it, so Hour Planning's bars and Scoping's capacity check both
+    // move when it changes.
+    document.getElementById('scopeknobs').innerHTML = `<div class="sc-eyebrow" style="margin-top:0">Planning targets</div>
+      <div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:4px">
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">
+          target utilization % (plannable share of a person's hours)
+          <input id="k-sc-util" type="number" min="1" max="100" style="width:120px;text-align:right" value="${esc(String(knobVal('scope_target_utilization_pct', 80)))}"></label>
+        <button class="primary" id="sc-knobs-save" style="align-self:flex-end">Save</button>
+        <span id="sc-knobs-msg" class="ok" style="align-self:flex-end;font-size:12px"></span>
+      </div>`;
+    document.getElementById('sc-knobs-save').onclick = async () => {
+      const { error } = await supa.from('settings').upsert([
+        { key:'scope_target_utilization_pct', value:+document.getElementById('k-sc-util').value||80,
+          set_by:window.__email, set_at:new Date().toISOString() }], { onConflict:'key' });
+      document.getElementById('sc-knobs-msg').textContent = error ? error.message : 'saved';
+      if (!error) load();
+    };
+
+    // The seed fills the empty assignments table from what people actually
+    // logged on live deals over the lookback: one row per remaining flight
+    // month, stamped seed:trailing-actuals, shown in italics on Hour
+    // Planning until someone edits it. Rerunning replaces the seed layer and
+    // never touches a row a person wrote; Clear removes only seed rows.
+    const lastSeed = knobVal('assignments_seed_last_run', null);
+    document.getElementById('scopeseed').innerHTML = `<div class="sc-eyebrow" style="margin-top:0">Hour Planning seed</div>
+      <div class="muted" style="font-size:11px;margin-bottom:8px;max-width:640px">
+        Gives Hour Planning a day-one baseline: each person's average monthly
+        hours per live deal over the lookback becomes their plan for the
+        deal's remaining months. Seeded rows stay italic until a person edits
+        them; the seed never overwrites a human row, and Clear removes only
+        seed rows.</div>
+      <div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:4px;align-items:flex-end">
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">
+          lookback (whole months before this one)
+          <input id="k-sc-lookback" type="number" min="1" max="12" style="width:120px;text-align:right" value="${esc(String(knobVal('assignments_seed_lookback_months', 3)))}"></label>
+        <button class="primary" id="sc-seed-save">Save lookback</button>
+        <button class="ghost" id="sc-seed-run">Run seed</button>
+        <button class="danger" id="sc-seed-clear">Clear seed</button>
+        <span id="sc-seed-msg" class="ok" style="font-size:12px"></span>
+      </div>
+      <div class="muted" style="font-size:11px;margin-top:8px">${lastSeed
+        ? `last run ${new Date(lastSeed.at).toLocaleString()} by ${esc(lastSeed.by || '—')}: ${esc(String(lastSeed.rows_written))} rows written, ${esc(String(lastSeed.rows_deleted))} stale rows removed, ${esc(String(lastSeed.pairs))} person×deal pairs, ${esc(String(lastSeed.lookback))}-month lookback`
+        : 'never run'}</div>`;
+    document.getElementById('sc-seed-save').onclick = async () => {
+      const { error } = await supa.from('settings').upsert([
+        { key:'assignments_seed_lookback_months', value:+document.getElementById('k-sc-lookback').value||3,
+          set_by:window.__email, set_at:new Date().toISOString() }], { onConflict:'key' });
+      document.getElementById('sc-seed-msg').textContent = error ? error.message : 'saved';
+      if (!error) load();
+    };
+    document.getElementById('sc-seed-run').onclick = async () => {
+      const lookback = +document.getElementById('k-sc-lookback').value || 3;
+      if (!confirm(`Seed Hour Planning from the last ${lookback} months of logged hours? Rows people have edited are never touched.`)) return;
+      document.getElementById('sc-seed-msg').textContent = 'seeding…';
+      const { data, error } = await supa.rpc('seed_assignments', { p_lookback: lookback, p_by: window.__email });
+      document.getElementById('sc-seed-msg').textContent = error ? error.message
+        : `seeded ${data.rows_written} rows (${data.pairs} person×deal pairs), removed ${data.rows_deleted} stale`;
+      if (!error) load();
+    };
+    document.getElementById('sc-seed-clear').onclick = async () => {
+      if (!confirm('Delete every seeded row that nobody has edited? Rows people entered or edited stay.')) return;
+      const { data, error } = await supa.rpc('clear_seed_assignments');
+      document.getElementById('sc-seed-msg').textContent = error ? error.message : `removed ${data.rows_deleted} seeded rows`;
       if (!error) load();
     };
 

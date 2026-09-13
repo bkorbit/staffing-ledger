@@ -2,9 +2,390 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EMG — Hour Planning</title><link rel="stylesheet" href="./assets/style.css?v=5bd1004"></head><body>
 <script type="module">
-import { boot } from './assets/shell.js?v=5bd1004';
+import { boot, esc, wireSearch } from './assets/shell.js?v=5bd1004';
+import { loadStatus, statusPill, statusLabel, fmtH, mLabel, shiftM, monthsBetween, thisMonth } from './assets/capacity.js?v=5bd1004';
+
+// Planned hours: who is meant to work on what, month by month. This page is
+// the ONLY writer of `assignments` (db/001; hours_page has read it since 034
+// and every "planned" column on Team Hours / Project Hours / Client
+// Profitability shows what is entered here). Approving a scope (096+) writes
+// here too. Hours only — no cost or rate ever reaches this page.
+//
+// One RPC, assignments_page (095): roster, live deals overlapping the range,
+// assignments with their provenance (set_by), the seed's trailing averages
+// (ghost hints in empty cells), logged actuals for closed months, and
+// staff_capacity rows (weekly capacity / 5 × business days × target
+// utilization, Team Hours' rule). Red/amber comes from capacity.js, the one
+// copy Scoping reads too.
+//
+// Seeded rows (set_by 'seed:trailing-actuals', run from Settings › Scoping)
+// render italic until a person edits them — an edit re-stamps set_by with
+// the editor's email, which is what makes the row a human decision the seed
+// will never overwrite again. A cell set to 0 deletes its row.
+//
+// Never feeds revenue (invariant 7 in 001): nothing here is read by the
+// Forecast.
 boot('hourplan', async (supa, el) => {
-  el.innerHTML = `<div class="placeholder"><div style="font-size:15px;margin-bottom:6px">Not built yet</div>
-    Reads deal flights; never feeds back into revenue. Waits on the QB Time sync rewrite.</div>`;
+  const LS = { view: 'sc_hp_view', range: 'sc_hp_range', dept: 'sc_hp_dept', inactive: 'sc_hp_inactive' };
+  const ls = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch { return null; } };
+
+  const HP = {
+    from: thisMonth(), to: shiftM(thisMonth(), 5),
+    view: ls(LS.view) === 'deals' ? 'deals' : 'people',
+    q: '', dept: ls(LS.dept) || '', showInactive: ls(LS.inactive) === '1',
+    open: new Set(), data: null, saving: 0
+  };
+  try { const r = JSON.parse(ls(LS.range) || 'null'); if (r && r.from && r.to) { HP.from = r.from; HP.to = r.to; } } catch {}
+
+  // deep links: #person/<id> or #deal/<id>
+  (() => {
+    const m = (location.hash || '').match(/^#(person|deal)\/([0-9a-f-]{36})$/);
+    if (!m) return;
+    HP.view = m[1] === 'deal' ? 'deals' : 'people';
+    HP.open.add(m[2]);
+  })();
+
+  el.innerHTML = `<div id="panel">loading…</div>`;
+  const panel = () => el.querySelector('#panel');
+
+  async function load() {
+    if (HP.to < HP.from) HP.to = HP.from;
+    ls(LS.range, JSON.stringify({ from: HP.from, to: HP.to }));
+    const { data, error } = await supa.rpc('assignments_page', { p_from: HP.from, p_to: HP.to });
+    if (error) {
+      const missing = /assignments_page/.test(error.message) && /not exist|schema cache/i.test(error.message);
+      panel().innerHTML = `<div class="sc-panel err">${esc(error.message)}${missing ?
+        '\n\nThis page needs db/095_assignments_planning.sql applied in the Supabase SQL editor.' : ''}</div>`;
+      return;
+    }
+    HP.data = data;
+    render();
+  }
+
+  // ---- derived indexes, rebuilt from the payload on every render ----------
+  function derive() {
+    const D = HP.data;
+    const months = monthsBetween(HP.from, HP.to);
+    const cur = D.range.current;
+    const staffById = Object.fromEntries((D.staff || []).map(s => [s.id, s]));
+    const dealsById = Object.fromEntries((D.deals || []).map(d => [d.id, d]));
+    const cells = new Map();                 // sid|did|m -> row
+    const plannedSM = new Map();             // sid|m -> hours
+    const plannedDM = new Map();             // did|m -> hours
+    const dealsOfStaff = new Map();          // sid -> Set(did)
+    const staffOfDeal = new Map();           // did -> Set(sid)
+    (D.assignments || []).forEach(a => {
+      const h = +a.hours || 0;
+      cells.set(`${a.staff_id}|${a.deal_id}|${a.month}`, a);
+      plannedSM.set(`${a.staff_id}|${a.month}`, (plannedSM.get(`${a.staff_id}|${a.month}`) || 0) + h);
+      plannedDM.set(`${a.deal_id}|${a.month}`, (plannedDM.get(`${a.deal_id}|${a.month}`) || 0) + h);
+      if (!dealsOfStaff.has(a.staff_id)) dealsOfStaff.set(a.staff_id, new Set());
+      dealsOfStaff.get(a.staff_id).add(a.deal_id);
+      if (!staffOfDeal.has(a.deal_id)) staffOfDeal.set(a.deal_id, new Set());
+      staffOfDeal.get(a.deal_id).add(a.staff_id);
+    });
+    const util = +(D.settings && D.settings.utilization_pct) || 80;
+    const capBy = new Map();
+    (D.capacity || []).forEach(c => capBy.set(`${c.staff_id}|${c.month}`, { ...c, utilization_pct: util }));
+    const trailing = new Map();
+    (D.trailing || []).forEach(t => trailing.set(`${t.staff_id}|${t.deal_id}`, +t.avg_hours));
+    // trailing pairs count as "worked on" so a person's expanded grid offers
+    // the deals they actually work, even before any row is planned
+    (D.trailing || []).forEach(t => {
+      if (!dealsById[t.deal_id]) return;
+      if (!dealsOfStaff.has(t.staff_id)) dealsOfStaff.set(t.staff_id, new Set());
+      dealsOfStaff.get(t.staff_id).add(t.deal_id);
+      if (!staffOfDeal.has(t.deal_id)) staffOfDeal.set(t.deal_id, new Set());
+      staffOfDeal.get(t.deal_id).add(t.staff_id);
+    });
+    const actuals = new Map();
+    (D.actuals || []).forEach(a => actuals.set(`${a.staff_id}|${a.deal_id}|${a.month}`, +a.hours));
+    return { D, months, cur, staffById, dealsById, cells, plannedSM, plannedDM, dealsOfStaff, staffOfDeal, capBy, trailing, actuals, util };
+  }
+
+  const isSeed = a => a && /^seed:/.test(a.set_by || '');
+  const dealLabel = (X, did) => { const d = X.dealsById[did]; return d ? d.name : '(deal not live in range)'; };
+  const dealClient = (X, did) => { const d = X.dealsById[did]; return d ? (d.client_name || '') : ''; };
+
+  // ---- one editable cell -------------------------------------------------
+  function cellHtml(X, sid, did, m) {
+    const a = X.cells.get(`${sid}|${did}|${m}`);
+    const closed = m < X.cur;
+    const avg = X.trailing.get(`${sid}|${did}`) || 0;       // 0 for a pair just added by hand
+    const hint = closed
+      ? (X.actuals.has(`${sid}|${did}|${m}`) ? `actual ${fmtH(X.actuals.get(`${sid}|${did}|${m}`))}` : '')
+      : (!a && avg > 0 ? `avg ${fmtH(avg)}` : '');
+    return `<td class="hp-cell">
+      <input class="hcell${isSeed(a) ? ' ghost' : ''}" type="number" min="0" step="0.25" inputmode="decimal"
+        data-sid="${sid}" data-did="${did}" data-m="${m}" value="${a ? (+a.hours).toString() : ''}"
+        placeholder="${!a && avg > 0 && !closed ? avg.toFixed(2) : ''}"
+        title="${isSeed(a) ? 'seeded from trailing actuals — edit to make it yours' : (a ? 'set by ' + esc(a.set_by || '') : 'no plan')}"
+        aria-label="${esc(X.staffById[sid] ? X.staffById[sid].name : '')} on ${esc(dealLabel(X, did))}, ${mLabel(m)}">
+      ${hint ? `<div class="hp-hint">${esc(hint)}</div>` : ''}</td>`;
+  }
+
+  // ---- people view -------------------------------------------------------
+  function peopleRows(X) {
+    const q = HP.q.trim().toLowerCase();
+    const rangeEnd = shiftM(HP.to, 1);
+    return (X.D.staff || []).filter(s => {
+      if (!s.tracks_capacity || s.exclude_hours) return false;
+      if (!HP.showInactive && !s.active) return false;
+      if (s.start_date && s.start_date >= rangeEnd) return false;
+      if (s.end_date && s.end_date < HP.from) return false;
+      if (HP.dept && (s.department || '') !== HP.dept) return false;
+      if (q && !(s.name + ' ' + (s.department || '')).toLowerCase().includes(q)) return false;
+      return true;
+    }).map(s => {
+      const perMonth = X.months.map(m => {
+        const planned = X.plannedSM.get(`${s.id}|${m}`) || 0;
+        const cap = X.capBy.get(`${s.id}|${m}`);
+        return { m, planned, cap, status: loadStatus(planned, cap) };
+      });
+      const worst = perMonth.some(p => p.status === 'over') ? 'over' : perMonth.some(p => p.status === 'high') ? 'high'
+        : perMonth.every(p => p.status === 'under') ? 'under' : 'normal';
+      const total = perMonth.reduce((t, p) => t + p.planned, 0);
+      return { s, perMonth, worst, total };
+    }).sort((a, b) => a.s.name.localeCompare(b.s.name));
+  }
+
+  function personExpand(X, s) {
+    const dids = [...(X.dealsOfStaff.get(s.id) || [])].sort((a, b) => (dealClient(X, a) + dealLabel(X, a)).localeCompare(dealClient(X, b) + dealLabel(X, b)));
+    const addable = (X.D.deals || []).filter(d => !dids.includes(d.id))
+      .sort((a, b) => (a.client_name + a.name).localeCompare(b.client_name + b.name));
+    return `<tr class="expand-row"><td colspan="${3 + X.months.length}">
+      <div class="hp-expand">
+        <div class="gridwrap" style="margin-top:0"><table class="hp-grid">
+          <thead><tr><th>deal</th>${X.months.map(m => `<th class="${m < X.cur ? 'closedcol' : ''}">${mLabel(m)}</th>`).join('')}<th></th></tr></thead>
+          <tbody>
+          ${dids.length ? dids.map(did => `<tr>
+              <td class="textleft"><div>${esc(dealLabel(X, did))}</div><div class="hp-hint">${esc(dealClient(X, did))}</div></td>
+              ${X.months.map(m => cellHtml(X, s.id, did, m)).join('')}
+              <td><button class="ghost hp-rm" data-sid="${s.id}" data-did="${did}" title="Remove this deal's planned hours for ${esc(s.name)} in this range" aria-label="Remove">×</button></td>
+            </tr>`).join('') : `<tr><td colspan="${X.months.length + 2}" class="empty-note">No planned or recent work in this range.</td></tr>`}
+          </tbody></table></div>
+        <div class="hp-addrow">
+          <select class="hp-add-deal" data-sid="${s.id}" aria-label="Add a deal for ${esc(s.name)}">
+            <option value="">+ add deal…</option>
+            ${addable.map(d => `<option value="${d.id}">${esc(d.client_name || '')} — ${esc(d.name)}</option>`).join('')}
+          </select>
+        </div>
+      </div></td></tr>`;
+  }
+
+  function renderPeople(X) {
+    const rows = peopleRows(X);
+    if (!rows.length) return `<div class="sc-panel"><div class="empty-note">No one matches.</div></div>`;
+    return `<div class="sc-panel hp" style="padding:0"><div class="gridwrap" style="margin-top:0">
+      <table class="ledger hp-roster">
+        <thead><tr><th>Person</th><th>Dept</th>${X.months.map(m => `<th class="mcol ${m < X.cur ? 'closedcol' : ''}">${mLabel(m)}</th>`).join('')}<th>Range</th></tr></thead>
+        <tbody>
+        ${rows.map(r => {
+          const open = HP.open.has(r.s.id);
+          return `<tr class="namerow ${r.worst === 'over' ? 'risk-row' : ''}" data-open="${r.s.id}" role="button" tabindex="0" aria-expanded="${open}" style="cursor:pointer">
+            <td class="textleft"><b>${esc(r.s.name)}</b>${!r.s.active ? ' <span class="pill">inactive</span>' : ''}
+              ${r.worst === 'over' ? ' <span class="pill bad">over capacity</span>' : r.worst === 'high' ? ' <span class="pill warn">at target</span>' : ''}</td>
+            <td class="textleft muted">${esc(r.s.department || '—')}</td>
+            ${r.perMonth.map(p => {
+              const cap = p.cap ? +p.cap.capacity_hours : 0;
+              // the track is the larger of planned and plannable, so an
+              // over-planned month shows the excess as a rust segment
+              // instead of clipping at 100%
+              const scale = Math.max(p.planned, cap);
+              const goodPct = scale > 0 ? Math.min(p.planned, cap) / scale * 100 : 0;
+              const overPct = scale > 0 && p.planned > cap ? (p.planned - cap) / scale * 100 : 0;
+              return `<td class="mcol" title="${fmtH(p.planned)} planned of ${fmtH(cap)} plannable (${statusLabel(p.status)})">
+                <div class="mini-track wide"><div class="seg seg-good" style="width:${goodPct}%"></div>${overPct ? `<div class="seg seg-over" style="width:${overPct}%"></div>` : ''}</div>
+                <div class="hp-capline"><span class="cap-flag ${p.status === 'normal' ? '' : p.status}">${fmtH(p.planned)}</span><span class="muted"> / ${fmtH(cap)}</span></div>
+              </td>`;
+            }).join('')}
+            <td><b>${fmtH(r.total)}</b></td>
+          </tr>${open ? personExpand(X, r.s) : ''}`;
+        }).join('')}
+        </tbody></table></div></div>`;
+  }
+
+  // ---- deals view --------------------------------------------------------
+  function dealExpand(X, d) {
+    const sids = [...(X.staffOfDeal.get(d.id) || [])].filter(sid => X.staffById[sid])
+      .sort((a, b) => X.staffById[a].name.localeCompare(X.staffById[b].name));
+    const byDept = {};
+    (X.D.staff || []).filter(s => s.active && s.tracks_capacity && !s.exclude_hours && !sids.includes(s.id))
+      .forEach(s => { (byDept[s.department || '(no department)'] = byDept[s.department || '(no department)'] || []).push(s); });
+    return `<tr class="expand-row"><td colspan="${3 + X.months.length}">
+      <div class="hp-expand">
+        <div class="gridwrap" style="margin-top:0"><table class="hp-grid">
+          <thead><tr><th>person</th>${X.months.map(m => `<th class="${m < X.cur ? 'closedcol' : ''}">${mLabel(m)}</th>`).join('')}<th></th></tr></thead>
+          <tbody>
+          ${sids.length ? sids.map(sid => `<tr>
+              <td class="textleft"><div>${esc(X.staffById[sid].name)}</div><div class="hp-hint">${esc(X.staffById[sid].department || '')}</div></td>
+              ${X.months.map(m => cellHtml(X, sid, d.id, m)).join('')}
+              <td><button class="ghost hp-rm" data-sid="${sid}" data-did="${d.id}" title="Remove ${esc(X.staffById[sid].name)} from this deal in this range" aria-label="Remove">×</button></td>
+            </tr>`).join('') : `<tr><td colspan="${X.months.length + 2}" class="empty-note">Nobody planned or logged on this deal in the range.</td></tr>`}
+          </tbody></table></div>
+        <div class="hp-addrow">
+          <select class="hp-add-person" data-did="${d.id}" aria-label="Add a person to ${esc(d.name)}">
+            <option value="">+ add person…</option>
+            ${Object.keys(byDept).sort().map(dep => `<optgroup label="${esc(dep)}">${byDept[dep].sort((a, b) => a.name.localeCompare(b.name))
+              .map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}</optgroup>`).join('')}
+          </select>
+        </div>
+      </div></td></tr>`;
+  }
+
+  function renderDeals(X) {
+    const q = HP.q.trim().toLowerCase();
+    const deals = (X.D.deals || []).filter(d => {
+      if (q && !((d.client_name || '') + ' ' + d.name).toLowerCase().includes(q)) return false;
+      if (HP.dept) {
+        const sids = [...(X.staffOfDeal.get(d.id) || [])];
+        if (!sids.some(sid => X.staffById[sid] && X.staffById[sid].department === HP.dept)) return false;
+      }
+      return true;
+    }).sort((a, b) => ((a.client_name || '') + a.name).localeCompare((b.client_name || '') + b.name));
+    if (!deals.length) return `<div class="sc-panel"><div class="empty-note">No live deals match in this range.</div></div>`;
+    let lastClient = null;
+    return `<div class="sc-panel hp" style="padding:0"><div class="gridwrap" style="margin-top:0">
+      <table class="ledger hp-roster">
+        <thead><tr><th>Deal</th><th>Flight</th>${X.months.map(m => `<th class="mcol ${m < X.cur ? 'closedcol' : ''}">${mLabel(m)}</th>`).join('')}<th>People</th></tr></thead>
+        <tbody>
+        ${deals.map(d => {
+          const open = HP.open.has(d.id);
+          const people = [...(X.staffOfDeal.get(d.id) || [])].filter(sid => X.months.some(m => X.cells.has(`${sid}|${d.id}|${m}`))).length;
+          const head = d.client_name !== lastClient ? `<tr class="hp-client"><td colspan="${3 + X.months.length}">${esc(d.client_name || '(no client)')}</td></tr>` : '';
+          lastClient = d.client_name;
+          return `${head}<tr class="namerow" data-open="${d.id}" role="button" tabindex="0" aria-expanded="${open}" style="cursor:pointer">
+            <td class="textleft"><b>${esc(d.name)}</b></td>
+            <td class="muted" style="white-space:nowrap">${esc(d.flight_start || '')} → ${esc(d.flight_end || '')}</td>
+            ${X.months.map(m => {
+              const inFlight = d.flight_start && d.flight_end && m <= d.flight_end && shiftM(m, 1) > d.flight_start;
+              const h = X.plannedDM.get(`${d.id}|${m}`) || 0;
+              return `<td class="mcol ${inFlight ? '' : 'closedcol'}">${h ? fmtH(h) : '<span class="muted">—</span>'}</td>`;
+            }).join('')}
+            <td>${people || '<span class="muted">—</span>'}</td>
+          </tr>${open ? dealExpand(X, d) : ''}`;
+        }).join('')}
+        </tbody></table></div></div>`;
+  }
+
+  // ---- page --------------------------------------------------------------
+  function render() {
+    const X = derive();
+    const departments = [...new Set((X.D.staff || []).map(s => s.department).filter(Boolean))].sort();
+    const plannedTotal = (X.D.assignments || []).reduce((t, a) => t + (+a.hours || 0), 0);
+    const seedRows = (X.D.assignments || []).filter(isSeed).length;
+    const overPeople = peopleRows(X).filter(r => r.worst === 'over').length;
+    const last = X.D.settings && X.D.settings.last_seed_run;
+
+    panel().innerHTML = `
+      <div class="toolbar">
+        <div class="rp" role="tablist" aria-label="View">
+          <button class="seg ${HP.view === 'people' ? 'on' : ''}" data-view="people" role="tab" aria-selected="${HP.view === 'people'}">By person</button>
+          <button class="seg ${HP.view === 'deals' ? 'on' : ''}" data-view="deals" role="tab" aria-selected="${HP.view === 'deals'}">By deal</button>
+        </div>
+        <input type="month" id="hp-from" aria-label="Range from" value="${HP.from.slice(0, 7)}">
+        <span class="muted">→</span>
+        <input type="month" id="hp-to" aria-label="Range to" value="${HP.to.slice(0, 7)}">
+        <select id="hp-dept" aria-label="Department"><option value="">all departments</option>
+          ${departments.map(d => `<option value="${esc(d)}" ${HP.dept === d ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select>
+        <input id="hp-search" type="text" placeholder="search…" value="${esc(HP.q)}" style="max-width:220px" aria-label="Search">
+        <label class="mono" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="hp-inactive" ${HP.showInactive ? 'checked' : ''} style="height:auto"> show inactive</label>
+        <span style="flex:1"></span>
+        <span id="hp-msg" class="ok" style="font-size:12px">${HP.saving ? 'saving…' : ''}</span>
+        <a class="muted" href="./settings.html#scoping" style="font-size:11px">seed &amp; targets →</a>
+      </div>
+      <div class="summary-strip">
+        <div class="summary-cell"><div class="summary-label">Planned hours in range</div>
+          <div class="summary-value">${fmtH(plannedTotal)}</div>
+          <div class="summary-note">${X.months.length} month${X.months.length === 1 ? '' : 's'} · target utilization ${X.util}%</div></div>
+        <div class="summary-cell"><div class="summary-label">People over capacity</div>
+          <div class="summary-value ${overPeople ? 'neg' : ''}">${overPeople}</div>
+          <div class="summary-note">in at least one month of the range</div></div>
+        <div class="summary-cell"><div class="summary-label">Seeded rows not yet reviewed</div>
+          <div class="summary-value">${seedRows}</div>
+          <div class="summary-note">${last ? `seed ran ${new Date(last.at).toLocaleDateString()} · ${esc(String(last.lookback))}-month lookback` : 'no seed run yet'}</div></div>
+      </div>
+      ${HP.view === 'people' ? renderPeople(X) : renderDeals(X)}`;
+
+    // -- wiring (re-done on every render: innerHTML replaced everything)
+    panel().querySelectorAll('.rp .seg').forEach(b => b.onclick = () => { HP.view = b.dataset.view; ls(LS.view, HP.view); render(); });
+    panel().querySelector('#hp-from').onchange = e => { HP.from = e.target.value + '-01'; load(); };
+    panel().querySelector('#hp-to').onchange = e => { HP.to = e.target.value + '-01'; load(); };
+    panel().querySelector('#hp-dept').onchange = e => { HP.dept = e.target.value; ls(LS.dept, HP.dept); render(); };
+    panel().querySelector('#hp-inactive').onchange = e => { HP.showInactive = e.target.checked; ls(LS.inactive, HP.showInactive ? '1' : '0'); render(); };
+    wireSearch(panel(), '#hp-search', v => { HP.q = v; render(); });
+
+    panel().querySelectorAll('tr.namerow').forEach(tr => {
+      const toggle = () => { const id = tr.dataset.open; if (HP.open.has(id)) HP.open.delete(id); else HP.open.add(id); render(); };
+      tr.onclick = e => { if (e.target.closest('input,select,button,a')) return; toggle(); };
+      tr.onkeydown = e => { if (e.target !== tr) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
+    });
+    panel().querySelectorAll('input.hcell').forEach(inp => {
+      inp.onchange = () => saveCell(inp.dataset.sid, inp.dataset.did, inp.dataset.m, inp.value);
+      inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } };
+    });
+    panel().querySelectorAll('button.hp-rm').forEach(b => b.onclick = () => removePair(b.dataset.sid, b.dataset.did));
+    panel().querySelectorAll('select.hp-add-deal').forEach(sel => sel.onchange = () => {
+      if (!sel.value) return;
+      addPair(sel.dataset.sid, sel.value);
+    });
+    panel().querySelectorAll('select.hp-add-person').forEach(sel => sel.onchange = () => {
+      if (!sel.value) return;
+      addPair(sel.value, sel.dataset.did);
+    });
+  }
+
+  // ---- writes: direct PostgREST, set_by = the editor, then re-fetch --------
+  const msg = (t, bad) => { const m = panel().querySelector('#hp-msg'); if (m) { m.textContent = t; m.className = bad ? 'err' : 'ok'; m.style.fontSize = '12px'; } };
+
+  async function saveCell(sid, did, m, raw) {
+    const hours = Math.max(0, Math.round((parseFloat(raw) || 0) * 100) / 100);
+    HP.saving++; msg('saving…');
+    let error;
+    if (hours > 0) {
+      ({ error } = await supa.from('assignments').upsert(
+        { staff_id: sid, deal_id: did, month: m, hours, set_by: window.__email, set_at: new Date().toISOString() },
+        { onConflict: 'staff_id,deal_id,month' }));
+    } else {
+      ({ error } = await supa.from('assignments').delete().match({ staff_id: sid, deal_id: did, month: m }));
+    }
+    HP.saving--;
+    if (error) { msg(error.message, true); return; }
+    await load();
+    msg('saved');
+  }
+
+  async function removePair(sid, did) {
+    const X = derive();
+    const s = X.staffById[sid];
+    if (!confirm(`Remove ${s ? s.name : 'this person'}'s planned hours on ${dealLabel(X, did)} for ${mLabel(HP.from)} – ${mLabel(HP.to)}?`)) return;
+    HP.saving++; msg('saving…');
+    const { error } = await supa.from('assignments').delete().match({ staff_id: sid, deal_id: did })
+      .gte('month', HP.from).lte('month', HP.to);
+    HP.saving--;
+    if (error) { msg(error.message, true); return; }
+    await load();
+    msg('removed');
+  }
+
+  // Adding a pair writes nothing yet: it opens the grid row so the first
+  // typed hour is the write. An empty pair would otherwise leave a 0 row.
+  function addPair(sid, did) {
+    const X = derive();
+    if (!X.dealsOfStaff.has(sid)) X.dealsOfStaff.set(sid, new Set());
+    // remember the pending pair on the payload so derive() sees it after render
+    HP.data.trailing = HP.data.trailing || [];
+    if (!HP.data.trailing.some(t => t.staff_id === sid && t.deal_id === did) &&
+        !(HP.data.assignments || []).some(a => a.staff_id === sid && a.deal_id === did)) {
+      HP.data.trailing.push({ staff_id: sid, deal_id: did, avg_hours: 0, _pending: true });
+    }
+    HP.open.add(HP.view === 'people' ? sid : did);
+    render();
+    const first = panel().querySelector(`input.hcell[data-sid="${sid}"][data-did="${did}"]:not([disabled])`);
+    if (first) first.focus();
+  }
+
+  load();
 });
-</script></body></html>
+</script>
+</body></html>
