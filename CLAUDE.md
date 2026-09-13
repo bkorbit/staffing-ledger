@@ -139,14 +139,23 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   finds the same shape for any other deal.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 099. Key views/functions
+## Current migration head: 100. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
-- `v_deal_month_forecast` [087] — the commercial plan as money. Day-weighted
+- `v_deal_month_forecast` [100] — the commercial plan as money. Day-weighted
   media spread from 024; 058 stopped hidden deals leaking into the plan; 087
   split `pass_through` (rebilled search/social media: cash, never revenue) out
-  of `billable`. Revenue wants `billable`; cash wants `billable + pass_through`.
+  of `billable`. 100: search/social/programmatic fees go through
+  `line_fee(budget, fee_pct, deal_lines.structure)` — `{}` is flat and
+  byte-identical to 087 (100_fixture_test proves it against 087's body) —
+  and `fee`, `rebate` are APPENDED (rebate = `deal_lines.rebate_pct` of media
+  or fee: COGS, never billable; `gp` stays PRE-rebate, `rebate` is the last
+  column now — 087_fixture_test row 7 pins that). Revenue wants `billable`;
+  cash wants `billable + pass_through`; profit wants `gp − rebate`. JS twins:
+  forecast.html gpMonth/revMonth/rebateMonth via scope-math.js `lineFee`,
+  forward COGS = billable − gp + rebate in forecast.html and index.html rowFor,
+  client-profitability blend subtracts `plan_deal.rebate_future`.
 - `v_cost_lines_classified` [093] — bill/purchase/journal lines with cost_class
   (cogs/payroll/overhead/other/income/excluded); overrides via
   qbo_accounts.override_class. 056 fixed Other Income and labor sub-accounts
@@ -157,7 +166,10 @@ is always a new migration, so grep for the highest one before reading an old bod
   chart-of-accounts view that carries its answer (`ebitda_addback_auto`,
   `ebitda_addback_effective`) so the Forecast page's accounts panel never
   re-implements it in JS.
-- `forecast_page(p_from,p_to)` [093] — whole Forecast page in one jsonb.
+- `forecast_page(p_from,p_to)` [100] — whole Forecast page in one jsonb.
+  100 added `plan_month.rebate`, `plan_deal.rebate_all/rebate_future` (093's
+  body otherwise verbatim); `project_detail`/`client_detail` [100] gained
+  `rebate_plan` per month the same way.
   025 added contra revenue; 068-071 wired in bottoms-up labor; 076 made it scan
   v_cost_lines_classified ONCE instead of ~15-20 times (it was the page's load
   cost, not a behaviour change — 076_fixture_test.sql proves byte-identical output);
@@ -329,9 +341,9 @@ is always a new migration, so grep for the highest one before reading an old bod
   Departments pages are placeholders. **Scoping tool in progress** (plan in
   `~/.claude/plans/i-want-to-start-iridescent-sonnet.md`, 13 Sep 2026): Phase 1
   Hour Planning shipped (095); Phase 2 scope tables + editor + verdict shipped
-  (096/097); Phase 3 product catalog + benchmarks shipped (098/099); next 100
-  forecast handoff (deal_lines.structure + rebate in the view), 101 promotion
-  door, 102 cashflow rebate, 103 terms. Decisions locked with Boris there — labor
+  (096/097); Phase 3 product catalog + benchmarks shipped (098/099); Phase 4a
+  forecast handoff shipped (100); next 101 promotion door (promote_scope,
+  promote_approval prefers an approved scope), 102 cashflow rebate, 103 terms. Decisions locked with Boris there — labor
   cost is ONE rolled-up number (salary privacy), rebate is COGS not billable,
   fee bands are monthly, Paid Media pools search + social, scope dates win at
   promotion, excluded catalog items skip silently.

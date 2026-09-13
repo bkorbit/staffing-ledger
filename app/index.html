@@ -578,15 +578,16 @@ async function mountForecastPanel(supa, el, initFrom, initTo) {
     const runrate = { payroll: P.runrates?.payroll || 0, overhead: P.runrates?.overhead || 0 };
     const revByM = {}; (P.rev_month || []).forEach(r => revByM[r.month] = r.total);
     const costByCM = {}; (P.cost_month || []).forEach(r => { (costByCM[r.class] = costByCM[r.class] || {})[r.month] = r.total; });
-    const planByM = {}, planBillByM = {};
-    (P.plan_month || []).forEach(r => { planByM[r.month] = r.gp; planBillByM[r.month] = r.billable; });
+    const planByM = {}, planBillByM = {}, planRebByM = {};
+    (P.plan_month || []).forEach(r => { planByM[r.month] = r.gp; planBillByM[r.month] = r.billable; planRebByM[r.month] = r.rebate || 0; });
     const fixedTotal = () => fixedCosts.reduce((s, f) => s + (f.amount || 0), 0);
 
     const rowFor = m => {
       const measured = past(m);
       const revenue = measured ? (revByM[m] || 0) : (planBillByM[m] || 0);
-      const cogs = measured ? ((costByCM.cogs || {})[m] || 0) : Math.max(0, (planBillByM[m] || 0) - (planByM[m] || 0));
-      const forecastGP = planByM[m] || 0;
+      // 100: planned rebates are a forward COGS (forecast.html rowFor agrees)
+      const cogs = measured ? ((costByCM.cogs || {})[m] || 0) : Math.max(0, (planBillByM[m] || 0) - (planByM[m] || 0)) + (planRebByM[m] || 0);
+      const forecastGP = (planByM[m] || 0) - (planRebByM[m] || 0);
       const actualGP = measured ? revenue - cogs : null;
       const labour = measured ? ((costByCM.payroll || {})[m] || 0) : runrate.payroll;
       const other = measured ? ((costByCM.overhead || {})[m] || 0) : runrate.overhead;

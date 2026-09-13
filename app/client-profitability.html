@@ -116,7 +116,8 @@ boot('clientprofit', async (supa, el) => {
     const revProjByProj = {}; (P.rev_proj || []).forEach(r => revProjByProj[r.qbo_project_id] = +r.total);
     const cogsProjByProj = {}; (P.cogs_proj || []).forEach(r => cogsProjByProj[r.qbo_project_id] = +r.total);
     const planByDeal = {}; (P.plan_deal || []).forEach(r => planByDeal[r.deal_id] =
-      { gpAll: +r.gp_all, gpSettled: +r.gp_settled, billFuture: +r.bill_future });
+      // 100: rebate_future — the rebates the forward months pay back, a COGS
+      { gpAll: +r.gp_all, gpSettled: +r.gp_settled, billFuture: +r.bill_future, rebateFuture: +(r.rebate_future || 0) });
     const laborByDeal = {}; (H.deal_labor || []).forEach(r => laborByDeal[r.deal_id] = r);
     const plannedByDeal = {}; (H.deal_planned || []).forEach(r => plannedByDeal[r.deal_id] = +r.planned_hours);
 
@@ -160,13 +161,15 @@ boot('clientprofit', async (supa, el) => {
         const deal = dealsById[id]; if (!deal) return null;
         if (!activeInRange(deal)) return null;
         const labor = laborByDeal[id] || { hours: 0, cost: 0 };
-        const plan = planByDeal[id] || { gpAll: 0, gpSettled: 0, billFuture: 0 };
+        const plan = planByDeal[id] || { gpAll: 0, gpSettled: 0, billFuture: 0, rebateFuture: 0 };
         const actualRevenue = deal.qbo_project_id ? (revProjByProj[deal.qbo_project_id] || 0) : 0;
         const actualCogs = deal.qbo_project_id ? (cogsProjByProj[deal.qbo_project_id] || 0) : 0;
         // forecast* covers only the months in range still ahead of today —
         // gp_settled is the slice of gp_all that's already past, so the
-        // remainder is what's still planned rather than measured
-        const forecastGP = plan.gpAll - plan.gpSettled;
+        // remainder is what's still planned rather than measured. 100: minus
+        // the rebates those months pay back (a COGS the measured side already
+        // carries inside cogs_proj)
+        const forecastGP = plan.gpAll - plan.gpSettled - plan.rebateFuture;
         const forecastRevenue = plan.billFuture;
         const forecastCogs = Math.max(0, forecastRevenue - forecastGP);
         const proj = deal.qbo_project_id ? projectsById[deal.qbo_project_id] : null;

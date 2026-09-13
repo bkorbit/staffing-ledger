@@ -297,13 +297,14 @@ with r(n, result) as (
   from _fx_after a cross join _fx_before b
 
   union all
-  -- pass_through must be the view's LAST column: create-or-replace can only
-  -- append, so a future migration that moves it will simply not run
+  -- the view's LAST column is pinned: create-or-replace can only append, so a
+  -- future migration that moves a column will simply not run. pass_through was
+  -- last from 087 to 099; 100 appended fee and rebate, so rebate is last now.
   select 8, case when (
       select attname from pg_attribute
       where attrelid = 'v_deal_month_forecast'::regclass and attnum > 0 and not attisdropped
-      order by attnum desc limit 1) = 'pass_through'
-    then '7. PASS_THROUGH IS THE LAST VIEW COLUMN: PASS'
+      order by attnum desc limit 1) = 'rebate'
+    then '7. REBATE (100) IS THE LAST VIEW COLUMN, pass_through before fee: PASS'
     else '7. COLUMN ORDER: FAIL — last column is '
          || coalesce((select attname from pg_attribute
              where attrelid = 'v_deal_month_forecast'::regclass and attnum > 0 and not attisdropped

@@ -16,6 +16,9 @@ tr.clientrow:focus-visible,tr.deallist:focus-visible,tr.projrow:focus-visible,th
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script type="module">
 import { boot, esc, fmt$, barChart, fetchAll } from './assets/shell.js?v=fc5a38b';
+// 100: the ONE copy of the fee-structure and rebate math (twin of line_fee /
+// line_rebate in db/096, which v_deal_month_forecast prices with since 100)
+import { lineFee, lineRebate } from './assets/scope-math.js?v=fc5a38b';
 /*
   The Forecast, remodelled on the v1 ledger's Forecast view, recovered from git:
   months as ROWS in a P&L ledger — Revenue billed, COGS, Forecast GP, Actual GP,
@@ -110,13 +113,28 @@ boot('forecast', async (supa, el) => {
   // measured revenue), so mediaFunding no longer changes revenue at all — it
   // is passMonth's business now. Service lines bill what they earn.
   function revMonth(l, m, mediaFunding, flight) {
+    // 100: the fee goes through lineFee(budget, fee %, structure) — flat for a
+    // line without a structure (exactly budget × fee / 100, as before), bands /
+    // min / cap for a line a scope promoted. ONE rounding per figure, the same
+    // rounding point v_deal_month_forecast uses.
     const fee = l.params.fee_pct || 0;
-    const b = l.cells[m] !== undefined ? l.cells[m]*100 : 0;
+    const b = l.cells[m] !== undefined ? Math.round(l.cells[m]*100) : 0;
     switch (l.kind) {
-      case 'programmatic': return Math.round(b * (1 + fee/100));
-      case 'search': case 'social': return Math.round(b * fee/100);
+      case 'programmatic': return b + Math.round(lineFee(b, fee, l.structure));
+      case 'search': case 'social': return Math.round(lineFee(b, fee, l.structure));
       default: return gpMonth(l, m, flight);   // retainer / creative / hourly bill what they earn
     }
+  }
+  // REBATE per month — the twin of v_deal_month_forecast.rebate [100]: what
+  // EMG pays back to the client, % of the media or of the fee. The client
+  // invoices EMG and it is booked COGS Other, so it is a cost against GP,
+  // never a reduction of revenue. Zero for a line without a rebate.
+  function rebateMonth(l, m, flight) {
+    if (!l.rebate_pct) return 0;
+    const media = l.kind === 'search' || l.kind === 'social' || l.kind === 'programmatic';
+    const b = l.cells[m] !== undefined ? Math.round(l.cells[m]*100) : 0;
+    const base = media ? lineFee(b, l.params.fee_pct || 0, l.structure) : gpMonth(l, m, flight);
+    return Math.round(lineRebate(b, base, l.rebate_pct, l.rebate_basis));
   }
   // PASS-THROUGH per month — the twin of v_deal_month_forecast.pass_through
   // [087]: the media an EMG-funded search/social line rebills. Invoiced to the
@@ -161,12 +179,13 @@ boot('forecast', async (supa, el) => {
         return Math.round((l.params.rate||0)*100*hrs);
       }
       case 'search': case 'social': {
-        const b = l.cells[m] !== undefined ? l.cells[m]*100 : 0;
-        return Math.round(b*fee/100);
+        // 100: through lineFee — identical to round(b × fee / 100) for a flat line
+        const b = l.cells[m] !== undefined ? Math.round(l.cells[m]*100) : 0;
+        return Math.round(lineFee(b, fee, l.structure));
       }
       case 'programmatic': {
-        const b = l.cells[m] !== undefined ? l.cells[m]*100 : 0;
-        return Math.round(b*margin/100 + b*fee/100);
+        const b = l.cells[m] !== undefined ? Math.round(l.cells[m]*100) : 0;
+        return Math.round(b*margin/100 + lineFee(b, fee, l.structure));
       }
     }
     return 0;
@@ -457,7 +476,7 @@ boot('forecast', async (supa, el) => {
     return { clear: () => pick(null), refresh: () => { if (!menu.hidden) render(search.value); } };
   }
 
-  let months, clientsById, dealsByClient, planByM, planBillByM, revByM, costByCM, laborForecastByM, openEditor = null;
+  let months, clientsById, dealsByClient, planByM, planBillByM, planRebByM, revByM, costByCM, laborForecastByM, openEditor = null;
   let projects = [], projTakenBy = {}, projectClaims = [], fixedCosts = [], runrate = { overhead:0, addback:0 };
   // the EBITDA add-back per measured month (093) — the NET line's mode itself
   // ('net' | 'ebitda') is netMode, declared with the chart helpers above
@@ -519,8 +538,9 @@ boot('forecast', async (supa, el) => {
     addbackByM = {}; (P.addback_month||[]).forEach(r => addbackByM[r.month] = r.total);
     cogsByProj = {}; (P.cogs_proj||[]).forEach(r => cogsByProj[r.qbo_project_id] = r.total);
     acctTotals = P.accounts || [];
-    planByM = {}; planBillByM = {};
-    (P.plan_month||[]).forEach(r => { planByM[r.month] = r.gp; planBillByM[r.month] = r.billable; });
+    planByM = {}; planBillByM = {}; planRebByM = {};
+    // 100: plan_month.rebate — the planned rebates, a COGS the forward months carry
+    (P.plan_month||[]).forEach(r => { planByM[r.month] = r.gp; planBillByM[r.month] = r.billable; planRebByM[r.month] = r.rebate || 0; });
     const planByDeal = {};
     (P.plan_deal||[]).forEach(r => planByDeal[r.deal_id] =
       { gpAll: r.gp_all, gpSettled: r.gp_settled, billFuture: r.bill_future });
@@ -838,9 +858,12 @@ boot('forecast', async (supa, el) => {
       // entirely on forecast, so August never shows a half-month's fake net
       const measured = settled;
       const revenue = measured ? (revByM[m]||0) : (planBillByM[m]||0);
+      // 100: a forward month's COGS carries the planned rebates too (the client
+      // invoices EMG for them, booked COGS Other), so forecast GP is net of them
+      // — a measured month already has the booked rebate inside its COGS
       const cogs = measured ? ((costByCM.cogs||{})[m]||0)
-                            : Math.max(0,(planBillByM[m]||0)-(planByM[m]||0));
-      const forecastGP = planByM[m]||0;
+                            : Math.max(0,(planBillByM[m]||0)-(planByM[m]||0)) + (planRebByM[m]||0);
+      const forecastGP = (planByM[m]||0) - (planRebByM[m]||0);
       const actualGP = measured ? revenue - cogs : null;
       const labour = measured ? ((costByCM.payroll||{})[m]||0) : (laborForecastByM[m]||0);
       const other  = measured ? ((costByCM.overhead||{})[m]||0) : runrate.overhead;
@@ -1307,6 +1330,9 @@ boot('forecast', async (supa, el) => {
       const manual = flat && mine.length > 0;
       return { id:l.id, kind:l.kind, label:l.label,
         media_funding: l.media_funding || 'client',
+        // 100: fee structure + rebate, set by a promoted scope; carried through
+        // save untouched and priced by lineFee / rebateMonth
+        structure: l.structure || {}, rebate_pct: l.rebate_pct ?? null, rebate_basis: l.rebate_basis ?? null,
         params:{ amount:l.amount?l.amount/100:0, fee_pct:l.fee_pct||0,
                  margin_pct:l.margin_pct, rate:l.rate?l.rate/100:0,
                  hours_per_month:+l.hours_per_month||0 },
@@ -1425,11 +1451,19 @@ boot('forecast', async (supa, el) => {
           bits.push(field(li,'hours_per_month','hrs / month', l.params.hours_per_month||'', '0',
             curTotal > 0 ? 'disabled title="overridden while a total is set — the total is spread across the open months"' : ''));
         }
+        // 100: a line a scope promoted with fee bands is priced by its
+        // structure, not by fee %; the box is shown greyed and says so. Edit
+        // the structure in Scoping — the Forecast editor does not re-shape it.
+        const tiered = !!(l.structure && l.structure.fee && l.structure.fee.mode && l.structure.fee.mode !== 'flat');
         (cfg.defaults||[]).forEach(([p,label]) => {
           if (p==='amount'||p==='rate'||p==='hours_per_month') return;
           bits.push(field(li,p,label, p==='margin_pct'?(l.params[p]??''):(l.params[p]||''),
-            p==='margin_pct'?String(marginDefault):'0'));
+            p==='margin_pct'?String(marginDefault):'0',
+            tiered && p==='fee_pct' ? 'disabled title="tiered fee from the scope — priced by its bands, not this box"' : ''));
         });
+        const structureNote = tiered || l.rebate_pct || (l.structure && l.structure.fee_min) || (l.structure && l.structure.fee_cap)
+          ? `<div class="cardnote">${tiered ? `fee: ${l.structure.fee.mode === 'whole' ? 'whole-spend band' : 'marginal bands'} ${(l.structure.fee.bands||[]).map(b => `${b.pct}%${b.upto != null ? ' ≤ $' + fmtN(b.upto/100) : ' above'}`).join(' · ')}` : ''}${l.structure && l.structure.fee_min ? ` · min $${fmtN(l.structure.fee_min/100)}/mo` : ''}${l.structure && l.structure.fee_cap ? ` · cap $${fmtN(l.structure.fee_cap/100)}/mo` : ''}${l.rebate_pct ? ` · rebate ${l.rebate_pct}% of ${l.rebate_basis === 'fee' ? 'the fee' : 'media'} (paid back to the client — COGS)` : ''} — from the scope; edit it there</div>`
+          : '';
         // programmatic margin context lives ON the card, always
         const marginNote = l.kind==='programmatic'
           ? `<div class="cardnote">margin blank = default ${marginDefault}%${achieved!==null
@@ -1470,6 +1504,7 @@ boot('forecast', async (supa, el) => {
           <div class="cardbody">
             <div class="lparams">${bits.join('')}${totalBox}</div>
             <div class="gpcallout muted" data-li="${li}"></div>
+            ${structureNote}
             ${marginNote}
             <details class="permonth"><summary>per-month override</summary>
               <div class="pmrow">${pmCells}</div>
@@ -1638,6 +1673,7 @@ boot('forecast', async (supa, el) => {
         model.push({ kind,
           label: kind==='creative' ? 'creative:retainer' : null,
           media_funding: 'client',
+          structure: {}, rebate_pct: null, rebate_basis: null,
           params:{ amount:0, fee_pct:0, margin_pct:null, rate:0, hours_per_month:0 },
           cells:{}, manual:false, orig:{ amount:0, hours:0 }, hadDlm:new Set() });
         draw();
@@ -1724,21 +1760,25 @@ boot('forecast', async (supa, el) => {
           const co = box.querySelector(`.gpcallout[data-li="${li}"]`);
           if (co) {
             const lrev = fm.reduce((s,m)=>s+revMonth(l,m,l.media_funding,flight),0);
+            // 100: the rebate this line pays back over the flight, a COGS
+            const lreb = fm.reduce((s,m)=>s+rebateMonth(l,m,flight),0);
+            const rebNote = lreb ? ` · rebate ${fmtMoney(lreb)} → GP after rebate ${fmtMoney(lt - lreb)}` : '';
             if (l.kind==='programmatic') {
               const mgn = l.params.margin_pct ?? marginDefault;
-              co.textContent = lt ? `Revenue ${fmtMoney(lrev)} · GP ${fmtMoney(lt)} — margin ${mgn}% + fee ${l.params.fee_pct||0}%` : '';
+              co.textContent = lt ? `Revenue ${fmtMoney(lrev)} · GP ${fmtMoney(lt)} — margin ${mgn}% + fee ${l.params.fee_pct||0}%${rebNote}` : '';
             } else if (isBudgetL(l)) {
               // 087: an EMG-funded line's media is spelled out as what it is —
               // cash through the business, not revenue. Saying "EMG bills media
               // + fee" is how the old revenue number got believed.
+              const tieredL = !!(l.structure && l.structure.fee && l.structure.fee.mode && l.structure.fee.mode !== 'flat');
               co.textContent = lt || lpass
-                ? `Revenue ${fmtMoney(lrev)} · GP ${fmtMoney(lt)} — fee ${l.params.fee_pct||0}%`
+                ? `Revenue ${fmtMoney(lrev)} · GP ${fmtMoney(lt)} — ${tieredL ? 'tiered fee' : `fee ${l.params.fee_pct||0}%`}`
                   + (l.media_funding==='agency'
                      ? ` · media ${fmtMoney(lpass)} rebilled: cash in and out, not revenue`
-                     : ' (client pays media direct)')
+                     : ' (client pays media direct)') + rebNote
                 : '';
             } else {
-              co.textContent = lt ? `Revenue = GP ${fmtMoney(lt)} across ${openM.length} open month(s)` : '';
+              co.textContent = lt ? `Revenue = GP ${fmtMoney(lt)} across ${openM.length} open month(s)${rebNote}` : '';
             }
           }
           // the overview table's line row: GP with revenue beneath when they differ
@@ -1863,6 +1903,8 @@ boot('forecast', async (supa, el) => {
             rate:Math.round((l.params.rate||0)*100),
             billing_day:BILLING_BY_KIND[l.kind],
             media_funding:l.media_funding || 'client',
+            // 100: written back as loaded — a save here never reshapes a scope's structure
+            structure:l.structure || {}, rebate_pct:l.rebate_pct ?? null, rebate_basis:l.rebate_basis ?? null,
             set_by:window.__email, set_at:new Date().toISOString()
           };
           if (l.id) {
