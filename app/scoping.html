@@ -40,9 +40,10 @@ tr.namerow[data-open] { cursor:pointer; }
 </style></head><body>
 <script type="module">
 import { boot, esc, fmt$, wireSearch, fetchAll } from './assets/shell.js?v=c162c85';
-import { lineFee, progSuggestMargin, progParams, lineMonth, scopeMonths, monthsBetween, shiftM, spreadTotal } from './assets/scope-math.js?v=c162c85';
+import { lineFee, progSuggestMargin, progParams, lineMonth, scopeMonths, monthsBetween, shiftM, spreadTotal, fitModel } from './assets/scope-math.js?v=c162c85';
 import { loadStatus, statusPill, fmtH, mLabel, thisMonth } from './assets/capacity.js?v=c162c85';
 import { scopeChart, verdictStrip, scopeStat, STATUS_LABEL, STATUS_PILL } from './assets/scope-chart.js?v=c162c85';
+import { parseFile, mergeMonths, PLATFORMS, DRIVER_LABELS } from './assets/parsers/index.js?v=c162c85';
 
 // Is this deal viable? A scope is the commercial plan (channels, fee
 // structures, rebates, programmatic model) for one or several future deals,
@@ -87,6 +88,7 @@ boot('scoping', async (supa, el) => {
     let m;
     if ((m = h.match(/^s\/([0-9a-f-]{36})$/))) return { view: 'scope', id: m[1] };
     if ((m = h.match(/^c\/([0-9a-f-]{36})$/))) return { view: 'list', client: m[1] };
+    if ((m = h.match(/^bench(?:\/([0-9a-f-]{36}))?$/))) return { view: 'bench', deal: m[1] || null };
     if ((m = h.match(/^new(?:\?(\w+)=([^&]+))?$/))) return { view: 'new', kind: m[1] || 'new', ref: m[2] ? decodeURIComponent(m[2]) : null };
     return { view: 'list' };
   }
@@ -99,6 +101,7 @@ boot('scoping', async (supa, el) => {
     route = r;
     if (r.view === 'list') await loadList();
     else if (r.view === 'new') await createFrom(r.kind, r.ref);
+    else if (r.view === 'bench') await loadBench(r.deal);
     else await loadScope(r.id);
   }
   window.addEventListener('hashchange', go);
@@ -149,6 +152,7 @@ boot('scoping', async (supa, el) => {
         <input id="sc-q" type="text" placeholder="search…" value="${esc(L.q)}" style="max-width:240px" aria-label="Search">
         ${onClient ? `<span class="pill">client: ${esc(clientName[onClient] || '?')}</span><a class="muted" href="#list" style="font-size:11px">all</a>` : ''}
         <span style="flex:1"></span>
+        <button class="ghost" data-go="#bench" title="Enrol live campaigns and upload their platform exports: the hours model is fitted on them">Benchmarks</button>
         <button class="primary" data-go="#new">+ Blank scope</button>
         ${onClient ? `<button class="ghost" data-go="#new?client=${onClient}">+ Scope for this client</button>` : ''}
       </div>
@@ -162,7 +166,7 @@ boot('scoping', async (supa, el) => {
           <label>$ / month (retainer / hourly)<input id="qc-amount" type="number" step="any" inputmode="decimal" placeholder="10000"></label>
           <label>months<input id="qc-months" type="number" min="1" value="6"></label>
           <label>department<select id="qc-dept">${(L.departments || []).map(d => `<option>${esc(d)}</option>`).join('')}</select></label>
-          <label>hours / month<input id="qc-hours" type="number" step="any" inputmode="decimal" placeholder="40"></label>
+          <label>hours / month (blank = estimate from benchmarks)<input id="qc-hours" type="number" step="any" inputmode="decimal" placeholder="benchmarks"></label>
           <button class="primary" id="qc-run">Check</button>
         </div>
         <div id="qc-out" class="sc-note" style="margin-top:8px"></div>
@@ -228,11 +232,14 @@ boot('scoping', async (supa, el) => {
       out.textContent = 'checking…';
       const { data, error } = await supa.rpc('quick_check', {
         p_kind: kind, p_budget_c: cents(panel().querySelector('#qc-budget').value), p_fee_pct: num(panel().querySelector('#qc-fee').value) || 0,
-        p_months: +panel().querySelector('#qc-months').value || 1, p_hours: dept ? { [dept]: hours } : {},
+        p_months: +panel().querySelector('#qc-months').value || 1, p_hours: dept && hours > 0 ? { [dept]: hours } : {},
         p_amount_c: cents(panel().querySelector('#qc-amount').value), p_margin_pct: num(panel().querySelector('#qc-margin').value) });
       if (error) { out.innerHTML = `<span class="err">${esc(error.message)}</span>`; return; }
+      const hoursNote = data.hours_method && data.hours_method !== 'typed'
+        ? `${fmtH(data.hours_month)} estimated from the benchmarks: ${Object.entries(data.hours_by_dept || {}).map(([d, h]) => `${esc(d)} ${fmtH(h)}`).join(', ')}`
+        : `${fmtH(data.hours_month)} at the ${esc(dept)} average`;
       out.innerHTML = `<span class="pill ${STATUS_PILL[data.status] || ''}">${esc(STATUS_LABEL[data.status] || data.status)}</span>
-        &nbsp; GP <b>${fmt$(data.gp_month)}</b>/mo · labor <b>${fmt$(data.labor_month)}</b>/mo (${fmtH(data.hours_month)} at the ${esc(dept)} average) ·
+        &nbsp; GP <b>${fmt$(data.gp_month)}</b>/mo · labor <b>${fmt$(data.labor_month)}</b>/mo (${hoursNote}) ·
         after labor <b>${fmt$(data.pal_month)}</b>/mo${data.per_hour_c != null ? ` · <b>${fmt$(data.per_hour_c)}/h</b> vs ${fmt$(data.target_c)} target` : ''}
         · over ${data.months} months: GP ${fmt$(data.gp)}, labor ${fmt$(data.labor)}`;
     };
@@ -329,8 +336,9 @@ boot('scoping', async (supa, el) => {
       </div>
 
       <div class="sc-panel" style="margin:18px 18px 0">
-        <div class="sc-eyebrow" style="margin-top:0">Hours needed, per department per month</div>
-        <div class="sc-note" style="margin-bottom:8px">Demand. Type it for now — the benchmark estimate (098) will fill it from comparable campaigns.</div>
+        <div class="chart-head" style="padding:0 0 6px"><div class="sc-eyebrow" style="margin:0">Hours needed, per department per month</div>
+          ${ro ? '' : `<button class="ghost" id="sc-estimate" title="Fill from the benchmark library (each media line's drivers × hours per driver from comparable campaigns, client's own first) and the catalog products' default hours. Rows you typed are kept.">Estimate from benchmarks</button>`}</div>
+        <div class="sc-note" style="margin-bottom:8px">Demand. Type it, or fill each media line's <b>drivers</b> (on its card) and estimate — rows marked benchmark / catalog were filled that way; typing over one makes it yours.</div>
         <div class="gridwrap" style="margin-top:0"><table class="sc-grid">
           <thead><tr><th>department</th>${months.map(m => `<th>${mLabel(m)}</th>`).join('')}<th>total</th></tr></thead>
           <tbody>${demandRows(months, ro)}</tbody></table></div>
@@ -472,6 +480,19 @@ boot('scoping', async (supa, el) => {
       return `<label class="pmcell"><span>${mLabel(m)}</span><input class="cell" type="number" step="any" inputmode="decimal" data-cell="${di}:${li}:${m}:${cellKey}" value="${v == null ? '' : (cellKey === 'hours' ? v : v / 100)}" ${dis}></label>`; }).join('');
     const suggest = l.kind === 'programmatic' && (!st.prog || st.prog.model !== 'cpm')
       ? `<div class="cardnote" data-out="suggest:${di}:${li}"></div>` : '';
+    // drivers (099): what this line will look like in market each month — the
+    // inputs the benchmark estimate multiplies by hours-per-driver. spend is
+    // taken from the budget cell at save time, never typed.
+    const DRV = l.kind === 'programmatic' ? ['changes', 'active_campaigns', 'ad_groups', 'ads_live', 'markets']
+      : MEDIA(l.kind) ? ['changes', 'active_campaigns', l.kind === 'social' ? 'ad_sets' : 'ad_groups', 'ads_live', 'creatives_refreshed', 'markets']
+      : ['meetings', 'reports', 'creatives_delivered'];
+    const anyDrv = months.some(m => l.months[m] && l.months[m].drivers && Object.keys(l.months[m].drivers).some(k => k !== 'spend'));
+    const drivers = months.length ? `<details class="permonth" ${anyDrv ? 'open' : ''}><summary>drivers for the hours estimate${anyDrv ? ' ✓' : ''}</summary>
+        <div class="gridwrap" style="margin-top:6px"><table class="sc-grid"><thead><tr><th>per month</th>${months.map(m => `<th>${mLabel(m)}</th>`).join('')}</tr></thead><tbody>
+        ${DRV.map(k => `<tr><td class="textleft">${esc(DRIVER_LABELS[k] || k)}</td>${months.map(m => `<td><input class="hcell" type="number" min="0" step="1" inputmode="numeric" data-drv="${di}:${li}:${m}:${k}" value="${((l.months[m] || {}).drivers || {})[k] ?? ''}" ${dis}></td>`).join('')}</tr>`).join('')}
+        </tbody></table></div>
+        ${dis ? '' : `<div class="cardnote"><button class="ghost" data-act="drvfill:${di}:${li}">copy the first month to every month</button> — counts of what will be live and how often it changes; the estimate uses the client's own campaigns first, then everyone's</div>`}
+      </details>` : '';
     return `<div class="linecard" data-li="${li}">
       <div class="cardhead"><span class="chleft"><span class="kbadge" data-out="kbadge:${di}:${li}">${esc(kindLabel(l))}</span>${l.kind === 'programmatic' ? `<span class="pill margintag" data-out="margintag:${di}:${li}"></span>` : ''}</span>
         <span class="chright"><span class="lgp" data-out="lgp:${di}:${li}"></span>${ro ? '' : `<button class="danger" data-act="rmline:${di}:${li}" title="remove line">✕</button>`}</span></div>
@@ -481,6 +502,7 @@ boot('scoping', async (supa, el) => {
         <div class="gpcallout muted" data-out="callout:${di}:${li}"></div>
         ${suggest}
         ${months.length ? `<details class="permonth"><summary>per-month ${cellKey === 'hours' ? 'hours' : cellKey === 'budget' ? 'budget' : 'amount'}</summary><div class="pmrow">${cells}</div></details>` : ''}
+        ${drivers}
       </div></div>`;
   }
 
@@ -503,7 +525,7 @@ boot('scoping', async (supa, el) => {
       const tot = S.dept_months.filter(r => r.department === dep && months.includes(r.month)).reduce((s, r) => s + (+r.hours || 0), 0);
       return `<tr><td class="textleft"><b>${esc(dep)}</b>${ro ? '' : ` <button class="ghost" data-act="rmdept:${esc(dep)}" style="padding:0 6px;font-size:10px" aria-label="remove">×</button>`}</td>
         ${months.map(m => { const r = S.dept_months.find(x => x.department === dep && x.month === m);
-          return `<td><input class="hcell" type="number" min="0" step="0.5" inputmode="decimal" data-dm="${esc(dep)}|${m}" value="${r ? +r.hours : ''}" title="${r && r.source !== 'manual' ? 'from ' + esc(r.source) : ''}" ${ro ? 'disabled' : ''}></td>`; }).join('')}
+          return `<td><input class="hcell${r && r.source !== 'manual' ? ' ghost' : ''}" type="number" min="0" step="0.5" inputmode="decimal" data-dm="${esc(dep)}|${m}" value="${r ? +r.hours : ''}" title="${r && r.source !== 'manual' ? 'from the ' + esc(r.source) + ' estimate — type to make it yours' : ''}" ${ro ? 'disabled' : ''}></td>`; }).join('')}
         <td><b>${fmtH(tot)}</b></td></tr>`;
     }).join('');
   }
@@ -605,7 +627,8 @@ boot('scoping', async (supa, el) => {
       allMonths().forEach(m => S.staff_months.push({ staff_id: sel.value, department: sel.dataset.addperson, band: null, month: m, hours: 0, source: 'manual' })); markDirty(); renderEditor(); });
     p.querySelectorAll('select[data-addph]').forEach(sel => sel.onchange = () => {
       allMonths().forEach(m => S.staff_months.push({ staff_id: null, department: sel.dataset.addph, band: sel.value || null, month: m, hours: 0, source: 'manual' })); markDirty(); renderEditor(); });
-    p.querySelector('#sc-deals').oninput = e => { const t = e.target; if (t.dataset.f) onField(t); else if (t.dataset.cell) onCell(t); else if (t.dataset.band) onBand(t); };
+    p.querySelector('#sc-deals').oninput = e => { const t = e.target; if (t.dataset.f) onField(t); else if (t.dataset.cell) onCell(t); else if (t.dataset.band) onBand(t); else if (t.dataset.drv) onDriver(t); };
+    on('sc-estimate', estimateHours);
     p.querySelector('#sc-deals').onchange = e => { const t = e.target; if (t.tagName === 'SELECT' && t.dataset.f) onField(t, true); };
     p.querySelectorAll('input[data-dm]').forEach(i => i.onchange = () => { const [dep, m] = i.dataset.dm.split('|'); let r = S.dept_months.find(x => x.department === dep && x.month === m);
       if (!r) { r = { department: dep, month: m, hours: 0, source: 'manual' }; S.dept_months.push(r); } r.hours = Math.max(0, +i.value || 0); r.source = 'manual'; markDirty(); renderEditor(); });
@@ -665,6 +688,15 @@ boot('scoping', async (supa, el) => {
     if (t.value === '') delete l.months[m][key]; else l.months[m][key] = key === 'hours' ? (num(t.value) || 0) : cents(t.value);
     markDirty(); recompute();
   }
+  function onDriver(t) {
+    const [a, b, m, key] = t.dataset.drv.split(':');
+    const l = S.deals[+a].lines[+b];
+    l.months[m] = { ...(l.months[m] || {}) };
+    const d = { ...(l.months[m].drivers || {}) };
+    if (t.value === '') delete d[key]; else d[key] = Math.max(0, num(t.value) || 0);
+    if (Object.keys(d).length) l.months[m].drivers = d; else delete l.months[m].drivers;
+    markDirty();
+  }
   function onBand(t) {
     const [a, b, bi, prop] = t.dataset.band.split(':');
     const l = S.deals[+a].lines[+b]; const band = l.structure.fee.bands[+bi];
@@ -683,6 +715,10 @@ boot('scoping', async (supa, el) => {
       bands.splice(bands.length - 1, 0, { upto: (last && bands.length > 1 ? (bands[bands.length - 2].upto || 0) : 0) + 5000000, pct: last ? last.pct : 10 }); markDirty(); renderEditor(); return; }
     if (what === 'rmband') { const bands = S.deals[+x].lines[+y].structure.fee.bands; if (bands.length <= 1) return; bands.splice(+z, 1); bands[bands.length - 1].upto = null; markDirty(); renderEditor(); return; }
     if (what === 'usesug') { const l = S.deals[+x].lines[+y]; l.margin_pct = +z; markDirty(); renderEditor(); return; }
+    if (what === 'drvfill') { const d = S.deals[+x], l = d.lines[+y]; const months = monthsBetween(d.flight_start, d.flight_end);
+      const first = months.length ? ((l.months[months[0]] || {}).drivers || {}) : {};
+      months.slice(1).forEach(m => { l.months[m] = { ...(l.months[m] || {}), drivers: { ...first } }; if (!Object.keys(first).length) delete l.months[m].drivers; });
+      markDirty(); renderEditor(); return; }
     if (what === 'rmdept') { S.dept_months = S.dept_months.filter(r => r.department !== x); markDirty(); renderEditor(); return; }
     if (what === 'rmperson') { S.staff_months = S.staff_months.filter(r => !(r.staff_id === x && (r.source || 'manual') === y && r.department === z)); markDirty(); renderEditor(); return; }
     if (what === 'rmph') { S.staff_months = S.staff_months.filter(r => !(!r.staff_id && (r.band || '') === x && r.department === y)); markDirty(); renderEditor(); return; }
@@ -692,9 +728,24 @@ boot('scoping', async (supa, el) => {
   const msg = (t, bad) => { const n = panel().querySelector('#sc-msg'); if (n) { n.textContent = t; n.className = bad ? 'err' : 'ok'; n.style.fontSize = '12px'; } };
   function payload() {
     const p = JSON.parse(JSON.stringify(S));
-    p.deals = p.deals.map((d, i) => ({ ...d, ord: i, lines: (d.lines || []).map((l, j) => ({ ...l, ord: j })) }));
+    p.deals = p.deals.map((d, i) => ({ ...d, ord: i, lines: (d.lines || []).map((l, j) => {
+      // a media line month that carries drivers also carries its spend (the
+      // budget cell, in cents) — the one driver a quick check has too
+      if (MEDIA(l.kind)) for (const [m, c] of Object.entries(l.months || {})) {
+        if (c && c.drivers && Object.keys(c.drivers).some(k => k !== 'spend')) c.drivers = { ...c.drivers, spend: Math.round(+((c.budget ?? l.budget) || 0)) };
+      }
+      return { ...l, ord: j }; }) }));
     p.staff_months = p.staff_months.filter(r => +r.hours > 0);
     return p;
+  }
+  async function estimateHours() {
+    if (dirty && !(await save(''))) return;
+    msg('estimating…');
+    const { data, error } = await supa.rpc('scope_estimate_hours', { p_scope_id: S.id, p_by: window.__email });
+    if (error || !data.ok) { msg(error ? error.message : data.reason, true); return; }
+    await loadScope(S.id);
+    const methods = [...new Set((data.detail || []).map(d => d.method))];
+    msg(data.rows_written ? `estimated ${data.rows_written} department-months${methods.length ? ' (' + methods.join(', ') + ')' : ''}` : 'nothing to estimate — add drivers on a media line or a catalog product, and enrol comparable campaigns under Benchmarks', !data.rows_written);
   }
   async function save(label) {
     if (label === undefined) { label = prompt('Label this version (optional):', '') ; if (label === null) return; }
@@ -761,6 +812,185 @@ boot('scoping', async (supa, el) => {
     S.dept_months = S.dept_months || []; S.staff_months = S.staff_months || [];
     markDirty(); renderEditor(); markDirty();
     msg(`showing v${data.version} — Save to keep it`);
+  }
+
+  // ---- bench mode: enrol a campaign, upload its exports, see the coefficients --
+  let B = null;
+  async function loadBench(dealId) {
+    panel().innerHTML = 'loading…';
+    const { data, error } = await supa.rpc('benchmark_page');
+    if (error) {
+      const missing = /benchmark_page/.test(error.message) && /not exist|schema cache/i.test(error.message);
+      panel().innerHTML = `<div class="sc-panel err">${esc(error.message)}${missing ? '\n\nThis needs db/098_product_catalog.sql and db/099_benchmarks.sql applied in the Supabase SQL editor.' : ''}</div>`; return;
+    }
+    const keep = B && B.dealId === dealId ? B : null;
+    B = { data, dealId: dealId || (keep && keep.dealId) || null, q: '',
+          platforms: keep ? keep.platforms : {}, signals: keep ? keep.signals : {}, signalsTeam: keep ? keep.signalsTeam : null,
+          excludeAuto: keep ? keep.excludeAuto : true, busy: false };
+    renderBench();
+  }
+
+  function renderBench() {
+    const D = B.data, defaults = (D.settings && D.settings.platform_team_defaults) || {};
+    const deal = (D.deals || []).find(d => d.id === B.dealId) || null;
+    const enrolled = deal ? (D.enrolled || []).find(e => e.deal_id === deal.id) : null;
+    const depts = D.departments || [];
+    const filePlatforms = ['google_ads', 'meta', 'dsp'];
+    const allParsed = Object.values(B.platforms).flatMap(p => p.parsed || []);
+    const monthsSeen = [...new Set(allParsed.flatMap(r => Object.keys(r.months || {})))].sort();
+    const flightMonths = deal && deal.flight_start && deal.flight_end ? monthsBetween(deal.flight_start, deal.flight_end).filter(m => m < thisMonth()) : [];
+    const sigMonths = monthsSeen.length ? monthsSeen : flightMonths;
+    const driverCols = [...new Set(allParsed.flatMap(r => Object.values(r.months || {}).flatMap(d => Object.keys(d))))].sort();
+    const coefs = D.coefficients || [];
+    panel().innerHTML = `
+      <div class="editorbar">
+        <a href="#list" class="muted" style="font-size:12px">← scopes</a>
+        <span class="kbadge">Benchmarks</span>
+        <span class="sc-note">Enrol a campaign in progress, say which platforms it runs on and which team runs each, upload the exports. Its logged hours per team per month are joined automatically — nothing is typed twice.</span>
+      </div>
+      <div class="sc-panel" style="margin:0 18px">
+        <div class="sc-eyebrow" style="margin-top:0">1 · Campaign</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <select id="bn-deal" style="min-width:320px;max-width:100%">
+            <option value="">— pick a live deal —</option>
+            ${(D.deals || []).map(d => `<option value="${d.id}" ${d.id === B.dealId ? 'selected' : ''}>${d.enrolled ? '✓ ' : ''}${esc(d.client_name || '—')} — ${esc(d.name)}</option>`).join('')}
+          </select>
+          ${deal ? `<span class="sc-note">${esc(deal.flight_start || '?')} → ${esc(deal.flight_end || '?')} · lines: ${(deal.kinds || []).join(', ') || 'none'}${enrolled ? ` · enrolled ${new Date(enrolled.enrolled_at).toLocaleDateString()} · ${enrolled.months_observed} month${enrolled.months_observed === 1 ? '' : 's'} observed` : ' · not enrolled yet'}</span>` : ''}
+        </div>
+        ${enrolled && enrolled.uploads.length ? `<div class="sc-note" style="margin-top:8px">uploads: ${enrolled.uploads.map(u => `<b>${esc(PLATFORMS[u.platform] ? PLATFORMS[u.platform].label : u.platform)}</b> → ${esc(u.department)} (${esc(u.filename || '')}, ${esc(u.month_from || '')}–${esc(u.month_to || '')})`).join(' · ')}</div>` : ''}
+      </div>
+      ${deal ? `
+      <div class="sc-panel" style="margin:14px 18px 0">
+        <div class="sc-eyebrow" style="margin-top:0">2 · Platforms, teams, files</div>
+        <label class="mono" style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:8px"><input type="checkbox" id="bn-auto" ${B.excludeAuto ? 'checked' : ''} style="height:auto"> drop automated changes (API, scripts, rules) from change history — they are not a person's time</label>
+        ${filePlatforms.map(pl => { const P = B.platforms[pl] || {}; const on = !!P.on;
+          return `<div style="border-top:1px solid var(--line);padding:8px 0">
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+              <label class="mono" style="display:flex;align-items:center;gap:6px;min-width:190px"><input type="checkbox" data-bnpl="${pl}" ${on ? 'checked' : ''} style="height:auto"> ${esc(PLATFORMS[pl].label)}</label>
+              ${on ? `<label class="pf shape"><span class="pfl">team</span><select data-bnteam="${pl}">${depts.map(d => `<option ${((P.team || defaults[pl]) === d) ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select></label>
+                <input type="file" data-bnfile="${pl}" multiple accept=".csv,.tsv,.txt" style="height:auto;padding:4px;max-width:100%">
+                <span class="sc-note">${esc(PLATFORMS[pl].hint)}</span>` : ''}
+            </div>
+            ${on && (P.parsed || []).length ? `<div class="sc-note" style="margin-top:6px">${P.parsed.map(r => r.error
+                ? `<span class="pill bad">${esc(r.filename)}: ${esc(r.error)}</span>`
+                : `<span class="pill good">${esc(r.filename)} · ${esc(r.label)} · ${r.rows} rows · ${Object.keys(r.months).sort()[0] ? mLabel(Object.keys(r.months).sort()[0]) + '–' + mLabel(Object.keys(r.months).sort().pop()) : 'no months'}${r.warnings.length ? ' · ' + esc(r.warnings.join('; ')) : ''}</span>`).join(' ')}</div>` : ''}
+          </div>`; }).join('')}
+        <div style="border-top:1px solid var(--line);padding:8px 0">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            <span class="mono" style="min-width:190px;font-size:11px">Meetings, reports, creatives</span>
+            <label class="pf shape"><span class="pfl">team</span><select id="bn-sigteam">${depts.map(d => `<option ${((B.signalsTeam || defaults.reporting || defaults.calendar) === d) ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select></label>
+            <span class="sc-note">typed per month — client meetings held, reports / dashboards delivered, creatives delivered</span>
+          </div>
+          ${sigMonths.length ? `<div class="gridwrap" style="margin-top:6px"><table class="sc-grid"><thead><tr><th>per month</th>${sigMonths.map(m => `<th>${mLabel(m)}</th>`).join('')}</tr></thead><tbody>
+            ${['meetings', 'reports', 'creatives_delivered'].map(k => `<tr><td class="textleft">${esc(DRIVER_LABELS[k])}</td>${sigMonths.map(m => `<td><input class="hcell" type="number" min="0" step="1" data-bnsig="${m}:${k}" value="${((B.signals[m] || {})[k]) ?? ''}"></td>`).join('')}</tr>`).join('')}
+            </tbody></table></div>` : `<div class="sc-note">months appear once a file is parsed (or from the flight's closed months)</div>`}
+        </div>
+      </div>
+      <div class="sc-panel" style="margin:14px 18px 0">
+        <div class="chart-head" style="padding:0 0 6px"><div class="sc-eyebrow" style="margin:0">3 · What will be recorded</div>
+          <span style="display:flex;gap:8px;align-items:center"><button class="primary" id="bn-submit" ${B.busy || (!allParsed.some(r => !r.error) && !Object.keys(B.signals).length) ? 'disabled' : ''}>Record for ${esc(deal.name)}</button><span id="bn-msg" class="ok" style="font-size:12px"></span></span></div>
+        ${allParsed.some(r => !r.error) ? Object.entries(B.platforms).filter(([, P]) => P.on && (P.parsed || []).some(r => !r.error)).map(([pl, P]) => {
+          const merged = mergeMonths(P.parsed.filter(r => !r.error)); const ms = Object.keys(merged).sort();
+          const cols = [...new Set(ms.flatMap(m => Object.keys(merged[m])))].sort();
+          return `<div class="sc-note" style="margin-top:6px"><b>${esc(PLATFORMS[pl].label)}</b> → ${esc(P.team || defaults[pl] || '?')}</div>
+            <div class="gridwrap" style="margin-top:4px"><table class="sc-grid"><thead><tr><th>month</th>${cols.map(c => `<th>${esc(DRIVER_LABELS[c] || c)}</th>`).join('')}</tr></thead><tbody>
+            ${ms.map(m => `<tr><td class="textleft">${mLabel(m)}${m >= thisMonth() ? ' <span class="muted">(running — not fitted yet)</span>' : ''}</td>${cols.map(c => `<td>${c === 'spend' ? fmt$(merged[m][c] || 0) : (merged[m][c] ?? '—')}</td>`).join('')}</tr>`).join('')}
+            </tbody></table></div>`; }).join('') : `<div class="sc-note">upload a file to preview the per-month counts</div>`}
+      </div>` : ''}
+
+      <div class="sc-panel" style="margin:14px 18px 0;padding:0">
+        <div class="chart-head"><div class="sc-eyebrow">Hours per driver, from the library</div>
+          <span class="sc-note">${(D.observations || []).length} observed campaign-months · ${(D.enrolled || []).length} enrolled deals · a model is fitted per team once it has ${D.settings.model_min_observations} observations</span></div>
+        <div class="gridwrap" style="margin-top:0"><table class="ledger">
+          <thead><tr><th>kind</th><th>team</th><th>rows</th><th>driver</th><th>hours / unit</th><th>r²</th><th>n</th></tr></thead>
+          <tbody>${coefs.length ? coefs.flatMap(c => (c.drivers || []).length ? c.drivers.map((d, i) => `<tr>
+              <td class="textleft">${i === 0 ? esc(c.kind) : ''}</td><td class="textleft">${i === 0 ? esc(c.department) : ''}</td><td>${i === 0 ? c.n : ''}</td>
+              <td class="textleft">${esc(DRIVER_LABELS[d.driver] || d.driver)}</td>
+              <td>${d.driver === 'spend' ? (d.hours_per_unit != null ? (d.hours_per_unit * 100000).toFixed(2) + ' h / $1,000' : '—') : (d.hours_per_unit != null ? (+d.hours_per_unit).toFixed(3) : '—')}</td>
+              <td>${d.r2 != null ? (+d.r2).toFixed(2) : '—'}</td><td>${d.n}</td></tr>`) : [`<tr><td class="textleft">${esc(c.kind)}</td><td class="textleft">${esc(c.department)}</td><td>${c.n}</td><td colspan="4" class="muted">no drivers yet</td></tr>`]).join('')
+            : `<tr><td colspan="7" class="empty-note">No observations yet — enrol a campaign above.</td></tr>`}</tbody></table></div>
+        <div style="padding:10px 14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <select id="bn-fitdept"><option value="">fit a model for team…</option>${depts.map(d => `<option>${esc(d)}</option>`).join('')}</select>
+          <button class="ghost" id="bn-fit">Fit &amp; save</button>
+          <span id="bn-fitmsg" class="sc-note">${(D.models || []).length ? 'models: ' + D.models.map(m => `<b>${esc(m.department)}</b> (${(m.kinds || []).join('/')}, n ${m.n}, r² ${m.r2 != null ? (+m.r2).toFixed(2) : '—'})`).join(', ') : 'no fitted models yet — the ratio estimator is used'}</span>
+        </div>
+      </div>
+      ${(D.observations || []).length ? `<div class="sc-panel" style="margin:14px 18px 0;padding:0"><div class="sc-eyebrow" style="padding:12px 14px 0">Observations</div>
+        <div class="gridwrap" style="margin-top:6px"><table class="ledger">
+          <thead><tr><th>deal</th><th>team</th><th>month</th><th>hours</th><th>drivers</th></tr></thead>
+          <tbody>${D.observations.slice(0, 200).map(o => `<tr><td class="textleft">${esc(o.deal_name)}</td><td class="textleft">${esc(o.department)}</td><td>${mLabel(o.month)}</td><td>${fmtH(o.hours)}</td>
+            <td class="textleft muted" style="font-size:10px">${esc(Object.entries(o.drivers || {}).map(([k, v]) => `${DRIVER_LABELS[k] || k} ${k === 'spend' ? fmt$(v) : v}`).join(' · '))}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
+      <div style="height:24px"></div>`;
+
+    const p = panel();
+    p.querySelector('#bn-deal').onchange = e => { B.dealId = e.target.value || null; B.platforms = {}; B.signals = {}; location.hash = B.dealId ? '#bench/' + B.dealId : '#bench'; renderBench(); };
+    const auto = p.querySelector('#bn-auto'); if (auto) auto.onchange = () => { B.excludeAuto = auto.checked; reparseAll(); };
+    p.querySelectorAll('input[data-bnpl]').forEach(cb => cb.onchange = () => { B.platforms[cb.dataset.bnpl] = { ...(B.platforms[cb.dataset.bnpl] || {}), on: cb.checked, team: (B.platforms[cb.dataset.bnpl] || {}).team || defaults[cb.dataset.bnpl] || depts[0] }; renderBench(); });
+    p.querySelectorAll('select[data-bnteam]').forEach(s => s.onchange = () => { B.platforms[s.dataset.bnteam].team = s.value; });
+    p.querySelectorAll('input[data-bnfile]').forEach(inp => inp.onchange = async () => {
+      const pl = inp.dataset.bnfile; const P = B.platforms[pl];
+      P.files = [...(P.files || []), ...inp.files];
+      P.parsed = [];
+      for (const f of P.files) P.parsed.push(await parseFile(f, pl, { excludeAutomated: B.excludeAuto }));
+      renderBench();
+    });
+    const st = p.querySelector('#bn-sigteam'); if (st) st.onchange = () => { B.signalsTeam = st.value; };
+    p.querySelectorAll('input[data-bnsig]').forEach(i => i.onchange = () => { const [m, k] = i.dataset.bnsig.split(':'); B.signals[m] = { ...(B.signals[m] || {}) }; if (i.value === '') delete B.signals[m][k]; else B.signals[m][k] = Math.max(0, +i.value || 0); if (!Object.keys(B.signals[m]).length) delete B.signals[m]; });
+    const sub = p.querySelector('#bn-submit'); if (sub) sub.onclick = submitBench;
+    p.querySelector('#bn-fit').onclick = fitAndSave;
+    async function reparseAll() { for (const P of Object.values(B.platforms)) { if (!P.files) continue; P.parsed = []; for (const f of P.files) P.parsed.push(await parseFile(f, null, { excludeAutomated: B.excludeAuto })); } renderBench(); }
+  }
+
+  async function submitBench() {
+    const deal = B.dealId; if (!deal) return;
+    const defaults = (B.data.settings && B.data.settings.platform_team_defaults) || {};
+    const m = t => { const n = panel().querySelector('#bn-msg'); if (n) { n.textContent = t; } };
+    B.busy = true; m('recording…');
+    let written = 0;
+    for (const [pl, P] of Object.entries(B.platforms)) {
+      if (!P.on) continue;
+      const good = (P.parsed || []).filter(r => !r.error); if (!good.length) continue;
+      const merged = mergeMonths(good);
+      const rows = Object.entries(merged).map(([month, drivers]) => ({ month, drivers }));
+      const { data, error } = await supa.rpc('record_benchmark_observations', {
+        p_upload: { deal_id: deal, platform: pl, department: P.team || defaults[pl], filename: good.map(r => r.filename).join(', '),
+                    parser: [...new Set(good.map(r => r.parser))].join(', '), row_count: good.reduce((s, r) => s + (r.rows || 0), 0),
+                    summary: { files: good.length, warnings: good.flatMap(r => r.warnings || []) } },
+        p_rows: rows, p_by: window.__email });
+      if (error || !data.ok) { B.busy = false; m((error ? error.message : data.reason)); renderBench(); return; }
+      written += data.months_written;
+    }
+    if (Object.keys(B.signals).length) {
+      const team = B.signalsTeam || defaults.reporting || defaults.calendar || (B.data.departments || [])[0];
+      const rows = Object.entries(B.signals).map(([month, drivers]) => ({ month, drivers }));
+      const { data, error } = await supa.rpc('record_benchmark_observations', {
+        p_upload: { deal_id: deal, platform: 'reporting', department: team, filename: 'typed', parser: 'signals@1', row_count: rows.length, summary: {} },
+        p_rows: rows, p_by: window.__email });
+      if (error || !data.ok) { B.busy = false; m((error ? error.message : data.reason)); renderBench(); return; }
+      written += data.months_written;
+    }
+    B.busy = false; B.platforms = {}; B.signals = {};
+    await loadBench(deal);
+    const n = panel().querySelector('#bn-msg'); if (n) n.textContent = `recorded ${written} platform-months`;
+  }
+
+  async function fitAndSave() {
+    const dept = panel().querySelector('#bn-fitdept').value;
+    const out = panel().querySelector('#bn-fitmsg');
+    if (!dept) { out.textContent = 'pick a team'; return; }
+    const rows = (B.data.observations || []).filter(o => o.department === dept).map(o => ({ drivers: o.drivers || {}, hours: +o.hours, kinds: o.deal_kinds || [] }));
+    const minN = +B.data.settings.model_min_observations || 12;
+    if (rows.length < minN) { out.textContent = `${rows.length} observations for ${dept}; ${minN} needed before a model is worth fitting — the ratio estimator is used until then`; return; }
+    // drivers present in at least 60% of the rows, never spend twice (it is a proxy of budget)
+    const counts = {}; rows.forEach(r => Object.keys(r.drivers).forEach(k => { if (k !== 'platforms') counts[k] = (counts[k] || 0) + 1; }));
+    const keys = Object.entries(counts).filter(([, c]) => c >= rows.length * 0.6).map(([k]) => k);
+    const fit = fitModel(rows, keys);
+    if (!fit) { out.textContent = 'not enough rows for these drivers'; return; }
+    const kinds = [...new Set(rows.flatMap(r => r.kinds))].sort();
+    const { data, error } = await supa.rpc('save_benchmark_model', { p_department: dept, p_kinds: kinds, p_coefficients: fit.coefficients, p_n: fit.n, p_r2: fit.r2, p_by: window.__email });
+    if (error || !data.ok) { out.textContent = error ? error.message : data.reason; return; }
+    await loadBench(B.dealId);
+    const n2 = panel().querySelector('#bn-fitmsg'); if (n2) n2.innerHTML = `fitted <b>${esc(dept)}</b> on ${fit.n} rows, r² ${fit.r2.toFixed(2)}: ${Object.entries(fit.coefficients).map(([k, v]) => `${esc(DRIVER_LABELS[k] || k)} ${(+v).toFixed(k === 'spend' ? 6 : 3)}`).join(', ')}`;
   }
 
   go();

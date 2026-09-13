@@ -190,3 +190,48 @@ export function verdictStatus({ pal, hours, unpriced = 0, targetPerHourC }) {
 }
 
 export const fmtPct = p => (p === null || p === undefined || p === '') ? '' : String(+(+p).toFixed(3));
+
+// ---- benchmark model fit (099) ----------------------------------------------
+// Non-negative least squares by projected gradient descent: hours ≈ intercept +
+// Σ coef[k] × driver[k], every coefficient ≥ 0 (more work cannot take fewer
+// hours). Features are standardised for the descent and mapped back. Small n
+// (a few dozen observations) — a few thousand cheap iterations is plenty.
+// rows: [{ drivers: {k: v}, hours }], keys: the driver keys to fit on.
+export function fitModel(rows, keys) {
+  const R = rows.filter(r => r && typeof r.hours === 'number' && !isNaN(r.hours));
+  const n = R.length, K = keys.length;
+  if (n < K + 2) return null;
+  const X = R.map(r => keys.map(k => +(r.drivers || {})[k] || 0)), y = R.map(r => +r.hours);
+  const mean = keys.map((_, j) => X.reduce((s, x) => s + x[j], 0) / n);
+  const sd = keys.map((_, j) => Math.sqrt(X.reduce((s, x) => s + (x[j] - mean[j]) ** 2, 0) / Math.max(n - 1, 1)) || 1);
+  const Z = X.map(x => x.map((v, j) => (v - mean[j]) / sd[j]));
+  const yMean = y.reduce((s, v) => s + v, 0) / n;
+  let w = new Array(K).fill(0), b = yMean;
+  // Lipschitz step from the largest column norm
+  const L = Math.max(1, ...keys.map((_, j) => Z.reduce((s, z) => s + z[j] * z[j], 0))) / n * 2 + 2;
+  const lr = 1 / L;
+  for (let it = 0; it < 4000; it++) {
+    const gw = new Array(K).fill(0); let gb = 0;
+    for (let i = 0; i < n; i++) {
+      const pred = b + Z[i].reduce((s, z, j) => s + z * w[j], 0);
+      const e = pred - y[i];
+      gb += e; for (let j = 0; j < K; j++) gw[j] += e * Z[i][j];
+    }
+    b -= lr * 2 * gb / n;
+    for (let j = 0; j < K; j++) {
+      w[j] -= lr * 2 * gw[j] / n;
+      // non-negative in RAW units: coef_raw = w / sd ≥ 0 ⇔ w ≥ 0
+      if (w[j] < 0) w[j] = 0;
+    }
+  }
+  const coef = {}; let intercept = b;
+  keys.forEach((k, j) => { coef[k] = w[j] / sd[j]; intercept -= coef[k] * mean[j]; });
+  if (intercept < 0) intercept = 0;
+  const pred = X.map(x => intercept + x.reduce((s, v, j) => s + v * coef[keys[j]], 0));
+  const ssRes = y.reduce((s, v, i) => s + (v - pred[i]) ** 2, 0), ssTot = y.reduce((s, v) => s + (v - yMean) ** 2, 0);
+  const r2 = ssTot > 0 ? 1 - ssRes / ssTot : 0;
+  const round = v => Math.round(v * 1e6) / 1e6;
+  const coefficients = { intercept: round(intercept) };
+  keys.forEach(k => { coefficients[k] = round(coef[k]); });
+  return { coefficients, n, r2: Math.round(r2 * 1e4) / 1e4 };
+}

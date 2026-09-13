@@ -66,6 +66,8 @@ boot('settings', async (supa, el) => {
     </section>
     <section data-sec="scoping" id="secpanel-scoping" role="tabpanel" aria-labelledby="settab-scoping" hidden>
       <div class="sc-panel" id="scopeknobs"></div>
+      <div class="sc-panel" id="scopecatalog"></div>
+      <div class="sc-panel" id="scopeteams"></div>
       <div class="sc-panel" id="scopeseed"></div>
     </section>
     <section data-sec="int" id="secpanel-int" role="tabpanel" aria-labelledby="settab-int" hidden>
@@ -385,7 +387,7 @@ boot('settings', async (supa, el) => {
   const STATE_NAME = Object.fromEntries(US_STATES);
 
   async function load() {
-    const [syncs, knobs, pipelineDeals, hsDeals, clientsList, wcRates, sutaRates, staffDepts] = await Promise.all([
+    const [syncs, knobs, pipelineDeals, hsDeals, clientsList, wcRates, sutaRates, staffDepts, productsR, aliasesR, pipeItemsR] = await Promise.all([
       supa.from('sync_state').select('id,last_run_at,last_run_log,import_from,import_from_set_by,import_from_set_at'),
       supa.from('settings').select('key,value,set_by').order('key'),
       supa.from('pipeline_deals').select('hubspot_deal_id,name,company,campaign_start,campaign_end,pipeline,is_won,url,jobcode,stage'),
@@ -393,8 +395,12 @@ boot('settings', async (supa, el) => {
       supa.from('clients').select('id,name'),
       supa.from('workers_comp_rates').select('state,rate,set_by').order('state'),
       supa.from('suta_rates').select('state,wage_base,rate,set_by').order('state'),
-      supa.from('staff').select('department').eq('active', true).eq('tracks_capacity', true)
+      supa.from('staff').select('department').eq('active', true).eq('tracks_capacity', true),
+      supa.from('products').select('id,name,kind,role,department,setup_hours,monthly_hours,active').order('name'),
+      supa.from('product_aliases').select('id,source,external_name,product_id,excluded').order('external_name'),
+      supa.from('pipeline_deals').select('line_items')
     ]);
+    const products = productsR.data || [], aliases = aliasesR.data || [];
     const knobVal = (key, dflt) => { const k = (knobs.data || []).find(x => x.key === key); return k ? k.value : dflt; };
 
     document.getElementById('syncs').innerHTML = `<div class="sc-eyebrow" style="margin-top:0">Syncs</div>
@@ -679,6 +685,108 @@ boot('settings', async (supa, el) => {
       document.getElementById('sc-knobs-msg').className = error ? 'err' : 'ok';
       document.getElementById('sc-knobs-msg').textContent = error ? error.message : 'saved';
       if (!error) load();
+    };
+
+    // ---- product catalog (098): what is sold, how HubSpot / QuickBooks spell
+    // it, and the default hours it takes. hs_line_item_map reads the hubspot
+    // aliases at promotion; an EXCLUDED alias is skipped silently; an unmapped
+    // HubSpot name still blocks a flight, so the unmatched list below is the
+    // to-do. Default hours (setup once, monthly every flight month, by
+    // department) feed the scope's demand grid through scope_estimate_hours.
+    const seenHs = new Set();
+    (pipeItemsR.data || []).forEach(r => (Array.isArray(r.line_items) ? r.line_items : []).forEach(li => { if (li && li.name) seenHs.add(String(li.name).replace(/^.*:/, '').trim()); }));
+    const aliasKey = s => String(s || '').replace(/^.*:/, '').trim().toLowerCase();
+    const knownHs = new Set(aliases.filter(a => a.source === 'hubspot').map(a => aliasKey(a.external_name)));
+    const unmatched = [...seenHs].filter(n => n && !knownHs.has(n.toLowerCase())).sort();
+    const prodById = Object.fromEntries(products.map(p => [p.id, p]));
+    const fmtHours = o => Object.entries(o || {}).map(([d, h]) => `${d} ${h}h`).join(', ');
+    document.getElementById('scopecatalog').innerHTML = `<div class="sc-eyebrow" style="margin-top:0">Product catalog</div>
+      <div class="muted" style="font-size:11px;margin-bottom:8px;max-width:680px">
+        One table behind the HubSpot line items at promotion, the QuickBooks item names, and the default hours a product takes
+        (setup once in the first flight month, then monthly — by department, e.g. <span class="mono">Analytics: 8</span>).
+        An alias marked <b>excluded</b> is dropped silently at promotion; an <b>unmapped</b> HubSpot name still blocks it.</div>
+      <div class="gridwrap" style="margin-top:0"><table>
+        <tr><th>product</th><th>kind</th><th>role</th><th>department</th><th>setup hours</th><th>monthly hours</th><th>aliases (hubspot · qbo)</th><th></th></tr>
+        ${products.map(p => `<tr class="${p.active ? '' : 'muted'}">
+          <td class="textleft"><b>${esc(p.name)}</b>${p.active ? '' : ' <span class="pill">inactive</span>'}</td>
+          <td class="textleft">${esc(p.kind)}</td><td class="textleft">${esc(p.role)}</td><td class="textleft">${esc(p.department || '—')}</td>
+          <td class="textleft" style="font-size:10.5px">${esc(fmtHours(p.setup_hours)) || '—'}</td>
+          <td class="textleft" style="font-size:10.5px">${esc(fmtHours(p.monthly_hours)) || '—'}</td>
+          <td class="textleft" style="font-size:10.5px">${aliases.filter(a => a.product_id === p.id).map(a => `<span class="pill" title="${a.source}">${esc(a.source === 'qbo' ? 'QB' : 'HS')} ${esc(a.external_name)}</span>`).join(' ') || '<span class="muted">none</span>'}</td>
+          <td><button class="ghost cat-edit" data-id="${p.id}" style="padding:2px 8px;font-size:10.5px">edit</button></td></tr>`).join('')}
+        ${aliases.filter(a => a.excluded).length ? `<tr><td class="textleft muted" colspan="8">excluded: ${aliases.filter(a => a.excluded).map(a => `<span class="pill" title="${a.source}">${esc(a.source === 'qbo' ? 'QB' : 'HS')} ${esc(a.external_name)}</span> <button class="ghost cat-unexclude" data-id="${a.id}" style="padding:0 6px;font-size:10px" title="remove the exclusion">×</button>`).join(' ')}</td></tr>` : ''}
+      </table></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:10px">
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">new product<input id="cat-name" placeholder="e.g. MMM study" style="width:200px"></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">kind<select id="cat-kind">${['retainer','hourly','creative','search','social','programmatic'].map(k=>`<option>${k}</option>`).join('')}</select></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">role<select id="cat-role">${['flat','fee','budget','amount'].map(k=>`<option>${k}</option>`).join('')}</select></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">department<input id="cat-dept" list="cat-depts" style="width:160px"><datalist id="cat-depts">${scDepts.map(d=>`<option>${esc(d)}</option>`).join('')}</datalist></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">setup hours (dept: h, …)<input id="cat-setup" placeholder="Analytics: 8" style="width:180px"></label>
+        <label class="mono" style="display:flex;flex-direction:column;gap:4px">monthly hours<input id="cat-monthly" placeholder="Analytics: 2" style="width:180px"></label>
+        <button class="primary" id="cat-add">Add product</button>
+        <span id="cat-msg" class="ok" style="font-size:12px"></span>
+      </div>
+      <div class="sc-eyebrow">HubSpot line-item names not in the catalog</div>
+      <div class="muted" style="font-size:11px;margin-bottom:6px">Seen in the pipeline mirror. Map each to a product or exclude it; until then a deal carrying it promotes unflighted.</div>
+      ${unmatched.length ? `<table style="width:auto"><tr><th>HubSpot name</th><th>map to</th><th></th></tr>
+        ${unmatched.map(n => `<tr><td class="textleft">${esc(n)}</td>
+          <td><select class="cat-mapsel" data-name="${esc(n)}"><option value="">— product —</option>${products.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></td>
+          <td><button class="ghost cat-map" data-name="${esc(n)}" style="padding:2px 8px;font-size:10.5px">map</button> <button class="ghost cat-exclude" data-name="${esc(n)}" style="padding:2px 8px;font-size:10.5px" title="not a ledger line — skip it at promotion">exclude</button></td></tr>`).join('')}</table>`
+        : `<div class="muted" style="font-size:11px">every name in the mirror is mapped or excluded</div>`}`;
+    const parseHours = s => { const o = {}; String(s||'').split(/[,;]/).forEach(part => { const m = part.match(/^\s*([^:]+?)\s*:\s*([\d.]+)\s*$/); if (m) o[m[1].trim()] = +m[2]; }); return o; };
+    const catMsg = (t, bad) => { const n = document.getElementById('cat-msg'); n.textContent = t; n.className = bad ? 'err' : 'ok'; };
+    document.getElementById('cat-add').onclick = async () => {
+      const name = document.getElementById('cat-name').value.trim(); if (!name) { catMsg('name required', true); return; }
+      const { data, error } = await supa.from('products').insert({ name, kind: document.getElementById('cat-kind').value, role: document.getElementById('cat-role').value,
+        department: document.getElementById('cat-dept').value.trim() || null, setup_hours: parseHours(document.getElementById('cat-setup').value),
+        monthly_hours: parseHours(document.getElementById('cat-monthly').value), set_by: window.__email }).select('id').single();
+      if (error) { catMsg(error.message, true); return; }
+      // the product's own name is its first alias on both sources
+      await supa.from('product_aliases').insert([{ source:'hubspot', external_name:name, product_id:data.id, set_by:window.__email }, { source:'qbo', external_name:name, product_id:data.id, set_by:window.__email }]);
+      catMsg('added'); load();
+    };
+    document.querySelectorAll('.cat-edit').forEach(b => b.onclick = async () => {
+      const p = prodById[b.dataset.id];
+      const setup = prompt(`${p.name} — setup hours by department (dept: h, …):`, fmtHours(p.setup_hours).replace(/h/g, '')); if (setup === null) return;
+      const monthly = prompt(`${p.name} — monthly hours by department (dept: h, …):`, fmtHours(p.monthly_hours).replace(/h/g, '')); if (monthly === null) return;
+      const dept = prompt(`${p.name} — department:`, p.department || ''); if (dept === null) return;
+      const active = confirm(`${p.name}: keep ACTIVE? (Cancel = inactive: never offered, never mapped)`);
+      const hsAlias = prompt(`${p.name} — add a HubSpot / QuickBooks alias (blank to skip):`, '');
+      const { error } = await supa.from('products').update({ setup_hours: parseHours(setup), monthly_hours: parseHours(monthly), department: dept.trim() || null, active, set_by: window.__email, set_at: new Date().toISOString() }).eq('id', p.id);
+      if (error) { catMsg(error.message, true); return; }
+      if (hsAlias && hsAlias.trim()) await supa.from('product_aliases').upsert([{ source:'hubspot', external_name:hsAlias.trim(), product_id:p.id, excluded:false, set_by:window.__email }, { source:'qbo', external_name:hsAlias.trim(), product_id:p.id, excluded:false, set_by:window.__email }], { onConflict: 'source,external_name', ignoreDuplicates: true });
+      catMsg('saved'); load();
+    });
+    document.querySelectorAll('.cat-map').forEach(b => b.onclick = async () => {
+      const sel = document.querySelector(`.cat-mapsel[data-name="${b.dataset.name.replace(/"/g,'\\"')}"]`); if (!sel || !sel.value) { catMsg('pick a product first', true); return; }
+      const { error } = await supa.from('product_aliases').insert({ source:'hubspot', external_name:b.dataset.name, product_id:sel.value, set_by:window.__email });
+      catMsg(error ? error.message : 'mapped', !!error); if (!error) load();
+    });
+    document.querySelectorAll('.cat-exclude').forEach(b => b.onclick = async () => {
+      if (!confirm(`Exclude "${b.dataset.name}"? Deals carrying it will promote without it, silently.`)) return;
+      const { error } = await supa.from('product_aliases').insert({ source:'hubspot', external_name:b.dataset.name, excluded:true, set_by:window.__email });
+      catMsg(error ? error.message : 'excluded', !!error); if (!error) load();
+    });
+    document.querySelectorAll('.cat-unexclude').forEach(b => b.onclick = async () => {
+      const { error } = await supa.from('product_aliases').delete().eq('id', b.dataset.id);
+      catMsg(error ? error.message : 'exclusion removed', !!error); if (!error) load();
+    });
+
+    // ---- platform → team defaults (099): which department's hours a
+    // platform's drivers are benchmarked against, preselected on the upload
+    const ptd = knobVal('scope_platform_team_defaults', {});
+    const PLAT = [['google_ads','Google Ads'],['meta','Meta'],['dsp','DSP (DV360 / TTD)'],['calendar','Calendar & meetings'],['reporting','Reporting & deliverables'],['creative','Creative assets']];
+    document.getElementById('scopeteams').innerHTML = `<div class="sc-eyebrow" style="margin-top:0">Benchmark platforms → teams</div>
+      <div class="muted" style="font-size:11px;margin-bottom:8px;max-width:640px">The team preselected when a platform's export is uploaded on Benchmarks. Paid search and paid social are pooled as one team here — the model separates them by the drivers (campaigns vs ad sets), not by department.</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">
+        ${PLAT.map(([k,label]) => `<label class="mono" style="display:flex;flex-direction:column;gap:4px">${esc(label)}
+          <select class="k-sc-ptd" data-pl="${k}"><option value="">—</option>${scDepts.map(d=>`<option ${ptd[k]===d?'selected':''}>${esc(d)}</option>`).join('')}</select></label>`).join('')}
+        <button class="primary" id="sc-teams-save">Save</button><span id="sc-teams-msg" class="ok" style="font-size:12px"></span>
+      </div>`;
+    document.getElementById('sc-teams-save').onclick = async () => {
+      const v = {}; document.querySelectorAll('.k-sc-ptd').forEach(s => { if (s.value) v[s.dataset.pl] = s.value; });
+      const { error } = await supa.from('settings').upsert([{ key:'scope_platform_team_defaults', value:v, set_by:window.__email, set_at:new Date().toISOString() }], { onConflict:'key' });
+      document.getElementById('sc-teams-msg').textContent = error ? error.message : 'saved'; if (!error) load();
     };
 
     // The seed fills the empty assignments table from what people actually

@@ -139,7 +139,7 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   finds the same shape for any other deal.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 097. Key views/functions
+## Current migration head: 099. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
@@ -279,6 +279,31 @@ is always a new migration, so grep for the highest one before reading an old bod
   (hubspot via hs_flight_lines | deal | new | client | scenario), approve/
   unapprove (approvers from `scope_approver_emails`, enforced by the
   `scopes_status_guard` trigger too), `quick_check`. Promotion = 100 (pending).
+- **Product catalog** (098): `products` (name, kind, role budget|fee|flat|amount,
+  department, `setup_hours` / `monthly_hours` jsonb by department) +
+  `product_aliases` (source hubspot|qbo, external_name, product_id, `excluded`).
+  `hs_line_item_map` reads the hubspot aliases (STABLE now; both sides lose the
+  folder prefix); `hs_flight_lines` [098] drops EXCLUDED items silently, an
+  UNMAPPED one still blocks (078). Edited on Settings › Scoping; the unmatched
+  HubSpot names seen in the mirror are listed there as the to-do.
+- **Benchmarks** (099, bench mode in `app/scoping.html#bench`): enrol a live deal
+  (`benchmark_deals`), assign platforms to TEAMS, upload exports parsed in the
+  browser (`app/assets/parsers/*` — Google Ads daily + change history, Meta
+  daily + activity, DSP; spend in CENTS) into `benchmark_uploads` +
+  `benchmark_upload_months` (re-upload of the same deal+platform+team replaces).
+  `v_benchmark_observed` = drivers per (deal, department, closed month) + the
+  department's counted hours (090/091 rule) + deal_kinds + client. Never store
+  hours; never count the running month. `benchmark_coefficients(kind, dept,
+  client)` = per driver Σhours/Σdriver (8 dp — spend is cents) + regression
+  stats, CLIENT-SPECIFIC when the client has ≥ 2 rows. `benchmark_models` =
+  NNLS fit (`fitModel` in scope-math.js, ≥ `scope_model_min_observations`
+  rows) saved via `save_benchmark_model`; `estimate_dept_hours` prefers it,
+  else the MEDIAN of the single-driver estimates. `scope_estimate_hours` fills
+  `scope_dept_months` (source benchmark|catalog, manual rows never touched) from
+  each media line month's `drivers` (spend auto-added from the budget cell at
+  save) + catalog products on lines (`structure.products`). `quick_check` [099]
+  estimates from spend when no hours are typed. Tests:
+  `scripts/test/scope-parsers.test.mjs`.
 - `snapshot_forecast`, `v_forecast_accuracy`, `v_invoice_settlement_calibration`
   [067] — measuring the model against itself.
 - `promote_approval(hubspot_deal_id)` [078] — the promotion door: deal +
@@ -304,8 +329,9 @@ is always a new migration, so grep for the highest one before reading an old bod
   Departments pages are placeholders. **Scoping tool in progress** (plan in
   `~/.claude/plans/i-want-to-start-iridescent-sonnet.md`, 13 Sep 2026): Phase 1
   Hour Planning shipped (095); Phase 2 scope tables + editor + verdict shipped
-  (096/097); next 098 benchmarks + product catalog, 099/100 forecast handoff +
-  promotion door, 101 cashflow rebate, 102 terms. Decisions locked with Boris there — labor
+  (096/097); Phase 3 product catalog + benchmarks shipped (098/099); next 100
+  forecast handoff (deal_lines.structure + rebate in the view), 101 promotion
+  door, 102 cashflow rebate, 103 terms. Decisions locked with Boris there — labor
   cost is ONE rolled-up number (salary privacy), rebate is COGS not billable,
   fee bands are monthly, Paid Media pools search + social, scope dates win at
   promotion, excluded catalog items skip silently.
