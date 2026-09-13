@@ -139,7 +139,7 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   finds the same shape for any other deal.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 101. Key views/functions
+## Current migration head: 102. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
@@ -342,6 +342,13 @@ is always a new migration, so grep for the highest one before reading an old bod
   `p_projects` = {scope_deal_id: qbo_project_id}. 101_fixture_test row 1 is the
   handoff identity: every `v_deal_month_forecast` row of the new deal equals
   `scope_months`.
+- `scope_terms(scope_id)` [102] — the commercial terms as plain sentences from
+  `scope_terms_templates` ({{placeholders}}, edited on Settings › Scoping):
+  fee schedule per line (flat / marginal / whole bands, min, cap, funding,
+  planned media), rebates, retainers with included hours + overage, hourly,
+  payment terms, notes. The programmatic BACKEND MARGIN is never printed.
+  `approve_scope` [102] freezes the text into `scopes.terms_text`. Helpers
+  `render_template`, `fmt_money` ($50,000.00), `fmt_pct` (12.5 not 12.500).
 - `match_deals_to_projects()` [010/037] — residual deal↔QBO-project fill-gaps
   pass; never guesses, never clobbers a human's match.
 
@@ -358,8 +365,11 @@ is always a new migration, so grep for the highest one before reading an old bod
   `~/.claude/plans/i-want-to-start-iridescent-sonnet.md`, 13 Sep 2026): Phase 1
   Hour Planning shipped (095); Phase 2 scope tables + editor + verdict shipped
   (096/097); Phase 3 product catalog + benchmarks shipped (098/099); Phase 4a
-  forecast handoff shipped (100); Phase 4b promotion door shipped (101); next
-  102 cashflow rebate (optional, after 100 is trusted in prod), 103 terms. Decisions locked with Boris there — labor
+  forecast handoff shipped (100); Phase 4b promotion door shipped (101); Phase
+  5 terms shipped (102). Still open: the cashflow leg of a rebate
+  (`cashflow_forecast` has no `out_rebate` yet — a rebate leaves cash when the
+  client invoices EMG; decide the timing knob with Boris before adding it),
+  and a browser smoke test of every page once 095–102 are applied in prod. Decisions locked with Boris there — labor
   cost is ONE rolled-up number (salary privacy), rebate is COGS not billable,
   fee bands are monthly, Paid Media pools search + social, scope dates win at
   promotion, excluded catalog items skip silently.

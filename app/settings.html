@@ -68,6 +68,7 @@ boot('settings', async (supa, el) => {
       <div class="sc-panel" id="scopeknobs"></div>
       <div class="sc-panel" id="scopecatalog"></div>
       <div class="sc-panel" id="scopeteams"></div>
+      <div class="sc-panel" id="scopetermsp"></div>
       <div class="sc-panel" id="scopeseed"></div>
     </section>
     <section data-sec="int" id="secpanel-int" role="tabpanel" aria-labelledby="settab-int" hidden>
@@ -787,6 +788,35 @@ boot('settings', async (supa, el) => {
       const v = {}; document.querySelectorAll('.k-sc-ptd').forEach(s => { if (s.value) v[s.dataset.pl] = s.value; });
       const { error } = await supa.from('settings').upsert([{ key:'scope_platform_team_defaults', value:v, set_by:window.__email, set_at:new Date().toISOString() }], { onConflict:'key' });
       document.getElementById('sc-teams-msg').textContent = error ? error.message : 'saved'; if (!error) load();
+    };
+
+    // ---- commercial terms templates (102): the sentences scope_terms writes
+    // from a scope. {{placeholders}} are filled by the database; the backend
+    // margin has no placeholder on purpose. Approval freezes the text.
+    const TPL_KEYS = [
+      ['intro', 'Opening line', '{{client}} {{deals}} {{start}} {{end}}'], ['deal', 'One deal in the opening line', '{{deal}} {{start}} {{end}}'],
+      ['fee_flat', 'Flat fee line', '{{line}} {{pct}}'], ['fee_marginal', 'Marginal-band fee line', '{{line}} {{bands}}'],
+      ['fee_marginal_band', 'One marginal band', '{{pct}} {{from}} {{to}}'], ['fee_marginal_band_last', 'Top marginal band', '{{pct}} {{from}}'],
+      ['fee_whole', 'Whole-spend fee line', '{{line}} {{bands}}'], ['fee_whole_band', 'One whole-spend band', '{{pct}} {{from}} {{to}}'], ['fee_whole_band_last', 'Top whole-spend band', '{{pct}} {{from}}'],
+      ['fee_min', 'Minimum fee', '{{amount}}'], ['fee_cap', 'Fee cap', '{{amount}}'],
+      ['media_client', 'Client-funded media', ''], ['media_agency', 'EMG-funded media', ''], ['media_budget', 'Planned media', '{{total}}'],
+      ['programmatic_fee_margin', 'Programmatic (fee + backend)', '{{line}} {{pct}} {{total}}'], ['programmatic_cpm', 'Programmatic (CPM)', '{{line}} {{total}}'],
+      ['rebate_media', 'Rebate on media', '{{line}} {{pct}}'], ['rebate_fee', 'Rebate on the fee', '{{line}} {{pct}}'],
+      ['retainer', 'Retainer', '{{line}} {{amount}} {{hours_clause}}'], ['hours_included', 'Included hours clause', '{{hours}}'], ['overage', 'Overage clause', '{{rate}}'],
+      ['hourly', 'Hourly line', '{{line}} {{hours}} {{rate}}'], ['payment_terms', 'Payment terms', '{{net_days}}']];
+    const tpl = knobVal('scope_terms_templates', {});
+    document.getElementById('scopetermsp').innerHTML = `<div class="sc-eyebrow" style="margin-top:0">Commercial terms templates</div>
+      <div class="muted" style="font-size:11px;margin-bottom:8px;max-width:680px">The sentences the Terms button on a scope assembles, one per commercial fact. Placeholders in braces are filled from the scope; an unknown placeholder stays visible so a typo shows. Approval freezes a scope's text as worded then. The programmatic backend margin is never printed.</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:8px 18px">
+        ${TPL_KEYS.map(([k, label, ph]) => `<label class="mono" style="display:flex;flex-direction:column;gap:3px;font-size:10px">${esc(label)} <span class="muted">${esc(ph)}</span>
+          <input class="k-sc-tpl" data-k="${k}" value="${esc(tpl[k] ?? '')}" style="font-size:11.5px"></label>`).join('')}
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;margin-top:10px"><button class="primary" id="sc-tpl-save">Save templates</button><span id="sc-tpl-msg" class="ok" style="font-size:12px"></span></div>`;
+    document.getElementById('sc-tpl-save').onclick = async () => {
+      const v = { ...tpl };
+      document.querySelectorAll('.k-sc-tpl').forEach(i => { v[i.dataset.k] = i.value; });
+      const { error } = await supa.from('settings').upsert([{ key:'scope_terms_templates', value:v, set_by:window.__email, set_at:new Date().toISOString() }], { onConflict:'key' });
+      document.getElementById('sc-tpl-msg').textContent = error ? error.message : 'saved'; if (!error) load();
     };
 
     // The seed fills the empty assignments table from what people actually

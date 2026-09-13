@@ -310,6 +310,7 @@ boot('scoping', async (supa, el) => {
           <option value="">v${S.version} (current)</option>
           ${(X.versions || []).filter(v => v.version !== S.version).map(v => `<option value="${v.id}">v${v.version} · ${esc(v.reason)}${v.label ? ' · ' + esc(v.label) : ''} · ${new Date(v.saved_at).toLocaleDateString()}</option>`).join('')}
         </select>
+        <button class="ghost" id="sc-terms" title="The commercial terms this scope implies, as plain sentences (templates on Settings › Scoping)">Terms</button>
         <span style="flex:1"></span>
         ${ro ? '' : `<button class="primary" id="sc-save">Save</button>`}
         ${S.status === 'draft' ? `<button class="ghost" id="sc-propose">Propose</button>` : ''}
@@ -628,6 +629,7 @@ boot('scoping', async (supa, el) => {
     p.querySelector('#sc-version').onchange = e => { if (e.target.value) showVersion(e.target.value); };
     const on = (id, fn) => { const n = p.querySelector('#' + id); if (n) n.onclick = fn; };
     on('sc-save', () => save()); on('sc-propose', () => setStatus('proposed')); on('sc-draft', () => setStatus('draft'));
+    on('sc-terms', showTerms);
     on('sc-approve', approve); on('sc-unapprove', unapprove); on('sc-promote', promote); on('sc-adddeal', () => { S.deals.push({ ord: S.deals.length, name: 'Deal ' + (S.deals.length + 1), origin_kind: 'new', promote_mode: 'new', flight_start: null, flight_end: null, lines: [] }); markDirty(); renderEditor(); });
     on('sc-autostaff', autoStaff); on('sc-clearauto', clearAuto);
     p.querySelectorAll('tr.namerow[data-open]').forEach(tr => { tr.onclick = () => { location.hash = '#' + tr.dataset.open; }; });
@@ -788,6 +790,34 @@ boot('scoping', async (supa, el) => {
     const { data, error } = await supa.rpc('approve_scope', { p_scope_id: S.id, p_by: window.__email });
     if (error || !data.ok) { msg(error ? error.message : data.reason, true); return; }
     await loadScope(S.id); msg(`approved · ${data.assignments_written} person-months reserved in Hour Planning`);
+  }
+  // Commercial terms (102): the server words them from the saved scope; an
+  // approved scope shows the text frozen at approval. Copy goes to the clipboard.
+  async function showTerms() {
+    if (dirty && !readOnly() && !(await save(''))) return;
+    let text, note;
+    if (readOnly() && S.terms_text) { text = S.terms_text; note = `as approved${S.approved_at ? ' on ' + new Date(S.approved_at).toLocaleDateString() : ''}`; }
+    else {
+      const { data, error } = await supa.rpc('scope_terms', { p_scope_id: S.id });
+      if (error) { msg(error.message, true); return; }
+      text = data.text || ''; note = 'from the saved scope — frozen on approval';
+    }
+    document.querySelector('.modal-back')?.remove();
+    const back = document.createElement('div');
+    back.className = 'modal-back';
+    back.innerHTML = `<div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="tm-title">
+      <div class="modal-head"><span class="modal-title" id="tm-title">Commercial terms — ${esc(S.name)}</span>
+        <span class="sc-note">${esc(note)}</span><button class="mclose ghost">Close ✕</button></div>
+      <div class="modal-body"><pre id="tm-text" style="white-space:pre-wrap;font-family:var(--font-body);font-size:13px;line-height:1.5;margin:0">${esc(text)}</pre></div>
+      <div class="modal-foot"><span id="tm-msg" class="ok" style="font-size:12px"></span><button class="primary" id="tm-copy">Copy</button></div></div>`;
+    document.body.appendChild(back);
+    back.querySelector('.mclose').onclick = () => back.remove();
+    back.onclick = e => { if (e.target === back) back.remove(); };
+    back.querySelector('#tm-copy').onclick = async () => {
+      try { await navigator.clipboard.writeText(text); back.querySelector('#tm-msg').textContent = 'copied'; }
+      catch { const r = document.createRange(); r.selectNodeContents(back.querySelector('#tm-text')); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+        back.querySelector('#tm-msg').textContent = 'select-all done — press ⌘C'; }
+    };
   }
   async function promote() {
     // QuickBooks project per deal: required for HubSpot deals (the approval
