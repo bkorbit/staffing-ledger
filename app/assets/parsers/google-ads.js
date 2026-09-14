@@ -8,7 +8,7 @@
 //           Change type / Changes, User, Tool. changes = rows per month;
 //           automated tools (API, scripts, rules, Google's own) are dropped
 //           when opts.excludeAutomated is on — they are not a person's time.
-import { findHeader, col, parseNum, toMonth } from './csv.js?v=820e597';
+import { findHeader, col, parseNum, toMonth } from './csv.js?v=e096d0b';
 
 const bump = (m, key, v = 1) => { m[key] = (m[key] || 0) + v; };
 const ensure = (out, month) => (out[month] = out[month] || { _sets: {} });
