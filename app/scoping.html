@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Scoping</title><link rel="stylesheet" href="./assets/style.css?v=90e3369">
+<title>EMG — Scoping</title><link rel="stylesheet" href="./assets/style.css?v=952d4aa">
 <style>
 /* page-local: the editor's sections and grids. Cards reuse forecast's .linecard system.
    ONE gutter system: full-width panels (.sc-panel padding 16px 18px) and the summary
@@ -58,11 +58,11 @@ tr.namerow[data-open] { cursor:pointer; }
 @media (max-width:640px) { .sc-dealhead input.dname { flex-basis:100%; } .sc-grid input.hcell { width:56px; } .sc-grid th:first-child, .sc-grid td:first-child { min-width:160px; width:160px; } }
 </style></style></head><body>
 <script type="module">
-import { boot, esc, fmt$, wireSearch, fetchAll } from './assets/shell.js?v=90e3369';
-import { lineFee, lineRebate, progSuggestMargin, progDealMargin, progParams, lineMonth, scopeMonths, monthsBetween, shiftM, spreadTotal, fitModel } from './assets/scope-math.js?v=90e3369';
-import { loadStatus, statusPill, fmtH, mLabel, thisMonth } from './assets/capacity.js?v=90e3369';
-import { scopeChart, verdictStrip, scopeStat, STATUS_LABEL, STATUS_PILL } from './assets/scope-chart.js?v=90e3369';
-import { parseFile, mergeMonths, PLATFORMS, DRIVER_LABELS } from './assets/parsers/index.js?v=90e3369';
+import { boot, esc, fmt$, wireSearch, fetchAll } from './assets/shell.js?v=952d4aa';
+import { lineFee, lineRebate, progSuggestMargin, progDealMargin, progParams, lineMonth, scopeMonths, monthsBetween, shiftM, spreadTotal, fitModel } from './assets/scope-math.js?v=952d4aa';
+import { loadStatus, statusPill, fmtH, mLabel, thisMonth } from './assets/capacity.js?v=952d4aa';
+import { scopeChart, verdictStrip, scopeStat, STATUS_LABEL, STATUS_PILL } from './assets/scope-chart.js?v=952d4aa';
+import { parseFile, mergeMonths, PLATFORMS, DRIVER_LABELS } from './assets/parsers/index.js?v=952d4aa';
 
 // Is this deal viable? A scope is the commercial plan (channels, fee
 // structures, rebates, programmatic model) for one or several future deals,

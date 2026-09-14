@@ -4,8 +4,8 @@
 // Ad Group), a creative column, Impressions, and a cost column (Media Cost /
 // Revenue (Adv Currency) / Advertiser Cost / Total Media Cost). Reports end
 // with a blank line and a footer — rows without a parsable date are skipped.
-import { findHeader, col, parseNum, toMonth } from './csv.js?v=90e3369';
-import { finish } from './google-ads.js?v=90e3369';
+import { findHeader, col, parseNum, toMonth } from './csv.js?v=952d4aa';
+import { finish } from './google-ads.js?v=952d4aa';
 
 const bump = (m, key, v = 1) => { m[key] = (m[key] || 0) + v; };
 const ensure = (out, month) => (out[month] = out[month] || { _sets: {} });
