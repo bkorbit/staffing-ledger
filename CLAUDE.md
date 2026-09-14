@@ -165,7 +165,7 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   finds the same shape for any other deal.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 111. Key views/functions
+## Current migration head: 112. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
@@ -209,6 +209,31 @@ is always a new migration, so grep for the highest one before reading an old bod
   silently stops being identical. `scoping_list` also filters the pipeline
   mirror server-side now (the page's own filter, reproduced in SQL — 437 → 176 KB);
   the page keeps its filter, so it works either way.
+- **112 opened the Benchmarks to more platforms and showed the hours** (Boris,
+  14 Sep 2026: "match the logged hours to the campaign data from the platform,
+  not add stuff manually"). `benchmark_uploads.platform` is a shape check
+  (`^[a-z0-9_]{2,40}$`), not a list — the registry is `PLATFORMS` in
+  `app/assets/parsers/index.js` (google_ads, meta, reddit, linkedin, dsp,
+  viant, cm360; `files`, `group` = the team that usually runs it, `parser` =
+  the family a platform shares — Viant reads through the DSP parser) plus
+  Settings › Scoping's team defaults (112 added viant → Programmatic, reddit /
+  linkedin → Paid Media, cm360 → AdOps, existing keys untouched). New parsers
+  `social.js` (Reddit: campaign → ad group → ad; LinkedIn: campaign GROUP →
+  campaign → creative, mapped to active_campaigns / ad_sets / ads_live) and
+  `cm360.js` (Adswerve trafficking: `placements` is the AdOps driver, also
+  `sites`); matchers are exclusive (Placement = CM360, Campaign group / Total
+  spent = LinkedIn, Ad group name + Campaign name = Reddit, Ad set name = Meta)
+  and `PARSERS` order puts the exclusive shapes first for un-hinted files —
+  `scripts/test/scope-parsers.test.mjs` pins every one. The column aliases are
+  the platforms' documented headers, NOT yet checked against a real export:
+  the first real Reddit / LinkedIn / Viant / CM360 file Boris sends pins them.
+  The typed-signal section (meetings / reports / creatives) is gone from the
+  bench view; old uploads of those platforms still read. `benchmark_deal_hours
+  (deal)` = one deal's counted hours per department per month (090/091 rule,
+  v_benchmark_observed's department rule — 112_fixture_test asserts the two
+  agree), `closed` flags the running month; the bench view shows it under the
+  uploads as "Hours logged on this campaign" so the reader sees what the
+  exports are matched to. Hours and headcount only, never a cost.
 - **110 moved two roll-ups off the browser**: `hours_page_parts` gained
   `deal_week_hours` (hours per ISO week per deal — Home was fetching every
   time_entries row in its range, ~14k over six months in fourteen paged

@@ -38,4 +38,46 @@ const fit = fitModel([{ drivers: { c: 10 }, hours: 25 }, { drivers: { c: 20 }, h
 eq([Math.round(fit.coefficients.c * 100) / 100, Math.round(fit.coefficients.intercept), fit.r2 > 0.999], [2, 5, true], 'NNLS recovers 5 + 2c');
 const fit2 = fitModel([{ drivers: { c: 10, junk: 100 }, hours: 25 }, { drivers: { c: 20, junk: 5 }, hours: 45 }, { drivers: { c: 30, junk: 70 }, hours: 65 }, { drivers: { c: 40, junk: 1 }, hours: 85 }, { drivers: { c: 50, junk: 40 }, hours: 105 }], ['c', 'junk']);
 eq([Math.round(fit2.coefficients.c * 10) / 10, fit2.coefficients.junk >= 0], [2, true], 'irrelevant driver stays ≥ 0');
+// 112: the new platforms — exclusive matchers, per-month counts, spend in cents
+const reddit = `Date,Campaign name,Ad group name,Ad name,Spend,Impressions,Clicks
+2026-09-02,Launch,Interests,Post A,"$120.50","8,000",40
+2026-09-03,Launch,Interests,Post B,0,0,0
+2026-09-03,Launch,Lookalike,Post C,"$80.00","5,000",12
+2026-10-01,Launch,Interests,Post A,"$10.00",900,3
+Total,,,,"$210.50","13,900",55`;
+const rr = parseCSV(reddit); const pr = detect(rr, 'reddit');
+eq(pr && pr.id, 'reddit-daily@1', 'detects reddit');
+eq(pr.parse(rr).months['2026-09-01'], { spend: 20050, active_campaigns: 1, ad_groups: 2, ads_live: 2 }, 'reddit sept: post B inactive, two ad groups, cents');
+eq(detect(rr, null) && detect(rr, null).id, 'reddit-daily@1', 'reddit wins without a hint (Meta needs Ad set name)');
+eq(detect(rm, 'reddit') && detect(rm, 'reddit').id, 'meta-daily@1', 'a Meta file with a reddit hint still lands on Meta');
+
+const li = `Campaign Performance Report
+Account: EMG
+Start Date (in UTC),End Date (in UTC),Campaign Group Name,Campaign Name,Creative Name,Total Spent,Impressions,Clicks
+9/1/2026,9/1/2026,B2B Q3,Decision makers,Carousel 1,"1,500.00","20,000",100
+9/2/2026,9/2/2026,B2B Q3,Decision makers,Carousel 2,0,0,0
+9/2/2026,9/2/2026,B2B Q3,Retargeting,Video 1,"400.00","6,000",30
+10/1/2026,10/1/2026,B2B Q4,Awareness,Video 2,"50.00","1,000",4`;
+const rl = parseCSV(li); const pl = detect(rl, null);
+eq(pl && pl.id, 'linkedin-daily@1', 'detects linkedin through its title block, no hint');
+eq(pl.parse(rl).months['2026-09-01'], { spend: 190000, active_campaigns: 1, ad_sets: 2, ads_live: 2 }, 'linkedin sept: one group, two campaigns as ad sets, carousel 2 inactive');
+
+const cm = `Date,Campaign,Placement,Creative,Site (CM360),Impressions,Media Cost
+2026-09-01,Fall,300x250 ROS,Banner A,cnn.com,"10,000",250.00
+2026-09-01,Fall,728x90 ROS,Banner B,cnn.com,"5,000",125.00
+2026-09-02,Fall,300x250 ROS,Banner A,espn.com,"2,000",50.00
+2026-09-02,Fall,Native feed,Banner C,espn.com,0,0
+Grand Total,,,,,"17,000",425.00`;
+const rcm = parseCSV(cm); const pcm = detect(rcm, null);
+eq(pcm && pcm.id, 'cm360-daily@1', 'a Placement column is CM360, no hint');
+eq(pcm.parse(rcm).months['2026-09-01'], { spend: 42500, active_campaigns: 1, placements: 2, ads_live: 2, sites: 2 }, 'cm360: two placements served, native feed did not, two sites, cents');
+
+const viant = `Date,Order,Ad Group,Creative,Impressions,Advertiser Spend
+2026-09-01,Holiday CTV,Prospecting,Spot 30,"100,000","2,000.00"
+2026-09-01,Holiday CTV,Retargeting,Spot 15,"40,000","800.00"`;
+const rv = parseCSV(viant); const pv = detect(rv, 'viant');
+eq(pv && pv.id, 'dsp-daily@1', 'viant hint resolves to the DSP family');
+eq(pv.parse(rv).months['2026-09-01'], { spend: 280000, active_campaigns: 1, ad_groups: 2, ads_live: 2 }, 'viant: Order and Advertiser Spend read');
+eq(detect(rcm, 'dsp') && detect(rcm, 'dsp').id, 'cm360-daily@1', 'a CM360 file with a dsp hint is not swallowed by the DSP parser');
+
 console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

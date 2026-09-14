@@ -138,6 +138,16 @@ h2.sc-eyebrow.inset14, h3.sc-eyebrow.inset14 { padding:12px 14px 0; margin:0; }
 .sc-file { height:auto; padding:4px; max-width:100%; }
 .sc-out { margin-top:12px; font-size:12px; }
 .sc-terms-text { white-space:pre-wrap; font-family:var(--font-body); font-size:13px; line-height:1.5; margin:0; }
+/* Benchmarks: platforms grouped by the team that usually runs them */
+.sc-bartitle { font-family:var(--font-body); font-size:16px; font-weight:700; letter-spacing:-.01em; }
+.bn-group { border-top:1px solid var(--line); padding:8px 0 4px; }
+.bn-grouphead { font-family:var(--font-mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); margin:2px 0 6px; }
+.bn-row { display:flex; gap:10px 14px; flex-wrap:wrap; align-items:center; padding:3px 0; }
+.bn-plat { min-width:250px; }
+.bn-hint { flex:1 1 260px; min-width:0; }
+.bn-files { display:flex; gap:6px; flex-wrap:wrap; padding:2px 0 6px 28px; }
+.bn-fitrow { display:flex; gap:10px; flex-wrap:wrap; align-items:center; padding:10px 18px 12px; }
+table.bn-preview th, table.bn-preview td { white-space:nowrap; }
 .summary-value .muted { font-size:12px; }
 .sc-linkbtn { border:none; background:none; padding:0; height:auto; color:var(--brand-2); text-decoration:underline; text-underline-offset:2px; font:inherit; cursor:pointer; }
 .sc-linkbtn:hover { color:var(--brand); }
@@ -1351,90 +1361,102 @@ boot('scoping', async (supa, el) => {
   let B = null;
   async function loadBench(dealId) {
     panel().innerHTML = 'loading…';
-    const { data, error } = await supa.rpc('benchmark_page');
-    if (error) {
-      const missing = /benchmark_page/.test(error.message) && /not exist|schema cache/i.test(error.message);
-      panel().innerHTML = `<div class="sc-panel err">${esc(error.message)}${missing ? '\n\nThis needs db/098_product_catalog.sql and db/099_benchmarks.sql applied in the Supabase SQL editor.' : ''}</div>`; return;
+    // the library payload and, when a campaign is picked, the hours logged on it (112)
+    const [pg, hrs] = await Promise.all([
+      supa.rpc('benchmark_page'),
+      dealId ? supa.rpc('benchmark_deal_hours', { p_deal_id: dealId }) : Promise.resolve({ data: [] })
+    ]);
+    if (pg.error) {
+      const missing = /benchmark_page/.test(pg.error.message) && /not exist|schema cache/i.test(pg.error.message);
+      panel().innerHTML = `<div class="sc-panel err">${esc(pg.error.message)}${missing ? '\n\nThis needs db/098_product_catalog.sql and db/099_benchmarks.sql applied in the Supabase SQL editor.' : ''}</div>`; return;
     }
     const keep = B && B.dealId === dealId ? B : null;
-    B = { data, dealId: dealId || (keep && keep.dealId) || null, q: '',
-          platforms: keep ? keep.platforms : {}, signals: keep ? keep.signals : {}, signalsTeam: keep ? keep.signalsTeam : null,
-          excludeAuto: keep ? keep.excludeAuto : true, busy: false };
+    B = { data: pg.data, dealId: dealId || null, hours: hrs.error ? null : (hrs.data || []), hoursError: hrs.error ? hrs.error.message : null,
+          platforms: keep ? keep.platforms : {}, excludeAuto: keep ? keep.excludeAuto : true, busy: false };
     renderBench();
   }
 
+  // Benchmarks: enrol a live campaign, upload what the platforms exported, and
+  // let the library learn hours-per-driver from the hours the team logged on
+  // it. Nothing is typed (Boris, 14 Sep 2026): the match is platform data ↔
+  // logged hours, and the logged hours are shown so the reader sees what the
+  // exports are being matched to.
   function renderBench() {
     const D = B.data, defaults = (D.settings && D.settings.platform_team_defaults) || {};
     const deal = (D.deals || []).find(d => d.id === B.dealId) || null;
     const enrolled = deal ? (D.enrolled || []).find(e => e.deal_id === deal.id) : null;
     const depts = D.departments || [];
-    const filePlatforms = ['google_ads', 'meta', 'dsp'];
+    const filePlatforms = Object.entries(PLATFORMS).filter(([, v]) => v.files).map(([k]) => k);
+    const groups = [...new Set(filePlatforms.map(k => PLATFORMS[k].group))];
     const allParsed = Object.values(B.platforms).flatMap(p => p.parsed || []);
-    const monthsSeen = [...new Set(allParsed.flatMap(r => Object.keys(r.months || {})))].sort();
-    const flightMonths = deal && deal.flight_start && deal.flight_end ? monthsBetween(deal.flight_start, deal.flight_end).filter(m => m < thisMonth()) : [];
-    const sigMonths = monthsSeen.length ? monthsSeen : flightMonths;
-    const driverCols = [...new Set(allParsed.flatMap(r => Object.values(r.months || {}).flatMap(d => Object.keys(d))))].sort();
+    const parsedMonths = [...new Set(allParsed.flatMap(r => Object.keys(r.months || {})))];
+    const hours = B.hours || [];
+    const hourMonths = hours.map(h => h.month);
+    const months = [...new Set([...parsedMonths, ...hourMonths])].sort();
     const coefs = D.coefficients || [];
+    const uploadsFor = pl => enrolled ? enrolled.uploads.filter(u => u.platform === pl) : [];
+    const platformRow = pl => { const P = B.platforms[pl] || {}; const on = !!P.on; const ups = uploadsFor(pl);
+      return `<div class="bn-row">
+          <label class="mono sc-check bn-plat"><input type="checkbox" data-bnpl="${pl}" ${on ? 'checked' : ''}> ${esc(PLATFORMS[pl].label)}</label>
+          ${on ? `<label class="pf shape"><span class="pfl">team</span><select data-bnteam="${pl}" aria-label="Team that runs ${esc(PLATFORMS[pl].label)}">${depts.map(d => `<option ${((P.team || defaults[pl]) === d) ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select></label>
+                 <input type="file" data-bnfile="${pl}" multiple accept=".csv,.tsv,.txt" class="sc-file" aria-label="${esc(PLATFORMS[pl].label)} export files">` : ''}
+          ${ups.length ? ups.map(u => `<span class="pill good" title="${esc(u.filename || '')} · ${esc(u.parser || '')} · ${u.row_count || 0} rows">recorded → ${esc(u.department)} · ${u.month_from ? mLabel(u.month_from) : '?'}–${u.month_to ? mLabel(u.month_to) : '?'}</span>`).join('') : ''}
+          <span class="sc-note bn-hint">${esc(PLATFORMS[pl].hint)}</span>
+        </div>
+        ${on && (P.parsed || []).length ? `<div class="bn-files">${P.parsed.map(r => r.error
+            ? `<span class="pill bad">${esc(r.filename)}: ${esc(r.error)}</span>`
+            : `<span class="pill">${esc(r.filename)} · ${esc(r.label)} · ${r.rows} rows · ${Object.keys(r.months).sort()[0] ? mLabel(Object.keys(r.months).sort()[0]) + '–' + mLabel(Object.keys(r.months).sort().pop()) : 'no months'}${(r.warnings || []).length ? ' · ' + esc(r.warnings.join('; ')) : ''}</span>`).join('')}</div>` : ''}`; };
+
     panel().innerHTML = `
       <h1 class="sr-only">Benchmarks</h1>
-      <div class="editorbar">
+      <div class="toolbar sc-bar">
         <a href="#list" class="muted sc-back">← scopes</a>
-        <span class="kbadge">Benchmarks</span>
-        <span class="sc-note">Enrol a campaign in progress, say which platforms it runs on and which team runs each, upload the exports. Its logged hours per team per month are joined automatically — nothing is typed twice.</span>
+        <span class="sc-bartitle">Benchmarks</span>
+        <select id="bn-deal" class="sc-wide" aria-label="Campaign to enrol">
+          <option value="">— pick a live campaign —</option>
+          ${(D.deals || []).map(d => `<option value="${d.id}" ${d.id === B.dealId ? 'selected' : ''}>${d.enrolled ? '✓ ' : ''}${esc(d.client_name || '—')} — ${esc(d.name)}</option>`).join('')}
+        </select>
+        ${deal ? `<span class="sc-note">${esc(deal.flight_start || '?')} → ${esc(deal.flight_end || '?')} · ${(deal.kinds || []).join(', ') || 'no lines'}${enrolled ? ` · enrolled ${new Date(enrolled.enrolled_at).toLocaleDateString()}` : ''}</span>` : ''}
+        <span style="flex:1"></span>
+        <span id="bn-msg" class="ok sc-back" role="status" aria-live="polite"></span>
+        ${deal ? `<button class="primary" id="bn-submit" ${B.busy || !allParsed.some(r => !r.error) ? 'disabled' : ''} title="Store the per-month counts for every ticked platform; the team's logged hours are joined when the library reads them">Record for ${esc(deal.name)}</button>` : ''}
       </div>
-      <div class="sc-panel" style="margin:0 18px">
-        <h2 class="sc-eyebrow">1 · Campaign</h2>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-          <select id="bn-deal" class="sc-wide" aria-label="Campaign to enrol">
-            <option value="">— pick a live deal —</option>
-            ${(D.deals || []).map(d => `<option value="${d.id}" ${d.id === B.dealId ? 'selected' : ''}>${d.enrolled ? '✓ ' : ''}${esc(d.client_name || '—')} — ${esc(d.name)}</option>`).join('')}
-          </select>
-          ${deal ? `<span class="sc-note">${esc(deal.flight_start || '?')} → ${esc(deal.flight_end || '?')} · lines: ${(deal.kinds || []).join(', ') || 'none'}${enrolled ? ` · enrolled ${new Date(enrolled.enrolled_at).toLocaleDateString()} · ${enrolled.months_observed} month${enrolled.months_observed === 1 ? '' : 's'} observed` : ' · not enrolled yet'}</span>` : ''}
-        </div>
-        ${enrolled && enrolled.uploads.length ? `<div class="sc-note" style="margin-top:8px">uploads: ${enrolled.uploads.map(u => `<b>${esc(PLATFORMS[u.platform] ? PLATFORMS[u.platform].label : u.platform)}</b> → ${esc(u.department)} (${esc(u.filename || '')}, ${esc(u.month_from || '')}–${esc(u.month_to || '')})`).join(' · ')}</div>` : ''}
+
+      ${!deal ? `<div class="sc-panel"><div class="sc-phead"><h2 class="sc-ptitle">Pick a campaign</h2>
+          <span class="sc-phint">a live deal whose platform exports you have — its logged hours per team are already here, the exports say what ran each month, and the library learns hours per driver from the two</span></div></div>` : `
+      <div class="sc-panel">
+        <div class="sc-phead"><h2 class="sc-ptitle">Platform exports</h2>
+          <span class="sc-phint">tick the platforms this campaign ran on, say which team ran each, upload the exports — one account per file</span>
+          <label class="mono sc-check sc-phead-actions" title="Change-history rows made by the API, scripts, rules or the platform itself are not a person's time"><input type="checkbox" id="bn-auto" ${B.excludeAuto ? 'checked' : ''}> drop automated changes</label></div>
+        ${groups.map(g => `<div class="bn-group"><div class="bn-grouphead">${esc(g)}</div>${filePlatforms.filter(k => PLATFORMS[k].group === g).map(platformRow).join('')}</div>`).join('')}
       </div>
-      ${deal ? `
-      <div class="sc-panel" style="margin:14px 18px 0">
-        <h2 class="sc-eyebrow">2 · Platforms, teams, files</h2>
-        <label class="mono sc-check"><input type="checkbox" id="bn-auto" ${B.excludeAuto ? 'checked' : ''} style="height:auto"> drop automated changes (API, scripts, rules) from change history — they are not a person's time</label>
-        ${filePlatforms.map(pl => { const P = B.platforms[pl] || {}; const on = !!P.on;
-          return `<div style="border-top:1px solid var(--line);padding:8px 0">
-            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-              <label class="mono sc-check sc-check-w"><input type="checkbox" data-bnpl="${pl}" ${on ? 'checked' : ''} style="height:auto"> ${esc(PLATFORMS[pl].label)}</label>
-              ${on ? `<label class="pf shape"><span class="pfl">team</span><select data-bnteam="${pl}">${depts.map(d => `<option ${((P.team || defaults[pl]) === d) ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select></label>
-                <input type="file" data-bnfile="${pl}" multiple accept=".csv,.tsv,.txt" class="sc-file" aria-label="${esc(PLATFORMS[pl].label)} export files">
-                <span class="sc-note">${esc(PLATFORMS[pl].hint)}</span>` : ''}
-            </div>
-            ${on && (P.parsed || []).length ? `<div class="sc-note gap6">${P.parsed.map(r => r.error
-                ? `<span class="pill bad">${esc(r.filename)}: ${esc(r.error)}</span>`
-                : `<span class="pill good">${esc(r.filename)} · ${esc(r.label)} · ${r.rows} rows · ${Object.keys(r.months).sort()[0] ? mLabel(Object.keys(r.months).sort()[0]) + '–' + mLabel(Object.keys(r.months).sort().pop()) : 'no months'}${r.warnings.length ? ' · ' + esc(r.warnings.join('; ')) : ''}</span>`).join(' ')}</div>` : ''}
-          </div>`; }).join('')}
-        <div style="border-top:1px solid var(--line);padding:8px 0">
-          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-            <span class="mono sc-check-w sc-small">Meetings, reports, creatives</span>
-            <label class="pf shape"><span class="pfl">team</span><select id="bn-sigteam">${depts.map(d => `<option ${((B.signalsTeam || defaults.reporting || defaults.calendar) === d) ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select></label>
-            <span class="sc-note">typed per month — client meetings held, reports / dashboards delivered, creatives delivered</span>
-          </div>
-          ${sigMonths.length ? `<div class="gridwrap gap6"><table class="sc-grid"><thead><tr><th>per month</th>${sigMonths.map(m => `<th>${mLabel(m)}</th>`).join('')}</tr></thead><tbody>
-            ${['meetings', 'reports', 'creatives_delivered'].map(k => `<tr><td class="textleft">${esc(DRIVER_LABELS[k])}</td>${sigMonths.map(m => `<td><input class="hcell" type="number" min="0" step="1" data-bnsig="${m}:${k}" aria-label="${esc(DRIVER_LABELS[k])}, ${mLabel(m)}" value="${((B.signals[m] || {})[k]) ?? ''}"></td>`).join('')}</tr>`).join('')}
-            </tbody></table></div>` : `<div class="sc-note">months appear once a file is parsed (or from the flight's closed months)</div>`}
-        </div>
-      </div>
-      <div class="sc-panel" style="margin:14px 18px 0">
-        <div class="chart-head flush"><h2 class="sc-eyebrow tight">3 · What will be recorded</h2>
-          <span class="sc-phead-actions"><button class="primary" id="bn-submit" ${B.busy || (!allParsed.some(r => !r.error) && !Object.keys(B.signals).length) ? 'disabled' : ''}>Record for ${esc(deal.name)}</button><span id="bn-msg" class="ok sc-back" role="status" aria-live="polite"></span></span></div>
+
+      <div class="sc-panel">
+        <div class="sc-phead"><h2 class="sc-ptitle">What will be recorded</h2><span class="sc-phint">per platform, per month — the running month is kept but never fitted</span></div>
         ${allParsed.some(r => !r.error) ? Object.entries(B.platforms).filter(([, P]) => P.on && (P.parsed || []).some(r => !r.error)).map(([pl, P]) => {
           const merged = mergeMonths(P.parsed.filter(r => !r.error)); const ms = Object.keys(merged).sort();
           const cols = [...new Set(ms.flatMap(m => Object.keys(merged[m])))].sort();
           return `<div class="sc-note gap6"><b>${esc(PLATFORMS[pl].label)}</b> → ${esc(P.team || defaults[pl] || '?')}</div>
-            <div class="gridwrap" style="margin-top:4px"><table class="sc-grid"><thead><tr><th>month</th>${cols.map(c => `<th>${esc(DRIVER_LABELS[c] || c)}</th>`).join('')}</tr></thead><tbody>
-            ${ms.map(m => `<tr><td class="textleft">${mLabel(m)}${m >= thisMonth() ? ' <span class="muted">(running — not fitted yet)</span>' : ''}</td>${cols.map(c => `<td>${c === 'spend' ? fmt$(merged[m][c] || 0) : (merged[m][c] ?? '—')}</td>`).join('')}</tr>`).join('')}
-            </tbody></table></div>`; }).join('') : `<div class="sc-note">upload a file to preview the per-month counts</div>`}
-      </div>` : ''}
+            <div class="gridwrap" style="margin-top:4px"><table class="ledger bn-preview"><thead><tr><th>month</th>${cols.map(c => `<th>${esc(DRIVER_LABELS[c] || c)}</th>`).join('')}</tr></thead><tbody>
+            ${ms.map(m => `<tr><td class="textleft">${mLabel(m)}${m >= thisMonth() ? ' <span class="muted">running</span>' : ''}</td>${cols.map(c => `<td>${c === 'spend' ? fmt$(merged[m][c] || 0) : (merged[m][c] ?? '—')}</td>`).join('')}</tr>`).join('')}
+            </tbody></table></div>`; }).join('') : `<div class="empty-note">Upload an export above to see its per-month counts here.</div>`}
+      </div>
 
-      <div class="sc-panel flush" style="margin:14px 18px 0">
-        <div class="chart-head"><h2 class="sc-eyebrow">Hours per driver, from the library</h2>
-          <span class="sc-note">${(D.observations || []).length} observed campaign-months · ${(D.enrolled || []).length} enrolled deals · a model is fitted per team once it has ${D.settings.model_min_observations} observations</span></div>
+      <div class="sc-panel">
+        <div class="sc-phead"><h2 class="sc-ptitle">Hours logged on this campaign</h2><span class="sc-phint">what the exports are matched to — counted hours per team per month from QuickBooks Time; the running month is shown but not fitted</span></div>
+        ${B.hoursError ? `<div class="err">${esc(B.hoursError)}${/benchmark_deal_hours/.test(B.hoursError) ? ' — apply db/112 in the Supabase SQL editor' : ''}</div>`
+          : !hours.length ? `<div class="empty-note">No hours logged on this deal yet — the library needs closed months with hours to learn from.</div>`
+          : (() => { const ms = months; const deptsSeen = [...new Set(hours.map(h => h.department))].sort();
+              const at = (dep, m) => hours.find(h => h.department === dep && h.month === m);
+              return `<div class="gridwrap tight"><table class="sc-grid" style="--n:${ms.length};--tot:66px"><colgroup><col class="c-name">${ms.map(() => '<col class="c-m">').join('')}<col class="c-tot"></colgroup>
+                <thead><tr><th>team</th>${ms.map(m => `<th title="${m >= thisMonth() ? 'running month — not fitted' : ''}">${mLabel(m)}${m >= thisMonth() ? '<span class="muted"> ·</span>' : ''}</th>`).join('')}<th>total</th></tr></thead>
+                <tbody>${deptsSeen.map(dep => `<tr><td class="textleft"><b>${esc(dep)}</b></td>${ms.map(m => { const h = at(dep, m); return `<td class="${m >= thisMonth() ? 'muted' : ''}" title="${h ? h.people + (h.people === 1 ? ' person' : ' people') : ''}">${h ? fmtH(h.hours) : '—'}</td>`; }).join('')}<td><b>${fmtH(hours.filter(h => h.department === dep && ms.includes(h.month)).reduce((s, h) => s + +h.hours, 0))}</b></td></tr>`).join('')}
+                <tr class="gp"><td class="textleft"><b>all teams</b></td>${ms.map(m => `<td class="${m >= thisMonth() ? 'muted' : ''}"><b>${fmtH(hours.filter(h => h.month === m).reduce((s, h) => s + +h.hours, 0))}</b></td>`).join('')}<td><b>${fmtH(hours.filter(h => ms.includes(h.month)).reduce((s, h) => s + +h.hours, 0))}</b></td></tr></tbody></table></div>`; })()}
+      </div>`}
+
+      <div class="sc-panel flush">
+        <div class="sc-phead inset"><h2 class="sc-ptitle">Hours per driver, from the library</h2>
+          <span class="sc-phint">${(D.observations || []).length} observed campaign-months · ${(D.enrolled || []).length} enrolled deals · a model is fitted per team once it has ${D.settings.model_min_observations} observations</span></div>
         <div class="gridwrap tight"><table class="ledger">
           <thead><tr><th>kind</th><th>team</th><th>rows</th><th>driver</th><th>hours / unit</th><th>r²</th><th>n</th></tr></thead>
           <tbody>${coefs.length ? coefs.flatMap(c => (c.drivers || []).length ? c.drivers.map((d, i) => `<tr>
@@ -1442,14 +1464,14 @@ boot('scoping', async (supa, el) => {
               <td class="textleft">${esc(DRIVER_LABELS[d.driver] || d.driver)}</td>
               <td>${d.driver === 'spend' ? (d.hours_per_unit != null ? (d.hours_per_unit * 100000).toFixed(2) + ' h / $1,000' : '—') : (d.hours_per_unit != null ? (+d.hours_per_unit).toFixed(3) : '—')}</td>
               <td>${d.r2 != null ? (+d.r2).toFixed(2) : '—'}</td><td>${d.n}</td></tr>`) : [`<tr><td class="textleft">${esc(c.kind)}</td><td class="textleft">${esc(c.department)}</td><td>${c.n}</td><td colspan="4" class="muted">no drivers yet</td></tr>`]).join('')
-            : `<tr><td colspan="7" class="empty-note">No observations yet — enrol a campaign above.</td></tr>`}</tbody></table></div>
-        <div style="padding:10px 14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            : `<tr><td colspan="7" class="empty-note">No observations yet — record a campaign's exports above.</td></tr>`}</tbody></table></div>
+        <div class="bn-fitrow">
           <select id="bn-fitdept" aria-label="Team to fit a model for"><option value="">fit a model for team…</option>${depts.map(d => `<option>${esc(d)}</option>`).join('')}</select>
           <button class="ghost" id="bn-fit">Fit &amp; save</button>
-          <span id="bn-fitmsg" class="sc-note">${(D.models || []).length ? 'models: ' + D.models.map(m => `<b>${esc(m.department)}</b> (${(m.kinds || []).join('/')}, n ${m.n}, r² ${m.r2 != null ? (+m.r2).toFixed(2) : '—'})`).join(', ') : 'no fitted models yet — the ratio estimator is used'}</span>
+          <span id="bn-fitmsg" class="sc-note">${(D.models || []).length ? 'models: ' + D.models.map(m => `<b>${esc(m.department)}</b> (${(m.kinds || []).join('/')}, n ${m.n}, r² ${m.r2 != null ? (+m.r2).toFixed(2) : '—'})`).join(', ') : 'no fitted model yet — the ratio estimator is used'}</span>
         </div>
       </div>
-      ${(D.observations || []).length ? `<div class="sc-panel flush" style="margin:14px 18px 0"><h2 class="sc-eyebrow inset14">Observations</h2>
+      ${(D.observations || []).length ? `<div class="sc-panel flush"><div class="sc-phead inset"><h2 class="sc-ptitle">Observations</h2><span class="sc-phint">every closed campaign-month the library has learned from</span></div>
         <div class="gridwrap gap6"><table class="ledger">
           <thead><tr><th>deal</th><th>team</th><th>month</th><th>hours</th><th>drivers</th></tr></thead>
           <tbody>${D.observations.slice(0, 200).map(o => `<tr><td class="textleft">${esc(o.deal_name)}</td><td class="textleft">${esc(o.department)}</td><td>${mLabel(o.month)}</td><td>${fmtH(o.hours)}</td>
@@ -1457,7 +1479,7 @@ boot('scoping', async (supa, el) => {
       <div style="height:24px"></div>`;
 
     const p = panel();
-    p.querySelector('#bn-deal').onchange = e => { B.dealId = e.target.value || null; B.platforms = {}; B.signals = {}; location.hash = B.dealId ? '#bench/' + B.dealId : '#bench'; renderBench(); };
+    p.querySelector('#bn-deal').onchange = e => { B.dealId = e.target.value || null; B.platforms = {}; location.hash = B.dealId ? '#bench/' + B.dealId : '#bench'; if (!B.dealId) loadBench(null); };
     const auto = p.querySelector('#bn-auto'); if (auto) auto.onchange = () => { B.excludeAuto = auto.checked; reparseAll(); };
     p.querySelectorAll('input[data-bnpl]').forEach(cb => cb.onchange = () => { B.platforms[cb.dataset.bnpl] = { ...(B.platforms[cb.dataset.bnpl] || {}), on: cb.checked, team: (B.platforms[cb.dataset.bnpl] || {}).team || defaults[cb.dataset.bnpl] || depts[0] }; renderBench(); });
     p.querySelectorAll('select[data-bnteam]').forEach(s => s.onchange = () => { B.platforms[s.dataset.bnteam].team = s.value; });
@@ -1468,11 +1490,9 @@ boot('scoping', async (supa, el) => {
       for (const f of P.files) P.parsed.push(await parseFile(f, pl, { excludeAutomated: B.excludeAuto }));
       renderBench();
     });
-    const st = p.querySelector('#bn-sigteam'); if (st) st.onchange = () => { B.signalsTeam = st.value; };
-    p.querySelectorAll('input[data-bnsig]').forEach(i => i.onchange = () => { const [m, k] = i.dataset.bnsig.split(':'); B.signals[m] = { ...(B.signals[m] || {}) }; if (i.value === '') delete B.signals[m][k]; else B.signals[m][k] = Math.max(0, +i.value || 0); if (!Object.keys(B.signals[m]).length) delete B.signals[m]; });
     const sub = p.querySelector('#bn-submit'); if (sub) sub.onclick = submitBench;
     p.querySelector('#bn-fit').onclick = fitAndSave;
-    async function reparseAll() { for (const P of Object.values(B.platforms)) { if (!P.files) continue; P.parsed = []; for (const f of P.files) P.parsed.push(await parseFile(f, null, { excludeAutomated: B.excludeAuto })); } renderBench(); }
+    async function reparseAll() { for (const [pl, P] of Object.entries(B.platforms)) { if (!P.files) continue; P.parsed = []; for (const f of P.files) P.parsed.push(await parseFile(f, pl, { excludeAutomated: B.excludeAuto })); } renderBench(); }
   }
 
   async function submitBench() {
@@ -1494,18 +1514,9 @@ boot('scoping', async (supa, el) => {
       if (error || !data.ok) { B.busy = false; m((error ? error.message : data.reason)); renderBench(); return; }
       written += data.months_written;
     }
-    if (Object.keys(B.signals).length) {
-      const team = B.signalsTeam || defaults.reporting || defaults.calendar || (B.data.departments || [])[0];
-      const rows = Object.entries(B.signals).map(([month, drivers]) => ({ month, drivers }));
-      const { data, error } = await supa.rpc('record_benchmark_observations', {
-        p_upload: { deal_id: deal, platform: 'reporting', department: team, filename: 'typed', parser: 'signals@1', row_count: rows.length, summary: {} },
-        p_rows: rows, p_by: window.__email });
-      if (error || !data.ok) { B.busy = false; m((error ? error.message : data.reason)); renderBench(); return; }
-      written += data.months_written;
-    }
-    B.busy = false; B.platforms = {}; B.signals = {};
+    B.busy = false; B.platforms = {};
     await loadBench(deal);
-    const n = panel().querySelector('#bn-msg'); if (n) n.textContent = `recorded ${written} platform-months`;
+    const n = panel().querySelector('#bn-msg'); if (n) n.textContent = `Recorded ${written} platform-months · the library refits from them`;
   }
 
   async function fitAndSave() {

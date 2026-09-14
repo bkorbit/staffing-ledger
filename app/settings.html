@@ -786,7 +786,8 @@ boot('settings', async (supa, el) => {
     // ---- platform → team defaults (099): which department's hours a
     // platform's drivers are benchmarked against, preselected on the upload
     const ptd = knobVal('scope_platform_team_defaults', {});
-    const PLAT = [['google_ads','Google Ads'],['meta','Meta'],['dsp','DSP (DV360 / TTD)'],['calendar','Calendar & meetings'],['reporting','Reporting & deliverables'],['creative','Creative assets']];
+    // the upload platforms (app/assets/parsers/index.js PLATFORMS); the typed-signal platforms are retired (112)
+    const PLAT = [['google_ads','Google Ads'],['meta','Meta'],['reddit','Reddit Ads'],['linkedin','LinkedIn'],['dsp','DV360 / The Trade Desk'],['viant','Viant (Adelphic)'],['cm360','Campaign Manager 360 (Adswerve)']];
     document.getElementById('scopeteams').innerHTML = `<div class="sc-eyebrow" style="margin-top:0">Benchmark platforms → teams</div>
       <div class="muted" style="font-size:11px;margin-bottom:8px;max-width:640px">The team preselected when a platform's export is uploaded on Benchmarks. Paid search and paid social are pooled as one team here — the model separates them by the drivers (campaigns vs ad sets), not by department.</div>
       <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">

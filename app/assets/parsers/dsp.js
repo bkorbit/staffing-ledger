@@ -1,5 +1,5 @@
 // Programmatic DSP exports → per-month drivers. One parser covers the shapes
-// DV360 and The Trade Desk export: a Date column, a campaign-ish column
+// DV360, The Trade Desk and Viant (Adelphic) export: a Date column, a campaign-ish column
 // (Campaign / Insertion Order / Advertiser), a line-item-ish column (Line Item /
 // Ad Group), a creative column, Impressions, and a cost column (Media Cost /
 // Revenue (Adv Currency) / Advertiser Cost / Total Media Cost). Reports end
@@ -13,13 +13,13 @@ const addSet = (o, key, val) => { if (val === undefined || val === null || val =
 
 export const dspDaily = {
   id: 'dsp-daily@1', platform: 'dsp', label: 'DSP report (DV360 / TTD)',
-  matches(rows) { return findHeader(rows, [['date', 'day'], ['insertion order', 'line item', 'ad group', 'campaign']]) >= 0 && findHeader(rows, ['campaign name']) < 0; },
+  matches(rows) { return findHeader(rows, [['date', 'day'], ['insertion order', 'line item', 'ad group', 'campaign', 'order']]) >= 0 && findHeader(rows, ['campaign name']) < 0 && findHeader(rows, [['placement', 'placement name', 'placement id']]) < 0; },
   parse(rows) {
-    const hi = findHeader(rows, [['date', 'day'], ['insertion order', 'line item', 'ad group', 'campaign']]);
+    const hi = findHeader(rows, [['date', 'day'], ['insertion order', 'line item', 'ad group', 'campaign', 'order']]);
     const h = rows[hi];
-    const cDay = col(h, ['date', 'day']), cCamp = col(h, ['insertion order', 'campaign', 'advertiser']),
+    const cDay = col(h, ['date', 'day']), cCamp = col(h, ['insertion order', 'campaign', 'order', 'advertiser']),
       cLine = col(h, ['line item', 'ad group']), cCre = col(h, ['creative', 'creative id', 'creative name']),
-      cImp = col(h, ['impressions']), cCost = col(h, ['media cost', 'revenue (adv currency)', 'advertiser cost', 'total media cost', 'cost', 'spend']),
+      cImp = col(h, ['impressions']), cCost = col(h, ['media cost', 'revenue (adv currency)', 'advertiser cost', 'total media cost', 'media spend', 'advertiser spend', 'total spend', 'cost', 'spend']),
       cGeo = col(h, ['country', 'region', 'dma', 'metro']);
     const out = {}; let used = 0; const warnings = [];
     for (const r of rows.slice(hi + 1)) {
