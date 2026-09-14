@@ -4,10 +4,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="./assets/style.css?v=6b08439">
-<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=6b08439">
-<link rel="modulepreload" href="./assets/shell.js?v=6b08439">
-<link rel="modulepreload" href="./assets/scope-math.js?v=6b08439">
+<link rel="stylesheet" href="./assets/style.css?v=35a5d53">
+<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=35a5d53">
+<link rel="modulepreload" href="./assets/shell.js?v=35a5d53">
+<link rel="modulepreload" href="./assets/scope-math.js?v=35a5d53">
 <style>
 /* .range and .rl are now fully covered by the shared style.css rules (22px
    margin, 18px horizontal inset to match .sc-panel, 34px buttons) — no
@@ -22,10 +22,10 @@ tr.clientrow:focus-visible,tr.deallist:focus-visible,tr.projrow:focus-visible,th
 </style></head><body>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script type="module">
-import { boot, esc, fmt$, barChart, fetchAll } from './assets/shell.js?v=6b08439';
+import { boot, esc, fmt$, barChart, fetchAll } from './assets/shell.js?v=35a5d53';
 // 100: the ONE copy of the fee-structure and rebate math (twin of line_fee /
 // line_rebate in db/096, which v_deal_month_forecast prices with since 100)
-import { lineFee, lineRebate } from './assets/scope-math.js?v=6b08439';
+import { lineFee, lineRebate } from './assets/scope-math.js?v=35a5d53';
 /*
   The Forecast, remodelled on the v1 ledger's Forecast view, recovered from git:
   months as ROWS in a P&L ledger — Revenue billed, COGS, Forecast GP, Actual GP,

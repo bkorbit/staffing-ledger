@@ -26,21 +26,39 @@ if (!/^[0-9a-f]{7,40}$/.test(sha)) {
   process.exit(1);
 }
 
-const dir = new URL('../app/', import.meta.url);
-let files = 0, stamps = 0, unchanged = 0;
+// Every file that can reference another asset with a stamp: the pages, and the
+// modules themselves. shell.js imports the vendored supabase bundle and the
+// parsers import each other — those stamps were hand-written once and then
+// stood still through every deploy after, which is the same frozen-stamp
+// failure habit 5 is about, just one level further in.
+const root = new URL('../app/', import.meta.url);
+const targets = [];
+const walk = (dir, rel) => {
+  for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    if (entry.isDirectory()) { walk(new URL(entry.name + '/', dir), rel + entry.name + '/'); continue; }
+    if (/\.(html|js)$/.test(entry.name)) targets.push({ url: new URL(entry.name, dir), name: rel + entry.name });
+  }
+};
+walk(root, '');
+
+let stamps = 0, unchanged = 0, files = 0;
+const pagesWithout = [];
 const seen = new Set();
-for (const f of readdirSync(dir).filter(f => f.endsWith('.html')).sort()) {
-  const path = new URL(f, dir);
-  const before = readFileSync(path, 'utf8');
+for (const t of targets) {
+  const before = readFileSync(t.url, 'utf8');
   let n = 0;
-  const after = before.replace(/(\.\/assets\/[\w./-]+\?v=)([0-9a-f]{7,40})/g, (_, head, old) => {
+  const after = before.replace(/(\.[\w./-]*\/[\w./-]+\?v=)([0-9a-f]{7,40})/g, (_, head, old) => {
     n++; if (old !== sha) stamps++; else unchanged++;
-    seen.add(head.slice('./assets/'.length, -'?v='.length));
+    seen.add(head.replace(/^\.\.?\//, '').slice(0, -'?v='.length));
     return head + sha;
   });
-  if (!n) { console.error(`✖ app/${f} has no ?v= stamp at all — check it by hand.`); process.exit(1); }
-  if (after !== before) writeFileSync(path, after);
+  if (after !== before) writeFileSync(t.url, after);
+  if (!n && t.name.endsWith('.html')) pagesWithout.push(t.name);
   files++;
 }
-console.log(`stamped ${stamps} reference(s) to ${sha} across ${files} page(s) (${unchanged} already current)`);
-console.log(`assets: ${[...seen].sort().join(', ')}`);
+if (pagesWithout.length) {
+  console.error(`✖ no ?v= stamp at all in: ${pagesWithout.join(', ')} — check by hand.`);
+  process.exit(1);
+}
+console.log(`stamped ${stamps} reference(s) to ${sha} across ${files} file(s) (${unchanged} already current)`);
+console.log(`assets referenced: ${[...seen].sort().join(', ')}`);
