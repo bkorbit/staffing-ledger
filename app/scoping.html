@@ -26,10 +26,15 @@ table.bands input { width:96px; height:30px; text-align:right; font-family:var(-
 table.bands button { padding:1px 7px; font-size:11px; }
 /* the hour grids (demand, supply, drivers) share one column system: a fixed label
    column and equal month columns, so a month lands at the same x in every table */
-.sc-grid { width:auto; }
-.sc-grid th, .sc-grid td { padding:4px 6px; white-space:nowrap; }
-.sc-grid th:first-child, .sc-grid td:first-child { min-width:150px; max-width:200px; text-align:left; overflow:hidden; text-overflow:ellipsis; }
-.sc-grid th:not(:first-child), .sc-grid td:not(:first-child) { padding:3px 4px; }   /* sized by content: twelve months fit without a scroll */
+.sc-grid { table-layout:fixed; width:calc(220px + var(--extra, 0px) + var(--n, 1) * 66px + 66px); max-width:none; }   /* fixed columns: a long add-row wraps instead of stretching a month */
+.sc-grid.demand { --extra:70px; }
+.sc-grid.people { --extra:34px; }
+.sc-grid col.c-name { width:220px; } .sc-grid col.c-per { width:70px; } .sc-grid col.c-m, .sc-grid col.c-tot { width:66px; } .sc-grid col.c-x { width:34px; }
+.sc-grid th, .sc-grid td { padding:4px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sc-grid th:first-child, .sc-grid td:first-child { text-align:left; }
+.sc-grid th:not(:first-child), .sc-grid td:not(:first-child) { padding:3px 4px; }
+.sc-grid td.addrow, .sc-grid tr.dept td { white-space:normal; overflow:visible; }
+.sc-grid td .cap { display:block; width:max-content; max-width:100%; margin:2px auto 0 0; }
 .sc-grid input.hcell { width:54px; height:30px; text-align:right; font-family:var(--font-mono); font-size:11.5px; padding:0 4px; }   /* 30px: the page's one control height */
 .sc-grid th.per, .sc-grid td.per { border-right:2px solid var(--line); background:var(--wash-row); }
 .sc-grid input.hcell.per { font-weight:600; }
@@ -38,11 +43,9 @@ table.bands button { padding:1px 7px; font-size:11px; }
 .sc-grid tr.auto input.hcell { color:var(--slate); font-style:italic; }
 .sc-grid tr.gap td { color:var(--slate); font-style:italic; }
 .sc-grid tr.gap td.bad { color:var(--rust); font-style:normal; font-weight:600; }
-.sc-grid td.addrow { max-width:none; width:auto; white-space:normal; }
-.sc-grid .cap { font-size:9px; padding:0 5px; margin-left:3px; vertical-align:middle; }
+.sc-grid td.addrow { background:var(--wash-row); padding:8px 10px 10px; }
+.sc-grid .cap { font-size:9px; padding:0 5px; }
 .sc-hint { font-family:var(--font-mono); font-size:9.5px; color:var(--slate); margin-top:2px; }
-.sc-cands { font-size:10.5px; color:var(--slate); margin:4px 0 8px; }
-.sc-cands b { color:var(--ink); font-weight:600; }
 .sc-vstrip { display:flex; gap:6px; flex-wrap:wrap; padding:6px 14px 12px; }
 .sc-callout { background:var(--gold-bg); padding:8px 12px; font-size:12px; margin:6px 14px 12px; border-radius:6px; }
 .sc-callout.bad { background:var(--rust-bg); }
@@ -62,15 +65,28 @@ h2.sc-eyebrow, h3.sc-eyebrow { margin:0 0 10px; font-weight:500; line-height:1.4
 h2.sc-eyebrow.tight, h3.sc-eyebrow.tight { margin:0; }
 h2.sc-eyebrow.inset, h3.sc-eyebrow.inset { padding:12px 18px 0; margin:0; }
 h2.sc-eyebrow.inset14, h3.sc-eyebrow.inset14 { padding:12px 14px 0; margin:0; }
-/* the editor reads in four sections — Verdict · The deal · The work · Scenarios.
-   Sections are separated by a generous 34px and titled in the body voice
-   (Montserrat 14.5/700, DESIGN.md "title") with one sentence of lede; panels
-   INSIDE a section sit 12px apart and keep the mono eyebrow. Two levels the
-   squint test can tell apart. */
+/* the editor reads in four groups — Verdict · The deal · The work · Scenarios —
+   separated by a generous 34px; panels INSIDE a group sit 12px apart. Each
+   panel has ONE header: a Montserrat title (DESIGN.md "title") with a quiet
+   hint on the same line. No eyebrow, no lede (Boris). */
 .sc-section { margin-top:34px; }
 .sc-section.sc-answer { margin-top:0; }
-.sc-title { font-family:var(--font-body); font-size:14.5px; font-weight:700; line-height:1.2; color:var(--ink); margin:0 0 4px; padding:0 18px; }
-.sc-lede { font-size:12.5px; line-height:1.5; color:var(--slate); margin:0 0 12px; padding:0 18px; max-width:72ch; }
+.sc-phead { display:flex; align-items:baseline; gap:8px 14px; flex-wrap:wrap; margin-bottom:12px; }
+.sc-phead.inset { padding:12px 14px 0; margin-bottom:6px; }
+.sc-ptitle { font-family:var(--font-body); font-size:14px; font-weight:700; line-height:1.2; color:var(--ink); margin:0; letter-spacing:0; text-transform:none; }
+.sc-phint { font-size:11.5px; color:var(--slate); line-height:1.4; }
+.sc-phead > button, .sc-phead-actions { margin-left:auto; }
+.sc-phead-actions { display:flex; gap:6px; flex-wrap:wrap; }
+/* a computed result under the terms: reads as an answer, not a field */
+.sc-result { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-top:14px; padding-top:12px; border-top:1px solid var(--line); font-size:12px; color:var(--ink); }
+.sc-result-l { font-family:var(--font-mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); }
+.sc-result-v { font-family:var(--font-mono); font-size:15px; font-weight:700; color:var(--brand); margin-right:2px; }
+/* one-click staffing suggestions */
+.sc-cands { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:6px 0 2px; }
+.sc-cands-l { font-family:var(--font-mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); margin-right:2px; }
+.sc-chip { display:inline-flex; align-items:baseline; gap:6px; height:26px; padding:0 10px; border:1px solid var(--line); border-radius:99px; background:var(--paper-raised); font-family:var(--font-body); font-size:11.5px; color:var(--ink); cursor:pointer; }
+.sc-chip span { font-family:var(--font-mono); font-size:10px; color:var(--slate); }
+.sc-chip:hover { border-color:var(--brand-2); background:var(--mint); }
 .sc-section > .sc-panel, .sc-section .sc-deal { margin-bottom:12px; }
 .sc-section > .sc-panel:last-child { margin-bottom:0; }
 .sc-note.sc-inset { padding:0 18px; }
@@ -100,9 +116,10 @@ h2.sc-eyebrow.inset14, h3.sc-eyebrow.inset14 { padding:12px 14px 0; margin:0; }
 #sc-msg.err { background:var(--rust-bg); padding:2px 8px; border-radius:4px; }
 /* seven cells, even columns; a wrapped cell keeps its width instead of stretching */
 #sc-strip { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); }
+#sc-strip .summary-note { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .sc-vstrip .pill .why { font-weight:600; opacity:.9; }
 @media (prefers-reduced-motion: reduce) { .chart-tip { transition:none; } }
-@media (max-width:640px) { .sc-dealhead input.dname { flex-basis:100%; } .sc-grid th:first-child, .sc-grid td:first-child { min-width:120px; max-width:140px; } }
+@media (max-width:640px) { .sc-dealhead input.dname { flex-basis:100%; } .sc-grid col.c-name { width:140px; } .sc-grid { width:calc(140px + var(--extra, 0px) + var(--n, 1) * 66px + 66px); } }
 </style></style></head><body>
 <script type="module">
 import { boot, esc, fmt$, wireSearch, fetchAll } from './assets/shell.js?v=820e597';
@@ -507,10 +524,9 @@ boot('scoping', async (supa, el) => {
       </section>
 
       <section class="sc-section" aria-labelledby="sc-h-deal">
-        <h2 id="sc-h-deal" class="sc-title">The deal</h2>
-        <p class="sc-lede">What EMG sells. Terms that apply to the whole deal first, then each line — a media channel, a retainer, hours. Money follows every keystroke; labor and the verdict a moment later.</p>
+        <h2 id="sc-h-deal" class="sr-only">The deal</h2>
       <div class="sc-panel">
-        <h3 class="sc-eyebrow">Deal terms</h3>
+        <div class="sc-phead"><h3 class="sc-ptitle">Deal terms</h3><span class="sc-phint">apply to the whole deal — every line below follows them</span></div>
         <div class="sc-form">
           <label>client<select id="sc-client" ${ro ? 'disabled' : ''}><option value="">— none yet —</option>
             ${(X.clients || []).map(c => `<option value="${c.id}" ${c.id === S.client_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
@@ -519,9 +535,9 @@ boot('scoping', async (supa, el) => {
             <select id="sc-rebate-basis" ${ro ? 'disabled' : ''}><option value="media" ${S.rebate_basis !== 'fee' ? 'selected' : ''}>media spend</option><option value="fee" ${S.rebate_basis === 'fee' ? 'selected' : ''}>all fees</option></select></span></label>
           <label title="The minimum monthly fee is computed: the month's labor (unassigned hours at department average included) ÷ (1 − this margin)">minimum fee margin<select id="sc-minpreset" ${ro ? 'disabled' : ''}>
             ${presets.map(p => `<option value="${esc(p.name)}" ${p.name === preset ? 'selected' : ''}>${esc(p.name)} · ${p.pct}%</option>`).join('')}</select></label>
-          <label title="An output, not an input: the one backend margin the programmatic team should run across this deal's fee + margin lines to land the target GP on revenue (Settings › Scoping). CPM lines are priced by their platform share instead.">programmatic backend margin<span class="row" style="height:30px;align-items:center;font-family:var(--font-body);font-size:13px;letter-spacing:0;text-transform:none" data-out="progmargin">—</span></label>
           <label class="wide">notes<input id="sc-notes" value="${esc(S.notes || '')}" ${ro ? 'disabled' : ''} placeholder="anything the terms or the approver should know"></label>
         </div>
+        <div class="sc-result" title="An output, not an input: the one backend margin the programmatic team runs across this deal's fee + margin lines to land the target GP on revenue (Settings › Scoping). CPM lines are priced by their platform share instead."><span class="sc-result-l">Programmatic backend margin to run</span><span data-out="progmargin">—</span></div>
       </div>
 
       ${X.qbo ? `<datalist id="sc-qbo-list">${X.qbo.map(p => `<option value="${esc(p.name)}"></option>`).join('')}</datalist>` : ''}
@@ -530,30 +546,27 @@ boot('scoping', async (supa, el) => {
       </section>
 
       <section class="sc-section" aria-labelledby="sc-h-work">
-        <h2 id="sc-h-work" class="sc-title">The work</h2>
-        <p class="sc-lede">Hours per department per month, then who covers them. Labor is one number for everyone: named people at their own cost, the rest at department averages.</p>
+        <h2 id="sc-h-work" class="sr-only">The work</h2>
       <div class="sc-panel">
-        <div class="chart-head flush"><h3 class="sc-eyebrow tight">Hours needed</h3>
+        <div class="sc-phead"><h3 class="sc-ptitle">Hours needed</h3><span class="sc-phint">per department per month — type them, or estimate from the benchmarks</span>
           ${ro ? '' : `<button class="ghost" id="sc-estimate" title="Fill from the benchmark library (each media line's drivers × hours per driver from comparable campaigns, client's own first) and the catalog products' default hours. Rows you typed are kept.">Estimate from benchmarks</button>`}</div>
-        <div class="sc-note lead">Type the hours, or estimate them from the benchmarks (each media line's drivers × hours per driver). Estimated cells show in italics until you type over them.</div>
-        <div class="gridwrap tight"><table class="sc-grid">
+        <div class="gridwrap tight"><table class="sc-grid demand" style="--n:${months.length}"><colgroup><col class="c-name"><col class="c-per">${months.map(() => '<col class="c-m">').join('')}<col class="c-tot"></colgroup>
           <thead><tr><th>department</th><th class="per" title="Type once here to fill every flight month of the row">every month</th>${months.map(m => `<th>${mLabel(m)}</th>`).join('')}<th>total</th></tr></thead>
           <tbody>${demandRows(months, ro)}</tbody></table></div>
         ${ro ? '' : `<div class="hp-addrow"><select id="sc-adddept" aria-label="Add a department"><option value="">+ department…</option>${departments().filter(d => !S.dept_months.some(r => r.department === d)).map(d => `<option>${esc(d)}</option>`).join('')}</select></div>`}
       </div>
 
       <div class="sc-panel">
-        <div class="chart-head flush"><h3 class="sc-eyebrow tight">Who does the work</h3>
-          ${ro ? '' : `<span style="display:flex;gap:6px;flex-wrap:wrap"><button class="ghost" id="sc-autostaff" title="Fill the uncovered hours with the best-ranked free people, fewest people first">Auto-staff</button><button class="ghost" id="sc-clearauto" title="Remove the auto-staffed rows">Clear auto</button></span>`}
+        <div class="sc-phead"><h3 class="sc-ptitle">Who does the work</h3><span class="sc-phint">named people at their own cost, placeholders at the band average — labor stays one number</span>
+          ${ro ? '' : `<span class="sc-phead-actions"><button class="ghost" id="sc-autostaff" title="Fill the uncovered hours with the best-ranked free people, fewest people first">Auto-staff</button><button class="ghost" id="sc-clearauto" title="Remove the auto-staffed rows">Clear auto</button></span>`}
         </div>
-        <div class="sc-note lead">Suggestions rank people by: worked this client → worked this kind → free hours → cost. Auto-staff fills the gap with the fewest people.</div>
-        <div class="gridwrap tight"><table class="sc-grid">
+        <div class="gridwrap tight"><table class="sc-grid people" style="--n:${months.length}"><colgroup><col class="c-name">${months.map(() => '<col class="c-m">').join('')}<col class="c-tot"><col class="c-x"></colgroup>
           <thead><tr><th>person / placeholder</th>${months.map(m => `<th>${mLabel(m)}</th>`).join('')}<th>total</th><th></th></tr></thead>
           <tbody>${supplyRows(months, ro)}</tbody></table></div>
       </div>
       </section>
 
-      ${sibs.length > 1 ? `<section class="sc-section" aria-labelledby="sc-h-scen"><h2 id="sc-h-scen" class="sc-title">Scenarios</h2><p class="sc-lede">The same target, shaped differently. Open one to edit it.</p><div class="sc-panel flush">
+      ${sibs.length > 1 ? `<section class="sc-section" aria-labelledby="sc-h-scen"><div class="sc-panel flush"><div class="sc-phead inset"><h2 id="sc-h-scen" class="sc-ptitle">Scenarios</h2><span class="sc-phint">the same target, shaped differently — open one to edit</span></div>
         <div class="gridwrap gap6"><table class="ledger">
           <thead><tr><th>Scenario</th><th>Status</th><th>Revenue</th><th>GP</th><th>Labor</th><th>After labor</th><th>$/h</th><th>Hours</th><th>Verdict</th></tr></thead>
           <tbody>${sibs.map(s => { const k = s.kpis || {}; return `<tr class="namerow" data-open="s/${s.id}" tabindex="0" role="button" ${s.id === S.id ? 'style="font-weight:600"' : ''}>
@@ -582,7 +595,7 @@ boot('scoping', async (supa, el) => {
     // rare "second deal in this scope" entry lives under the deals instead
     if (!S.client_id || !rows.length) return '';
     return `<div class="sc-panel flush">
-      <div class="chart-head"><h3 class="sc-eyebrow">${client ? `Already running for ${esc(client)} in these months` : 'Already running in these months'}</h3></div>
+      <div class="sc-phead inset"><h3 class="sc-ptitle">${client ? `Already running for ${esc(client)} in these months` : 'Already running in these months'}</h3><span class="sc-phint">what this scope adds to the client</span></div>
       <div class="gridwrap tight"><table class="ledger">
         <thead><tr><th>Deal</th><th>Flight</th><th>GP</th><th>Labor</th><th>Hours</th><th>After labor</th><th>$ / h</th></tr></thead>
         <tbody>
@@ -654,16 +667,16 @@ boot('scoping', async (supa, el) => {
           <div class="summary-note">${T.hours ? `${fmtH(T.hours)} over ${nMonths} month${nMonths === 1 ? '' : 's'}` : 'no hours planned'}</div></div>
         <div class="summary-cell"><div class="summary-label">Revenue</div><div class="summary-value" data-out="rev">${fmt$(T.billable || 0)}</div><div class="summary-note" data-out="pass"></div></div>
         <div class="summary-cell"><div class="summary-label">Gross profit</div><div class="summary-value" data-out="gp">${fmt$(T.gp || 0)}</div><div class="summary-note" data-out="rebate">${+T.rebate ? `rebate −${fmt$(T.rebate)}` : ''}</div></div>
-        <div class="summary-cell" title="Named people at their burdened cost, placeholders and uncovered demand at department averages — one number, never per person"><div class="summary-label">Labor</div><div class="summary-value">${fmt$(T.labor || 0)}</div><div class="summary-note">${fmtH(T.hours)}${+T.open_hours ? ` · ${fmtH(T.open_hours)} not yet on a named person` : ''}${T.labor_lo != null && T.labor_lo !== T.labor_hi ? ` · range ${fmt$(T.labor_lo)}–${fmt$(T.labor_hi)}` : ''}</div></div>
+        <div class="summary-cell" title="Named people at their burdened cost, placeholders and uncovered demand at department averages — one number, never per person"><div class="summary-label">Labor</div><div class="summary-value">${fmt$(T.labor || 0)}</div><div class="summary-note" title="${T.labor_lo != null && T.labor_lo !== T.labor_hi ? `Depending on who is finally named: ${fmt$(T.labor_lo)} to ${fmt$(T.labor_hi)}` : ''}">${+T.open_hours ? `${fmtH(T.open_hours)} of ${fmtH(T.hours)} not on a person yet` : T.hours ? `${fmtH(T.hours)}, all on named people` : 'no hours yet'}</div></div>
         <div class="summary-cell" title="The fee that covers each month's labor at the chosen margin — the highest month sets the contractual minimum"><div class="summary-label">Minimum fee</div>
           <div class="summary-value ${short > 0 ? 'neg' : ''}">${T.min_fee_max != null ? fmt$(T.min_fee_max) + '<span class="muted">/mo</span>' : '—'}</div>
-          <div class="summary-note">${T.min_fee_max != null ? `covers labor at ${(V.targets || {}).min_margin_pct ?? '—'}% margin (${esc(preset || '—')})` : 'needs hours'}${T.fee != null && T.min_fee_max != null ? ` · you charge ${fmt$(Math.round(T.fee / nMonths))}/mo avg` : ''}${short > 0 ? ` · <b style="color:var(--rust)">short ${fmt$(short)}</b> over the flight` : ''}</div></div>`;
+          <div class="summary-note" title="${T.min_fee_max != null ? `Each month's labor ÷ (1 − ${(V.targets || {}).min_margin_pct ?? '—'}%); the highest month sets the minimum. Planned fee ${fmt$(Math.round((T.fee || 0) / nMonths))}/mo on average.` : ''}">${T.min_fee_max == null ? 'needs hours' : short > 0 ? `<b style="color:var(--rust)">fee short ${fmt$(short)}</b> over the flight` : `${(V.targets || {}).min_margin_pct ?? '—'}% over labor · covered by the fee`}</div></div>`;
   }
   function verdictPanelInner() {
     const V = X.verdict || {}, T = V.total || {};
     const target = +(X.settings.per_hour || 150) * 100;
     return `
-        <div class="chart-head"><h3 class="sc-eyebrow">Monthly verdict</h3><div class="stat-inline muted" style="font-size:11px;display:flex;gap:14px;flex-wrap:wrap">${scopeStat(T, target)}</div></div>
+        <div class="sc-phead inset"><h3 class="sc-ptitle">Monthly verdict</h3><div class="stat-inline muted sc-phint" style="display:flex;gap:14px;flex-wrap:wrap">${scopeStat(T, target)}</div></div>
         <div class="chart-body"><div id="sc-chart"></div></div>
         <div class="sc-vstrip" id="sc-vstrip"></div>
         ${hireHtml(V)}`;
@@ -841,7 +854,7 @@ boot('scoping', async (supa, el) => {
             <select data-addph="${esc(dep)}" aria-label="Add a placeholder to ${esc(dep)}"><option value="">+ placeholder…</option><option value="">department average</option>
               ${(X.settings.comp_bands || []).filter(b => !phs.includes(b.name)).map(b => `<option value="${esc(b.name)}">${esc(b.name)}${b.upto_c ? ` (≤ ${fmt$(b.upto_c)}/h)` : ' (top)'}</option>`).join('')}</select>
           </div>
-          ${topCands.length ? `<div class="sc-cands">suggested: ${topCands.map(c => `<b>${esc(c.name)}</b> <span class="muted">(${c.client_hours ? `${fmtH(c.client_hours)} on this client` : c.kind_hours ? `${fmtH(c.kind_hours)} on this kind` : 'no history'} · free ${fmtH(Object.values(c.free || {}).reduce((s, v) => s + +v, 0))} over the flight)</span>`).join(' · ')}</div>` : ''}
+          ${topCands.length ? `<div class="sc-cands"><span class="sc-cands-l">suggested</span>${topCands.map(c => `<button class="sc-chip" data-addsug="${c.staff_id}|${esc(dep)}" title="Add ${esc(c.name)} to ${esc(dep)} for every month, then type their hours"><b>${esc(c.name)}</b><span>${c.client_hours ? `${fmtH(c.client_hours)} this client` : c.kind_hours ? `${fmtH(c.kind_hours)} this kind` : 'no history'} · ${fmtH(Object.values(c.free || {}).reduce((s, v) => s + +v, 0))} free</span></button>`).join('')}</div>` : ''}
         </td></tr>`}`;
     }).join('');
   }
@@ -886,7 +899,7 @@ boot('scoping', async (supa, el) => {
     });
     paint('rev', fmt$(rev)); paint('gp', fmt$(gp)); paint('rebate', reb ? `rebate −${fmt$(reb)}` : ''); paint('pass', pass ? `+ ${fmt$(pass)} media rebilled (cash, not revenue)` : '');
     const pm = progMargin();
-    paint('progmargin', pm == null ? '<span class="muted">no programmatic line</span>' : `<b>${pm}%</b> <span class="muted">→ ${X.settings.prog_target_gp_pct}% GP on revenue across the deal's programmatic media</span>`);
+    paint('progmargin', pm == null ? '<span class="muted">no programmatic line in this deal</span>' : `<b class="sc-result-v">${pm}%</b><span class="muted">lands ${X.settings.prog_target_gp_pct}% GP on revenue</span>`);
     drawVerdict(byM);
   }
   // The Monthly verdict follows every edit: money from the live twin math,
@@ -983,8 +996,10 @@ boot('scoping', async (supa, el) => {
     p.querySelector('#sc-rebate-basis').onchange = e => { S.rebate_basis = e.target.value; markDirty(); recompute(); };
     p.querySelector('#sc-minpreset').onchange = e => { S.min_margin_preset = e.target.value; markDirty(); };
     const ad = p.querySelector('#sc-adddept'); if (ad) ad.onchange = () => { if (!ad.value) return; allMonths().forEach(m => S.dept_months.push({ department: ad.value, month: m, hours: 0, source: 'manual' })); markDirty(); renderEditor(); };
-    p.querySelectorAll('select[data-addperson]').forEach(sel => sel.onchange = () => { if (!sel.value) return;
-      allMonths().forEach(m => S.staff_months.push({ staff_id: sel.value, department: sel.dataset.addperson, band: null, month: m, hours: 0, source: 'manual' })); markDirty(); renderEditor(); });
+    const addPerson = (sid, dep) => { allMonths().forEach(m => S.staff_months.push({ staff_id: sid, department: dep, band: null, month: m, hours: 0, source: 'manual' })); markDirty(); renderEditor();
+      const first = panel().querySelector(`input[data-sm^="${sid}|manual|${dep}|"]`); if (first) first.focus(); };
+    p.querySelectorAll('select[data-addperson]').forEach(sel => sel.onchange = () => { if (sel.value) addPerson(sel.value, sel.dataset.addperson); });
+    p.querySelectorAll('button[data-addsug]').forEach(b => b.onclick = () => { const [sid, dep] = b.dataset.addsug.split('|'); addPerson(sid, dep); });
     p.querySelectorAll('select[data-addph]').forEach(sel => sel.onchange = () => {
       allMonths().forEach(m => S.staff_months.push({ staff_id: null, department: sel.dataset.addph, band: sel.value || null, month: m, hours: 0, source: 'manual' })); markDirty(); renderEditor(); });
     p.querySelector('#sc-deals').oninput = e => { const t = e.target; if (t.dataset.f) onField(t); else if (t.dataset.cell) onCell(t); else if (t.dataset.band) onBand(t); else if (t.dataset.drv) onDriver(t); };
