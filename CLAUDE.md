@@ -139,7 +139,7 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   finds the same shape for any other deal.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 104. Key views/functions
+## Current migration head: 105. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
@@ -375,6 +375,15 @@ is always a new migration, so grep for the highest one before reading an old bod
   Deal terms shows the output. Settings `scope_kind_departments` /
   `scope_always_departments` fill the hours grid as lines are added. The
   Pipeline tab honours `sales_probability_threshold` like Sales Forecast.
+- **Rates once per person-month** (105, after a statement timeout on the first
+  real load): `staff_rates_months(p_from,p_to)` = every plannable person ×
+  month with `staff_hourly_cost` and comp band, ONE burden-stack call each,
+  MATERIALIZED where used. `scope_labor` [105] prices named / band / department
+  / company from it (band_rate's ladder, same cents — 097/103/104 fixtures
+  re-run); `scope_staffing` [105] ranks from one pass over 12 months of hours;
+  `scope_verdict` [105] re-prices hires via `dept_avg_rate`; `scope_page` and
+  `approvals_queue` compute each verdict once. Never call `band_rate` /
+  `staff_hourly_cost` inside a per-row expression on the scoping side.
 - `match_deals_to_projects()` [010/037] — residual deal↔QBO-project fill-gaps
   pass; never guesses, never clobbers a human's match.
 
