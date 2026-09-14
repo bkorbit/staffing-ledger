@@ -22,7 +22,7 @@
 .sc-addline button { padding:4px 10px; font-size:11px; }
 table.bands { width:auto; margin-top:4px; }
 table.bands th, table.bands td { padding:2px 4px; border:none; text-align:left; }
-table.bands input { width:96px; height:26px; text-align:right; font-family:var(--font-mono); font-size:11.5px; }
+table.bands input { width:96px; height:30px; text-align:right; font-family:var(--font-mono); font-size:11.5px; }
 table.bands button { padding:1px 7px; font-size:11px; }
 /* the hour grids (demand, supply, drivers) share one column system: a fixed label
    column and equal month columns, so a month lands at the same x in every table */
@@ -30,10 +30,10 @@ table.bands button { padding:1px 7px; font-size:11px; }
 .sc-grid th, .sc-grid td { padding:4px 6px; white-space:nowrap; }
 .sc-grid th:first-child, .sc-grid td:first-child { min-width:150px; max-width:200px; text-align:left; overflow:hidden; text-overflow:ellipsis; }
 .sc-grid th:not(:first-child), .sc-grid td:not(:first-child) { padding:3px 4px; }   /* sized by content: twelve months fit without a scroll */
-.sc-grid input.hcell { width:54px; height:26px; text-align:right; font-family:var(--font-mono); font-size:11.5px; padding:0 4px; }
-.sc-grid th.per, .sc-grid td.per { border-right:2px solid #d6d6d6; background:#fafaf8; }
+.sc-grid input.hcell { width:54px; height:30px; text-align:right; font-family:var(--font-mono); font-size:11.5px; padding:0 4px; }   /* 30px: the page's one control height */
+.sc-grid th.per, .sc-grid td.per { border-right:2px solid var(--line); background:var(--wash-row); }
 .sc-grid input.hcell.per { font-weight:600; }
-.sc-grid tr.dept td { background:#f2f2f2; font-family:var(--font-mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); text-align:left; max-width:none; }
+.sc-grid tr.dept td { background:var(--wash-col); font-family:var(--font-mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); text-align:left; max-width:none; }
 .sc-grid tr.ph td:first-child { color:var(--slate); font-style:italic; }
 .sc-grid tr.auto input.hcell { color:var(--slate); font-style:italic; }
 .sc-grid tr.gap td { color:var(--slate); font-style:italic; }
@@ -57,6 +57,31 @@ table.bands button { padding:1px 7px; font-size:11px; }
 .sc-form .row .unit { font-family:var(--font-mono); font-size:11px; color:var(--slate); flex:none; }
 .gold-chip { display:inline-block; background:var(--gold-bg); color:var(--ink); padding:1px 6px; border-radius:4px; }
 tr.namerow[data-open] { cursor:pointer; }
+/* structure: the section titles ARE headings — same eyebrow voice, real <h2> */
+h2.sc-eyebrow { margin:0 0 10px; font-weight:500; line-height:1.4; }
+h2.sc-eyebrow.tight { margin:0; }
+h2.sc-eyebrow.inset { padding:12px 18px 0; margin:0; }
+h2.sc-eyebrow.inset14 { padding:12px 14px 0; margin:0; }
+/* helpers that replace the inline styles the page kept repeating */
+.sc-panel.flush { padding:0; }
+.gridwrap.tight { margin-top:0; }
+.gridwrap.gap6, .sc-note.gap6 { margin-top:6px; }
+.sc-note.lead { margin-bottom:8px; }
+.chart-head.flush { padding:0 0 6px; }
+.sc-btn-sm { padding:3px 9px; font-size:11px; }
+.sc-x { padding:0; width:24px; height:24px; min-width:24px; line-height:22px; font-size:12px; text-align:center; }   /* a real hit area for × */
+.nowrap { white-space:nowrap; }
+.sc-back { font-size:12px; }
+.summary-value .muted { font-size:12px; }
+.sc-linkbtn { border:none; background:none; padding:0; height:auto; color:var(--brand-2); text-decoration:underline; text-underline-offset:2px; font:inherit; cursor:pointer; }
+.sc-linkbtn:hover { color:var(--brand); }
+.sc-bar input.vlabel { flex:0 1 190px; min-width:120px; font-size:11px; font-family:var(--font-mono); }
+#sc-msg { font-size:12px; }
+#sc-msg.err { background:var(--rust-bg); padding:2px 8px; border-radius:4px; }
+/* seven cells, even columns; a wrapped cell keeps its width instead of stretching */
+#sc-strip { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); }
+.sc-vstrip .pill .why { font-weight:600; opacity:.9; }
+@media (prefers-reduced-motion: reduce) { .chart-tip { transition:none; } }
 @media (max-width:640px) { .sc-dealhead input.dname { flex-basis:100%; } .sc-grid th:first-child, .sc-grid td:first-child { min-width:120px; max-width:140px; } }
 </style></style></head><body>
 <script type="module">
@@ -197,6 +222,7 @@ boot('scoping', async (supa, el) => {
     const waiting = L.scopes.filter(s => s.status === 'proposed').length;
     const TABS = [['scopes', 'Scopes'], ['approvals', `Approvals${waiting ? ' · ' + waiting : ''}`], ['pipeline', 'Pipeline'], ['deals', 'Live deals'], ['clients', 'Clients'], ['quick', 'Quick check']];
     panel().innerHTML = `
+      <h1 class="sr-only">Scoping</h1>
       <div class="toolbar sc-bar">
         <div class="rp" role="tablist">
           ${TABS.map(([k, lab]) => `<button class="seg ${tab === k ? 'on' : ''}" data-tab="${k}" role="tab" aria-selected="${tab === k}">${lab}</button>`).join('')}
@@ -208,7 +234,7 @@ boot('scoping', async (supa, el) => {
         ${onClient ? `<button class="ghost" data-go="#new?client=${onClient}">+ Scope for this client</button>` : ''}
         <button class="primary" data-go="#new">+ Blank scope</button>
       </div>
-      ${tab === 'scopes' ? `<div class="sc-panel" style="padding:0"><div class="gridwrap" style="margin-top:0"><table class="ledger">
+      ${tab === 'scopes' ? `<div class="sc-panel flush"><div class="gridwrap tight"><table class="ledger">
         <thead><tr><th>Scope</th><th>Client</th><th>Scenario</th><th>Status</th><th>v</th><th>Last saved</th><th></th></tr></thead>
         <tbody>${scopes.length ? scopes.map(s => `<tr class="namerow" data-open="s/${s.id}" tabindex="0" role="button">
             <td class="textleft"><b>${esc(s.name)}</b></td>
@@ -216,36 +242,36 @@ boot('scoping', async (supa, el) => {
             <td class="textleft">${esc(s.scenario)}</td>
             <td><span class="pill ${statusPillCls[s.status] || ''}">${esc(s.status)}</span></td>
             <td>${s.version}</td>
-            <td class="muted" style="white-space:nowrap">${new Date(s.set_at).toLocaleDateString()} · ${esc((s.set_by || '').split('@')[0])}</td>
-            <td>${canDelete(s) ? `<button class="ghost" data-del="${s.id}" data-delname="${esc(s.name)} (${esc(s.scenario)})" style="padding:3px 9px;font-size:11px" title="Delete this scope and every version of it">Delete</button>` : ''}</td>
+            <td class="muted nowrap">${new Date(s.set_at).toLocaleDateString()} · ${esc((s.set_by || '').split('@')[0])}</td>
+            <td>${canDelete(s) ? `<button class="ghost sc-btn-sm" data-del="${s.id}" data-delname="${esc(s.name)} (${esc(s.scenario)})" title="Delete this scope and every version of it">Delete</button>` : ''}</td>
           </tr>`).join('') : `<tr><td colspan="7" class="empty-note">No scopes yet. Start from the pipeline, a live deal, a client, or blank.</td></tr>`}</tbody></table></div></div>` : ''}
       ${tab === 'approvals' ? approvalsHtml(clientName) : ''}
-      ${tab === 'pipeline' ? `<div class="sc-panel" style="padding:0"><div class="gridwrap" style="margin-top:0"><table class="ledger">
+      ${tab === 'pipeline' ? `<div class="sc-panel flush"><div class="gridwrap tight"><table class="ledger">
         <thead><tr><th>Company</th><th>Deal</th><th>Stage</th><th>Close</th><th>Amount</th><th>Campaign</th><th></th></tr></thead>
         <tbody>${pipeline.length ? pipeline.map(p => `<tr>
             <td class="textleft"><b>${esc(p.company || '—')}</b></td>
             <td class="textleft">${esc(p.name)}${p.url ? ` <a href="${esc(p.url)}" target="_blank" rel="noopener" class="muted" style="font-size:10px">HubSpot ↗</a>` : ''}</td>
             <td class="textleft">${p.is_won ? '<span class="pill st-pending">won · not promoted</span>' : `${esc(p.stage || '')}${p.probability != null ? ` <span class="muted">${Math.round(p.probability * 100)}%</span>` : ''}`}</td>
-            <td class="muted" style="white-space:nowrap">${esc(p.close_date || '—')}</td>
+            <td class="muted nowrap">${esc(p.close_date || '—')}</td>
             <td>${p.amount != null ? fmt$(p.amount) : '—'}</td>
-            <td class="muted" style="white-space:nowrap">${esc(p.campaign_start || '?')} → ${esc(p.campaign_end || '?')}</td>
-            <td><button class="ghost" data-go="#new?hs=${encodeURIComponent(p.hubspot_deal_id)}" style="padding:3px 9px;font-size:11px">Scope</button></td>
+            <td class="muted nowrap">${esc(p.campaign_start || '?')} → ${esc(p.campaign_end || '?')}</td>
+            <td><button class="ghost sc-btn-sm" data-go="#new?hs=${encodeURIComponent(p.hubspot_deal_id)}">Scope</button></td>
           </tr>`).join('') : `<tr><td colspan="7" class="empty-note">Nothing left to scope: every promotable deal is promoted, dismissed, or already has a scope.</td></tr>`}</tbody></table></div></div>` : ''}
-      ${tab === 'deals' ? `<div class="sc-panel" style="padding:0"><div class="gridwrap" style="margin-top:0"><table class="ledger">
+      ${tab === 'deals' ? `<div class="sc-panel flush"><div class="gridwrap tight"><table class="ledger">
         <thead><tr><th>Live deal</th><th>Client</th><th>Flight</th><th></th></tr></thead>
         <tbody>${deals.length ? deals.map(d => `<tr>
             <td class="textleft"><b>${esc(d.name)}</b></td>
             <td class="textleft">${esc(clientName[d.client_id] || '—')}</td>
-            <td class="muted" style="white-space:nowrap">${esc(d.flight_start || '')} → ${esc(d.flight_end || '')}</td>
-            <td><button class="ghost" data-go="#new?deal=${d.id}" style="padding:3px 9px;font-size:11px">Re-scope</button></td>
+            <td class="muted nowrap">${esc(d.flight_start || '')} → ${esc(d.flight_end || '')}</td>
+            <td><button class="ghost sc-btn-sm" data-go="#new?deal=${d.id}">Re-scope</button></td>
           </tr>`).join('') : `<tr><td colspan="4" class="empty-note">No live deals.</td></tr>`}</tbody></table></div></div>` : ''}
-      ${tab === 'clients' ? `<div class="sc-panel" style="padding:0"><div class="gridwrap" style="margin-top:0"><table class="ledger">
+      ${tab === 'clients' ? `<div class="sc-panel flush"><div class="gridwrap tight"><table class="ledger">
         <thead><tr><th>Client</th><th>Live deals</th><th>Scopes</th><th></th></tr></thead>
         <tbody>${L.clients.filter(c => !q || c.name.toLowerCase().includes(q)).map(c => `<tr>
             <td class="textleft"><a href="#c/${c.id}"><b>${esc(c.name)}</b></a></td>
             <td>${L.deals.filter(d => d.client_id === c.id).length}</td>
             <td>${L.scopes.filter(s => s.client_id === c.id).length}</td>
-            <td><button class="ghost" data-go="#new?client=${c.id}" style="padding:3px 9px;font-size:11px">+ Scope</button></td>
+            <td><button class="ghost sc-btn-sm" data-go="#new?client=${c.id}">+ Scope</button></td>
           </tr>`).join('')}</tbody></table></div></div>` : ''}
       ${tab === 'quick' ? quickHtml() : ''}`;
     panel().querySelectorAll('.rp .seg').forEach(b => b.onclick = () => { L.tab = b.dataset.tab; localStorage.setItem('sc_list_tab', L.tab); renderList(); });
@@ -272,18 +298,18 @@ boot('scoping', async (supa, el) => {
     if (!L.approvals) return `<div class="sc-panel"><div class="empty-note">loading…</div></div>`;
     if (L.approvals.error) return `<div class="sc-panel err">${esc(L.approvals.error)}</div>`;
     const rows = L.approvals;
-    return `<div class="sc-panel" style="padding:0"><div class="gridwrap" style="margin-top:0"><table class="ledger">
+    return `<div class="sc-panel flush"><div class="gridwrap tight"><table class="ledger">
       <thead><tr><th>Scope</th><th>Client</th><th>Proposed</th><th>Verdict</th><th>After labor</th><th>$ / h</th><th>Hours</th><th>Deals</th><th></th></tr></thead>
       <tbody>${rows.length ? rows.map(r => { const k = r.kpis || {}; return `<tr class="namerow" data-open="s/${r.id}" tabindex="0" role="button">
           <td class="textleft"><b>${esc(r.name)}</b> <span class="muted">${esc(r.scenario)} · v${r.version}</span></td>
           <td class="textleft">${esc(r.client_name || clientName[r.client_id] || '—')}</td>
-          <td class="textleft muted" style="white-space:nowrap">${r.proposed_at ? new Date(r.proposed_at).toLocaleDateString() : '—'} · ${esc((r.proposed_by || '').split('@')[0])}</td>
+          <td class="textleft muted nowrap">${r.proposed_at ? new Date(r.proposed_at).toLocaleDateString() : '—'} · ${esc((r.proposed_by || '').split('@')[0])}</td>
           <td><span class="pill ${STATUS_PILL[k.status] || ''}">${esc(STATUS_LABEL[k.status] || '—')}</span></td>
           <td class="${(k.pal || 0) < 0 ? 'neg' : ''}">${fmt$(k.pal || 0)}</td>
           <td>${k.per_hour_c != null ? fmt$(k.per_hour_c) : '—'}</td>
           <td>${fmtH(k.hours)}</td>
           <td class="textleft muted" style="font-size:10.5px">${(r.deals || []).map(d => `${esc(d.name)} (${esc(d.flight_start || '?')} → ${esc(d.flight_end || '?')})`).join('<br>')}</td>
-          <td style="white-space:nowrap">${isApp ? `<button class="primary" data-approve="${r.id}" style="padding:3px 9px;font-size:11px">Approve</button> <button class="ghost" data-sendback="${r.id}" style="padding:3px 9px;font-size:11px">Send back</button>` : '<span class="muted" style="font-size:10.5px">waiting for an approver</span>'}</td>
+          <td class="nowrap">${isApp ? `<button class="primary sc-btn-sm" data-approve="${r.id}">Approve</button> <button class="ghost sc-btn-sm" data-sendback="${r.id}">Send back</button>` : '<span class="muted" style="font-size:10.5px">waiting for an approver</span>'}</td>
         </tr>`; }).join('') : `<tr><td colspan="9" class="empty-note">Nothing waiting. A scope lands here when someone presses Propose.</td></tr>`}</tbody></table></div></div>`;
   }
   async function queueAction(id, what) {
@@ -418,24 +444,25 @@ boot('scoping', async (supa, el) => {
     const preset = S.min_margin_preset || (presets.find(p => p.name === 'Slight margin') || presets[0] || {}).name || '';
 
     panel().innerHTML = `
+      <h1 class="sr-only">Scope: ${esc(S.name)} (${esc(S.scenario)})</h1>
       <div class="toolbar sc-bar">
-        <a href="#list" class="muted" style="font-size:12px">← scopes</a>
+        <a href="#list" class="muted sc-back">← scopes</a>
         <input class="dname" id="sc-name" value="${esc(S.name)}" ${ro ? 'disabled' : ''} aria-label="Scope name">
         <span class="pill ${stPill}">${esc(S.status)}</span>
         <span class="pill">v${S.version}</span>
         <div class="rp rp-sm" id="sc-scen" title="Scenarios of this target">
           ${sibs.map(s => `<button class="seg ${s.id === S.id ? 'on' : ''}" data-scope="${s.id}" title="${esc(s.name)} · ${esc(STATUS_LABEL[s.kpis && s.kpis.status] || '')}">${esc(s.scenario)}</button>`).join('')}
-          <button class="seg" id="sc-newscen" title="Copy this scope as a new scenario">+</button>
+          <button class="seg" id="sc-newscen" title="Copy this scope as a new scenario" aria-label="New scenario">+</button>
         </div>
-        <select id="sc-version" title="Versions" style="font-size:11px">
+        <select id="sc-version" title="Versions" aria-label="Versions" style="font-size:11px">
           <option value="">v${S.version} (current)</option>
           ${(X.versions || []).filter(v => v.version !== S.version).map(v => `<option value="${v.id}">v${v.version} · ${esc(v.reason)}${v.label ? ' · ' + esc(v.label) : ''} · ${new Date(v.saved_at).toLocaleDateString()}</option>`).join('')}
         </select>
         <button class="ghost" id="sc-terms" title="The commercial terms this scope implies, as plain sentences (templates on Settings › Scoping)">Terms</button>
         ${canDelete(S, X.settings.approvers) ? `<button class="ghost muted" id="sc-delete" title="Delete this scope and every version of it${S.status === 'approved' ? ' — its reserved hours leave Hour Planning' : ''}">Delete</button>` : ''}
         <span style="flex:1"></span>
-        <span id="sc-msg" class="ok" style="font-size:12px"></span>
-        ${ro ? '' : `<button class="primary" id="sc-save">Save</button>`}
+        <span id="sc-msg" class="ok" role="status" aria-live="polite"></span>
+        ${ro ? '' : `<input class="vlabel" id="sc-label" type="text" placeholder="label this version (optional)" aria-label="Label for this saved version"><button class="primary" id="sc-save">Save</button>`}
         ${S.status === 'draft' ? `<button class="ghost" id="sc-propose" title="Puts the scope in the Approvals queue">Propose</button>` : ''}
         ${S.status === 'proposed' ? `<button class="ghost" id="sc-draft">Back to draft</button>` : ''}
         ${S.status === 'proposed' && isApprover() ? `<button class="primary" id="sc-approve">Approve</button>` : ''}
@@ -450,7 +477,7 @@ boot('scoping', async (supa, el) => {
       <div class="sc-panel chartpanel" id="sc-verdictpanel">${verdictPanelInner()}</div>
 
       <div class="sc-panel">
-        <div class="sc-eyebrow" style="margin-top:0">Deal terms</div>
+        <h2 class="sc-eyebrow">Deal terms</h2>
         <div class="sc-form">
           <label>client<select id="sc-client" ${ro ? 'disabled' : ''}><option value="">— none yet —</option>
             ${(X.clients || []).map(c => `<option value="${c.id}" ${c.id === S.client_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
@@ -466,32 +493,32 @@ boot('scoping', async (supa, el) => {
 
       ${X.qbo ? `<datalist id="sc-qbo-list">${X.qbo.map(p => `<option value="${esc(p.name)}"></option>`).join('')}</datalist>` : ''}
       <div id="sc-deals">${S.deals.map((d, di) => dealHtml(d, di, ro)).join('')}</div>
-      ${ro ? '' : `<div class="sc-note" style="margin:-8px 18px 14px"><a href="#" id="sc-adddeal" title="Scope a second future deal alongside this one (rare)">+ another deal in this scope</a></div>`}
+      ${ro ? '' : `<div class="sc-note" style="margin:-8px 18px 14px"><button class="sc-linkbtn" id="sc-adddeal" title="Scope a second future deal alongside this one (rare)">+ another deal in this scope</button></div>`}
 
       ${existingDealsHtml(T, clientName, ro)}
 
       <div class="sc-panel">
-        <div class="chart-head" style="padding:0 0 6px"><div class="sc-eyebrow" style="margin:0">Hours needed, per department per month</div>
+        <div class="chart-head flush"><h2 class="sc-eyebrow tight">Hours needed, per department per month</h2>
           ${ro ? '' : `<button class="ghost" id="sc-estimate" title="Fill from the benchmark library (each media line's drivers × hours per driver from comparable campaigns, client's own first) and the catalog products' default hours. Rows you typed are kept.">Estimate from benchmarks</button>`}</div>
-        <div class="sc-note" style="margin-bottom:8px">Demand. Type it, or fill each media line's <b>drivers</b> (on its card) and estimate — rows marked benchmark / catalog were filled that way; typing over one makes it yours.</div>
-        <div class="gridwrap" style="margin-top:0"><table class="sc-grid">
+        <div class="sc-note lead">Demand. Type it, or fill each media line's <b>drivers</b> (on its card) and estimate — rows marked benchmark / catalog were filled that way; typing over one makes it yours.</div>
+        <div class="gridwrap tight"><table class="sc-grid">
           <thead><tr><th>department</th><th class="per" title="Type once here to fill every flight month of the row">every month</th>${months.map(m => `<th>${mLabel(m)}</th>`).join('')}<th>total</th></tr></thead>
           <tbody>${demandRows(months, ro)}</tbody></table></div>
-        ${ro ? '' : `<div class="hp-addrow"><select id="sc-adddept"><option value="">+ department…</option>${departments().filter(d => !S.dept_months.some(r => r.department === d)).map(d => `<option>${esc(d)}</option>`).join('')}</select></div>`}
+        ${ro ? '' : `<div class="hp-addrow"><select id="sc-adddept" aria-label="Add a department"><option value="">+ department…</option>${departments().filter(d => !S.dept_months.some(r => r.department === d)).map(d => `<option>${esc(d)}</option>`).join('')}</select></div>`}
       </div>
 
       <div class="sc-panel">
-        <div class="chart-head" style="padding:0 0 6px"><div class="sc-eyebrow" style="margin:0">Who does the work</div>
+        <div class="chart-head flush"><h2 class="sc-eyebrow tight">Who does the work</h2>
           ${ro ? '' : `<span style="display:flex;gap:6px;flex-wrap:wrap"><button class="ghost" id="sc-autostaff" title="Fill the uncovered hours with the best-ranked free people, fewest people first">Auto-staff</button><button class="ghost" id="sc-clearauto" title="Remove the auto-staffed rows">Clear auto</button></span>`}
         </div>
-        <div class="sc-note" style="margin-bottom:8px">Named people are priced at their own cost, placeholders at their band's average, uncovered hours at the department average — shown only as one labor total. Ranking: worked this client → worked this kind → free hours → cost.</div>
-        <div class="gridwrap" style="margin-top:0"><table class="sc-grid">
+        <div class="sc-note lead">Named people are priced at their own cost, placeholders at their band's average, uncovered hours at the department average — shown only as one labor total. Ranking: worked this client → worked this kind → free hours → cost.</div>
+        <div class="gridwrap tight"><table class="sc-grid">
           <thead><tr><th>person / placeholder</th>${months.map(m => `<th>${mLabel(m)}</th>`).join('')}<th>total</th><th></th></tr></thead>
           <tbody>${supplyRows(months, ro)}</tbody></table></div>
       </div>
 
-      ${sibs.length > 1 ? `<div class="sc-panel" style="padding:0"><div class="sc-eyebrow" style="padding:12px 18px 0">Scenarios</div>
-        <div class="gridwrap" style="margin-top:6px"><table class="ledger">
+      ${sibs.length > 1 ? `<div class="sc-panel flush"><h2 class="sc-eyebrow inset">Scenarios</h2>
+        <div class="gridwrap gap6"><table class="ledger">
           <thead><tr><th>Scenario</th><th>Status</th><th>Revenue</th><th>GP</th><th>Labor</th><th>After labor</th><th>$/h</th><th>Hours</th><th>Verdict</th></tr></thead>
           <tbody>${sibs.map(s => { const k = s.kpis || {}; return `<tr class="namerow" data-open="s/${s.id}" tabindex="0" role="button" ${s.id === S.id ? 'style="font-weight:600"' : ''}>
             <td class="textleft">${esc(s.scenario)} <span class="muted">v${s.version}</span></td><td><span class="pill">${esc(s.status)}</span></td>
@@ -518,14 +545,14 @@ boot('scoping', async (supa, el) => {
     // nothing overlapping (or no client yet) → no panel at all (Boris); the
     // rare "second deal in this scope" entry lives under the deals instead
     if (!S.client_id || !rows.length) return '';
-    return `<div class="sc-panel" style="padding:0">
-      <div class="chart-head"><div class="sc-eyebrow">${client ? `Already running for ${esc(client)} in these months` : 'Already running in these months'}</div></div>
-      <div class="gridwrap" style="margin-top:0"><table class="ledger">
+    return `<div class="sc-panel flush">
+      <div class="chart-head"><h2 class="sc-eyebrow">${client ? `Already running for ${esc(client)} in these months` : 'Already running in these months'}</h2></div>
+      <div class="gridwrap tight"><table class="ledger">
         <thead><tr><th>Deal</th><th>Flight</th><th>GP</th><th>Labor</th><th>Hours</th><th>After labor</th><th>$ / h</th></tr></thead>
         <tbody>
           ${rows.map(r => `<tr>
             <td class="textleft"><a href="./forecast.html?open=${r.id}">${esc(r.name)}</a></td>
-            <td class="muted" style="white-space:nowrap">${esc(r.flight_start || '')} → ${esc(r.flight_end || '')}</td>
+            <td class="muted nowrap">${esc(r.flight_start || '')} → ${esc(r.flight_end || '')}</td>
             <td>${fmt$(r.gp_measured + r.gp_plan)}<div class="sc-hint">${fmt$(r.gp_measured)} measured · ${fmt$(r.gp_plan)} planned</div></td>
             <td>${fmt$(r.labor_measured + r.labor_plan)}<div class="sc-hint">${fmt$(r.labor_measured)} logged · ${fmt$(r.labor_plan)} planned</div></td>
             <td>${fmtH(+r.hours_measured + +r.hours_plan)}</td>
@@ -574,7 +601,7 @@ boot('scoping', async (supa, el) => {
         <div class="summary-cell"><div class="summary-label">Verdict</div><div class="summary-value"><span class="pill ${STATUS_PILL[V.status] || ''}" style="font-size:12px">${esc(STATUS_LABEL[V.status] || '—')}</span></div>
           <div class="summary-note">${verdictNotes(V)}</div></div>
         <div class="summary-cell" title="Profit after labor ÷ planned hours, against the company target (Settings › Scoping)"><div class="summary-label">Profit per hour</div>
-          <div class="summary-value ${under || (T.pal || 0) < 0 ? 'neg' : ''}">${T.per_hour_c != null ? fmt$(T.per_hour_c) + '<span class="muted" style="font-size:12px">/h</span>' : '—'}</div>
+          <div class="summary-value ${under || (T.pal || 0) < 0 ? 'neg' : ''}">${T.per_hour_c != null ? fmt$(T.per_hour_c) + '<span class="muted">/h</span>' : '—'}</div>
           <div class="summary-note">${T.per_hour_c != null ? `${under ? `<b style="color:var(--rust)">under</b> the` : 'clears the'} ${fmt$(target)}/h target` : 'no hours planned yet'}</div></div>
         <div class="summary-cell"><div class="summary-label">Profit after labor</div><div class="summary-value ${(T.pal || 0) < 0 ? 'neg' : ''}"><span class="gold-chip">${fmt$(T.pal || 0)}</span></div>
           <div class="summary-note">${T.hours ? `${fmtH(T.hours)} over ${nMonths} month${nMonths === 1 ? '' : 's'}` : 'no hours planned'}</div></div>
@@ -582,14 +609,14 @@ boot('scoping', async (supa, el) => {
         <div class="summary-cell"><div class="summary-label">Gross profit</div><div class="summary-value" data-out="gp">${fmt$(T.gp || 0)}</div><div class="summary-note" data-out="rebate">${+T.rebate ? `rebate −${fmt$(T.rebate)}` : ''}</div></div>
         <div class="summary-cell" title="Named people at their burdened cost, placeholders and uncovered demand at department averages — one number, never per person"><div class="summary-label">Labor</div><div class="summary-value">${fmt$(T.labor || 0)}</div><div class="summary-note">${fmtH(T.hours)}${+T.open_hours ? ` · ${fmtH(T.open_hours)} not yet named` : ''}${T.labor_lo != null && T.labor_lo !== T.labor_hi ? ` · range ${fmt$(T.labor_lo)}–${fmt$(T.labor_hi)}` : ''}</div></div>
         <div class="summary-cell" title="The fee that covers each month's labor at the chosen margin — the highest month sets the contractual minimum"><div class="summary-label">Minimum fee</div>
-          <div class="summary-value ${short > 0 ? 'neg' : ''}">${T.min_fee_max != null ? fmt$(T.min_fee_max) + '<span class="muted" style="font-size:12px">/mo</span>' : '—'}</div>
+          <div class="summary-value ${short > 0 ? 'neg' : ''}">${T.min_fee_max != null ? fmt$(T.min_fee_max) + '<span class="muted">/mo</span>' : '—'}</div>
           <div class="summary-note">${esc(preset || '—')}${T.fee != null ? ` · planned fee ${fmt$(Math.round(T.fee / nMonths))}/mo avg` : ''}${short > 0 ? ` · <b style="color:var(--rust)">short ${fmt$(short)}</b> over the flight` : ''}</div></div>`;
   }
   function verdictPanelInner() {
     const V = X.verdict || {}, T = V.total || {};
     const target = +(X.settings.per_hour || 150) * 100;
     return `
-        <div class="chart-head"><div class="sc-eyebrow">Monthly verdict</div><div class="stat-inline muted" style="font-size:11px;display:flex;gap:14px;flex-wrap:wrap">${scopeStat(T, target)}</div></div>
+        <div class="chart-head"><h2 class="sc-eyebrow">Monthly verdict</h2><div class="stat-inline muted" style="font-size:11px;display:flex;gap:14px;flex-wrap:wrap">${scopeStat(T, target)}</div></div>
         <div class="chart-body"><div id="sc-chart"></div></div>
         <div class="sc-vstrip" id="sc-vstrip"></div>
         ${hireHtml(V)}`;
@@ -609,7 +636,7 @@ boot('scoping', async (supa, el) => {
         ${d.promoted_deal_id ? `<span class="pill st-live">promoted</span><a class="sc-note" href="./forecast.html?open=${d.promoted_deal_id}">open in Forecast →</a>` : ''}
         <span style="flex:1"></span>
         <span class="lgp" data-out="dealgp:${di}"></span>
-        ${ro || S.deals.length < 2 ? '' : `<button class="danger" data-act="rmdeal:${di}" title="remove this deal from the scope">✕</button>`}
+        ${ro || S.deals.length < 2 ? '' : `<button class="danger" data-act="rmdeal:${di}" title="remove this deal from the scope" aria-label="Remove deal ${esc(d.name)}">✕</button>`}
       </div>
       <div class="sc-form sc-dealform">
         <label class="name">deal name<input class="dname" data-f="deal:${di}:name" value="${esc(d.name)}" ${ro ? 'disabled' : ''}></label>
@@ -676,14 +703,14 @@ boot('scoping', async (supa, el) => {
       : ['meetings', 'reports', 'creatives_delivered'];
     const anyDrv = months.some(m => l.months[m] && l.months[m].drivers && Object.keys(l.months[m].drivers).some(k => k !== 'spend'));
     const drivers = months.length ? `<details class="permonth" ${anyDrv ? 'open' : ''}><summary>drivers for the hours estimate${anyDrv ? ' ✓' : ''}</summary>
-        <div class="gridwrap" style="margin-top:6px"><table class="sc-grid"><thead><tr><th>per month</th>${months.map(m => `<th>${mLabel(m)}</th>`).join('')}</tr></thead><tbody>
-        ${DRV.map(k => `<tr><td class="textleft">${esc(DRIVER_LABELS[k] || k)}</td>${months.map(m => `<td><input class="hcell" type="number" min="0" step="1" inputmode="numeric" data-drv="${di}:${li}:${m}:${k}" value="${((l.months[m] || {}).drivers || {})[k] ?? ''}" ${dis}></td>`).join('')}</tr>`).join('')}
+        <div class="gridwrap gap6"><table class="sc-grid"><thead><tr><th>per month</th>${months.map(m => `<th>${mLabel(m)}</th>`).join('')}</tr></thead><tbody>
+        ${DRV.map(k => `<tr><td class="textleft">${esc(DRIVER_LABELS[k] || k)}</td>${months.map(m => `<td><input class="hcell" type="number" min="0" step="1" inputmode="numeric" data-drv="${di}:${li}:${m}:${k}" aria-label="${esc(DRIVER_LABELS[k] || k)}, ${mLabel(m)}" value="${((l.months[m] || {}).drivers || {})[k] ?? ''}" ${dis}></td>`).join('')}</tr>`).join('')}
         </tbody></table></div>
         ${dis ? '' : `<div class="cardnote"><button class="ghost" data-act="drvfill:${di}:${li}">copy the first month to every month</button> — counts of what will be live and how often it changes; the estimate uses the client's own campaigns first, then everyone's</div>`}
       </details>` : '';
     return `<div class="linecard" data-li="${li}">
       <div class="cardhead"><span class="chleft"><span class="kbadge" data-out="kbadge:${di}:${li}">${esc(kindLabel(l))}</span>${l.kind === 'programmatic' ? `<span class="pill margintag" data-out="margintag:${di}:${li}"></span>` : ''}</span>
-        <span class="chright"><span class="lgp" data-out="lgp:${di}:${li}"></span>${ro ? '' : `<button class="danger" data-act="rmline:${di}:${li}" title="remove line">✕</button>`}</span></div>
+        <span class="chright"><span class="lgp" data-out="lgp:${di}:${li}"></span>${ro ? '' : `<button class="danger" data-act="rmline:${di}:${li}" title="remove line" aria-label="Remove ${esc(kindLabel(l))} line">✕</button>`}</span></div>
       <div class="cardbody">
         <div class="lparams">${bits.join('')}${totalBox}</div>
         ${structureHtml}
@@ -698,9 +725,9 @@ boot('scoping', async (supa, el) => {
     const bands = (st.fee && st.fee.bands) || [];
     return `<table class="bands"><thead><tr><th class="pfl">spend up to $ / mo</th><th class="pfl">fee %</th><th></th></tr></thead><tbody>
       ${bands.map((b, bi) => `<tr>
-        <td><input type="number" step="any" inputmode="decimal" data-band="${di}:${li}:${bi}:upto" value="${b.upto == null ? '' : b.upto / 100}" placeholder="${bi === bands.length - 1 ? 'and above' : ''}" ${dis}></td>
-        <td><input type="number" step="any" inputmode="decimal" data-band="${di}:${li}:${bi}:pct" value="${b.pct ?? ''}" ${dis}></td>
-        <td>${dis ? '' : `<button class="ghost" data-act="rmband:${di}:${li}:${bi}" aria-label="remove band">×</button>`}</td></tr>`).join('')}
+        <td><input type="number" step="any" inputmode="decimal" data-band="${di}:${li}:${bi}:upto" aria-label="Band ${bi + 1}, spend up to $ per month" value="${b.upto == null ? '' : b.upto / 100}" placeholder="${bi === bands.length - 1 ? 'and above' : ''}" ${dis}></td>
+        <td><input type="number" step="any" inputmode="decimal" data-band="${di}:${li}:${bi}:pct" aria-label="Band ${bi + 1}, fee %" value="${b.pct ?? ''}" ${dis}></td>
+        <td>${dis ? '' : `<button class="ghost sc-x" data-act="rmband:${di}:${li}:${bi}" aria-label="Remove band ${bi + 1}">×</button>`}</td></tr>`).join('')}
       ${dis ? '' : `<tr><td colspan="3"><button class="ghost" data-act="addband:${di}:${li}">+ band</button> <span class="sc-note">last band: leave "up to" blank for "and above"</span></td></tr>`}
     </tbody></table>`;
   }
@@ -718,10 +745,10 @@ boot('scoping', async (supa, el) => {
       const tot = vals.reduce((s, v) => s + (v || 0), 0);
       // the "every month" box shows the common value when the row is flat, else blank
       const flat = months.length && vals.every(v => v != null && v === vals[0]) ? vals[0] : '';
-      return `<tr><td class="textleft"><b>${esc(dep)}</b>${ro || auto.has(dep) ? '' : ` <button class="ghost" data-act="rmdept:${esc(dep)}" style="padding:0 6px;font-size:10px" aria-label="remove">×</button>`}</td>
-        <td class="per"><input class="hcell per" type="number" min="0" step="0.5" inputmode="decimal" data-dmall="${esc(dep)}" value="${flat}" placeholder="all" title="hours per month, every month of the flight" ${ro ? 'disabled' : ''}></td>
+      return `<tr><td class="textleft"><b>${esc(dep)}</b>${ro || auto.has(dep) ? '' : ` <button class="ghost sc-x" data-act="rmdept:${esc(dep)}" aria-label="Remove ${esc(dep)} from the hours">×</button>`}</td>
+        <td class="per"><input class="hcell per" type="number" min="0" step="0.5" inputmode="decimal" data-dmall="${esc(dep)}" value="${flat}" placeholder="all" title="hours per month, every month of the flight" aria-label="${esc(dep)}, every month, hours" ${ro ? 'disabled' : ''}></td>
         ${months.map(m => { const r = S.dept_months.find(x => x.department === dep && x.month === m);
-          return `<td><input class="hcell${r && r.source !== 'manual' ? ' ghost' : ''}" type="number" min="0" step="0.5" inputmode="decimal" data-dm="${esc(dep)}|${m}" value="${r ? +r.hours : ''}" title="${r && r.source !== 'manual' ? 'from the ' + esc(r.source) + ' estimate — type to make it yours' : ''}" ${ro ? 'disabled' : ''}></td>`; }).join('')}
+          return `<td><input class="hcell${r && r.source !== 'manual' ? ' ghost' : ''}" type="number" min="0" step="0.5" inputmode="decimal" data-dm="${esc(dep)}|${m}" value="${r ? +r.hours : ''}" aria-label="${esc(dep)}, ${mLabel(m)}, hours" title="${r && r.source !== 'manual' ? 'from the ' + esc(r.source) + ' estimate — type to make it yours' : ''}" ${ro ? 'disabled' : ''}></td>`; }).join('')}
         <td><b data-dtot="${esc(dep)}">${fmtH(tot)}</b></td></tr>`;
     }).join('');
   }
@@ -748,23 +775,23 @@ boot('scoping', async (supa, el) => {
             ${months.map(m => { const r = rows.find(x => x.staff_id === p.staff_id && x.month === m && (x.source || 'manual') === p.source);
               const c = capBy[`${p.staff_id}|${m}`];
               const cap = c ? `<span class="pill cap ${c.over ? 'bad' : (c.free_after < (c.capacity_hours || 0) * 0.2 ? 'warn' : 'good')}" title="${fmtH(c.scope_hours)} here · ${fmtH(c.committed_other)} elsewhere · ${fmtH(c.capacity_hours)} plannable · ${fmtH(c.free_after)} left">${c.over ? 'over' : fmtH(c.free_after) + ' free'}</span>` : '';
-              return `<td><input class="hcell" type="number" min="0" step="0.5" inputmode="decimal" data-sm="${p.staff_id}|${p.source}|${dep}|${m}" value="${r ? +r.hours : ''}" ${ro ? 'disabled' : ''}>${cap}</td>`; }).join('')}
+              return `<td><input class="hcell" type="number" min="0" step="0.5" inputmode="decimal" data-sm="${p.staff_id}|${p.source}|${dep}|${m}" value="${r ? +r.hours : ''}" aria-label="${esc(s.name)}, ${mLabel(m)}, hours" ${ro ? 'disabled' : ''}>${cap}</td>`; }).join('')}
             <td><b data-stot="${p.staff_id}|${p.source}|${esc(dep)}">${fmtH(rows.filter(x => x.staff_id === p.staff_id && (x.source || 'manual') === p.source).reduce((s2, r) => s2 + (+r.hours || 0), 0))}</b></td>
-            <td>${ro ? '' : `<button class="ghost" data-act="rmperson:${p.staff_id}:${p.source}:${esc(dep)}" aria-label="remove">×</button>`}</td></tr>`; }).join('')}
+            <td>${ro ? '' : `<button class="ghost sc-x" data-act="rmperson:${p.staff_id}:${p.source}:${esc(dep)}" aria-label="Remove ${esc(s.name)} from ${esc(dep)}">×</button>`}</td></tr>`; }).join('')}
         ${phs.map(band => `<tr class="ph"><td class="textleft">placeholder${band ? ` · ${esc(band)}` : ' · department average'}</td>
             ${months.map(m => { const r = rows.find(x => !x.staff_id && (x.band || '') === band && x.month === m);
-              return `<td><input class="hcell" type="number" min="0" step="0.5" inputmode="decimal" data-ph="${esc(band)}|${dep}|${m}" value="${r ? +r.hours : ''}" ${ro ? 'disabled' : ''}></td>`; }).join('')}
+              return `<td><input class="hcell" type="number" min="0" step="0.5" inputmode="decimal" data-ph="${esc(band)}|${dep}|${m}" value="${r ? +r.hours : ''}" aria-label="${esc(band || 'department average')} placeholder, ${esc(dep)}, ${mLabel(m)}, hours" ${ro ? 'disabled' : ''}></td>`; }).join('')}
             <td><b data-ptot="${esc(band)}|${esc(dep)}">${fmtH(rows.filter(x => !x.staff_id && (x.band || '') === band).reduce((s2, r) => s2 + (+r.hours || 0), 0))}</b></td>
-            <td>${ro ? '' : `<button class="ghost" data-act="rmph:${esc(band)}:${esc(dep)}" aria-label="remove">×</button>`}</td></tr>`).join('')}
+            <td>${ro ? '' : `<button class="ghost sc-x" data-act="rmph:${esc(band)}:${esc(dep)}" aria-label="Remove the ${esc(band || 'department average')} placeholder from ${esc(dep)}">×</button>`}</td></tr>`).join('')}
         <tr class="gap"><td class="textleft">not yet planned</td>
           ${months.map(m => { const g = Math.max(demand(m) - supplied(m), 0); return `<td class="${g > 0.005 ? 'bad' : ''}">${g > 0.005 ? fmtH(g) : '—'}</td>`; }).join('')}
           <td>${(() => { const g = months.reduce((s, m) => s + Math.max(demand(m) - supplied(m), 0), 0); return g > 0.005 ? `<b style="color:var(--rust)">${fmtH(g)}</b>` : '—'; })()}</td><td></td></tr>
         ${ro ? '' : `<tr><td colspan="${months.length + 3}" class="textleft addrow">
           <div class="hp-addrow">
-            <select data-addperson="${esc(dep)}"><option value="">+ person…</option>
+            <select data-addperson="${esc(dep)}" aria-label="Add a person to ${esc(dep)}"><option value="">+ person…</option>
               ${(X.staff || []).filter(s => !used.has(s.id)).sort((a, b) => (a.department === dep ? 0 : 1) - (b.department === dep ? 0 : 1) || a.name.localeCompare(b.name))
                 .map(s => `<option value="${s.id}">${esc(s.name)}${s.department !== dep ? ` (${esc(s.department || '—')})` : ''}</option>`).join('')}</select>
-            <select data-addph="${esc(dep)}"><option value="">+ placeholder…</option><option value="">department average</option>
+            <select data-addph="${esc(dep)}" aria-label="Add a placeholder to ${esc(dep)}"><option value="">+ placeholder…</option><option value="">department average</option>
               ${(X.settings.comp_bands || []).filter(b => !phs.includes(b.name)).map(b => `<option value="${esc(b.name)}">${esc(b.name)}${b.upto_c ? ` (≤ ${fmt$(b.upto_c)}/h)` : ' (top)'}</option>`).join('')}</select>
           </div>
           ${topCands.length ? `<div class="sc-cands">suggested: ${topCands.map(c => `<b>${esc(c.name)}</b> <span class="muted">(${c.client_hours ? `${fmtH(c.client_hours)} on this client` : c.kind_hours ? `${fmtH(c.kind_hours)} on this kind` : 'no history'} · free ${fmtH(Object.values(c.free || {}).reduce((s, v) => s + +v, 0))} over the flight)</span>`).join(' · ')}</div>` : ''}
@@ -892,9 +919,13 @@ boot('scoping', async (supa, el) => {
     on('sc-save', () => save()); on('sc-propose', () => setStatus('proposed')); on('sc-draft', () => setStatus('draft'));
     on('sc-terms', showTerms);
     on('sc-delete', () => deleteScopeId(S.id, `"${S.name}" (${S.scenario})`, async () => { dirty = false; location.hash = '#list'; }));
-    on('sc-approve', approve); on('sc-unapprove', unapprove); on('sc-promote', promote); on('sc-adddeal', e => { e.preventDefault(); S.deals.push({ ord: S.deals.length, name: 'Deal ' + (S.deals.length + 1), origin_kind: 'new', promote_mode: 'new', flight_start: null, flight_end: null, lines: [] }); markDirty(); renderEditor(); });
+    on('sc-approve', approve); on('sc-unapprove', unapprove); on('sc-promote', promote); on('sc-adddeal', () => { S.deals.push({ ord: S.deals.length, name: 'Deal ' + (S.deals.length + 1), origin_kind: 'new', promote_mode: 'new', flight_start: null, flight_end: null, lines: [] }); markDirty(); renderEditor(); });
     on('sc-autostaff', autoStaff); on('sc-clearauto', clearAuto);
-    p.querySelectorAll('tr.namerow[data-open]').forEach(tr => { tr.onclick = () => { location.hash = '#' + tr.dataset.open; }; });
+    p.querySelectorAll('tr.namerow[data-open]').forEach(tr => {
+      const open = () => { location.hash = '#' + tr.dataset.open; };
+      tr.onclick = e => { if (e.target.closest('a,button')) return; open(); };
+      tr.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } };
+    });
     const tl = p.querySelector('a[data-tab-link]'); if (tl) tl.onclick = () => { localStorage.setItem('sc_list_tab', tl.dataset.tabLink); };
     if (ro) return;
     p.querySelector('#sc-name').oninput = e => { S.name = e.target.value; markDirty(); };
@@ -1026,7 +1057,8 @@ boot('scoping', async (supa, el) => {
   }
 
   // ---- server actions --------------------------------------------------------
-  const msg = (t, bad) => { const n = panel().querySelector('#sc-msg'); if (n) { n.textContent = t; n.className = bad ? 'err' : 'ok'; n.style.fontSize = '12px'; } };
+  // the one status line — a live region, so "saved v3" and every refusal are heard, not only seen
+  const msg = (t, bad) => { const n = panel().querySelector('#sc-msg'); if (n) { n.textContent = t; n.className = bad ? 'err' : 'ok'; n.setAttribute('aria-live', bad ? 'assertive' : 'polite'); } };
   // 106: every editor action is ONE round trip — scope_act runs it on the
   // server and returns the fresh scope_page, which applyPage repaints from
   async function serverAct(action, args) {
@@ -1056,7 +1088,7 @@ boot('scoping', async (supa, el) => {
     msg(data.rows_written ? `estimated ${data.rows_written} department-months${methods.length ? ' (' + methods.join(', ') + ')' : ''}` : 'nothing to estimate — add drivers on a media line or a catalog product, and enrol comparable campaigns under Benchmarks', !data.rows_written);
   }
   async function save(label) {
-    if (label === undefined) { label = prompt('Label this version (optional):', '') ; if (label === null) return; }
+    if (label === undefined) { const f = panel().querySelector('#sc-label'); label = f ? f.value.trim() : ''; }   // the field beside Save; the re-render clears it
     msg('saving…');
     const data = await serverAct('save', { payload: payload(), label: label || null });
     if (!data) return false;
@@ -1202,12 +1234,12 @@ boot('scoping', async (supa, el) => {
     const coefs = D.coefficients || [];
     panel().innerHTML = `
       <div class="editorbar">
-        <a href="#list" class="muted" style="font-size:12px">← scopes</a>
+        <a href="#list" class="muted sc-back">← scopes</a>
         <span class="kbadge">Benchmarks</span>
         <span class="sc-note">Enrol a campaign in progress, say which platforms it runs on and which team runs each, upload the exports. Its logged hours per team per month are joined automatically — nothing is typed twice.</span>
       </div>
       <div class="sc-panel" style="margin:0 18px">
-        <div class="sc-eyebrow" style="margin-top:0">1 · Campaign</div>
+        <h2 class="sc-eyebrow">1 · Campaign</h2>
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
           <select id="bn-deal" style="min-width:320px;max-width:100%">
             <option value="">— pick a live deal —</option>
@@ -1219,7 +1251,7 @@ boot('scoping', async (supa, el) => {
       </div>
       ${deal ? `
       <div class="sc-panel" style="margin:14px 18px 0">
-        <div class="sc-eyebrow" style="margin-top:0">2 · Platforms, teams, files</div>
+        <h2 class="sc-eyebrow">2 · Platforms, teams, files</h2>
         <label class="mono" style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:8px"><input type="checkbox" id="bn-auto" ${B.excludeAuto ? 'checked' : ''} style="height:auto"> drop automated changes (API, scripts, rules) from change history — they are not a person's time</label>
         ${filePlatforms.map(pl => { const P = B.platforms[pl] || {}; const on = !!P.on;
           return `<div style="border-top:1px solid var(--line);padding:8px 0">
@@ -1229,7 +1261,7 @@ boot('scoping', async (supa, el) => {
                 <input type="file" data-bnfile="${pl}" multiple accept=".csv,.tsv,.txt" style="height:auto;padding:4px;max-width:100%">
                 <span class="sc-note">${esc(PLATFORMS[pl].hint)}</span>` : ''}
             </div>
-            ${on && (P.parsed || []).length ? `<div class="sc-note" style="margin-top:6px">${P.parsed.map(r => r.error
+            ${on && (P.parsed || []).length ? `<div class="sc-note gap6">${P.parsed.map(r => r.error
                 ? `<span class="pill bad">${esc(r.filename)}: ${esc(r.error)}</span>`
                 : `<span class="pill good">${esc(r.filename)} · ${esc(r.label)} · ${r.rows} rows · ${Object.keys(r.months).sort()[0] ? mLabel(Object.keys(r.months).sort()[0]) + '–' + mLabel(Object.keys(r.months).sort().pop()) : 'no months'}${r.warnings.length ? ' · ' + esc(r.warnings.join('; ')) : ''}</span>`).join(' ')}</div>` : ''}
           </div>`; }).join('')}
@@ -1239,27 +1271,27 @@ boot('scoping', async (supa, el) => {
             <label class="pf shape"><span class="pfl">team</span><select id="bn-sigteam">${depts.map(d => `<option ${((B.signalsTeam || defaults.reporting || defaults.calendar) === d) ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select></label>
             <span class="sc-note">typed per month — client meetings held, reports / dashboards delivered, creatives delivered</span>
           </div>
-          ${sigMonths.length ? `<div class="gridwrap" style="margin-top:6px"><table class="sc-grid"><thead><tr><th>per month</th>${sigMonths.map(m => `<th>${mLabel(m)}</th>`).join('')}</tr></thead><tbody>
+          ${sigMonths.length ? `<div class="gridwrap gap6"><table class="sc-grid"><thead><tr><th>per month</th>${sigMonths.map(m => `<th>${mLabel(m)}</th>`).join('')}</tr></thead><tbody>
             ${['meetings', 'reports', 'creatives_delivered'].map(k => `<tr><td class="textleft">${esc(DRIVER_LABELS[k])}</td>${sigMonths.map(m => `<td><input class="hcell" type="number" min="0" step="1" data-bnsig="${m}:${k}" value="${((B.signals[m] || {})[k]) ?? ''}"></td>`).join('')}</tr>`).join('')}
             </tbody></table></div>` : `<div class="sc-note">months appear once a file is parsed (or from the flight's closed months)</div>`}
         </div>
       </div>
       <div class="sc-panel" style="margin:14px 18px 0">
-        <div class="chart-head" style="padding:0 0 6px"><div class="sc-eyebrow" style="margin:0">3 · What will be recorded</div>
+        <div class="chart-head flush"><h2 class="sc-eyebrow tight">3 · What will be recorded</h2>
           <span style="display:flex;gap:8px;align-items:center"><button class="primary" id="bn-submit" ${B.busy || (!allParsed.some(r => !r.error) && !Object.keys(B.signals).length) ? 'disabled' : ''}>Record for ${esc(deal.name)}</button><span id="bn-msg" class="ok" style="font-size:12px"></span></span></div>
         ${allParsed.some(r => !r.error) ? Object.entries(B.platforms).filter(([, P]) => P.on && (P.parsed || []).some(r => !r.error)).map(([pl, P]) => {
           const merged = mergeMonths(P.parsed.filter(r => !r.error)); const ms = Object.keys(merged).sort();
           const cols = [...new Set(ms.flatMap(m => Object.keys(merged[m])))].sort();
-          return `<div class="sc-note" style="margin-top:6px"><b>${esc(PLATFORMS[pl].label)}</b> → ${esc(P.team || defaults[pl] || '?')}</div>
+          return `<div class="sc-note gap6"><b>${esc(PLATFORMS[pl].label)}</b> → ${esc(P.team || defaults[pl] || '?')}</div>
             <div class="gridwrap" style="margin-top:4px"><table class="sc-grid"><thead><tr><th>month</th>${cols.map(c => `<th>${esc(DRIVER_LABELS[c] || c)}</th>`).join('')}</tr></thead><tbody>
             ${ms.map(m => `<tr><td class="textleft">${mLabel(m)}${m >= thisMonth() ? ' <span class="muted">(running — not fitted yet)</span>' : ''}</td>${cols.map(c => `<td>${c === 'spend' ? fmt$(merged[m][c] || 0) : (merged[m][c] ?? '—')}</td>`).join('')}</tr>`).join('')}
             </tbody></table></div>`; }).join('') : `<div class="sc-note">upload a file to preview the per-month counts</div>`}
       </div>` : ''}
 
-      <div class="sc-panel" style="margin:14px 18px 0;padding:0">
-        <div class="chart-head"><div class="sc-eyebrow">Hours per driver, from the library</div>
+      <div class="sc-panel flush" style="margin:14px 18px 0">
+        <div class="chart-head"><h2 class="sc-eyebrow">Hours per driver, from the library</h2>
           <span class="sc-note">${(D.observations || []).length} observed campaign-months · ${(D.enrolled || []).length} enrolled deals · a model is fitted per team once it has ${D.settings.model_min_observations} observations</span></div>
-        <div class="gridwrap" style="margin-top:0"><table class="ledger">
+        <div class="gridwrap tight"><table class="ledger">
           <thead><tr><th>kind</th><th>team</th><th>rows</th><th>driver</th><th>hours / unit</th><th>r²</th><th>n</th></tr></thead>
           <tbody>${coefs.length ? coefs.flatMap(c => (c.drivers || []).length ? c.drivers.map((d, i) => `<tr>
               <td class="textleft">${i === 0 ? esc(c.kind) : ''}</td><td class="textleft">${i === 0 ? esc(c.department) : ''}</td><td>${i === 0 ? c.n : ''}</td>
@@ -1273,8 +1305,8 @@ boot('scoping', async (supa, el) => {
           <span id="bn-fitmsg" class="sc-note">${(D.models || []).length ? 'models: ' + D.models.map(m => `<b>${esc(m.department)}</b> (${(m.kinds || []).join('/')}, n ${m.n}, r² ${m.r2 != null ? (+m.r2).toFixed(2) : '—'})`).join(', ') : 'no fitted models yet — the ratio estimator is used'}</span>
         </div>
       </div>
-      ${(D.observations || []).length ? `<div class="sc-panel" style="margin:14px 18px 0;padding:0"><div class="sc-eyebrow" style="padding:12px 14px 0">Observations</div>
-        <div class="gridwrap" style="margin-top:6px"><table class="ledger">
+      ${(D.observations || []).length ? `<div class="sc-panel flush" style="margin:14px 18px 0"><h2 class="sc-eyebrow inset14">Observations</h2>
+        <div class="gridwrap gap6"><table class="ledger">
           <thead><tr><th>deal</th><th>team</th><th>month</th><th>hours</th><th>drivers</th></tr></thead>
           <tbody>${D.observations.slice(0, 200).map(o => `<tr><td class="textleft">${esc(o.deal_name)}</td><td class="textleft">${esc(o.department)}</td><td>${mLabel(o.month)}</td><td>${fmtH(o.hours)}</td>
             <td class="textleft muted" style="font-size:10px">${esc(Object.entries(o.drivers || {}).map(([k, v]) => `${DRIVER_LABELS[k] || k} ${k === 'spend' ? fmt$(v) : v}`).join(' · '))}</td></tr>`).join('')}</tbody></table></div></div>` : ''}

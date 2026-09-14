@@ -6,6 +6,7 @@
   --accent:#3bc9ac; --mint:#e2f5ef; --gold:#fabf4d; --gold-bg:#fdf3d9;   /* mint = logo color at ~14% on white; gold-bg = gold at ~12% on white, same recipe as amber-bg/rust-bg below */
   --brand-hover:#2f7e60;  /* midpoint of --brand/--brand-2, not a new accent: --brand-2 only clears 3.13:1 for white text, this clears 4.91:1 */
   --slate:#67706d; --line:#d2d2d2;
+  --wash-col:#f2f2f2; --wash-row:#fafaf8;   /* DESIGN.md column-header wash / client-row tint, as tokens */
   --rust:#d1453b; --rust-bg:#fbe7e4; --amber:#b07a14; --amber-bg:#fdf3dc;
   --font-display:'Montserrat',sans-serif; --font-body:'Montserrat',sans-serif;
   --font-mono:'IBM Plex Mono',monospace;
@@ -88,7 +89,7 @@ button:disabled { background:var(--line); color:var(--slate); cursor:default; bo
 input,select { height:34px; border:1px solid var(--line); border-radius:4px; padding:0 9px;
   font-family:var(--font-mono); font-size:12.5px; background:var(--paper-raised); color:var(--ink); }
 input:focus,select:focus { outline:none; border-color:var(--brand-2); box-shadow:0 0 0 2px var(--mint); }
-input::placeholder { color:#b5b5b5; }
+input::placeholder { color:var(--slate); opacity:1; }   /* 4.9:1 — hint text is text (was #b5b5b5 at 1.9:1) */
 input:disabled,select:disabled { background:var(--paper); color:var(--slate); cursor:not-allowed; }
 label.mono { font-family:var(--font-mono); font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:var(--slate); }
 

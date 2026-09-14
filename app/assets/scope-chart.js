@@ -78,7 +78,10 @@ export function verdictStrip(el, months, targetPerHourC) {
   const rows = (months || []).slice().sort((a, b) => a.month.localeCompare(b.month));
   el.innerHTML = rows.map(r => {
     const cls = r.pal < 0 ? 'bad' : (r.per_hour_c != null && r.per_hour_c < targetPerHourC) ? 'warn' : 'good';
-    return `<span class="pill ${cls}" title="${esc(`${fmtMonYY(r.month)}: after labor ${fmt$0(r.pal)}${r.per_hour_c != null ? `, ${fmt$0(r.per_hour_c)}/h` : ''}`)}">${esc(fmtMonYY(r.month))}</span>`;
+    // the word carries the verdict too — color alone is not a signal everyone gets
+    const why = cls === 'bad' ? 'loss' : cls === 'warn' ? 'under target' : '';
+    const say = `${fmtMonYY(r.month)}: ${cls === 'bad' ? 'loses money' : cls === 'warn' ? 'profitable but under the per-hour target' : 'clears both checks'}, after labor ${fmt$0(r.pal)}${r.per_hour_c != null ? `, ${fmt$0(r.per_hour_c)}/h` : ''}`;
+    return `<span class="pill ${cls}" title="${esc(say)}" aria-label="${esc(say)}">${esc(fmtMonYY(r.month))}${why ? ` <span class="why">· ${why}</span>` : ''}</span>`;
   }).join('');
 }
 
