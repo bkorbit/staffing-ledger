@@ -139,7 +139,7 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   finds the same shape for any other deal.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 107. Key views/functions
+## Current migration head: 108. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
@@ -209,8 +209,24 @@ is always a new migration, so grep for the highest one before reading an old bod
   its pre-090 shape; it upserts then sweeps stale rows, so there is no blank
   window mid-run. `workflow_dispatch` input `trace` follows one client end to
   end in the log.
-- `hours_page` [090], `rev_proj_page` [092], `accounts_page` [084],
-  `v_cash_accounts` [086].
+- `hours_page` [108], `rev_proj_page` [092], `accounts_page` [084],
+  `v_cash_accounts` [086]. 108 APPENDED to hours_page (090's body verbatim,
+  108_fixture_test + the bed's identity check prove the old keys unchanged):
+  `measured_before` (the server's current month), `staff_hours_deal_month`,
+  `staff_deal_planned_month`, `deal_forecast` (v_deal_month_forecast
+  billable/gp, months ≥ current), `staff_rate_month` (staff_rates_months,
+  months ≥ current).
+- **Team Hours profit runs on forecast from the current month on** (108,
+  Boris 13 Sep 2026): closed months split measured revenue (rev_proj_page)
+  over the hours logged on each deal in them; the current month and later
+  split the deal's FORECAST revenue over each person's hours BASIS per month
+  — assigned hours while logged is under the assignment, logged hours once
+  over — and cost the unworked remainder of the assignment at
+  staff_hourly_cost(person, month). Bases sum to the deal's denominator, so
+  attributed revenue adds up to the forecast exactly. ONE copy:
+  `profitModel` in `app/team-hours.html` (unit test lives in the scratchpad
+  bed, numbers = 108_fixture_test's); a pre-108 payload falls back to the old
+  whole-range rule.
 - `project_detail(deal_id)` [094] — one opened project on Project Hours: hours
   per ISO week per department (staff.department first, the entry's own QB Time
   department as fallback) and revenue/GP actual vs plan per month. The actual
