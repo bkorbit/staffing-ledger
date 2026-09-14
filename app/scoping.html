@@ -94,6 +94,7 @@ boot('scoping', async (supa, el) => {
   const me = () => (window.__email || '').toLowerCase();
 
   let S = null;   // the editable scope (scope_state shape)
+  let PRE = null; // 106: a page handed over by the action that produced it (no second trip)
   let X = null;   // the rest of scope_page
   let L = null;   // list payload
   let dirty = false;
@@ -130,23 +131,18 @@ boot('scoping', async (supa, el) => {
   const nameKey = v => String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
   async function loadList() {
     panel().innerHTML = 'loading…';
-    const [scopes, pipe, promos, deals, clients, knobs, dismissed, scoped] = await Promise.all([
-      fetchAll(() => supa.from('scopes').select('id,family_id,name,scenario,client_id,status,version,set_by,set_at,created_at,proposed_by,proposed_at').order('set_at', { ascending: false })),
-      fetchAll(() => supa.from('pipeline_deals').select('hubspot_deal_id,name,company,amount,campaign_start,campaign_end,close_date,stage,probability,pipeline,is_won,url')),
-      fetchAll(() => supa.from('promotions').select('hubspot_deal_id')),
-      fetchAll(() => supa.from('deals').select('id,name,client_id,status,flight_start,flight_end,hidden,hubspot_deal_id').in('status', ['won', 'active']).eq('hidden', false)),
-      supa.from('clients').select('id,name,active').eq('active', true).order('name'),
-      supa.from('settings').select('key,value').in('key', ['scope_target_profit_per_hour', 'scope_approver_emails', 'hubspot_promote_pipelines', 'sales_probability_threshold']),
-      supa.from('won_deal_dismissals').select('hubspot_deal_id'),
-      fetchAll(() => supa.from('scope_deals').select('hubspot_deal_id,scope_id').not('hubspot_deal_id', 'is', null))
-    ]);
-    const err = [scopes, pipe, promos, deals, clients, knobs, dismissed, scoped].find(r => r.error);
-    if (err) {
-      const missing = /scopes|scope_deals/.test(err.error.message) && /not exist|schema cache/i.test(err.error.message);
-      panel().innerHTML = `<div class="sc-panel err">${esc(err.error.message)}${missing ? '\n\nThis page needs db/096…103 applied in the Supabase SQL editor.' : ''}</div>`;
+    // 106: ONE round trip — scoping_list bundles what used to be eight requests
+    const { data, error } = await supa.rpc('scoping_list');
+    if (error) {
+      const missing = /scoping_list|scopes|scope_deals/.test(error.message) && /not exist|schema cache/i.test(error.message);
+      panel().innerHTML = `<div class="sc-panel err">${esc(error.message)}${missing ? '\n\nThis page needs db/096…106 applied in the Supabase SQL editor.' : ''}</div>`;
       return;
     }
-    const K = Object.fromEntries((knobs.data || []).map(k => [k.key, k.value]));
+    const D = data || {};
+    const scopes = { data: D.scopes }, pipe = { data: D.pipeline }, deals = { data: D.deals }, clients = { data: D.clients }, scoped = { data: D.scoped },
+          promos = { data: (D.promotions || []).map(id => ({ hubspot_deal_id: id })) },
+          dismissed = { data: (D.dismissals || []).map(id => ({ hubspot_deal_id: id })) };
+    const K = D.settings || {};
     // The Pipeline tab is Sales Forecast's population: promotable pipelines only,
     // not dismissed, not promoted — and, here, not already attached to a scope
     // (that deal shows under Scopes). Open deals with a probability, or won
@@ -162,7 +158,8 @@ boot('scoping', async (supa, el) => {
       && (!allowed.size || allowed.has(nameKey(p.pipeline))) && (p.is_won || Math.round((p.probability ?? 0) * 100) >= minProb) && touches(p));
     L = { scopes: scopes.data || [], pipeline, deals: deals.data || [], clients: clients.data || [], knobs: K,
           approvers: (K.scope_approver_emails || []).map(e => String(e).toLowerCase().trim()),
-          q: '', tab: localStorage.getItem('sc_list_tab') || 'scopes', approvals: null };
+          q: '', tab: localStorage.getItem('sc_list_tab') || 'scopes', approvals: null,
+          departments: (D.departments || []).slice().sort() };
     renderList();
   }
 
@@ -172,6 +169,18 @@ boot('scoping', async (supa, el) => {
     renderList();
   }
 
+  // 106: who may delete — draft / proposed: anyone; approved: an approver;
+  // promoted: nobody (the Forecast's deals point back at it). The server
+  // enforces the same rule in delete_scope.
+  const canDelete = (s, approvers) => s.status !== 'promoted'
+    && (s.status !== 'approved' || (approvers || (L && L.approvers) || (X && X.settings && X.settings.approvers) || []).map(e => String(e).toLowerCase().trim()).includes(me()));
+  async function deleteScopeId(id, label, after) {
+    if (!confirm(`Delete ${label}?\n\nEvery version goes with it; reserved hours leave Hour Planning. This cannot be undone.`)) return false;
+    const { data, error } = await supa.rpc('scope_act', { p_action: 'delete', p_scope_id: id, p_by: window.__email, p_args: {} });
+    if (error || !data || !data.ok) { alert(error ? error.message : (data && data.reason) || 'could not delete'); return false; }
+    if (after) await after();
+    return true;
+  }
   function renderList() {
     const clientName = Object.fromEntries(L.clients.map(c => [c.id, c.name]));
     const q = L.q.trim().toLowerCase();
@@ -198,7 +207,7 @@ boot('scoping', async (supa, el) => {
         <button class="primary" data-go="#new">+ Blank scope</button>
       </div>
       ${tab === 'scopes' ? `<div class="sc-panel" style="padding:0"><div class="gridwrap" style="margin-top:0"><table class="ledger">
-        <thead><tr><th>Scope</th><th>Client</th><th>Scenario</th><th>Status</th><th>v</th><th>Last saved</th></tr></thead>
+        <thead><tr><th>Scope</th><th>Client</th><th>Scenario</th><th>Status</th><th>v</th><th>Last saved</th><th></th></tr></thead>
         <tbody>${scopes.length ? scopes.map(s => `<tr class="namerow" data-open="s/${s.id}" tabindex="0" role="button">
             <td class="textleft"><b>${esc(s.name)}</b></td>
             <td class="textleft">${esc(clientName[s.client_id] || '—')}</td>
@@ -206,7 +215,8 @@ boot('scoping', async (supa, el) => {
             <td><span class="pill ${statusPillCls[s.status] || ''}">${esc(s.status)}</span></td>
             <td>${s.version}</td>
             <td class="muted" style="white-space:nowrap">${new Date(s.set_at).toLocaleDateString()} · ${esc((s.set_by || '').split('@')[0])}</td>
-          </tr>`).join('') : `<tr><td colspan="6" class="empty-note">No scopes yet. Start from the pipeline, a live deal, a client, or blank.</td></tr>`}</tbody></table></div></div>` : ''}
+            <td>${canDelete(s) ? `<button class="ghost" data-del="${s.id}" data-delname="${esc(s.name)} (${esc(s.scenario)})" style="padding:3px 9px;font-size:11px" title="Delete this scope and every version of it">Delete</button>` : ''}</td>
+          </tr>`).join('') : `<tr><td colspan="7" class="empty-note">No scopes yet. Start from the pipeline, a live deal, a client, or blank.</td></tr>`}</tbody></table></div></div>` : ''}
       ${tab === 'approvals' ? approvalsHtml(clientName) : ''}
       ${tab === 'pipeline' ? `<div class="sc-panel" style="padding:0"><div class="gridwrap" style="margin-top:0"><table class="ledger">
         <thead><tr><th>Company</th><th>Deal</th><th>Stage</th><th>Close</th><th>Amount</th><th>Campaign</th><th></th></tr></thead>
@@ -238,6 +248,7 @@ boot('scoping', async (supa, el) => {
       ${tab === 'quick' ? quickHtml() : ''}`;
     panel().querySelectorAll('.rp .seg').forEach(b => b.onclick = () => { L.tab = b.dataset.tab; localStorage.setItem('sc_list_tab', L.tab); renderList(); });
     panel().querySelectorAll('button[data-go]').forEach(b => b.onclick = () => { location.hash = b.dataset.go; });
+    panel().querySelectorAll('button[data-del]').forEach(b => b.onclick = () => deleteScopeId(b.dataset.del, b.dataset.delname, loadList));
     if (panel().querySelector('#sc-q')) wireSearch(panel(), '#sc-q', v => { L.q = v; renderList(); });
     panel().querySelectorAll('tr.namerow[data-open]').forEach(tr => {
       const open = () => { location.hash = '#' + tr.dataset.open; };
@@ -335,17 +346,26 @@ boot('scoping', async (supa, el) => {
   async function createFrom(kind, ref) {
     panel().innerHTML = 'creating…';
     const map = { hs: 'hubspot', deal: 'deal', client: 'client', new: 'new' };
-    const { data, error } = await supa.rpc('create_scope', { p_origin_kind: map[kind] || 'new', p_ref: ref, p_name: null, p_by: window.__email, p_scenario: null });
+    // 106: scope_act creates AND returns the page — the hashchange below opens it without a second trip
+    const { data, error } = await supa.rpc('scope_act', { p_action: 'create', p_scope_id: null, p_by: window.__email,
+      p_args: { origin_kind: map[kind] || 'new', ref, name: null, scenario: null } });
     if (error || !data || !data.ok) { panel().innerHTML = `<div class="sc-panel err">${esc(error ? error.message : (data && data.reason) || 'could not create')}</div>`; return; }
+    PRE = { id: data.scope_id, page: data.page };
     location.hash = '#s/' + data.scope_id;   // hashchange → loadScope
   }
 
   // ---- open a scope ------------------------------------------------------
   async function loadScope(id) {
+    // 106: the action that just produced this page (create, new scenario) handed it over
+    if (PRE && PRE.id === id) { const page = PRE.page; PRE = null; if (page && page.id) { await applyPage(page); return; } }
     panel().innerHTML = 'loading…';
     const { data, error } = await supa.rpc('scope_page', { p_scope_id: id });
     if (error) { panel().innerHTML = `<div class="sc-panel err">${esc(error.message)}</div>`; return; }
     if (!data || !data.id) { panel().innerHTML = `<div class="sc-panel err">Scope not found.</div>`; return; }
+    await applyPage(data);
+  }
+  // paint one scope_page payload — from scope_page itself or riding on a scope_act result
+  async function applyPage(data) {
     const { econ, labor, staffing, verdict, versions, siblings, staff, departments, clients, settings, sources, existing_deals, ...state } = data;
     S = state; X = { econ, labor, staffing, verdict, versions, siblings, staff, departments, clients, settings, sources, existing_deals, qbo: null };
     // an approved scope is about to promote: the QuickBooks projects its deals
@@ -412,6 +432,7 @@ boot('scoping', async (supa, el) => {
           ${(X.versions || []).filter(v => v.version !== S.version).map(v => `<option value="${v.id}">v${v.version} · ${esc(v.reason)}${v.label ? ' · ' + esc(v.label) : ''} · ${new Date(v.saved_at).toLocaleDateString()}</option>`).join('')}
         </select>
         <button class="ghost" id="sc-terms" title="The commercial terms this scope implies, as plain sentences (templates on Settings › Scoping)">Terms</button>
+        ${canDelete(S, X.settings.approvers) ? `<button class="ghost muted" id="sc-delete" title="Delete this scope and every version of it${S.status === 'approved' ? ' — its reserved hours leave Hour Planning' : ''}">Delete</button>` : ''}
         <span style="flex:1"></span>
         <span id="sc-msg" class="ok" style="font-size:12px"></span>
         ${ro ? '' : `<button class="primary" id="sc-save">Save</button>`}
@@ -792,6 +813,7 @@ boot('scoping', async (supa, el) => {
     const on = (id, fn) => { const n = p.querySelector('#' + id); if (n) n.onclick = fn; };
     on('sc-save', () => save()); on('sc-propose', () => setStatus('proposed')); on('sc-draft', () => setStatus('draft'));
     on('sc-terms', showTerms);
+    on('sc-delete', () => deleteScopeId(S.id, `"${S.name}" (${S.scenario})`, async () => { dirty = false; location.hash = '#list'; }));
     on('sc-approve', approve); on('sc-unapprove', unapprove); on('sc-promote', promote); on('sc-adddeal', () => { S.deals.push({ ord: S.deals.length, name: 'Deal ' + (S.deals.length + 1), origin_kind: 'new', promote_mode: 'new', flight_start: null, flight_end: null, lines: [] }); markDirty(); renderEditor(); });
     on('sc-autostaff', autoStaff); on('sc-clearauto', clearAuto);
     p.querySelectorAll('tr.namerow[data-open]').forEach(tr => { tr.onclick = () => { location.hash = '#' + tr.dataset.open; }; });
@@ -908,6 +930,14 @@ boot('scoping', async (supa, el) => {
 
   // ---- server actions --------------------------------------------------------
   const msg = (t, bad) => { const n = panel().querySelector('#sc-msg'); if (n) { n.textContent = t; n.className = bad ? 'err' : 'ok'; n.style.fontSize = '12px'; } };
+  // 106: every editor action is ONE round trip — scope_act runs it on the
+  // server and returns the fresh scope_page, which applyPage repaints from
+  async function act(action, args) {
+    const { data, error } = await supa.rpc('scope_act', { p_action: action, p_scope_id: S.id, p_by: window.__email, p_args: args || {} });
+    if (error || !data || !data.ok) { msg(error ? error.message : (data && data.reason) || 'failed', true); return null; }
+    if (data.page) await applyPage(data.page);
+    return data;
+  }
   function payload() {
     const p = JSON.parse(JSON.stringify(S));
     p.deals = p.deals.map((d, i) => ({ ...d, ord: i, lines: (d.lines || []).map((l, j) => {
@@ -923,27 +953,24 @@ boot('scoping', async (supa, el) => {
   async function estimateHours() {
     if (dirty && !(await save(''))) return;
     msg('estimating…');
-    const { data, error } = await supa.rpc('scope_estimate_hours', { p_scope_id: S.id, p_by: window.__email });
-    if (error || !data.ok) { msg(error ? error.message : data.reason, true); return; }
-    await loadScope(S.id);
+    const data = await act('estimate');
+    if (!data) return;
     const methods = [...new Set((data.detail || []).map(d => d.method))];
     msg(data.rows_written ? `estimated ${data.rows_written} department-months${methods.length ? ' (' + methods.join(', ') + ')' : ''}` : 'nothing to estimate — add drivers on a media line or a catalog product, and enrol comparable campaigns under Benchmarks', !data.rows_written);
   }
   async function save(label) {
     if (label === undefined) { label = prompt('Label this version (optional):', '') ; if (label === null) return; }
     msg('saving…');
-    const { data, error } = await supa.rpc('save_scope', { p_payload: payload(), p_by: window.__email, p_label: label || null });
-    if (error || !data.ok) { msg(error ? error.message : data.reason, true); return false; }
-    dirty = false;
-    await loadScope(S.id);
+    const data = await act('save', { payload: payload(), label: label || null });
+    if (!data) return false;
     msg(`saved v${data.version}`);
     return true;
   }
   async function setStatus(status) {
     if (dirty && !(await save(''))) return;
-    const { data, error } = await supa.rpc('set_scope_status', { p_scope_id: S.id, p_status: status, p_by: window.__email });
-    if (error || !data.ok) { msg(error ? error.message : data.reason, true); return; }
-    await loadScope(S.id); msg(status);
+    const data = await act(status === 'proposed' ? 'propose' : 'draft');
+    if (!data) return;
+    msg(status);
   }
   async function approve() {
     if (dirty && !(await save(''))) return;
@@ -953,9 +980,9 @@ boot('scoping', async (supa, el) => {
     if (c.capacity_ok === false) warn.push('someone is over capacity');
     if (V.status === 'no_go') warn.push('the verdict is NO-GO');
     if (!confirm(`Approve this scope?${warn.length ? '\n\n• ' + warn.join('\n• ') : ''}\n\nNamed hours are reserved in Hour Planning.`)) return;
-    const { data, error } = await supa.rpc('approve_scope', { p_scope_id: S.id, p_by: window.__email });
-    if (error || !data.ok) { msg(error ? error.message : data.reason, true); return; }
-    await loadScope(S.id); msg(`approved · ${data.assignments_written} person-months reserved in Hour Planning`);
+    const data = await act('approve');
+    if (!data) return;
+    msg(`approved · ${data.assignments_written} person-months reserved in Hour Planning`);
   }
   // Commercial terms (102): the server words them from the saved scope; an
   // approved scope shows the text frozen at approval. Copy goes to the clipboard.
@@ -1002,31 +1029,32 @@ boot('scoping', async (supa, el) => {
     const what = S.deals.filter(d => !d.promoted_deal_id).map(d => `• ${d.name}: ${d.promote_mode === 'hubspot' ? 'through the HubSpot approval door' : d.promote_mode === 'extend' ? 'extend the existing deal from this month' : 'new deal in the Forecast'}`).join('\n');
     if (!confirm(`Promote this scope? All or nothing.\n\n${what}\n\nThe reserved hours move onto the deal in Hour Planning.`)) return;
     msg('promoting…');
-    const { data, error } = await supa.rpc('promote_scope', { p_scope_id: S.id, p_by: window.__email, p_projects: projects });
-    if (error || !data.ok) { msg(error ? error.message : data.reason, true); return; }
-    await loadScope(S.id);
+    const data = await act('promote', { projects });
+    if (!data) return;
     const ids = data.deal_ids || [];
     msg(`promoted · ${ids.length} deal${ids.length === 1 ? '' : 's'} in the Forecast`);
   }
   async function unapprove() {
     if (!confirm('Un-approve? The reserved hours leave Hour Planning and the scope becomes editable.')) return;
-    const { data, error } = await supa.rpc('unapprove_scope', { p_scope_id: S.id, p_by: window.__email });
-    if (error || !data.ok) { msg(error ? error.message : data.reason, true); return; }
-    await loadScope(S.id); msg('un-approved');
+    const data = await act('unapprove');
+    if (!data) return;
+    msg('un-approved');
   }
   async function autoStaff() {
     if (dirty && !(await save(''))) return;
-    const { data, error } = await supa.rpc('auto_staff_scope', { p_scope_id: S.id, p_by: window.__email });
-    if (error || !data.ok) { msg(error ? error.message : data.reason, true); return; }
-    await loadScope(S.id); msg(`auto-staffed ${data.rows_written} person-months`);
+    const data = await act('auto_staff');
+    if (!data) return;
+    msg(`auto-staffed ${data.rows_written} person-months`);
   }
   async function clearAuto() { S.staff_months = S.staff_months.filter(r => r.source !== 'auto'); markDirty(); renderEditor(); }
   async function newScenario() {
     if (dirty && !(await save(''))) return;
     const name = prompt('Scenario name:', 'Scenario ' + ((X.siblings || []).length + 1));
     if (name === null) return;
-    const { data, error } = await supa.rpc('create_scope', { p_origin_kind: 'scenario', p_ref: S.id, p_name: null, p_by: window.__email, p_scenario: name || null });
+    const { data, error } = await supa.rpc('scope_act', { p_action: 'create', p_scope_id: null, p_by: window.__email,
+      p_args: { origin_kind: 'scenario', ref: S.id, name: null, scenario: name || null } });
     if (error || !data.ok) { msg(error ? error.message : data.reason, true); return; }
+    PRE = { id: data.scope_id, page: data.page };   // 106: opens without a second trip
     location.hash = '#s/' + data.scope_id;
   }
   async function showVersion(versionId) {

@@ -139,7 +139,7 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   finds the same shape for any other deal.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 105. Key views/functions
+## Current migration head: 106. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
@@ -349,6 +349,31 @@ is always a new migration, so grep for the highest one before reading an old bod
   payment terms, notes. The programmatic BACKEND MARGIN is never printed.
   `approve_scope` [102] freezes the text into `scopes.terms_text`. Helpers
   `render_template`, `fmt_money` ($50,000.00), `fmt_pct` (12.5 not 12.500).
+- **Scoping speed + delete** (106). Every scoping action is one round trip and,
+  in the PGlite bed on a 55-person roster, under 100 ms (scope_page 1228 → 58 ms).
+  `staff_rate_cache` memoises `staff_hourly_cost(person, month 1st)`:
+  `staff_rate_cache_fill(f0, f1)` is VOLATILE and lives in the volatile entry
+  points (`scope_page`, `approvals_queue`, `quick_check`, `scope_act`) because
+  PostgREST runs STABLE functions read-only; `staff_rates_months` /
+  `cached_hourly_cost` read it and fall back live, so a cold memo is only slow,
+  never wrong; triggers on comp_periods / staff (that person), burden settings
+  keys / workers_comp_rates / suta_rates (everything) empty it. `scope_page`
+  computes scope_months / scope_labor / scope_staffing ONCE and hands them to
+  `scope_verdict_calc(id, econ, labor, staffing)` (`scope_verdict(id)` wraps it);
+  the hire re-pricing takes department averages from one rates pass, not a call
+  per department-month. `client_detail` / `project_detail` are consulted only
+  when the window reaches a CLOSED month (guarded with CASE — a WHERE on a
+  "constant" was not short-circuited inside the function) — so a re-scope of a
+  live deal whose flight already started is the one path still paying for the
+  history roll-up (~0.9 s in the bed; the fix would be a day-level rate memo
+  inside 094's detail RPCs). `scope_act(action, id, by, args)` runs create /
+  save / propose / draft / approve / unapprove / auto_staff / estimate /
+  promote / delete and returns `page` = the fresh scope_page; `scoping_list()`
+  replaced the list view's eight requests. `delete_scope(id, by)`: draft /
+  proposed by anyone, approved by an approver (reserved assignments go too),
+  promoted never (deals.scope_id points back). The page passes a created
+  scope's page across the hashchange (`PRE`) so create / new scenario open
+  without a second trip. Timing bench: scratchpad `pgbed/bench.mjs`.
 - **Deal-level terms** (103, Boris after the first walk-through): the REBATE is
   a deal term (`scopes.rebate_pct/rebate_basis`, media → media lines only, fee →
   every line; a line's own `structure.rebate` still wins but the UI no longer
