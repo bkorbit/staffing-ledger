@@ -139,7 +139,7 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   finds the same shape for any other deal.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 106. Key views/functions
+## Current migration head: 107. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
@@ -374,6 +374,17 @@ is always a new migration, so grep for the highest one before reading an old bod
   promoted never (deals.scope_id points back). The page passes a created
   scope's page across the hashchange (`PRE`) so create / new scenario open
   without a second trip. Timing bench: scratchpad `pgbed/bench.mjs`.
+- **Live verdict while editing** (107, Boris: "I want it to be interactive").
+  Money follows every keystroke from the twin math (`drawVerdict` redraws the
+  Monthly verdict chart + pills from `lineMonth` per month, labor from the last
+  server payload). Labor / staffing / verdict need SQL, so `markDirty` debounces
+  650 ms and calls `preview_scope(payload, by)`: save_scope + scope_page inside
+  a sub-transaction that a sentinel exception (`PREVIEW_ROLLBACK`, page in its
+  DETAIL) rolls back — nothing written, no version; the memo is warmed before
+  the sub-block. The reply repaints the editor with `rerenderKeepingFocus`
+  (focused field + caret + scroll restored; a stale reply is dropped when the
+  user typed again). Save still writes the version. Never make the preview
+  autosave — Boris chose a version per deliberate Save.
 - **Deal-level terms** (103, Boris after the first walk-through): the REBATE is
   a deal term (`scopes.rebate_pct/rebate_basis`, media → media lines only, fee →
   every line; a line's own `structure.rebate` still wins but the UI no longer

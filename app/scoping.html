@@ -456,7 +456,7 @@ boot('scoping', async (supa, el) => {
           <div class="summary-value ${short > 0 ? 'neg' : ''}">${T.min_fee_max != null ? fmt$(T.min_fee_max) + '<span class="muted" style="font-size:12px">/mo</span>' : '—'}</div>
           <div class="summary-note">${esc(preset || '—')}${T.fee != null ? ` · planned fee ${fmt$(Math.round(T.fee / nMonths))}/mo avg` : ''}${short > 0 ? ` · <b style="color:var(--rust)">short ${fmt$(short)}</b> over the flight` : ''}</div></div>
       </div>
-      <div id="sc-dirty" class="sc-note" style="margin:-8px 18px 14px;display:none">unsaved changes — money totals are live; labor, minimum fee, capacity and the verdict refresh on Save</div>
+      <div id="sc-dirty" class="sc-note" style="margin:-8px 18px 14px;display:none">unsaved changes — everything below follows your edits (labor and the verdict a moment behind); Save keeps a version</div>
 
       <div class="sc-panel chartpanel">
         <div class="chart-head"><div class="sc-eyebrow">Monthly verdict</div><div class="stat-inline muted" style="font-size:11px;display:flex;gap:14px;flex-wrap:wrap">${scopeStat(T, target)}</div></div>
@@ -516,10 +516,8 @@ boot('scoping', async (supa, el) => {
             <td><span class="pill ${STATUS_PILL[k.status] || ''}">${esc(STATUS_LABEL[k.status] || '—')}</span></td></tr>`; }).join('')}</tbody></table></div></div>` : ''}
       <div style="height:24px"></div>`;
 
-    scopeChart(panel().querySelector('#sc-chart'), V.months || []);
-    verdictStrip(panel().querySelector('#sc-vstrip'), V.months || [], target);
     wire(ro);
-    recompute();
+    recompute();   // draws the Monthly verdict too (live money, saved labor)
   }
 
   // The client's live deals whose flights overlap the scope's months, and
@@ -766,6 +764,7 @@ boot('scoping', async (supa, el) => {
     if (!S) return;
     const c = ctx();
     let rev = 0, gp = 0, reb = 0, pass = 0;
+    const byM = {};   // live money per flight month — the Monthly verdict redraws from it
     S.deals.forEach((d, di) => {
       const months = monthsBetween(d.flight_start, d.flight_end);
       let dgp = 0;
@@ -783,7 +782,8 @@ boot('scoping', async (supa, el) => {
           const feeRaw = media ? lineFee(r.budget, l.kind === 'programmatic' ? progParams(l, c).feePct : (l.fee_pct || 0), l.structure) : r.gp;
           return Math.round(lineRebate(r.budget, feeRaw, pct, basis));
         };
-        months.forEach(m => { const r = lineMonth(l, m, c); lgp += r.gp; lrev += r.billable; lfee += r.fee; lreb += scopeReb(r, m); pass += r.pass; });
+        months.forEach(m => { const r = lineMonth(l, m, c); const rb = scopeReb(r, m); lgp += r.gp; lrev += r.billable; lfee += r.fee; lreb += rb; pass += r.pass;
+          const t = byM[m] || (byM[m] = { billable: 0, gp: 0, rebate: 0 }); t.billable += r.billable; t.gp += r.gp; t.rebate += rb; });
         dgp += lgp; gp += lgp; rev += lrev; reb += lreb;
         const n = months.length || 1;
         paint(`lgp:${di}:${li}`, `${fmt$(lgp - lreb)} GP`);
@@ -800,9 +800,68 @@ boot('scoping', async (supa, el) => {
     paint('rev', fmt$(rev)); paint('gp', fmt$(gp)); paint('rebate', reb ? `rebate −${fmt$(reb)}` : ''); paint('pass', pass ? `+ ${fmt$(pass)} media rebilled (cash, not revenue)` : '');
     const pm = progMargin();
     paint('progmargin', pm == null ? '<span class="muted">no programmatic line</span>' : `<b>${pm}%</b> <span class="muted">→ ${X.settings.prog_target_gp_pct}% GP on revenue across the deal's programmatic media</span>`);
+    drawVerdict(byM);
+  }
+  // The Monthly verdict follows every edit: money from the live twin math,
+  // labor from the last saved payload (it needs the server), so a new line
+  // shows its revenue and GP at once and its labor after Save.
+  function drawVerdict(byM) {
+    const chartEl = panel().querySelector('#sc-chart'), stripEl = panel().querySelector('#sc-vstrip');
+    if (!chartEl || !stripEl) return;
+    const laborByM = {}; (X.labor || []).forEach(l => laborByM[l.month] = l);
+    const months = [...new Set([...Object.keys(byM), ...Object.keys(laborByM)])].sort();
+    const rows = months.map(m => {
+      const t = byM[m] || { billable: 0, gp: 0, rebate: 0 }, l = laborByM[m] || {};
+      const labor = +l.cost || 0, hours = +l.hours || 0, pal = t.gp - t.rebate - labor;
+      return { month: m, billable: t.billable, gp: t.gp, rebate: t.rebate, labor, hours, pal, per_hour_c: hours > 0 ? Math.round(pal / hours) : null };
+    });
+    const dated = S.deals.some(d => d.flight_start && d.flight_end);
+    const lined = S.deals.some(d => (d.lines || []).length);
+    const empty = !dated ? 'Set the flight start and end on the deal header — the months come from the dates.'
+      : !lined ? 'Add a line under the deal (+ retainer, + search, …) to see revenue and GP per month.'
+      : 'Nothing priced yet — give the line a budget or amount.';
+    scopeChart(chartEl, rows, { empty });
+    verdictStrip(stripEl, rows, +(X.settings.per_hour || 150) * 100);
   }
   const paint = (k, html) => { const n = panel().querySelector(`[data-out="${k}"]`); if (n) n.innerHTML = html; };
-  const markDirty = () => { dirty = true; const n = panel().querySelector('#sc-dirty'); if (n) n.style.display = ''; };
+  const showDirty = () => { const n = panel().querySelector('#sc-dirty'); if (n) n.style.display = ''; };
+  const markDirty = () => { dirty = true; showDirty(); schedulePreview(); };
+
+  // ---- live verdict (107) -----------------------------------------------------
+  // Money follows every keystroke in the browser (twin math). Labor, staffing
+  // and the verdict need the server — rates never leave SQL — so after a short
+  // pause the unsaved payload goes to preview_scope, which prices it and
+  // writes nothing. The reply repaints the editor; the focused field and the
+  // scroll position are put back so typing is not interrupted.
+  let previewTimer = null, previewSeq = 0;
+  function schedulePreview() {
+    if (!S || !S.id || readOnly()) return;
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(runPreview, 650);
+  }
+  async function runPreview() {
+    const seq = ++previewSeq;
+    msg('pricing…');
+    const { data, error } = await supa.rpc('preview_scope', { p_payload: payload(), p_by: window.__email });
+    if (seq !== previewSeq) return;   // typed again since — a newer preview is on its way
+    if (error || !data || !data.ok) { msg(error ? error.message : (data && data.reason) || 'preview failed', true); return; }
+    const pg = data.page || {};
+    X = { ...X, econ: pg.econ, labor: pg.labor, staffing: pg.staffing, verdict: pg.verdict, existing_deals: pg.existing_deals, prog_margin: pg.prog_margin };
+    rerenderKeepingFocus();
+    msg('');
+  }
+  function rerenderKeepingFocus() {
+    const p = panel(), a = document.activeElement;
+    let sel = null, ss = null, se = null;
+    if (a && p.contains(a) && a.tagName !== 'BODY') {
+      sel = a.id ? '#' + a.id : a.tagName.toLowerCase() + [...a.attributes].filter(x => x.name.startsWith('data-')).map(x => `[${x.name}="${x.value.replace(/"/g, '\\"')}"]`).join('');
+      try { ss = a.selectionStart; se = a.selectionEnd; } catch {}
+    }
+    const y = window.scrollY;
+    renderEditor(); showDirty();
+    if (sel) { let n = null; try { n = p.querySelector(sel); } catch {} if (n) { n.focus({ preventScroll: true }); if (ss != null && n.setSelectionRange) try { n.setSelectionRange(ss, se); } catch {} } }
+    window.scrollTo(0, y);
+  }
 
   // ---- wiring: delegated ----------------------------------------------------
   function wire(ro) {

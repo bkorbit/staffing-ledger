@@ -24,7 +24,7 @@ export const STATUS_PILL = { go: 'good', go_with_hire: 'warn', go_with_contracto
 // months: [{ month, billable, gp, rebate, labor, pal }]
 export function scopeChart(el, months, opts = {}) {
   const rows = (months || []).slice().sort((a, b) => a.month.localeCompare(b.month));
-  if (!rows.length) { el.innerHTML = `<div class="empty-note" style="padding:28px 14px">Add a deal with flight dates and at least one line.</div>`; return; }
+  if (!rows.length) { el.innerHTML = `<div class="empty-note" style="padding:28px 14px">${esc(opts.empty || 'Add a deal with flight dates and at least one line.')}</div>`; return; }
   const W = 940, H = opts.height || 200, P = { l: 52, r: 28, t: 14, b: 24 };
   const n = rows.length;
   const BARS = [
