@@ -1,6 +1,12 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Home</title><link rel="stylesheet" href="./assets/style.css?v=8ae8f94">
+<title>EMG — Home</title><link rel="preconnect" href="https://zytmlowigbfchfqcilrr.supabase.co" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="./assets/style.css?v=0371be4">
+<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=0371be4">
+<link rel="modulepreload" href="./assets/shell.js?v=0371be4">
 <style>
 /* Sales Forecast panel — carried over from sales.html's own local overrides
    (its chart isn't drawn through the shared barChart/bandChart helpers, so
@@ -29,7 +35,7 @@ svg.chart .colgroup{outline:none}
 svg.chart .colgroup:focus-visible{outline:2px solid var(--brand-2);outline-offset:-2px}
 </style></head><body>
 <script type="module">
-import { boot, esc, fetchAll, barChart, bandChart, donutChart, makePopover } from './assets/shell.js?v=8ae8f94';
+import { boot, rpcParts, esc, fetchAll, barChart, bandChart, donutChart, makePopover } from './assets/shell.js?v=0371be4';
 
 // The Hour-tracking Dashboard, back on Home — bottom-up from actual hours
 // (time_entries) x each staff member's own resolved comp rate, joined
@@ -149,8 +155,10 @@ boot('home', async (supa, el) => {
   async function load() {
     const kpiPanel = document.getElementById('kpi-panel');
     const [hp, fp, dl, cl, te] = await Promise.all([
-      supa.rpc('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) }),
-      supa.rpc('forecast_page', { p_from: rangeFrom, p_to: rangeTo }),
+      rpcParts('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) },
+        ['staff', 'comp_current', 'staff_hours_month', 'staff_hours_deal', 'deal_labor', 'time_off']),
+      rpcParts('forecast_page', { p_from: rangeFrom, p_to: rangeTo },
+        ['plan_month', 'rev_month', 'rev_proj', 'cost_month', 'runrates']),
       fetchAll(() => supa.from('deals').select('id,name,client_id,qbo_project_id')),
       supa.from('clients').select('id,name'),
       fetchAll(() => supa.from('time_entries').select('worked_on,deal_id,hours')
@@ -369,7 +377,7 @@ boot('home', async (supa, el) => {
   mountCashflowPanel(supa, document.getElementById('panel-cashflow'), rangeFrom, rangeTo).then(h => cfHandle = h);
   mountForecastPanel(supa, document.getElementById('panel-forecast'), rangeFrom, rangeTo).then(h => fcHandle = h);
   mountSalesPanel(supa, document.getElementById('panel-sales'), rangeFrom, rangeTo).then(h => sfHandle = h);
-});
+}, { cache: true });
 
 // ============================================================================
 // Cashflow panel — a live copy of cashflow.html's own horizon selector, KPI
@@ -567,7 +575,8 @@ async function mountForecastPanel(supa, el, initFrom, initTo) {
     if (rangeTo < rangeFrom) rangeTo = rangeFrom;
     const months = monthsBetween(rangeFrom, rangeTo);
     const [pg, st] = await Promise.all([
-      supa.rpc('forecast_page', { p_from: rangeFrom, p_to: rangeTo }),
+      rpcParts('forecast_page', { p_from: rangeFrom, p_to: rangeTo },
+        ['plan_month', 'rev_month', 'rev_proj', 'cost_month', 'runrates']),
       supa.from('settings').select('key,value').in('key', ['forecast_fixed_costs'])
     ]);
     if (pg.error) { el.innerHTML = `<div class="err">${esc(pg.error.message)}</div>`; return; }

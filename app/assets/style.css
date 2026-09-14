@@ -1,4 +1,8 @@
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
+/* Fonts are <link>ed from every page's <head>, not @imported here: an @import
+   inside a stylesheet cannot start downloading until this file has itself
+   arrived and been parsed, which put Montserrat and IBM Plex Mono a whole
+   round trip behind the CSS that needs them. The pages also preconnect to
+   fonts.gstatic.com so the font files' own connection is open by then. */
 
 :root{
   --paper:#ebebeb; --paper-raised:#ffffff; --ink:#23272b;

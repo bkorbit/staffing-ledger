@@ -1,8 +1,14 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Labor</title><link rel="stylesheet" href="./assets/style.css?v=8ae8f94"></head><body>
+<title>EMG — Labor</title><link rel="preconnect" href="https://zytmlowigbfchfqcilrr.supabase.co" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="./assets/style.css?v=0371be4">
+<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=0371be4">
+<link rel="modulepreload" href="./assets/shell.js?v=0371be4"></head><body>
 <script type="module">
-import { boot, esc, fmt$, barChart, donutChart } from './assets/shell.js?v=8ae8f94';
+import { boot, esc, fmt$, barChart, donutChart } from './assets/shell.js?v=0371be4';
 
 // Financial view of labor cost, sourced entirely from Team setup (staff/
 // comp_periods/staff_bonuses/health_insurance_tiers, via
@@ -213,6 +219,6 @@ boot('labor', async (supa, el) => {
   }
 
   load();
-});
+}, { cache: true });
 </script>
 </body></html>

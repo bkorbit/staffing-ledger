@@ -1,10 +1,17 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Client Profitability</title><link rel="stylesheet" href="./assets/style.css?v=8ae8f94">
+<title>EMG — Client Profitability</title><link rel="preconnect" href="https://zytmlowigbfchfqcilrr.supabase.co" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="./assets/style.css?v=0371be4">
+<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=0371be4">
+<link rel="modulepreload" href="./assets/shell.js?v=0371be4">
+<link rel="modulepreload" href="./assets/detail-charts.js?v=0371be4">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script></head><body>
 <script type="module">
-import { boot, esc, wireSearch, fetchAll } from './assets/shell.js?v=8ae8f94';
-import { hoursByWeekChart, revGpChart, hoursStat, revStat, departmentOrder } from './assets/detail-charts.js?v=8ae8f94';
+import { boot, rpcParts, esc, wireSearch, fetchAll } from './assets/shell.js?v=0371be4';
+import { hoursByWeekChart, revGpChart, hoursStat, revStat, departmentOrder } from './assets/detail-charts.js?v=0371be4';
 
 // Client-level evaluation — is this account healthy? For per-project detail
 // (scoping, tracking how much work is going into a specific deal), see
@@ -101,8 +108,10 @@ boot('clientprofit', async (supa, el) => {
 
   async function load() {
     const [hp, fp, dl, cl] = await Promise.all([
-      supa.rpc('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) }),
-      supa.rpc('forecast_page', { p_from: rangeFrom, p_to: rangeTo }),
+      rpcParts('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) },
+        ['staff', 'deal_labor', 'deal_planned']),
+      rpcParts('forecast_page', { p_from: rangeFrom, p_to: rangeTo },
+        ['plan_deal', 'rev_proj', 'cogs_proj', 'projects']),
       fetchAll(() => supa.from('deals').select('id,name,client_id,qbo_project_id,flight_start,flight_end')),
       supa.from('clients').select('id,name,qbo_customer_id')
     ]);
@@ -620,5 +629,5 @@ boot('clientprofit', async (supa, el) => {
   document.getElementById('r-to').onchange = e => { rangeTo = monthOf(e.target.value); load(); };
 
   await load();
-});
+}, { cache: true });
 </script></body></html>

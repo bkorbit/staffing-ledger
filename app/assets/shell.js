@@ -3,11 +3,22 @@
 // session exists. The shell owns what no page should reimplement: the Supabase
 // client, the login gate, the tabs, and the formatting helpers.
 
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+// supabase-js is VENDORED (app/assets/vendor/, pinned 2.116.0, MIT — see the
+// banner in that file). It used to come from cdn.jsdelivr.net, which cost three
+// SERIAL round trips before the first query could be sent: the page waited for
+// shell.js, shell.js for supabase-js, supabase-js for its five packages, those
+// for tslib/phoenix/iceberg — ~200ms on an origin needing its own DNS and TLS.
+// Same origin, one file, and every page <link rel=modulepreload>s it next to
+// shell.js so both start downloading while the HTML is still parsing.
+import { createClient } from './vendor/supabase-js.min.mjs?v=786fa33';
 
 export const supa = createClient(
   'https://zytmlowigbfchfqcilrr.supabase.co',
-  'sb_publishable_0kcl48Yn5YsoTB0zrK-Rsg_c76JTGvR'
+  'sb_publishable_0kcl48Yn5YsoTB0zrK-Rsg_c76JTGvR',
+  // every request the client makes goes through shellFetch, which is what lets
+  // a repeat visit paint from the last visit's answers before the network
+  // replies (see "instant repeat loads" below)
+  { global: { fetch: (...a) => shellFetch(...a) } }
 );
 
 export const fmt$ = c => '$' + (c / 100).toLocaleString(undefined, { maximumFractionDigits: 0 });
@@ -55,6 +66,155 @@ export async function fetchAll(build) {
     }
     if (done) return { data: out, error: null };
   }
+}
+
+// ---------------------------------------------------------------------------
+//  Instant repeat loads.
+//
+//  Every page here is one or two big read-only payloads and then a render. The
+//  payload is the whole wait: the browser can do nothing until Supabase answers,
+//  which is a round trip plus the query, and the second visit to a page in a
+//  morning asks for exactly what the first one asked for.
+//
+//  So: remember the answers, and on the next visit hand them straight back —
+//  the page paints with real numbers before a packet leaves — while the real
+//  requests run in the background. If any answer comes back different, the page
+//  is rendered again from the fresh one. Nothing is ever shown that this browser
+//  did not receive from the database; the only thing traded away is how old it
+//  is, bounded by CACHE_TTL_MS and by every write clearing the lot.
+//
+//  It hooks the client's fetch rather than supa.rpc/supa.from, so no page has to
+//  know it exists, and so a write (anything that is not a GET or an allow-listed
+//  read RPC) can invalidate the cache wherever it happens.
+// ---------------------------------------------------------------------------
+const CACHE_PREFIX  = 'pc:';
+const CACHE_TTL_MS  = 20 * 60 * 1000;   // a sync runs every two hours; 20 min is well inside it
+const CACHE_MAX     = 1_200_000;        // chars per page; bigger than this, don't store
+
+// POST /rest/v1/rpc/<name> is how BOTH a page payload and a promotion arrive.
+// Only these names are replayable reads. Anything not on the list — every
+// write RPC, and every RPC added later — is neither served from the cache nor
+// recorded into it.
+const READ_RPCS = new Set([
+  'forecast_page', 'forecast_page_parts', 'hours_page', 'hours_page_parts',
+  'rev_proj_page', 'labor_page', 'assignments_page', 'accounts_page',
+  'cashflow_forecast', 'unmapped_hours', 'project_detail', 'client_detail',
+  'staff_rates_months', 'labor_forecast_breakdown',
+]);
+
+let cacheScope = null;      // page + user + build; a deploy starts cold by construction
+let cacheOn = false;        // this page asked to be cached
+let replay = null;          // answers from the last visit, keyed by request
+let record = null;          // answers from this visit, to store when it settles
+let pending = 0;            // background revalidations still in flight
+let sawChange = false;      // did a background answer differ from what we served
+let onRevalidated = null;   // what to do about it (re-render, or nothing)
+let onSettled = null;       // nothing differed: just store what came back
+let replayTrusted = false;  // replay holds answers fetched moments ago: serve them, don't re-check
+let recordOpen = true;      // still assembling the first paint — after that, stop remembering
+
+const cacheKey = (url, init) => {
+  const method = (init?.method || 'GET').toUpperCase();
+  const path = String(url).replace('https://zytmlowigbfchfqcilrr.supabase.co', '');
+  return `${method} ${path} ${init?.body ? String(init.body) : ''}`;
+};
+
+// Which requests may be replayed: reads only. A GET is a PostgREST select; a
+// POST is only ever replayable when it is an allow-listed read RPC.
+const isReadRequest = (url, init) => {
+  const method = (init?.method || 'GET').toUpperCase();
+  if (method === 'GET' || method === 'HEAD') return true;
+  if (method !== 'POST') return false;
+  const m = String(url).match(/\/rest\/v1\/rpc\/([^?]+)/);
+  return !!m && READ_RPCS.has(decodeURIComponent(m[1]));
+};
+
+function readCache() {
+  try {
+    const raw = localStorage.getItem(CACHE_PREFIX + cacheScope);
+    if (!raw) return null;
+    const box = JSON.parse(raw);
+    if (!box || Date.now() - box.at > CACHE_TTL_MS) return null;
+    return box.by;
+  } catch { return null; }
+}
+
+function writeCache() {
+  if (!cacheOn || !record || !Object.keys(record).length) return;
+  try {
+    const body = JSON.stringify({ at: Date.now(), by: record });
+    if (body.length > CACHE_MAX) { localStorage.removeItem(CACHE_PREFIX + cacheScope); return; }
+    localStorage.setItem(CACHE_PREFIX + cacheScope, body);
+  } catch {
+    // out of quota (or blocked): make room by dropping every OTHER page's
+    // remembered answers, then try this page once more. Still no? carry on —
+    // this is an optimisation, never a dependency.
+    try {
+      for (const k of Object.keys(localStorage))
+        if (k.startsWith(CACHE_PREFIX) && k !== CACHE_PREFIX + cacheScope) localStorage.removeItem(k);
+      localStorage.setItem(CACHE_PREFIX + cacheScope, JSON.stringify({ at: Date.now(), by: record }));
+    } catch {
+      try { localStorage.removeItem(CACHE_PREFIX + cacheScope); } catch {}
+    }
+  }
+}
+
+// any write, anywhere, from this browser: every page's remembered answers are
+// now suspect, so none of them are used again
+function clearCache() {
+  record = null; replay = null;
+  try {
+    for (const k of Object.keys(localStorage)) if (k.startsWith(CACHE_PREFIX)) localStorage.removeItem(k);
+  } catch {}
+}
+
+const revived = e => new Response(e.b, {
+  status: e.s,
+  headers: e.r ? { 'content-type': 'application/json', 'content-range': e.r }
+                : { 'content-type': 'application/json' },
+});
+
+async function shellFetch(url, init) {
+  // Only PostgREST is any of this machinery's business. /auth/v1/token is a
+  // POST that refreshes the session roughly hourly — treating it as a write
+  // would wipe every page's cache for no reason, and treating a GET
+  // /auth/v1/user as a read would cache a session.
+  if (!String(url).includes('/rest/v1/')) return fetch(url, init);
+  if (!isReadRequest(url, init)) {
+    // a write: whatever any page remembered is now possibly wrong
+    const res = await fetch(url, init);
+    if (res.ok) clearCache();
+    return res;
+  }
+  if (!cacheOn) return fetch(url, init);
+
+  const key = cacheKey(url, init);
+  const hit = replay && replay[key];
+  // the re-render after a revalidation: `replay` is what the network just said,
+  // so hand it over and ask nothing
+  if (hit && replayTrusted) { if (record) record[key] = hit; return revived(hit); }
+  const live = fetch(url, init).then(async res => {
+    const body = await res.text();
+    // 2xx only, and only while the first paint is still being assembled: a 401
+    // mid-token-refresh must never become the remembered answer, and neither
+    // must a drill-down the user opened ten minutes later (recordOpen).
+    if (res.ok && record && recordOpen) record[key] = { s: res.status, b: body, r: res.headers.get('content-range') };
+    return { res, body };
+  });
+
+  if (hit) {
+    pending++;
+    live.then(({ res, body }) => {
+      if (res.ok && body !== hit.b) sawChange = true;
+    }).catch(() => {}).finally(() => {
+      if (--pending) return;
+      if (sawChange && onRevalidated) { sawChange = false; onRevalidated(); }
+      else if (onSettled) onSettled();
+    });
+    return revived(hit);
+  }
+  const { res, body } = await live;
+  return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
 }
 
 // This page's own cache-bust stamp (the ?v=<short-sha> on its shell.js import,
@@ -203,6 +363,7 @@ function renderShell(current) {
       <main class="content" id="content"></main>
     </div>`;
   document.getElementById('signout').onclick = async () => {
+    clearCache();   // nobody else's session should find these numbers waiting
     await supa.auth.signOut(); location.reload();
   };
   document.getElementById('navtoggle').onclick = () => {
@@ -240,17 +401,93 @@ function renderLogin(onDone) {
   };
 }
 
-export async function boot(pageId, main) {
+// boot(pageId, main) — the login gate, the shell, then the page.
+//
+// opts.cache opts the page into instant repeat loads (see above). Say yes only
+// where main() is safe to run a SECOND time against the same #content: it is
+// re-run, from scratch, when a background answer turns out to differ from the
+// one the page was painted with. A page that registers a window-level listener
+// inside main() (a resize or hashchange handler) would register it twice, so
+// either make that registration happen once or leave the page out.
+export async function boot(pageId, main, opts) {
   const { data: { session } } = await supa.auth.getSession();
-  if (!session) { renderLogin(() => boot(pageId, main)); return; }
+  if (!session) { renderLogin(() => boot(pageId, main, opts)); return; }
   window.__email = session.user?.email || 'app';
+
+  cacheOn = !!(opts && opts.cache);
+  cacheScope = `${pageId}|${window.__email}|${loadedVer}`;
+  replay = cacheOn ? readCache() : null;
+  record = cacheOn ? {} : null;
+  // a fresh page: start remembering again (a previous boot in this document —
+  // the login gate re-enters boot, and so does a test — left this closed)
+  recordOpen = true; replayTrusted = false; pending = 0; sawChange = false;
+
   renderShell(pageId);
-  try {
-    await main(supa, document.getElementById('content'));
-  } catch (e) {
-    document.getElementById('content').innerHTML =
-      `<div class="sc-panel err">${esc(e.message || e)}</div>`;
+  const el = document.getElementById('content');
+
+  const run = async () => {
+    try {
+      await main(supa, el);
+    } catch (e) {
+      el.innerHTML = `<div class="sc-panel err">${esc(e.message || e)}</div>`;
+    }
+  };
+
+  // when a background answer differs from the one the page was painted with,
+  // run the page again — served from the answers we JUST fetched, so the second
+  // render costs no network at all. Never while the first render is still
+  // running: two concurrent renders into one #content is a mess, so a
+  // revalidation that lands early waits for `ready`.
+  let ready = false, queued = false;
+  const rerender = async () => {
+    onRevalidated = null;
+    const fresh = record;
+    replay = fresh; record = {}; replayTrusted = true; recordOpen = true;
+    // makePopover hangs its menu off document.body, not off #content, so
+    // clearing #content alone would leave one behind per re-render
+    document.querySelectorAll('.editpop').forEach(p => p.remove());
+    el.innerHTML = '';
+    await run();
+    replayTrusted = false; record = fresh;
+    settle();
+  };
+  onRevalidated = () => { if (ready) rerender(); else queued = true; };
+
+  // store what this visit fetched and stop remembering: anything after the
+  // first paint is a drill-down or a range the user chose, not the page's
+  // opening state. A big JSON.stringify goes to idle time, off the critical path.
+  // 1.5s, not "the moment main() returns": Home paints its KPI panel first and
+  // mounts its three chart panels without awaiting them, so their payloads
+  // arrive after main() has resolved. Closing the recorder immediately would
+  // leave the heaviest thirds of that page out of the cache for ever. The
+  // write itself is a few milliseconds, a second and a half after first paint.
+  const settle = () => {
+    onSettled = null;
+    setTimeout(() => { recordOpen = false; writeCache(); }, 1500);
+  };
+  onSettled = () => { if (ready) settle(); };
+
+  await run();
+  ready = true;
+  if (queued) { await rerender(); return; }
+  // revalidations still in flight keep the recorder open until they land: they
+  // are what the next visit should be given, not the answers they replaced
+  if (!pending) settle();
+}
+
+// rpcParts(name, args, parts) — call the _parts sibling (db/109) so the server
+// builds only the keys this page reads, and fall back to the whole payload if
+// the database has not had 109 applied yet. The fallback costs one failed round
+// trip exactly once per page load on an un-migrated database, and nothing at
+// all on a migrated one; it is here because app/ deploys on push while
+// migrations are run by hand, so the two can legitimately be minutes apart.
+export async function rpcParts(name, args, parts) {
+  if (parts && parts.length) {
+    const r = await supa.rpc(`${name}_parts`, { ...args, p_parts: parts });
+    if (!r.error) return r;
+    if (!/does not exist|schema cache|not find/i.test(r.error.message || '')) return r;
   }
+  return supa.rpc(name, args);
 }
 
 // A single click-to-open popover (a lone .editpop instance per trigger,

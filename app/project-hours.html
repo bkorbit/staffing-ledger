@@ -1,6 +1,13 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Project Hours</title><link rel="stylesheet" href="./assets/style.css?v=8ae8f94">
+<title>EMG — Project Hours</title><link rel="preconnect" href="https://zytmlowigbfchfqcilrr.supabase.co" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="./assets/style.css?v=0371be4">
+<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=0371be4">
+<link rel="modulepreload" href="./assets/shell.js?v=0371be4">
+<link rel="modulepreload" href="./assets/detail-charts.js?v=0371be4">
 <style>
 /* Same whole-row-clickable focus ring forecast.html and team-hours.html give
    their role="button" rows. */
@@ -32,8 +39,8 @@ table.ledger.ph .tname .pill { flex:none; }
 </style>
 </head><body>
 <script type="module">
-import { boot, esc, wireSearch, fetchAll } from './assets/shell.js?v=8ae8f94';
-import { hoursByWeekChart, revGpChart, hoursStat, revStat, departmentOrder } from './assets/detail-charts.js?v=8ae8f94';
+import { boot, rpcParts, esc, wireSearch, fetchAll } from './assets/shell.js?v=0371be4';
+import { hoursByWeekChart, revGpChart, hoursStat, revStat, departmentOrder } from './assets/detail-charts.js?v=0371be4';
 
 // Per-project scoping and tracking — how much work is actually going into a
 // specific deal, and who is doing it. For client-level health, see Client
@@ -169,8 +176,10 @@ boot('projhours', async (supa, el) => {
     const panel = el.querySelector('#panel');
     if (panel) panel.classList.add('is-loading');
     const calls = [
-      supa.rpc('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) }),
-      supa.rpc('forecast_page', { p_from: rangeFrom, p_to: rangeTo }),
+      rpcParts('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) },
+        ['staff', 'staff_hours_deal', 'staff_deal_planned', 'deal_labor', 'deal_planned']),
+      rpcParts('forecast_page', { p_from: rangeFrom, p_to: rangeTo },
+        ['plan_deal', 'rev_proj', 'cogs_proj', 'projects']),
       // 090: hours the sync could not place, for the resolve panel. Its
       // failure is not the page's failure — missing function = panel off.
       supa.rpc('unmapped_hours', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) }),
@@ -611,13 +620,18 @@ boot('projhours', async (supa, el) => {
   }
 
   // a resize changes the chart width, so the height that fills the people
-  // panel changes too — re-render (cheap) once the resize settles
+  // panel changes too — re-render (cheap) once the resize settles.
+  // Registered ONCE: shell.js can run this page again when a background
+  // revalidation finds newer numbers, and a second listener here would mean a
+  // second render per resize (and a third, and a fourth).
   let resizeTimer;
+  if (!window.__phResizeWired) { window.__phResizeWired = true;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => { if (openDeals.size && allRows.length) render(); }, 150);
   });
+  }
 
   await load();
-});
+}, { cache: true });
 </script></body></html>

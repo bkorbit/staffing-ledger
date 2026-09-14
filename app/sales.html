@@ -1,6 +1,12 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Sales Forecast</title><link rel="stylesheet" href="./assets/style.css?v=8ae8f94">
+<title>EMG — Sales Forecast</title><link rel="preconnect" href="https://zytmlowigbfchfqcilrr.supabase.co" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="./assets/style.css?v=0371be4">
+<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=0371be4">
+<link rel="modulepreload" href="./assets/shell.js?v=0371be4">
 <style>
 /* Layout and chart styling carried over from sales-forecast-draft.html — the design
    the page is modelled on — trimmed to what the shell doesn't already provide. */
@@ -74,7 +80,7 @@ td.tot{font-weight:700;color:var(--brand)}
 .empty{padding:30px;text-align:center;color:var(--slate);font-family:var(--font-mono);font-size:11px}
 </style></head><body>
 <script type="module">
-import { boot, esc, fetchAll } from './assets/shell.js?v=8ae8f94';
+import { boot, esc, fetchAll } from './assets/shell.js?v=0371be4';
 /*
   The Sales Forecast, modelled on sales-forecast-draft.html and wired to the mirror.
   Gross profit is derived from HubSpot line items through the same type map the
@@ -761,5 +767,5 @@ boot('sales', async (supa, el) => {
   });
   renderSetup();
   render();
-});
+}, { cache: true });
 </script></body></html>

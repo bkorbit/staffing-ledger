@@ -1,6 +1,12 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Team Hours</title><link rel="stylesheet" href="./assets/style.css?v=8ae8f94">
+<title>EMG — Team Hours</title><link rel="preconnect" href="https://zytmlowigbfchfqcilrr.supabase.co" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="./assets/style.css?v=0371be4">
+<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=0371be4">
+<link rel="modulepreload" href="./assets/shell.js?v=0371be4">
 <style>
 /* Same whole-row-clickable focus ring forecast.html (.clientrow/.deallist/
    .projrow) and sales.html (.crow/.drow.hasitems) already give this exact
@@ -15,7 +21,7 @@ tr.namerow:focus-visible { outline:none; box-shadow:inset 0 0 0 2px var(--brand-
 </style>
 </head><body>
 <script type="module">
-import { boot, esc, wireSearch, fetchAll } from './assets/shell.js?v=8ae8f94';
+import { boot, rpcParts, esc, wireSearch, fetchAll } from './assets/shell.js?v=0371be4';
 
 // Read-only by design: this page is for GETTING information, not providing
 // it. Salary, capacity, department, and start/end dates are all managed on
@@ -301,7 +307,14 @@ boot('teamhours', async (supa, el) => {
     if (panel) panel.classList.add('is-loading');
     const calls = [];
     if (!cached) calls.push(
-      supa.rpc('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) }),
+      rpcParts('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) },
+        // 109: this page reads thirteen of hours_page's fourteen keys, so the
+        // saving here is small — but naming them is what keeps the OTHER four
+        // pages off the five heavy ones this profit model needs.
+        ['staff', 'comp_current', 'staff_hours_month', 'staff_hours_deal',
+         'staff_planned', 'staff_deal_planned', 'deal_labor', 'time_off',
+         'measured_before', 'staff_hours_deal_month', 'staff_deal_planned_month',
+         'deal_forecast', 'staff_rate_month']),
       // Team Hours only needs revenue-per-project (for the profit column),
       // not the whole Forecast page — forecast_page() also computes
       // plan_month/plan_deal/cost_month/cogs_proj/accounts/keep_projects and
@@ -649,5 +662,5 @@ boot('teamhours', async (supa, el) => {
   }
 
   await load();
-});
+}, { cache: true });
 </script></body></html>
