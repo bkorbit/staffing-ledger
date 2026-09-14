@@ -466,6 +466,7 @@ boot('scoping', async (supa, el) => {
 
       ${X.qbo ? `<datalist id="sc-qbo-list">${X.qbo.map(p => `<option value="${esc(p.name)}"></option>`).join('')}</datalist>` : ''}
       <div id="sc-deals">${S.deals.map((d, di) => dealHtml(d, di, ro)).join('')}</div>
+      ${ro ? '' : `<div class="sc-note" style="margin:-8px 18px 14px"><a href="#" id="sc-adddeal" title="Scope a second future deal alongside this one (rare)">+ another deal in this scope</a></div>`}
 
       ${existingDealsHtml(T, clientName, ro)}
 
@@ -514,29 +515,29 @@ boot('scoping', async (supa, el) => {
     const scGp = (T.gp || 0) - (T.rebate || 0), scLab = T.labor || 0, scH = +T.hours || 0;
     const ph = (pal, h) => h > 0 ? fmt$(Math.round(pal / h)) + '/h' : '—';
     const client = clientName[S.client_id];
+    // nothing overlapping (or no client yet) → no panel at all (Boris); the
+    // rare "second deal in this scope" entry lives under the deals instead
+    if (!S.client_id || !rows.length) return '';
     return `<div class="sc-panel" style="padding:0">
-      <div class="chart-head"><div class="sc-eyebrow">${client ? `Already running for ${esc(client)} in these months` : 'Already running in these months'}</div>
-        ${ro ? '' : `<button class="ghost" id="sc-adddeal" style="height:26px;padding:0 9px;font-size:10.5px" title="Scope a second future deal alongside this one (rare)">+ another deal in this scope</button>`}</div>
-      ${!S.client_id ? `<div class="empty-note" style="padding:14px 18px">Pick a client in Deal terms to see what already runs alongside this scope.</div>`
-      : `<div class="gridwrap" style="margin-top:0"><table class="ledger">
+      <div class="chart-head"><div class="sc-eyebrow">${client ? `Already running for ${esc(client)} in these months` : 'Already running in these months'}</div></div>
+      <div class="gridwrap" style="margin-top:0"><table class="ledger">
         <thead><tr><th>Deal</th><th>Flight</th><th>GP</th><th>Labor</th><th>Hours</th><th>After labor</th><th>$ / h</th></tr></thead>
         <tbody>
-          ${rows.length ? rows.map(r => `<tr>
+          ${rows.map(r => `<tr>
             <td class="textleft"><a href="./forecast.html?open=${r.id}">${esc(r.name)}</a></td>
             <td class="muted" style="white-space:nowrap">${esc(r.flight_start || '')} → ${esc(r.flight_end || '')}</td>
             <td>${fmt$(r.gp_measured + r.gp_plan)}<div class="sc-hint">${fmt$(r.gp_measured)} measured · ${fmt$(r.gp_plan)} planned</div></td>
             <td>${fmt$(r.labor_measured + r.labor_plan)}<div class="sc-hint">${fmt$(r.labor_measured)} logged · ${fmt$(r.labor_plan)} planned</div></td>
             <td>${fmtH(+r.hours_measured + +r.hours_plan)}</td>
             <td class="${r.pal < 0 ? 'neg' : ''}"><b>${fmt$(r.pal)}</b></td>
-            <td>${ph(r.pal, +r.hours_measured + +r.hours_plan)}</td></tr>`).join('')
-          : `<tr><td colspan="7" class="empty-note">No other live deal of this client overlaps the scope's months.</td></tr>`}
+            <td>${ph(r.pal, +r.hours_measured + +r.hours_plan)}</td></tr>`).join('')}
           <tr class="subrow"><td class="textleft"><b>this scope</b></td><td class="muted">${esc((S.deals[0] || {}).flight_start || '')} → ${esc((S.deals[0] || {}).flight_end || '')}</td>
             <td>${fmt$(scGp)}</td><td>${fmt$(scLab)}</td><td>${fmtH(scH)}</td><td class="${(T.pal || 0) < 0 ? 'neg' : ''}"><b>${fmt$(T.pal || 0)}</b></td><td>${ph(T.pal || 0, scH)}</td></tr>
           <tr class="gp"><td class="textleft"><b>client with this scope</b></td><td></td>
             <td><b>${fmt$(exGp + scGp)}</b></td><td><b>${fmt$(exLab + scLab)}</b></td><td><b>${fmtH(exH + scH)}</b></td>
-            <td class="${(exGp + scGp - exLab - scLab) < 0 ? 'neg' : ''}"><b>${fmt$(exGp + scGp - exLab - scLab)}</b>${rows.length ? `<div class="sc-hint">was ${fmt$(exGp - exLab)} without it</div>` : ''}</td>
-            <td><b>${ph(exGp + scGp - exLab - scLab, exH + scH)}</b>${rows.length && exH > 0 ? `<div class="sc-hint">was ${ph(exGp - exLab, exH)}</div>` : ''}</td></tr>
-        </tbody></table></div>`}
+            <td class="${(exGp + scGp - exLab - scLab) < 0 ? 'neg' : ''}"><b>${fmt$(exGp + scGp - exLab - scLab)}</b><div class="sc-hint">was ${fmt$(exGp - exLab)} without it</div></td>
+            <td><b>${ph(exGp + scGp - exLab - scLab, exH + scH)}</b>${exH > 0 ? `<div class="sc-hint">was ${ph(exGp - exLab, exH)}</div>` : ''}</td></tr>
+        </tbody></table></div>
     </div>`;
   }
 
@@ -891,7 +892,7 @@ boot('scoping', async (supa, el) => {
     on('sc-save', () => save()); on('sc-propose', () => setStatus('proposed')); on('sc-draft', () => setStatus('draft'));
     on('sc-terms', showTerms);
     on('sc-delete', () => deleteScopeId(S.id, `"${S.name}" (${S.scenario})`, async () => { dirty = false; location.hash = '#list'; }));
-    on('sc-approve', approve); on('sc-unapprove', unapprove); on('sc-promote', promote); on('sc-adddeal', () => { S.deals.push({ ord: S.deals.length, name: 'Deal ' + (S.deals.length + 1), origin_kind: 'new', promote_mode: 'new', flight_start: null, flight_end: null, lines: [] }); markDirty(); renderEditor(); });
+    on('sc-approve', approve); on('sc-unapprove', unapprove); on('sc-promote', promote); on('sc-adddeal', e => { e.preventDefault(); S.deals.push({ ord: S.deals.length, name: 'Deal ' + (S.deals.length + 1), origin_kind: 'new', promote_mode: 'new', flight_start: null, flight_end: null, lines: [] }); markDirty(); renderEditor(); });
     on('sc-autostaff', autoStaff); on('sc-clearauto', clearAuto);
     p.querySelectorAll('tr.namerow[data-open]').forEach(tr => { tr.onclick = () => { location.hash = '#' + tr.dataset.open; }; });
     const tl = p.querySelector('a[data-tab-link]'); if (tl) tl.onclick = () => { localStorage.setItem('sc_list_tab', tl.dataset.tabLink); };
