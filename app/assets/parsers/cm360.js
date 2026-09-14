@@ -8,8 +8,8 @@
 //   spend             Σ media cost in CENTS (0 when the report has no cost)
 // Matcher: a Date column and a Placement column — no other export has one.
 // Aliases take the first real Adswerve file we see; send one to pin them.
-import { findHeader, col, parseNum, toMonth } from './csv.js?v=e7ad876';
-import { finish } from './google-ads.js?v=e7ad876';
+import { findHeader, col, parseNum, toMonth } from './csv.js?v=259a4aa';
+import { finish } from './google-ads.js?v=259a4aa';
 
 const bump = (m, key, v = 1) => { m[key] = (m[key] || 0) + v; };
 const ensure = (out, month) => (out[month] = out[month] || { _sets: {} });

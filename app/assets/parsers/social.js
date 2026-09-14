@@ -14,8 +14,8 @@
 // and Google's (no Campaign name column) so a file lands on one parser only.
 // The column names are the exports' documented headers; the alias lists take
 // the first real files we see — send one per platform to pin them.
-import { findHeader, col, parseNum, toMonth } from './csv.js?v=e7ad876';
-import { finish } from './google-ads.js?v=e7ad876';
+import { findHeader, col, parseNum, toMonth } from './csv.js?v=259a4aa';
+import { finish } from './google-ads.js?v=259a4aa';
 
 const bump = (m, key, v = 1) => { m[key] = (m[key] || 0) + v; };
 const ensure = (out, month) => (out[month] = out[month] || { _sets: {} });
