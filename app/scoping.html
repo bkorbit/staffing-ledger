@@ -932,7 +932,7 @@ boot('scoping', async (supa, el) => {
   const msg = (t, bad) => { const n = panel().querySelector('#sc-msg'); if (n) { n.textContent = t; n.className = bad ? 'err' : 'ok'; n.style.fontSize = '12px'; } };
   // 106: every editor action is ONE round trip — scope_act runs it on the
   // server and returns the fresh scope_page, which applyPage repaints from
-  async function act(action, args) {
+  async function serverAct(action, args) {
     const { data, error } = await supa.rpc('scope_act', { p_action: action, p_scope_id: S.id, p_by: window.__email, p_args: args || {} });
     if (error || !data || !data.ok) { msg(error ? error.message : (data && data.reason) || 'failed', true); return null; }
     if (data.page) await applyPage(data.page);
@@ -953,7 +953,7 @@ boot('scoping', async (supa, el) => {
   async function estimateHours() {
     if (dirty && !(await save(''))) return;
     msg('estimating…');
-    const data = await act('estimate');
+    const data = await serverAct('estimate');
     if (!data) return;
     const methods = [...new Set((data.detail || []).map(d => d.method))];
     msg(data.rows_written ? `estimated ${data.rows_written} department-months${methods.length ? ' (' + methods.join(', ') + ')' : ''}` : 'nothing to estimate — add drivers on a media line or a catalog product, and enrol comparable campaigns under Benchmarks', !data.rows_written);
@@ -961,14 +961,14 @@ boot('scoping', async (supa, el) => {
   async function save(label) {
     if (label === undefined) { label = prompt('Label this version (optional):', '') ; if (label === null) return; }
     msg('saving…');
-    const data = await act('save', { payload: payload(), label: label || null });
+    const data = await serverAct('save', { payload: payload(), label: label || null });
     if (!data) return false;
     msg(`saved v${data.version}`);
     return true;
   }
   async function setStatus(status) {
     if (dirty && !(await save(''))) return;
-    const data = await act(status === 'proposed' ? 'propose' : 'draft');
+    const data = await serverAct(status === 'proposed' ? 'propose' : 'draft');
     if (!data) return;
     msg(status);
   }
@@ -980,7 +980,7 @@ boot('scoping', async (supa, el) => {
     if (c.capacity_ok === false) warn.push('someone is over capacity');
     if (V.status === 'no_go') warn.push('the verdict is NO-GO');
     if (!confirm(`Approve this scope?${warn.length ? '\n\n• ' + warn.join('\n• ') : ''}\n\nNamed hours are reserved in Hour Planning.`)) return;
-    const data = await act('approve');
+    const data = await serverAct('approve');
     if (!data) return;
     msg(`approved · ${data.assignments_written} person-months reserved in Hour Planning`);
   }
@@ -1029,20 +1029,20 @@ boot('scoping', async (supa, el) => {
     const what = S.deals.filter(d => !d.promoted_deal_id).map(d => `• ${d.name}: ${d.promote_mode === 'hubspot' ? 'through the HubSpot approval door' : d.promote_mode === 'extend' ? 'extend the existing deal from this month' : 'new deal in the Forecast'}`).join('\n');
     if (!confirm(`Promote this scope? All or nothing.\n\n${what}\n\nThe reserved hours move onto the deal in Hour Planning.`)) return;
     msg('promoting…');
-    const data = await act('promote', { projects });
+    const data = await serverAct('promote', { projects });
     if (!data) return;
     const ids = data.deal_ids || [];
     msg(`promoted · ${ids.length} deal${ids.length === 1 ? '' : 's'} in the Forecast`);
   }
   async function unapprove() {
     if (!confirm('Un-approve? The reserved hours leave Hour Planning and the scope becomes editable.')) return;
-    const data = await act('unapprove');
+    const data = await serverAct('unapprove');
     if (!data) return;
     msg('un-approved');
   }
   async function autoStaff() {
     if (dirty && !(await save(''))) return;
-    const data = await act('auto_staff');
+    const data = await serverAct('auto_staff');
     if (!data) return;
     msg(`auto-staffed ${data.rows_written} person-months`);
   }

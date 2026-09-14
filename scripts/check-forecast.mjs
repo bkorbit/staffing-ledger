@@ -68,5 +68,23 @@ for (const f of readdirSync(appDir).filter(f => f.endsWith('.html') && f !== 'fo
   writeFileSync('/tmp/_page_check.mjs', stubbed);
   try { execSync('node --check /tmp/_page_check.mjs', { stdio: 'pipe' }); }
   catch (e) { console.log(`SYNTAX ERROR in app/${f}:\n` + e.stderr.toString()); process.exit(1); }
+  // 5. no two function declarations share a name in one scope. It parses —
+  //    the later one silently wins — and 106 shipped exactly that: a server
+  //    helper named act() replaced the button handler act(), and every
+  //    "+ retainer" / remove / band button on Scoping died. Scope = the chain
+  //    of enclosing function-ish declarations by indentation (a declaration
+  //    at a shallower indent closes everything deeper), so two helpers with
+  //    one name inside two different outer functions are fine.
+  const seen = new Set(); const stack = [];
+  for (const line of m[1].split('\n')) {
+    const d = line.match(/^(\s*)(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(/)
+           || line.match(/^(\s*)(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|\w+\s*=>)/);
+    if (!d) continue;
+    const indent = d[1].length, name = d[2], isFn = /function\s+\w+\s*\(/.test(line);
+    while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
+    const key = stack.map(x => x.name).join('/') + '/' + indent + ':' + name;
+    if (isFn && seen.has(key)) { console.log(`DUPLICATE FUNCTION in app/${f}: ${name}() is declared twice in the same scope — the later one silently replaces the first`); process.exit(1); }
+    seen.add(key); stack.push({ indent, name });
+  }
 }
-console.log('page checks clean: every app/*.html module script parses');
+console.log('page checks clean: every app/*.html module script parses, no duplicate function names');
