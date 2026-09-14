@@ -235,3 +235,27 @@ export function fitModel(rows, keys) {
   keys.forEach(k => { coefficients[k] = round(coef[k]); });
   return { coefficients, n, r2: Math.round(r2 * 1e4) / 1e4 };
 }
+
+// ---- the deal's programmatic backend margin (104) -----------------------------
+// One margin across the scope's programmatic fee+margin lines (CPM lines carry
+// their own) that lands the target GP on revenue, budget-weighted over the
+// flight: m = (t · Σ b(1 + f/100) − Σ b·f) / Σ b, 3 dp, floored at 0. Twin of
+// scope_prog_margin. lines: [{kind, fee_pct, budget, structure, months}], each
+// with its deal's month list.
+export function progDealMargin(dealLines, targetPct) {
+  let sumB = 0, sumBf = 0, sumRev = 0;
+  for (const { line: l, months } of dealLines) {
+    if (l.kind !== 'programmatic') continue;
+    if (l.structure && l.structure.prog && l.structure.prog.model === 'cpm') continue;
+    if (l.margin_pct !== null && l.margin_pct !== undefined && l.margin_pct !== '') continue;   // its own margin prices it
+    const f = +l.fee_pct || 0;
+    for (const m of months) {
+      const cell = (l.months && l.months[m]) || {};
+      const b = Math.round(cell.budget === null || cell.budget === undefined || cell.budget === '' ? (+l.budget || 0) : +cell.budget);
+      sumB += b; sumBf += b * f; sumRev += b * (1 + f / 100);
+    }
+  }
+  if (!sumB) return null;
+  const m = ((+targetPct || 0) * sumRev - sumBf) / sumB;
+  return Math.round(Math.max(m, 0) * 1000) / 1000;
+}

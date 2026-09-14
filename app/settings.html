@@ -786,11 +786,25 @@ boot('settings', async (supa, el) => {
       <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">
         ${PLAT.map(([k,label]) => `<label class="mono" style="display:flex;flex-direction:column;gap:4px">${esc(label)}
           <select class="k-sc-ptd" data-pl="${k}"><option value="">—</option>${scDepts.map(d=>`<option ${ptd[k]===d?'selected':''}>${esc(d)}</option>`).join('')}</select></label>`).join('')}
+      </div>
+      <div class="sc-eyebrow">Teams a line brings to the hours grid</div>
+      <div class="muted" style="font-size:11px;margin-bottom:6px;max-width:640px">When a scope gets a line of a kind, these departments appear in its hours grid automatically (104). One kind per line: <span class="mono">search: Paid Media, AdOps</span>. Kinds: retainer, creative, search, social, programmatic, hourly.</div>
+      <textarea id="k-sc-kinddepts" class="mono" rows="6" style="width:min(420px,100%);font-size:12px">${esc(Object.entries(knobVal('scope_kind_departments', {})).map(([k,v])=>`${k}: ${(v||[]).join(', ')}`).join('\n'))}</textarea>
+      <div class="sc-eyebrow">Teams on every scope</div>
+      <div class="muted" style="font-size:11px;margin-bottom:6px;max-width:640px">Account management, planning — whatever the lines. Comma-separated.</div>
+      <input id="k-sc-always" class="mono" style="width:min(420px,100%);font-size:12px" value="${esc((knobVal('scope_always_departments', [])||[]).join(', '))}">
+      <div style="display:flex;gap:12px;align-items:center;margin-top:12px">
         <button class="primary" id="sc-teams-save">Save</button><span id="sc-teams-msg" class="ok" style="font-size:12px"></span>
       </div>`;
     document.getElementById('sc-teams-save').onclick = async () => {
       const v = {}; document.querySelectorAll('.k-sc-ptd').forEach(s => { if (s.value) v[s.dataset.pl] = s.value; });
-      const { error } = await supa.from('settings').upsert([{ key:'scope_platform_team_defaults', value:v, set_by:window.__email, set_at:new Date().toISOString() }], { onConflict:'key' });
+      const kd = {}; document.getElementById('k-sc-kinddepts').value.split(/\n/).forEach(l => { const m = l.match(/^\s*([a-z]+)\s*:\s*(.*)$/i); if (m) kd[m[1].toLowerCase()] = m[2].split(',').map(x=>x.trim()).filter(Boolean); });
+      const always = document.getElementById('k-sc-always').value.split(',').map(x=>x.trim()).filter(Boolean);
+      const stamp = { set_by:window.__email, set_at:new Date().toISOString() };
+      const { error } = await supa.from('settings').upsert([
+        { key:'scope_platform_team_defaults', value:v, ...stamp },
+        { key:'scope_kind_departments', value:kd, ...stamp },
+        { key:'scope_always_departments', value:always, ...stamp }], { onConflict:'key' });
       document.getElementById('sc-teams-msg').textContent = error ? error.message : 'saved'; if (!error) load();
     };
 

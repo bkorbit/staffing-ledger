@@ -2,7 +2,7 @@
 // db/097's scope_months, run on the SAME numbers as db/097_fixture_test.sql
 // (rows 1 and 2). If a case here and the SQL fixture disagree, one of the
 // twins drifted. Run: node scripts/test/scope-math.test.mjs
-import { lineFee, lineRebate, progSuggestMargin, lineMonth, scopeMonths, spreadTotal, monthsBetween } from '../../app/assets/scope-math.js';
+import { lineFee, lineRebate, progSuggestMargin, progDealMargin, lineMonth, scopeMonths, spreadTotal, monthsBetween } from '../../app/assets/scope-math.js';
 
 let pass = 0, fail = 0;
 const eq = (a, b, n) => { const A = JSON.stringify(a), B = JSON.stringify(b);
@@ -68,6 +68,14 @@ eq([tot[1].gp, tot[1].rebate], [7050000, 215000], 'n1 totals');
 console.log('spreadTotal');
 eq(spreadTotal(100, ['2026-09-01', '2026-10-01', '2026-11-01'], { decimals: 2 }), { '2026-09-01': 33.33, '2026-10-01': 33.33, '2026-11-01': 33.34 }, 'even, remainder last');
 eq(Object.values(spreadTotal(1000000, monthsBetween('2026-09-15', '2026-10-31'), { weighted: true, flight: { start: '2026-09-15', end: '2026-10-31' } })).reduce((a, b) => a + b, 0), 1000000, 'day-weighted preserves the total');
+
+console.log('progDealMargin — 104 fixture row 1');
+const dm = [{ line: { kind: 'programmatic', fee_pct: 5, budget: 10000000, structure: {}, months: {} }, months: ['2026-09-01'] },
+            { line: { kind: 'programmatic', fee_pct: 10, budget: 5000000, structure: {}, months: {} }, months: ['2026-09-01'] },
+            { line: { kind: 'programmatic', fee_pct: 0, budget: 1000000, structure: { prog: { model: 'cpm', platform_share_pct: 50 } }, months: {} }, months: ['2026-09-01'] }];
+eq(progDealMargin(dm, 40), 36, 'budget-weighted over two lines, CPM excluded');
+eq(progDealMargin([dm[0]], 40), progSuggestMargin(5, 40), 'one line equals the lone-line formula');
+eq(progDealMargin([dm[2]], 40), null, 'CPM only → null');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

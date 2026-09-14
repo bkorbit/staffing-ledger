@@ -12,9 +12,11 @@
 .sc-bar .pill { align-self:center; }
 .sc-bar input.dname { flex:1 1 220px; min-width:160px; font-family:var(--font-body); font-size:14px; font-weight:600; }
 .sc-deal { border:1px solid var(--line); border-radius:6px; background:var(--paper-raised); padding:12px 18px 14px; margin-bottom:14px; }
-.sc-dealhead { display:flex; align-items:center; gap:10px; flex-wrap:wrap; min-height:30px; }
-.sc-dealhead input.dname { flex:1 1 220px; min-width:160px; height:30px; font-family:var(--font-body); font-size:14px; font-weight:600; }
-.sc-dealhead .pf.shape select, .sc-dealhead input[type=date], .sc-dealhead input[list] { height:30px; }
+.sc-dealtop { display:flex; align-items:center; gap:10px; flex-wrap:wrap; min-height:26px; margin-bottom:10px; }
+.sc-dealform { grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); }
+.sc-dealform label.name { grid-column:span 2; }
+.sc-form input.dname { font-family:var(--font-body); font-size:14px; font-weight:600; }
+@media (max-width:640px) { .sc-dealform label.name { grid-column:1 / -1; } }
 .sc-deal .linecards { margin-top:12px; }
 .sc-addline { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
 .sc-addline button { padding:4px 10px; font-size:11px; }
@@ -57,7 +59,7 @@ tr.namerow[data-open] { cursor:pointer; }
 </style></style></head><body>
 <script type="module">
 import { boot, esc, fmt$, wireSearch, fetchAll } from './assets/shell.js?v=90e3369';
-import { lineFee, lineRebate, progSuggestMargin, progParams, lineMonth, scopeMonths, monthsBetween, shiftM, spreadTotal, fitModel } from './assets/scope-math.js?v=90e3369';
+import { lineFee, lineRebate, progSuggestMargin, progDealMargin, progParams, lineMonth, scopeMonths, monthsBetween, shiftM, spreadTotal, fitModel } from './assets/scope-math.js?v=90e3369';
 import { loadStatus, statusPill, fmtH, mLabel, thisMonth } from './assets/capacity.js?v=90e3369';
 import { scopeChart, verdictStrip, scopeStat, STATUS_LABEL, STATUS_PILL } from './assets/scope-chart.js?v=90e3369';
 import { parseFile, mergeMonths, PLATFORMS, DRIVER_LABELS } from './assets/parsers/index.js?v=90e3369';
@@ -154,8 +156,10 @@ boot('scoping', async (supa, el) => {
     const scopedBy = {}; (scoped.data || []).forEach(r => scopedBy[r.hubspot_deal_id] = r.scope_id);
     const allowed = new Set((K.hubspot_promote_pipelines || []).map(nameKey));
     const touches = d => !d.campaign_end || d.campaign_end >= '2026-01-01';
+    // the same probability floor Sales Forecast forecasts with (sales_probability_threshold, %)
+    const minProb = +(K.sales_probability_threshold ?? 10);
     const pipeline = (pipe.data || []).filter(p => !promoted.has(p.hubspot_deal_id) && !dismissedIds.has(p.hubspot_deal_id) && !scopedBy[p.hubspot_deal_id]
-      && (!allowed.size || allowed.has(nameKey(p.pipeline))) && (p.is_won || (p.probability ?? 0) > 0) && touches(p));
+      && (!allowed.size || allowed.has(nameKey(p.pipeline))) && (p.is_won || Math.round((p.probability ?? 0) * 100) >= minProb) && touches(p));
     L = { scopes: scopes.data || [], pipeline, deals: deals.data || [], clients: clients.data || [], knobs: K,
           approvers: (K.scope_approver_emails || []).map(e => String(e).toLowerCase().trim()),
           q: '', tab: localStorage.getItem('sc_list_tab') || 'scopes', approvals: null };
@@ -362,11 +366,18 @@ boot('scoping', async (supa, el) => {
 
   const readOnly = () => S && (S.status === 'approved' || S.status === 'promoted');
   const isApprover = () => (X.settings.approvers || []).map(e => String(e).toLowerCase().trim()).includes(me());
-  const ctx = () => ({ marginDefault: X.settings.margin_default, cpmShareDefault: X.settings.cpm_platform_share_pct });
+  // the programmatic backend margin is a DEAL output (104): one margin over the
+  // scope's fee+margin lines that lands the target GP on revenue — the twin of
+  // scope_prog_margin; a line's own margin_pct (CPM, legacy) still prices it
+  const progMargin = () => progDealMargin(S.deals.flatMap(d => { const months = monthsBetween(d.flight_start, d.flight_end); return (d.lines || []).map(line => ({ line, months })); }), X.settings.prog_target_gp_pct);
+  const ctx = () => ({ marginDefault: progMargin() ?? X.settings.margin_default, cpmShareDefault: X.settings.cpm_platform_share_pct });
+  // the teams a scope's lines bring to the hours grid, plus the always-on ones (104 settings)
+  const autoDepartments = () => { const map = X.settings.kind_departments || {}; const out = new Set(X.settings.always_departments || []);
+    S.deals.forEach(d => (d.lines || []).forEach(l => (map[l.kind] || []).forEach(x => out.add(x)))); return [...out]; };
   const flightOf = d => ({ start: d.flight_start, end: d.flight_end });
   const allMonths = () => { const s = new Set(); S.deals.forEach(d => monthsBetween(d.flight_start, d.flight_end).forEach(m => s.add(m))); return [...s].sort(); };
   const staffById = () => Object.fromEntries((X.staff || []).map(s => [s.id, s]));
-  const departments = () => [...new Set([...(X.departments || []), ...S.dept_months.map(r => r.department), ...S.staff_months.map(r => r.department)])].filter(Boolean).sort();
+  const departments = () => [...new Set([...(X.departments || []), ...autoDepartments(), ...S.dept_months.map(r => r.department), ...S.staff_months.map(r => r.department)])].filter(Boolean).sort();
 
   // ---- editor ------------------------------------------------------------
   // Reading order (Boris): the answer first — verdict strip and chart — then
@@ -444,6 +455,7 @@ boot('scoping', async (supa, el) => {
             <select id="sc-rebate-basis" ${ro ? 'disabled' : ''}><option value="media" ${S.rebate_basis !== 'fee' ? 'selected' : ''}>media spend</option><option value="fee" ${S.rebate_basis === 'fee' ? 'selected' : ''}>all fees</option></select></span></label>
           <label title="The minimum monthly fee is computed: the month's labor (unassigned hours at department average included) ÷ (1 − this margin)">minimum fee margin<select id="sc-minpreset" ${ro ? 'disabled' : ''}>
             ${presets.map(p => `<option value="${esc(p.name)}" ${p.name === preset ? 'selected' : ''}>${esc(p.name)} · ${p.pct}%</option>`).join('')}</select></label>
+          <label title="An output, not an input: the one backend margin the programmatic team should run across this deal's fee + margin lines to land the target GP on revenue (Settings › Scoping). CPM lines are priced by their platform share instead.">programmatic backend margin<span class="row" style="height:30px;align-items:center;font-family:var(--font-body);font-size:13px;letter-spacing:0;text-transform:none" data-out="progmargin">—</span></label>
           <label class="wide">notes<input id="sc-notes" value="${esc(S.notes || '')}" ${ro ? 'disabled' : ''} placeholder="anything the terms or the approver should know"></label>
         </div>
       </div>
@@ -563,23 +575,24 @@ boot('scoping', async (supa, el) => {
       : d.origin_kind === 'deal' ? (X.sources.deals || []).find(x => x.id === d.source_deal_id) : null;
     const months = monthsBetween(d.flight_start, d.flight_end);
     return `<div class="sc-deal" data-di="${di}">
-      <div class="sc-dealhead">
+      <div class="sc-dealtop">
         <span class="kbadge">${esc(d.origin_kind === 'hubspot' ? 'HubSpot' : d.origin_kind === 'deal' ? 're-scope' : 'new deal')}</span>
-        <input class="dname" data-f="deal:${di}:name" value="${esc(d.name)}" ${ro ? 'disabled' : ''} aria-label="Deal name">
-        <label class="pf shape"><span class="pfl">flight</span><span style="display:flex;gap:4px;align-items:center">
-          <input type="date" data-f="deal:${di}:flight_start" value="${esc(d.flight_start || '')}" ${ro ? 'disabled' : ''}><span class="muted">→</span>
-          <input type="date" data-f="deal:${di}:flight_end" value="${esc(d.flight_end || '')}" ${ro ? 'disabled' : ''}></span></label>
-        <label class="pf shape"><span class="pfl">on promote</span><select data-f="deal:${di}:promote_mode" ${ro ? 'disabled' : ''}>
-          ${modes.map(([v, lab]) => `<option value="${v}" ${d.promote_mode === v ? 'selected' : ''}>${lab}</option>`).join('')}</select></label>
         ${src ? `<span class="sc-note">${d.origin_kind === 'hubspot' ? `HubSpot: ${esc(src.company || '')} · ${src.amount != null ? fmt$(src.amount) : ''}${src.url ? ` · <a href="${esc(src.url)}" target="_blank" rel="noopener">open</a>` : ''}` : `source deal: ${esc(src.name)} (${esc(src.flight_start || '')} → ${esc(src.flight_end || '')})`}</span>` : ''}
         ${d.promoted_deal_id ? `<span class="pill st-live">promoted</span><a class="sc-note" href="./forecast.html?open=${d.promoted_deal_id}">open in Forecast →</a>` : ''}
-        ${!d.promoted_deal_id && X.qbo && d.promote_mode !== 'extend' ? `<label class="pf shape"><span class="pfl">QuickBooks project${d.promote_mode === 'hubspot' ? ' (required)' : ''}</span>
-          <input list="sc-qbo-list" data-qbo="${di}" placeholder="type to search…" value="${esc(((X.qbo || []).find(p => p.id === d.qbo_project_id) || {}).name || '')}" style="width:260px"></label>` : ''}
         <span style="flex:1"></span>
         <span class="lgp" data-out="dealgp:${di}"></span>
         ${ro || S.deals.length < 2 ? '' : `<button class="danger" data-act="rmdeal:${di}" title="remove this deal from the scope">✕</button>`}
       </div>
-      ${!months.length ? `<div class="sc-note" style="margin-top:8px">Set the flight dates to see months.</div>` : ''}
+      <div class="sc-form sc-dealform">
+        <label class="name">deal name<input class="dname" data-f="deal:${di}:name" value="${esc(d.name)}" ${ro ? 'disabled' : ''}></label>
+        <label>flight start<input type="date" data-f="deal:${di}:flight_start" value="${esc(d.flight_start || '')}" ${ro ? 'disabled' : ''}></label>
+        <label>flight end<input type="date" data-f="deal:${di}:flight_end" value="${esc(d.flight_end || '')}" ${ro ? 'disabled' : ''}></label>
+        <label>on promote<select data-f="deal:${di}:promote_mode" ${ro ? 'disabled' : ''}>
+          ${modes.map(([v, lab]) => `<option value="${v}" ${d.promote_mode === v ? 'selected' : ''}>${lab}</option>`).join('')}</select></label>
+        ${!d.promoted_deal_id && X.qbo && d.promote_mode !== 'extend' ? `<label>QuickBooks project${d.promote_mode === 'hubspot' ? ' (required)' : ''}
+          <input list="sc-qbo-list" data-qbo="${di}" placeholder="type to search…" value="${esc(((X.qbo || []).find(p => p.id === d.qbo_project_id) || {}).name || '')}"></label>` : ''}
+      </div>
+      ${!months.length ? `<div class="sc-note" style="margin-top:10px">Set the flight dates to see months.</div>` : ''}
       <div class="linecards">${(d.lines || []).map((l, li) => lineCard(d, di, l, li, months, ro)).join('')}</div>
       ${ro ? '' : `<div class="sc-addline">${KINDS.map(k => `<button class="ghost" data-act="addline:${di}:${k}">+ ${k}</button>`).join('')}</div>`}
     </div>`;
@@ -614,7 +627,7 @@ boot('scoping', async (supa, el) => {
       const model = (st.prog && st.prog.model) || 'fee_margin';
       bits.push(pf('model', `<select data-f="line:${di}:${li}:prog_model" ${dis}><option value="fee_margin" ${model === 'fee_margin' ? 'selected' : ''}>fee % + backend margin</option><option value="cpm" ${model === 'cpm' ? 'selected' : ''}>CPM billing (margin only)</option></select>`, 'shape'));
       if (model === 'cpm') bits.push(pf('platform share %', inp(di, li, 'platform_share_pct', st.prog && st.prog.platform_share_pct != null ? st.prog.platform_share_pct : '', dis + ` placeholder="${X.settings.cpm_platform_share_pct}"`)));
-      else { bits.push(pf('fee %', inp(di, li, 'fee_pct', l.fee_pct ?? '', dis))); bits.push(pf('backend margin %', inp(di, li, 'margin_pct', l.margin_pct ?? '', dis + ` placeholder="${X.settings.margin_default}"`))); }
+      else bits.push(pf('fee %', inp(di, li, 'fee_pct', l.fee_pct ?? '', dis)));   // the backend margin is a deal output (Deal terms), not typed here
     }
     // the rebate is a DEAL term (Deal terms panel, 103); a line-level rebate
     // saved before that still prices but is not offered here
@@ -626,8 +639,7 @@ boot('scoping', async (supa, el) => {
       : '';
     const cells = months.map(m => { const v = (l.months[m] || {})[cellKey];
       return `<label class="pmcell"><span>${mLabel(m)}</span><input class="cell" type="number" step="any" inputmode="decimal" data-cell="${di}:${li}:${m}:${cellKey}" value="${v == null ? '' : (cellKey === 'hours' ? v : v / 100)}" ${dis}></label>`; }).join('');
-    const suggest = l.kind === 'programmatic' && (!st.prog || st.prog.model !== 'cpm')
-      ? `<div class="cardnote" data-out="suggest:${di}:${li}"></div>` : '';
+    const suggest = '';
     // drivers (099): what this line will look like in market each month — the
     // inputs the benchmark estimate multiplies by hours-per-driver. spend is
     // taken from the budget cell at save time, never typed.
@@ -667,11 +679,15 @@ boot('scoping', async (supa, el) => {
 
   // ---- demand & supply grids ------------------------------------------------
   function demandRows(months, ro) {
-    const depts = [...new Set(S.dept_months.map(r => r.department))].sort();
-    if (!depts.length) return `<tr><td colspan="${months.length + 2}" class="empty-note">No hours yet — add a department.</td></tr>`;
+    // the lines bring their teams (search → Paid Media + AdOps …) and the
+    // always-on teams (account management / planning) are there whatever the
+    // lines — rows appear as soon as a line exists, hours still to be filled
+    const auto = new Set(autoDepartments());
+    const depts = [...new Set([...S.dept_months.map(r => r.department), ...auto])].sort();
+    if (!depts.length) return `<tr><td colspan="${months.length + 2}" class="empty-note">Add a line above — its teams appear here.</td></tr>`;
     return depts.map(dep => {
       const tot = S.dept_months.filter(r => r.department === dep && months.includes(r.month)).reduce((s, r) => s + (+r.hours || 0), 0);
-      return `<tr><td class="textleft"><b>${esc(dep)}</b>${ro ? '' : ` <button class="ghost" data-act="rmdept:${esc(dep)}" style="padding:0 6px;font-size:10px" aria-label="remove">×</button>`}</td>
+      return `<tr><td class="textleft"><b>${esc(dep)}</b>${ro || auto.has(dep) ? '' : ` <button class="ghost" data-act="rmdept:${esc(dep)}" style="padding:0 6px;font-size:10px" aria-label="remove">×</button>`}</td>
         ${months.map(m => { const r = S.dept_months.find(x => x.department === dep && x.month === m);
           return `<td><input class="hcell${r && r.source !== 'manual' ? ' ghost' : ''}" type="number" min="0" step="0.5" inputmode="decimal" data-dm="${esc(dep)}|${m}" value="${r ? +r.hours : ''}" title="${r && r.source !== 'manual' ? 'from the ' + esc(r.source) + ' estimate — type to make it yours' : ''}" ${ro ? 'disabled' : ''}></td>`; }).join('')}
         <td><b>${fmtH(tot)}</b></td></tr>`;
@@ -680,8 +696,9 @@ boot('scoping', async (supa, el) => {
 
   function supplyRows(months, ro) {
     const sb = staffById();
-    const depts = departments().filter(dep => S.dept_months.some(r => r.department === dep) || S.staff_months.some(r => r.department === dep));
-    if (!depts.length) return `<tr><td colspan="${months.length + 3}" class="empty-note">Add hours per department first.</td></tr>`;
+    const auto = new Set(autoDepartments());
+    const depts = departments().filter(dep => auto.has(dep) || S.dept_months.some(r => r.department === dep) || S.staff_months.some(r => r.department === dep));
+    if (!depts.length) return `<tr><td colspan="${months.length + 3}" class="empty-note">Add a line above — its teams appear here.</td></tr>`;
     const capBy = {}; ((X.verdict || {}).capacity || []).forEach(c => capBy[`${c.staff_id}|${c.month}`] = c);
     const cands = (X.staffing && X.staffing.candidates) || [];
     return depts.map(dep => {
@@ -754,14 +771,14 @@ boot('scoping', async (supa, el) => {
         if (l.kind === 'programmatic') {
           const p = progParams(l, c);
           const rev1 = 1 + p.feePct / 100, gpPct = rev1 ? (p.marginPct + p.feePct) / rev1 : 0;
-          paint(`margintag:${di}:${li}`, `${p.cpm ? 'CPM · ' : ''}${gpPct.toFixed(1)}% GP on revenue`);
-          if (!p.cpm) { const sug = progSuggestMargin(p.feePct, X.settings.prog_target_gp_pct);
-            paint(`suggest:${di}:${li}`, `for ${X.settings.prog_target_gp_pct}% GP on revenue with a ${p.feePct}% fee, the backend margin should be <b>${sug}%</b>${Math.abs(sug - p.marginPct) > 0.0005 ? ` <button class="use-suggest" data-act="usesug:${di}:${li}:${sug}">use</button>` : ' ✓'}`); }
+          paint(`margintag:${di}:${li}`, `${p.cpm ? 'CPM · ' : `backend ${p.marginPct}% · `}${gpPct.toFixed(1)}% GP on revenue`);
         }
       });
       paint(`dealgp:${di}`, months.length ? `${fmt$(dgp)} GP` : '');
     });
     paint('rev', fmt$(rev)); paint('gp', fmt$(gp)); paint('rebate', reb ? `rebate −${fmt$(reb)}` : ''); paint('pass', pass ? `+ ${fmt$(pass)} media rebilled (cash, not revenue)` : '');
+    const pm = progMargin();
+    paint('progmargin', pm == null ? '<span class="muted">no programmatic line</span>' : `<b>${pm}%</b> <span class="muted">→ ${X.settings.prog_target_gp_pct}% GP on revenue across the deal's programmatic media</span>`);
   }
   const paint = (k, html) => { const n = panel().querySelector(`[data-out="${k}"]`); if (n) n.innerHTML = html; };
   const markDirty = () => { dirty = true; const n = panel().querySelector('#sc-dirty'); if (n) n.style.display = ''; };

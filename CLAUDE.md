@@ -139,7 +139,7 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   finds the same shape for any other deal.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 103. Key views/functions
+## Current migration head: 104. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
@@ -365,6 +365,16 @@ is always a new migration, so grep for the highest one before reading an old bod
   the editor's "already running" panel. Page: Quick check and Approvals are
   tabs, the HubSpot tab is "Pipeline" with Sales Forecast's population minus
   deals already scoped, the verdict is pinned at the top, one gutter system.
+- **Programmatic backend margin is a deal OUTPUT** (104): `scope_prog_margin(scope_id)`
+  = the one margin across the scope's fee+margin programmatic lines (CPM lines
+  and lines with an explicit `margin_pct` excluded), budget-weighted over the
+  flight, that lands `scope_prog_target_gp_pct` on revenue — for one line equals
+  `prog_suggest_margin`. `scope_months` [104] uses it as the fallback for a null
+  `margin_pct`; `promote_scope_lines` [104] writes it onto the promoted lines.
+  JS twin `progDealMargin` (scope-math.js); the card no longer has a margin box,
+  Deal terms shows the output. Settings `scope_kind_departments` /
+  `scope_always_departments` fill the hours grid as lines are added. The
+  Pipeline tab honours `sales_probability_threshold` like Sales Forecast.
 - `match_deals_to_projects()` [010/037] — residual deal↔QBO-project fill-gaps
   pass; never guesses, never clobbers a human's match.
 
