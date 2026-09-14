@@ -4,9 +4,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="./assets/style.css?v=35a5d53">
-<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=35a5d53">
-<link rel="modulepreload" href="./assets/shell.js?v=35a5d53">
+<link rel="stylesheet" href="./assets/style.css?v=defbecd">
+<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=defbecd">
+<link rel="modulepreload" href="./assets/shell.js?v=defbecd">
 <style>
 /* Layout and chart styling carried over from sales-forecast-draft.html — the design
    the page is modelled on — trimmed to what the shell doesn't already provide. */
@@ -80,7 +80,7 @@ td.tot{font-weight:700;color:var(--brand)}
 .empty{padding:30px;text-align:center;color:var(--slate);font-family:var(--font-mono);font-size:11px}
 </style></head><body>
 <script type="module">
-import { boot, esc, fetchAll } from './assets/shell.js?v=35a5d53';
+import { boot, esc, fetchAll } from './assets/shell.js?v=defbecd';
 /*
   The Sales Forecast, modelled on sales-forecast-draft.html and wired to the mirror.
   Gross profit is derived from HubSpot line items through the same type map the
@@ -94,7 +94,11 @@ boot('sales', async (supa, el) => {
   // it pages. The ledger line no longer does: v_deal_month_gp (110) is one row
   // per month.
   const [pd, st, fc, promoted, clientsR, aliasesR, projectsR, blockedR, approvalsR, dismissedR] = await Promise.all([
-    fetchAll(() => supa.from('pipeline_deals').select('*')),
+    // the table needs most of the mirror's columns, but not the rows: every
+    // deal this page shows passes touches2026, so the campaigns that ended
+    // before 2026 never have to travel. The filters below are unchanged.
+    fetchAll(() => supa.from('pipeline_deals').select('*')
+      .or('campaign_end.is.null,campaign_end.gte.2026-01-01')),
     supa.from('settings').select('key,value')
       .in('key', ['sales_probability_threshold','programmatic_margin_default','hubspot_promote_pipelines']),
     // 110: the committed-GP line, already summed per month by v_deal_month_gp —

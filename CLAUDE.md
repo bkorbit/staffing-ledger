@@ -60,13 +60,18 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
    caller's list means the page reads `undefined` and silently shows zero. The
    key lists live at the call sites in index/client-profitability/project-hours/
    team-hours.html.
-10. **Instant repeat loads are shell-owned.** shell.js hooks the Supabase
+10. **Instant repeat loads are shell-owned.** Two identical reads in flight at
+   once are coalesced into one request (Home asks for the same forecast payload
+   twice — KPI ribbon and chart panel). shell.js hooks the Supabase
    client's `fetch`: an opted-in page (`boot(id, main, { cache: true })`) paints
    from the last visit's answers and re-runs `main` if a background answer
    differs. So `main` must be safe to run TWICE against the same `#content` — a
    window-level listener registered inside it needs a once-guard (project-hours'
    resize). Writes clear every page's cache; write RPCs are never replayed (the
-   allowlist is `READ_RPCS`); `scripts/test/shell-cache.test.mjs` pins all of it.
+   allowlist is `READ_RPCS`); a page mid-edit refuses the repaint through
+   `opts.canRerender` (Scoping: list view, not dirty) and the stale entry is
+   dropped rather than left on screen; `scripts/test/shell-cache.test.mjs` pins
+   all of it.
 
 ## Domain truths (decided with Boris — do not re-litigate silently)
 - **Claims attribution**: a QBO project matched to a deal belongs to that deal's
@@ -160,7 +165,7 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   finds the same shape for any other deal.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 110. Key views/functions
+## Current migration head: 111. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
@@ -186,6 +191,24 @@ is always a new migration, so grep for the highest one before reading an old bod
   forecast_page / hours_page stay as one-line wrappers — 076_fixture_test
   recreates that exact signature, and a defaulted third argument on the same
   name would make forecast_page(a, b) ambiguous.
+- **111 made the Scoping editor interactive again.** `scope_verdict_calc` reads
+  exactly one thing out of the staffing payload it is handed — `hire` — and the
+  candidate ranking (a 12-month time_entries scan per call) is for the editor's
+  staffing panel only. So scope_staffing splits: `scope_gap_hire` is everything
+  but the ranking, `scope_staffing` is that plus the ranking, and
+  `scope_verdict_light` (gap_hire only) is byte-identical to `scope_verdict` —
+  111_fixture_test asserts it scope by scope, and the mutation that makes the
+  verdict read `candidates` fails it. Sibling scenarios' KPI strips use the
+  light one: a three-scenario family was paying three full rankings per open AND
+  per keystroke burst (427 ms in the bed). `scope_core` is the six keys the
+  editor actually merges from a preview (econ, labor, staffing, verdict,
+  existing_deals, prog_margin — see runPreview in app/scoping.html); scope_page
+  is scope_state + scope_core + context, and `preview_scope` returns
+  scope_state + scope_core instead of the whole page (436 → 124 ms). Keep
+  scope_verdict_calc away from any staffing key but `hire`, or the light path
+  silently stops being identical. `scoping_list` also filters the pipeline
+  mirror server-side now (the page's own filter, reproduced in SQL — 437 → 176 KB);
+  the page keeps its filter, so it works either way.
 - **110 moved two roll-ups off the browser**: `hours_page_parts` gained
   `deal_week_hours` (hours per ISO week per deal — Home was fetching every
   time_entries row in its range, ~14k over six months in fourteen paged
@@ -512,7 +535,7 @@ is always a new migration, so grep for the highest one before reading an old bod
   Boris wants it out of the operating trend.
 - **A browser smoke test of every page is still open** — 095-110 have been
   proved in the PGlite bed and by unit tests, never in a real browser against
-  prod. 109 and 110 must be applied in the SQL editor; until 109 is, the pages
+  prod. 109, 110 and 111 must be applied in the SQL editor; until 109 is, the pages
   make one failing `_parts` call each and fall back to the whole payload, and
   until 110 is, Home falls back to fetching raw time entries for its weekly
   chart (that fallback can be deleted once it is applied).
@@ -532,6 +555,10 @@ is always a new migration, so grep for the highest one before reading an old bod
   cost is ONE rolled-up number (salary privacy), rebate is COGS not billable,
   fee bands are monthly, Paid Media pools search + social, scope dates win at
   promotion, excluded catalog items skip silently.
+- Scoping's remaining cost is `scope_page` on a family with several scenarios
+  (316 ms in the bed for three, down from 575): each sibling still computes its
+  own econ + labor + gap_hire for the KPI strip. Memoising a verdict per
+  (scope_id, version) would finish it, at the usual staleness risk — not taken.
 - Cashflow refinements deferred: retire COGS run-rate at high shaped coverage;
   invoiced deal-months exiting the contracted tier.
 - SECURITY: a GitHub PAT was embedded in the old sandbox's git remote — must be

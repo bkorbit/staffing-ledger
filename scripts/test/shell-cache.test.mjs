@@ -161,5 +161,45 @@ r = await shell.rpcParts('hours_page', { p_from: 'a', p_to: 'b' }, ['staff']);
 ok('8b. on a pre-109 database it falls back to the whole payload', r.data && r.data.staff.length === 2, JSON.stringify(r.error || r.data));
 globalThis.fetch = realFetch;
 
+// ---- 9. two identical reads in flight at once are ONE request ----------
+await sleep(1600);
+store.clear(); store.set('sb-zytmlowigbfchfqcilrr-auth-token', JSON.stringify(session));
+answers = { '/rpc/cashflow_forecast': '[{"a":1}]' };
+el = mkEl(); wire = [];
+const two = await Promise.all([
+  supa.rpc('cashflow_forecast', { periods: 12 }),
+  supa.rpc('cashflow_forecast', { periods: 12 }),
+]);
+ok('9a. the same read twice at once goes to the wire once',
+   wire.filter(w => w.u.includes('cashflow_forecast')).length === 1, `${wire.filter(w => w.u.includes('cashflow_forecast')).length} request(s)`);
+ok('9b. and both callers get the answer', two.every(r => r.data && r.data[0].a === 1));
+wire = [];
+const differ = await Promise.all([
+  supa.rpc('cashflow_forecast', { periods: 12 }),
+  supa.rpc('cashflow_forecast', { periods: 24 }),
+]);
+ok('9c. different arguments are still two requests', wire.filter(w => w.u.includes('cashflow_forecast')).length === 2);
+
+// ---- 10. a page mid-edit refuses the re-render --------------------------
+await sleep(1600);
+store.clear(); store.set('sb-zytmlowigbfchfqcilrr-auth-token', JSON.stringify(session));
+answers = { '/rpc/scoping_list': '{"scopes":[1]}' };
+let scSeen = [];
+const mainSc = async (s) => { const r = await s.rpc('scoping_list'); scSeen.push(JSON.stringify(r.data)); };
+await load('scoping', mainSc, { cache: true });
+await sleep(1600);
+answers = { '/rpc/scoping_list': '{"scopes":[1,2]}' };
+let dirty = true;
+scSeen = [];
+await load('scoping', mainSc, { cache: true, canRerender: () => !dirty });
+await sleep(300);
+ok('10a. a dirty page is painted from the cache and NOT repainted underneath the user',
+   scSeen.length === 1 && scSeen[0] === '{"scopes":[1]}', JSON.stringify(scSeen));
+dirty = false; scSeen = [];
+await load('scoping', mainSc, { cache: true, canRerender: () => !dirty });
+await sleep(300);
+ok('10b. and the refusal dropped the stale entry, so the next load is live',
+   scSeen.length === 1 && scSeen[0] === '{"scopes":[1,2]}', JSON.stringify(scSeen));
+
 console.log(fails ? `\n${fails} failure(s)` : `\nshell cache: all checks pass`);
 process.exit(fails ? 1 : 0);

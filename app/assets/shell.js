@@ -10,7 +10,7 @@
 // for tslib/phoenix/iceberg — ~200ms on an origin needing its own DNS and TLS.
 // Same origin, one file, and every page <link rel=modulepreload>s it next to
 // shell.js so both start downloading while the HTML is still parsing.
-import { createClient } from './vendor/supabase-js.min.mjs?v=35a5d53';
+import { createClient } from './vendor/supabase-js.min.mjs?v=defbecd';
 
 export const supa = createClient(
   'https://zytmlowigbfchfqcilrr.supabase.co',
@@ -99,7 +99,7 @@ const READ_RPCS = new Set([
   'forecast_page', 'forecast_page_parts', 'hours_page', 'hours_page_parts',
   'rev_proj_page', 'labor_page', 'assignments_page', 'accounts_page',
   'cashflow_forecast', 'unmapped_hours', 'project_detail', 'client_detail',
-  'staff_rates_months', 'labor_forecast_breakdown',
+  'staff_rates_months', 'labor_forecast_breakdown', 'scoping_list',
 ]);
 
 let cacheScope = null;      // page + user + build; a deploy starts cold by construction
@@ -174,6 +174,21 @@ const revived = e => new Response(e.b, {
                 : { 'content-type': 'application/json' },
 });
 
+// Two identical reads in flight at once become one request. Home asks for the
+// same forecast_page payload twice on every load — once for the KPI ribbon and
+// once for the chart panel, which is a copy of the Forecast page's own — and
+// pages that mount several panels in one wave are exactly where this happens.
+// Keyed the same way the cache is, so "identical" means the same method, path
+// and body.
+const inflight = new Map();
+function shared(key, run) {
+  const held = inflight.get(key);
+  if (held) return held;
+  const p = run().finally(() => inflight.delete(key));
+  inflight.set(key, p);
+  return p;
+}
+
 async function shellFetch(url, init) {
   // Only PostgREST is any of this machinery's business. /auth/v1/token is a
   // POST that refreshes the session roughly hourly — treating it as a write
@@ -186,15 +201,23 @@ async function shellFetch(url, init) {
     if (res.ok) clearCache();
     return res;
   }
-  if (!cacheOn) return fetch(url, init);
-
   const key = cacheKey(url, init);
+  if (!cacheOn) {
+    const { res, body } = await shared(key, async () => {
+      const r = await fetch(url, init);
+      return { res: r, body: await r.text() };
+    });
+    return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+  }
+
   const hit = replay && replay[key];
   // the re-render after a revalidation: `replay` is what the network just said,
   // so hand it over and ask nothing
   if (hit && replayTrusted) { if (record) record[key] = hit; return revived(hit); }
-  const live = fetch(url, init).then(async res => {
-    const body = await res.text();
+  const live = shared(key, async () => {
+    const r = await fetch(url, init);
+    return { res: r, body: await r.text() };
+  }).then(({ res, body }) => {
     // 2xx only, and only while the first paint is still being assembled: a 401
     // mid-token-refresh must never become the remembered answer, and neither
     // must a drill-down the user opened ten minutes later (recordOpen).
@@ -409,6 +432,11 @@ function renderLogin(onDone) {
 // one the page was painted with. A page that registers a window-level listener
 // inside main() (a resize or hashchange handler) would register it twice, so
 // either make that registration happen once or leave the page out.
+//
+// opts.canRerender lets a page refuse that second run for as long as it would
+// destroy something — half-typed edits, an open editor. Refusing drops the
+// remembered answers rather than leaving the page on numbers we now know are
+// stale, so the next load starts clean.
 export async function boot(pageId, main, opts) {
   const { data: { session } } = await supa.auth.getSession();
   if (!session) { renderLogin(() => boot(pageId, main, opts)); return; }
@@ -441,6 +469,13 @@ export async function boot(pageId, main, opts) {
   let ready = false, queued = false;
   const rerender = async () => {
     onRevalidated = null;
+    if (opts && opts.canRerender && !opts.canRerender()) {
+      // the page is mid-edit: do not repaint over it, and do not keep an
+      // answer we have just been told is out of date
+      try { localStorage.removeItem(CACHE_PREFIX + cacheScope); } catch {}
+      record = null; recordOpen = false;
+      return;
+    }
     const fresh = record;
     replay = fresh; record = {}; replayTrusted = true; recordOpen = true;
     // makePopover hangs its menu off document.body, not off #content, so

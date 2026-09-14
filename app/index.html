@@ -4,9 +4,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="./assets/style.css?v=35a5d53">
-<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=35a5d53">
-<link rel="modulepreload" href="./assets/shell.js?v=35a5d53">
+<link rel="stylesheet" href="./assets/style.css?v=defbecd">
+<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=defbecd">
+<link rel="modulepreload" href="./assets/shell.js?v=defbecd">
 <style>
 /* Sales Forecast panel — carried over from sales.html's own local overrides
    (its chart isn't drawn through the shared barChart/bandChart helpers, so
@@ -35,7 +35,7 @@ svg.chart .colgroup{outline:none}
 svg.chart .colgroup:focus-visible{outline:2px solid var(--brand-2);outline-offset:-2px}
 </style></head><body>
 <script type="module">
-import { boot, rpcParts, esc, fetchAll, barChart, bandChart, donutChart, makePopover } from './assets/shell.js?v=35a5d53';
+import { boot, rpcParts, esc, fetchAll, barChart, bandChart, donutChart, makePopover } from './assets/shell.js?v=defbecd';
 
 // The Hour-tracking Dashboard, back on Home — bottom-up from actual hours
 // (time_entries) x each staff member's own resolved comp rate, joined
@@ -906,7 +906,15 @@ async function mountSalesPanel(supa, el, initFrom, initTo) {
   // above this point already works without it, so a click on Settings
   // during this wait renders an (empty, honest) chart rather than nothing
   const [pd, st, fc, promoted] = await Promise.all([
-    fetchAll(() => supa.from('pipeline_deals').select('*')),
+    // Every row this panel keeps passes touches2026 (campaign_end null or in
+    // 2026 onward), and it reads nine of the mirror's sixteen columns — so ask
+    // for nine, and let PostgREST drop the campaigns that ended before the
+    // platform starts. `select *` over the whole mirror was 563 KB in the bed,
+    // enough to need a second paged request to arrive. The two filters below
+    // are unchanged and now do the rest.
+    fetchAll(() => supa.from('pipeline_deals')
+      .select('hubspot_deal_id,stage,probability,close_date,campaign_start,campaign_end,is_won,pipeline,line_items')
+      .or('campaign_end.is.null,campaign_end.gte.2026-01-01')),
     supa.from('settings').select('key,value').in('key', ['sales_probability_threshold', 'programmatic_margin_default']),
     // 110: one row per month (v_deal_month_gp) rather than every deal-line-month
     // in the ledger, which had outgrown the 1000-row cap and arrived in five

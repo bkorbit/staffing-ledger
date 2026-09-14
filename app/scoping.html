@@ -4,13 +4,13 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="./assets/style.css?v=35a5d53">
-<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=35a5d53">
-<link rel="modulepreload" href="./assets/shell.js?v=35a5d53">
-<link rel="modulepreload" href="./assets/scope-math.js?v=35a5d53">
-<link rel="modulepreload" href="./assets/capacity.js?v=35a5d53">
-<link rel="modulepreload" href="./assets/scope-chart.js?v=35a5d53">
-<link rel="modulepreload" href="./assets/parsers/index.js?v=35a5d53">
+<link rel="stylesheet" href="./assets/style.css?v=defbecd">
+<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=defbecd">
+<link rel="modulepreload" href="./assets/shell.js?v=defbecd">
+<link rel="modulepreload" href="./assets/scope-math.js?v=defbecd">
+<link rel="modulepreload" href="./assets/capacity.js?v=defbecd">
+<link rel="modulepreload" href="./assets/scope-chart.js?v=defbecd">
+<link rel="modulepreload" href="./assets/parsers/index.js?v=defbecd">
 <style>
 /* page-local: the editor's sections and grids. Cards reuse forecast's .linecard system.
    ONE gutter system: full-width panels (.sc-panel padding 16px 18px) and the summary
@@ -153,11 +153,11 @@ h2.sc-eyebrow.inset14, h3.sc-eyebrow.inset14 { padding:12px 14px 0; margin:0; }
 @media (max-width:640px) { .sc-dealhead input.dname { flex-basis:100%; } .sc-grid col.c-name { width:140px; } .sc-grid { width:calc(140px + var(--extra, 0px) + var(--n, 1) * 66px + 66px); } }
 </style></style></head><body>
 <script type="module">
-import { boot, esc, fmt$, wireSearch, fetchAll } from './assets/shell.js?v=35a5d53';
-import { lineFee, lineRebate, progSuggestMargin, progDealMargin, progParams, lineMonth, scopeMonths, monthsBetween, shiftM, spreadTotal, fitModel } from './assets/scope-math.js?v=35a5d53';
-import { loadStatus, statusPill, fmtH, mLabel, thisMonth } from './assets/capacity.js?v=35a5d53';
-import { scopeChart, verdictStrip, scopeStat, STATUS_LABEL, STATUS_PILL } from './assets/scope-chart.js?v=35a5d53';
-import { parseFile, mergeMonths, PLATFORMS, DRIVER_LABELS } from './assets/parsers/index.js?v=35a5d53';
+import { boot, esc, fmt$, wireSearch, fetchAll } from './assets/shell.js?v=defbecd';
+import { lineFee, lineRebate, progSuggestMargin, progDealMargin, progParams, lineMonth, scopeMonths, monthsBetween, shiftM, spreadTotal, fitModel } from './assets/scope-math.js?v=defbecd';
+import { loadStatus, statusPill, fmtH, mLabel, thisMonth } from './assets/capacity.js?v=defbecd';
+import { scopeChart, verdictStrip, scopeStat, STATUS_LABEL, STATUS_PILL } from './assets/scope-chart.js?v=defbecd';
+import { parseFile, mergeMonths, PLATFORMS, DRIVER_LABELS } from './assets/parsers/index.js?v=defbecd';
 
 // Is this deal viable? A scope is the commercial plan (channels, fee
 // structures, rebates, programmatic model) for one or several future deals,
@@ -174,6 +174,12 @@ import { parseFile, mergeMonths, PLATFORMS, DRIVER_LABELS } from './assets/parse
 // refresh on Save. Save = save_scope (atomic, appends a version); Propose /
 // Approve / Un-approve are their own RPCs; approve reserves the named hours
 // in assignments (Hour Planning shows them). Promote lands in 100.
+// shell.js repaints a cached page when a background answer turns out to differ.
+// Here that is only ever safe on the LIST: an open scope carries unsaved edits
+// and focus, and the list is the view worth making instant anyway. The guard
+// lives at module scope because boot() is handed it before main() runs.
+const SC = { safeToRepaint: () => true };
+
 boot('scoping', async (supa, el) => {
   const KINDS = ['retainer', 'creative', 'search', 'social', 'programmatic', 'hourly'];
   const MEDIA = k => k === 'search' || k === 'social' || k === 'programmatic';
@@ -219,8 +225,14 @@ boot('scoping', async (supa, el) => {
     else if (r.view === 'bench') await loadBench(r.deal);
     else await loadScope(r.id);
   }
-  window.addEventListener('hashchange', go);
-  window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+  // registered ONCE: a cached repaint runs main() again, and a second
+  // hashchange listener would route the page twice per navigation
+  SC.safeToRepaint = () => !dirty && route.view === 'list';
+  if (!window.__scWired) {
+    window.__scWired = true;
+    window.addEventListener('hashchange', go);
+    window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+  }
 
   // ---- list --------------------------------------------------------------
   const nameKey = v => String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
@@ -249,6 +261,9 @@ boot('scoping', async (supa, el) => {
     const touches = d => !d.campaign_end || d.campaign_end >= '2026-01-01';
     // the same probability floor Sales Forecast forecasts with (sales_probability_threshold, %)
     const minProb = +(K.sales_probability_threshold ?? 10);
+    // db/111 applies exactly this filter in SQL, so on a migrated database it
+    // removes nothing and the payload arrives at a fraction of the size. It
+    // stays here because the page must still work before that migration is run.
     const pipeline = (pipe.data || []).filter(p => !promoted.has(p.hubspot_deal_id) && !dismissedIds.has(p.hubspot_deal_id) && !scopedBy[p.hubspot_deal_id]
       && (!allowed.size || allowed.has(nameKey(p.pipeline))) && (p.is_won || Math.round((p.probability ?? 0) * 100) >= minProb) && touches(p));
     L = { scopes: scopes.data || [], pipeline, deals: deals.data || [], clients: clients.data || [], knobs: K,
@@ -997,6 +1012,8 @@ boot('scoping', async (supa, el) => {
     const { data, error } = await supa.rpc('preview_scope', { p_payload: payload(), p_by: window.__email });
     if (seq !== previewSeq) return;   // typed again since — a newer preview is on its way
     if (error || !data || !data.ok) { msg(error ? error.message : (data && data.reason) || 'preview failed', true); return; }
+    // db/111: `page` is scope_core — exactly the six keys merged below, rather
+    // than the whole scope_page whose other keys this line has always dropped
     const pg = data.page || {};
     X = { ...X, econ: pg.econ, labor: pg.labor, staffing: pg.staffing, verdict: pg.verdict, existing_deals: pg.existing_deals, prog_margin: pg.prog_margin };
     applyPreview();
@@ -1502,6 +1519,6 @@ boot('scoping', async (supa, el) => {
   }
 
   go();
-});
+}, { cache: true, canRerender: () => SC.safeToRepaint() });
 </script>
 </body></html>
