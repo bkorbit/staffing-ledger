@@ -4,13 +4,13 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="./assets/style.css?v=defbecd">
-<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=defbecd">
-<link rel="modulepreload" href="./assets/shell.js?v=defbecd">
-<link rel="modulepreload" href="./assets/capacity.js?v=defbecd"></head><body>
+<link rel="stylesheet" href="./assets/style.css?v=07098ec">
+<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=07098ec">
+<link rel="modulepreload" href="./assets/shell.js?v=07098ec">
+<link rel="modulepreload" href="./assets/capacity.js?v=07098ec"></head><body>
 <script type="module">
-import { boot, esc, wireSearch } from './assets/shell.js?v=defbecd';
-import { loadStatus, statusPill, statusLabel, fmtH, mLabel, shiftM, monthsBetween, thisMonth } from './assets/capacity.js?v=defbecd';
+import { boot, esc, wireSearch } from './assets/shell.js?v=07098ec';
+import { loadStatus, statusPill, statusLabel, fmtH, mLabel, shiftM, monthsBetween, thisMonth } from './assets/capacity.js?v=07098ec';
 
 // Planned hours: who is meant to work on what, month by month. This page is
 // the ONLY writer of `assignments` (db/001; hours_page has read it since 034
@@ -345,6 +345,31 @@ boot('hourplan', async (supa, el) => {
   // ---- writes: direct PostgREST, set_by = the editor, then re-fetch --------
   const msg = (t, bad) => { const m = panel().querySelector('#hp-msg'); if (m) { m.textContent = t; m.className = bad ? 'err' : 'ok'; m.style.fontSize = '12px'; } };
 
+  // A cell write is a complete, known change: the row a re-fetch would bring
+  // back is the row we just sent. So apply it to the payload already in hand
+  // and repaint from that, rather than pulling the whole plan down again —
+  // which over a six-month range is ~600 KB and a full grid rebuild, PER CELL,
+  // while someone tabs along a row typing numbers. Ten cells was ten full
+  // payloads, overlapping.
+  //
+  // The repaint is exact, not optimistic: everything the grid shows is derived
+  // from these rows in derive() — a person's planned total, a deal's, and the
+  // capacity flag, which loadStatus() computes from capacity_hours and the
+  // planned hours counted HERE (the server's committed_hours / free_hours are
+  // not read by this page). shell.js has already dropped every cached payload
+  // on the write, so the next load comes from the database either way.
+  function applyCell(sid, did, m, hours) {
+    const rows = HP.data.assignments = HP.data.assignments || [];
+    const i = rows.findIndex(a => a.staff_id === sid && a.deal_id === did && a.month === m);
+    if (hours > 0) {
+      const row = { staff_id: sid, deal_id: did, month: m, hours,
+                    set_by: window.__email, set_at: new Date().toISOString() };
+      if (i >= 0) rows[i] = { ...rows[i], ...row }; else rows.push(row);
+    } else if (i >= 0) {
+      rows.splice(i, 1);
+    }
+  }
+
   async function saveCell(sid, did, m, raw) {
     const hours = Math.max(0, Math.round((parseFloat(raw) || 0) * 100) / 100);
     HP.saving++; msg('saving…');
@@ -358,7 +383,8 @@ boot('hourplan', async (supa, el) => {
     }
     HP.saving--;
     if (error) { msg(error.message, true); return; }
-    await load();
+    applyCell(sid, did, m, hours);
+    render();
     msg('saved');
   }
 
@@ -371,7 +397,10 @@ boot('hourplan', async (supa, el) => {
       .gte('month', HP.from).lte('month', HP.to);
     HP.saving--;
     if (error) { msg(error.message, true); return; }
-    await load();
+    // the same range the delete matched, dropped from the payload in hand
+    HP.data.assignments = (HP.data.assignments || []).filter(a =>
+      !(a.staff_id === sid && a.deal_id === did && a.month >= HP.from && a.month <= HP.to));
+    render();
     msg('removed');
   }
 

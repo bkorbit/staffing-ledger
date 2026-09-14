@@ -5,8 +5,8 @@
 //   activity Activity history export: Time / Date, Activity, Item changed,
 //            Changed by. changes = rows per month; system / rule actors dropped
 //            when opts.excludeAutomated is on.
-import { findHeader, col, parseNum, toMonth } from './csv.js?v=defbecd';
-import { finish, AUTOMATED } from './google-ads.js?v=defbecd';
+import { findHeader, col, parseNum, toMonth } from './csv.js?v=07098ec';
+import { finish, AUTOMATED } from './google-ads.js?v=07098ec';
 
 const bump = (m, key, v = 1) => { m[key] = (m[key] || 0) + v; };
 const ensure = (out, month) => (out[month] = out[month] || { _sets: {} });

@@ -10,7 +10,7 @@
 // for tslib/phoenix/iceberg — ~200ms on an origin needing its own DNS and TLS.
 // Same origin, one file, and every page <link rel=modulepreload>s it next to
 // shell.js so both start downloading while the HTML is still parsing.
-import { createClient } from './vendor/supabase-js.min.mjs?v=defbecd';
+import { createClient } from './vendor/supabase-js.min.mjs?v=07098ec';
 
 export const supa = createClient(
   'https://zytmlowigbfchfqcilrr.supabase.co',
@@ -47,7 +47,13 @@ export function wireSearch(container, selector, onInput) {
 
 // Supabase caps every response at 1000 rows SERVER-side — .limit() cannot exceed
 // it. Anything that can outgrow a thousand rows must page. Pages arrive in
-// parallel waves that double (4, then 8, then 16 …) rather than one at a time.
+// parallel waves that double (4, then 8) rather than one at a time.
+//
+// The doubling stops at eight. It used to keep going — 4, 8, 16, 32 — which for
+// a big table meant dozens of simultaneous requests against one PostgREST
+// connection pool, most of the last wave coming back empty, and the browser
+// with nothing to do but wait on all of them. Eight at a time is as quick in
+// practice and far less likely to be why a request never comes back.
 export async function fetchAll(build) {
   const page = 1000;
   const one = async i => build().range(i * page, (i + 1) * page - 1);
@@ -55,7 +61,7 @@ export async function fetchAll(build) {
   if (first.error) return first;
   const out = [...(first.data || [])];
   if (out.length < page) return { data: out, error: null };
-  for (let start = 1, wave = 4; ; start += wave, wave *= 2) {
+  for (let start = 1, wave = 4; ; start += wave, wave = Math.min(wave * 2, 8)) {
     const results = await Promise.all(
       Array.from({ length: wave }, (_, k) => one(start + k)));
     let done = false;
@@ -180,6 +186,55 @@ const revived = e => new Response(e.b, {
 // pages that mount several panels in one wave are exactly where this happens.
 // Keyed the same way the cache is, so "identical" means the same method, path
 // and body.
+// A read that fails at the network — "Failed to fetch": a dropped connection, a
+// gateway hiccup, a preflight that never came back — is retried twice before the
+// page is told. Reads only, and never one the caller cancelled: a write is not
+// safe to repeat, and an aborted request was aborted on purpose. 502/503/504
+// count as the same kind of blip; a real error (401, 404, a statement timeout)
+// is returned as it is, first time, because repeating it would only be slower.
+// Every request this app makes, with how long it took and how big the answer
+// was, kept on window.__ledger (and printed as one table per page load when
+// anything took longer than a second). No UI: it is for opening the console on
+// a page that feels slow and being able to say WHICH request was slow, instead
+// of guessing from the outside.
+export const LEDGER_TIMINGS = [];
+let timingsPrinted = null;
+function timed(url, ms, bytes, note) {
+  const name = String(url).replace(/^https:\/\/[^/]+\/rest\/v1\//, '').replace(/\?.*$/, '');
+  LEDGER_TIMINGS.push({ request: name, ms: Math.round(ms), KB: Math.round(bytes / 1024), note: note || '' });
+  try { window.__ledger = LEDGER_TIMINGS; } catch {}
+  clearTimeout(timingsPrinted);
+  timingsPrinted = setTimeout(() => {
+    const slow = LEDGER_TIMINGS.filter(t => t.ms > 1000);
+    if (slow.length && console.table) {
+      console.groupCollapsed(`EMG Ledger — ${slow.length} slow request(s); window.__ledger has all ${LEDGER_TIMINGS.length}`);
+      console.table(LEDGER_TIMINGS);
+      console.groupEnd();
+    }
+  }, 1200);
+}
+
+const RETRY_MS = [200, 700];
+async function fetchRead(url, init) {
+  const t0 = performance.now();
+  for (let attempt = 0; ; attempt++) {
+    let res;
+    try {
+      res = await fetch(url, init);
+    } catch (e) {
+      if (attempt >= RETRY_MS.length) timed(url, performance.now() - t0, 0, 'failed: ' + (e?.message || e));
+      if (attempt >= RETRY_MS.length || init?.signal?.aborted || e?.name === 'AbortError') throw e;
+      await new Promise(r => setTimeout(r, RETRY_MS[attempt]));
+      continue;
+    }
+    if (attempt >= RETRY_MS.length || ![502, 503, 504].includes(res.status)) {
+      res.__t0 = t0; res.__tries = attempt + 1;
+      return res;
+    }
+    await new Promise(r => setTimeout(r, RETRY_MS[attempt]));
+  }
+}
+
 const inflight = new Map();
 function shared(key, run) {
   const held = inflight.get(key);
@@ -204,8 +259,10 @@ async function shellFetch(url, init) {
   const key = cacheKey(url, init);
   if (!cacheOn) {
     const { res, body } = await shared(key, async () => {
-      const r = await fetch(url, init);
-      return { res: r, body: await r.text() };
+      const r = await fetchRead(url, init);
+      const t = await r.text();
+      timed(url, performance.now() - r.__t0, t.length, r.__tries > 1 ? `${r.__tries} attempts` : '');
+      return { res: r, body: t };
     });
     return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
   }
@@ -215,8 +272,11 @@ async function shellFetch(url, init) {
   // so hand it over and ask nothing
   if (hit && replayTrusted) { if (record) record[key] = hit; return revived(hit); }
   const live = shared(key, async () => {
-    const r = await fetch(url, init);
-    return { res: r, body: await r.text() };
+    const r = await fetchRead(url, init);
+    const t = await r.text();
+    timed(url, performance.now() - r.__t0, t.length,
+          (hit ? 'revalidate' : '') + (r.__tries > 1 ? ` ${r.__tries} attempts` : ''));
+    return { res: r, body: t };
   }).then(({ res, body }) => {
     // 2xx only, and only while the first paint is still being assembled: a 401
     // mid-token-refresh must never become the remembered answer, and neither
@@ -352,7 +412,12 @@ function prefetchTeamHours() {
   const [y, m] = monthStart.slice(0, 7).split('-').map(Number);
   const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
   Promise.all([
-    supa.rpc('hours_page', { p_from: monthStart, p_to: monthEnd }),
+    // the same thirteen keys team-hours.html asks for, not the whole payload:
+    // a hover should cost what the click will cost, not more
+    rpcParts('hours_page', { p_from: monthStart, p_to: monthEnd },
+      ['staff', 'comp_current', 'staff_hours_month', 'staff_hours_deal', 'staff_planned',
+       'staff_deal_planned', 'deal_labor', 'time_off', 'measured_before',
+       'staff_hours_deal_month', 'staff_deal_planned_month', 'deal_forecast', 'staff_rate_month']),
     supa.rpc('rev_proj_page', { p_from: monthStart, p_to: monthStart }),
   ]).then(([hp, rp]) => {
     if (hp.error || rp.error) return;

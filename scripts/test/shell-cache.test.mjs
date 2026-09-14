@@ -201,5 +201,35 @@ await sleep(300);
 ok('10b. and the refusal dropped the stale entry, so the next load is live',
    scSeen.length === 1 && scSeen[0] === '{"scopes":[1,2]}', JSON.stringify(scSeen));
 
+// ---- 11. a read that fails at the network is retried; a write is not ----
+await sleep(1600);
+store.clear(); store.set('sb-zytmlowigbfchfqcilrr-auth-token', JSON.stringify(session));
+let attempts = 0;
+globalThis.fetch = async (url, init) => {
+  const u = String(url);
+  if (u.includes('/rest/v1/')) {
+    attempts++;
+    if (attempts <= 2) throw new TypeError('Failed to fetch');
+  }
+  return realFetch(url, init);
+};
+answers = { '/rpc/labor_page': '{"roster":[]}' };
+el = mkEl(); wire = [];
+let lp = await supa.rpc('labor_page', { p_from: 'a', p_to: 'b' });
+ok('11a. a read survives two "Failed to fetch" in a row', !lp.error && lp.data && Array.isArray(lp.data.roster), JSON.stringify(lp.error));
+ok('11b. and it took three attempts, not one', attempts === 3, `${attempts} attempt(s)`);
+attempts = 0;
+let werr = null;
+try { const w = await supa.from('deals').update({ name: 'x' }).eq('id', '1'); werr = w.error; } catch (e) { werr = e; }
+ok('11c. a write is NOT retried — it is not safe to repeat', attempts === 1 && !!werr, `${attempts} attempt(s), error ${!!werr}`);
+attempts = 0;
+globalThis.fetch = async (url, init) => {
+  if (String(url).includes('/rest/v1/')) { attempts++; return new Response('', { status: 503 }); }
+  return realFetch(url, init);
+};
+await supa.rpc('labor_page', { p_from: 'a', p_to: 'b' });
+ok('11d. a 503 from the gateway is retried too', attempts === 3, `${attempts} attempt(s)`);
+globalThis.fetch = realFetch;
+
 console.log(fails ? `\n${fails} failure(s)` : `\nshell cache: all checks pass`);
 process.exit(fails ? 1 : 0);
