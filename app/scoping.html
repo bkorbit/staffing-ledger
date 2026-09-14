@@ -25,8 +25,8 @@ table.bands button { padding:1px 7px; font-size:11px; }
 /* the hour grids (demand, supply, drivers) share one column system: a fixed label
    column and equal month columns, so a month lands at the same x in every table */
 .sc-grid { table-layout:fixed; width:calc(220px + var(--extra, 0px) + var(--n, 1) * 66px + var(--tot, 66px)); max-width:none; }   /* fixed columns: a long add-row wraps instead of stretching a month; one month drops the total */
-.sc-grid.people { --extra:34px; }
-.sc-grid col.c-name { width:220px; } .sc-grid col.c-per { width:70px; } .sc-grid col.c-m, .sc-grid col.c-tot { width:66px; } .sc-grid col.c-x { width:34px; }
+.sc-grid.people { --extra:38px; }
+.sc-grid col.c-name { width:220px; } .sc-grid col.c-per { width:70px; } .sc-grid col.c-m, .sc-grid col.c-tot { width:66px; } .sc-grid col.c-x { width:38px; }
 .sc-grid th, .sc-grid td { padding:4px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; vertical-align:middle; }
 .sc-grid th:first-child, .sc-grid td:first-child { text-align:left; }
 .sc-grid th:not(:first-child), .sc-grid td:not(:first-child) { padding:3px 4px; }
@@ -45,7 +45,7 @@ table.bands button { padding:1px 7px; font-size:11px; }
 .sc-grid tr.dept .covbar b { display:block; height:100%; background:var(--brand-2); border-radius:4px; }
 .sc-addline-row { display:flex; align-items:center; gap:8px 14px; flex-wrap:wrap; }
 .sc-pickers { display:flex; gap:6px; flex-wrap:wrap; margin-left:auto; }
-.sc-pickers select { height:26px; font-size:11px; }
+.sc-pickers select { height:28px; font-size:11px; }
 .sc-grid tr.ph td:first-child { color:var(--slate); font-style:italic; }
 .sc-grid tr.auto input.hcell { color:var(--slate); font-style:italic; }
 .sc-grid td.addrow { background:var(--wash-row); padding:8px 10px 10px; }
@@ -89,7 +89,7 @@ h2.sc-eyebrow.inset14, h3.sc-eyebrow.inset14 { padding:12px 14px 0; margin:0; }
 /* one-click staffing suggestions */
 .sc-cands { display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap; }
 .sc-cands-l { font-family:var(--font-mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); margin-right:2px; }
-.sc-chip { display:inline-flex; align-items:center; gap:6px; height:26px; line-height:1; padding:0 10px; border:1px solid var(--line); border-radius:99px; background:var(--paper-raised); font-family:var(--font-body); font-size:11.5px; color:var(--ink); cursor:pointer; }
+.sc-chip { display:inline-flex; align-items:center; gap:6px; height:28px; line-height:1; padding:0 10px; border:1px solid var(--line); border-radius:99px; background:var(--paper-raised); font-family:var(--font-body); font-size:11.5px; color:var(--ink); cursor:pointer; }
 .sc-chip span { font-family:var(--font-mono); font-size:10px; color:var(--slate); }
 .sc-chip:hover { border-color:var(--brand-2); background:var(--mint); }
 .sc-section > .sc-panel, .sc-section .sc-deal { margin-bottom:12px; }
@@ -105,7 +105,7 @@ h2.sc-eyebrow.inset14, h3.sc-eyebrow.inset14 { padding:12px 14px 0; margin:0; }
 .sc-bar input.sc-titlein:focus { border-color:var(--brand-2); background:var(--paper-raised); }
 .sc-bar input.sc-titlein:disabled { background:transparent; color:var(--ink); }
 .sc-more { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-.sc-more > button, .sc-more > select { height:26px; font-size:10.5px; padding:0 9px; }
+.sc-more > button, .sc-more > select { height:28px; font-size:10.5px; padding:0 9px; }
 .sc-more > select { max-width:200px; }
 /* helpers that replace the inline styles the page kept repeating */
 .sc-panel.flush { padding:0; }
@@ -114,11 +114,19 @@ h2.sc-eyebrow.inset14, h3.sc-eyebrow.inset14 { padding:12px 14px 0; margin:0; }
 .sc-note.lead { margin-bottom:8px; }
 .chart-head.flush { padding:0 0 6px; }
 .sc-btn-sm { padding:3px 9px; font-size:11px; }
-.sc-x { display:inline-flex; align-items:center; justify-content:center; padding:0; width:24px; height:24px; min-width:24px; line-height:1; font-size:13px; color:var(--rust); border-color:var(--line); }   /* a real hit area for ×, glyph dead-centre */
+.sc-x { display:inline-flex; align-items:center; justify-content:center; padding:0; width:28px; height:28px; min-width:28px; line-height:1; font-size:13px; color:var(--rust); border-color:var(--line); }   /* a real hit area for ×, glyph dead-centre */
 .sc-x:hover { border-color:var(--rust); background:var(--rust-bg); color:var(--rust); }
 .sc-grid td > .sc-x { margin:0 auto; display:flex; }
 .nowrap { white-space:nowrap; }
 .sc-back { font-size:12px; }
+.sc-small { font-size:11px; } .sc-tiny { font-size:10.5px; }
+.sc-check { display:flex; align-items:center; gap:6px; font-size:11px; }
+.sc-check input[type="checkbox"] { height:auto; }
+.sc-check-w { min-width:190px; }
+.sc-wide { min-width:320px; max-width:100%; }
+.sc-file { height:auto; padding:4px; max-width:100%; }
+.sc-out { margin-top:12px; font-size:12px; }
+.sc-terms-text { white-space:pre-wrap; font-family:var(--font-body); font-size:13px; line-height:1.5; margin:0; }
 .summary-value .muted { font-size:12px; }
 .sc-linkbtn { border:none; background:none; padding:0; height:auto; color:var(--brand-2); text-decoration:underline; text-underline-offset:2px; font:inherit; cursor:pointer; }
 .sc-linkbtn:hover { color:var(--brand); }
@@ -277,7 +285,7 @@ boot('scoping', async (supa, el) => {
           ${TABS.map(([k, lab]) => `<button class="seg ${tab === k ? 'on' : ''}" data-tab="${k}" role="tab" aria-selected="${tab === k}">${lab}</button>`).join('')}
         </div>
         ${tab === 'quick' || tab === 'approvals' ? '' : `<input id="sc-q" type="text" placeholder="search…" value="${esc(L.q)}" style="max-width:240px" aria-label="Search">`}
-        ${onClient ? `<span class="pill">client: ${esc(clientName[onClient] || '?')}</span><a class="muted" href="#list" style="font-size:11px">all</a>` : ''}
+        ${onClient ? `<span class="pill">client: ${esc(clientName[onClient] || '?')}</span><a class="muted sc-small" href="#list">all</a>` : ''}
         <span style="flex:1"></span>
         <button class="ghost" data-go="#bench" title="Enrol live campaigns and upload their platform exports: the hours model is fitted on them">Benchmarks</button>
         ${onClient ? `<button class="ghost" data-go="#new?client=${onClient}">+ Scope for this client</button>` : ''}
@@ -299,7 +307,7 @@ boot('scoping', async (supa, el) => {
         <thead><tr><th>Company</th><th>Deal</th><th>Stage</th><th>Close</th><th>Amount</th><th>Campaign</th><th></th></tr></thead>
         <tbody>${pipeline.length ? pipeline.map(p => `<tr>
             <td class="textleft"><b>${esc(p.company || '—')}</b></td>
-            <td class="textleft">${esc(p.name)}${p.url ? ` <a href="${esc(p.url)}" target="_blank" rel="noopener" class="muted" style="font-size:10px">HubSpot ↗</a>` : ''}</td>
+            <td class="textleft">${esc(p.name)}${p.url ? ` <a href="${esc(p.url)}" target="_blank" rel="noopener" class="muted sc-tiny">HubSpot ↗</a>` : ''}</td>
             <td class="textleft">${p.is_won ? '<span class="pill st-pending">won · not promoted</span>' : `${esc(p.stage || '')}${p.probability != null ? ` <span class="muted">${Math.round(p.probability * 100)}%</span>` : ''}`}</td>
             <td class="muted nowrap">${esc(p.close_date || '—')}</td>
             <td>${p.amount != null ? fmt$(p.amount) : '—'}</td>
@@ -357,7 +365,7 @@ boot('scoping', async (supa, el) => {
           <td class="${(k.pal || 0) < 0 ? 'neg' : ''}">${fmt$(k.pal || 0)}</td>
           <td>${k.per_hour_c != null ? fmt$(k.per_hour_c) : '—'}</td>
           <td>${fmtH(k.hours)}</td>
-          <td class="textleft muted" style="font-size:10.5px">${(r.deals || []).map(d => `${esc(d.name)} (${esc(d.flight_start || '?')} → ${esc(d.flight_end || '?')})`).join('<br>')}</td>
+          <td class="textleft muted sc-tiny">${(r.deals || []).map(d => `${esc(d.name)} (${esc(d.flight_start || '?')} → ${esc(d.flight_end || '?')})`).join('<br>')}</td>
           <td class="nowrap">${isApp ? `<button class="primary sc-btn-sm" data-approve="${r.id}">Approve</button> <button class="ghost sc-btn-sm" data-sendback="${r.id}">Send back</button>` : '<span class="muted" style="font-size:10.5px">waiting for an approver</span>'}</td>
         </tr>`; }).join('') : `<tr><td colspan="9" class="empty-note">Nothing waiting. A scope lands here when someone presses Propose.</td></tr>`}</tbody></table></div></div>`;
   }
@@ -386,7 +394,7 @@ boot('scoping', async (supa, el) => {
         <label>hours / month (blank = benchmarks)<input id="qc-hours" type="number" step="any" inputmode="decimal" placeholder="estimate"></label>
         <label>&nbsp;<button class="primary" id="qc-run" style="height:30px">Check</button></label>
       </div>
-      <div id="qc-out" class="sc-note" style="margin-top:12px;font-size:12px"></div>
+      <div id="qc-out" class="sc-note sc-out"></div>
     </div>`;
   }
   function wireQuick() {
@@ -1228,8 +1236,8 @@ boot('scoping', async (supa, el) => {
     back.innerHTML = `<div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="tm-title">
       <div class="modal-head"><span class="modal-title" id="tm-title">Commercial terms — ${esc(S.name)}</span>
         <span class="sc-note">${esc(note)}</span><button class="mclose ghost">Close ✕</button></div>
-      <div class="modal-body"><pre id="tm-text" style="white-space:pre-wrap;font-family:var(--font-body);font-size:13px;line-height:1.5;margin:0">${esc(text)}</pre></div>
-      <div class="modal-foot"><span id="tm-msg" class="ok" style="font-size:12px"></span><button class="primary" id="tm-copy">Copy</button></div></div>`;
+      <div class="modal-body"><pre id="tm-text" class="sc-terms-text">${esc(text)}</pre></div>
+      <div class="modal-foot"><span id="tm-msg" class="ok sc-back"></span><button class="primary" id="tm-copy">Copy</button></div></div>`;
     document.body.appendChild(back);
     back.querySelector('.mclose').onclick = () => back.remove();
     back.onclick = e => { if (e.target === back) back.remove(); };
@@ -1331,6 +1339,7 @@ boot('scoping', async (supa, el) => {
     const driverCols = [...new Set(allParsed.flatMap(r => Object.values(r.months || {}).flatMap(d => Object.keys(d))))].sort();
     const coefs = D.coefficients || [];
     panel().innerHTML = `
+      <h1 class="sr-only">Benchmarks</h1>
       <div class="editorbar">
         <a href="#list" class="muted sc-back">← scopes</a>
         <span class="kbadge">Benchmarks</span>
@@ -1339,7 +1348,7 @@ boot('scoping', async (supa, el) => {
       <div class="sc-panel" style="margin:0 18px">
         <h2 class="sc-eyebrow">1 · Campaign</h2>
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-          <select id="bn-deal" style="min-width:320px;max-width:100%">
+          <select id="bn-deal" class="sc-wide" aria-label="Campaign to enrol">
             <option value="">— pick a live deal —</option>
             ${(D.deals || []).map(d => `<option value="${d.id}" ${d.id === B.dealId ? 'selected' : ''}>${d.enrolled ? '✓ ' : ''}${esc(d.client_name || '—')} — ${esc(d.name)}</option>`).join('')}
           </select>
@@ -1350,13 +1359,13 @@ boot('scoping', async (supa, el) => {
       ${deal ? `
       <div class="sc-panel" style="margin:14px 18px 0">
         <h2 class="sc-eyebrow">2 · Platforms, teams, files</h2>
-        <label class="mono" style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:8px"><input type="checkbox" id="bn-auto" ${B.excludeAuto ? 'checked' : ''} style="height:auto"> drop automated changes (API, scripts, rules) from change history — they are not a person's time</label>
+        <label class="mono sc-check"><input type="checkbox" id="bn-auto" ${B.excludeAuto ? 'checked' : ''} style="height:auto"> drop automated changes (API, scripts, rules) from change history — they are not a person's time</label>
         ${filePlatforms.map(pl => { const P = B.platforms[pl] || {}; const on = !!P.on;
           return `<div style="border-top:1px solid var(--line);padding:8px 0">
             <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-              <label class="mono" style="display:flex;align-items:center;gap:6px;min-width:190px"><input type="checkbox" data-bnpl="${pl}" ${on ? 'checked' : ''} style="height:auto"> ${esc(PLATFORMS[pl].label)}</label>
+              <label class="mono sc-check sc-check-w"><input type="checkbox" data-bnpl="${pl}" ${on ? 'checked' : ''} style="height:auto"> ${esc(PLATFORMS[pl].label)}</label>
               ${on ? `<label class="pf shape"><span class="pfl">team</span><select data-bnteam="${pl}">${depts.map(d => `<option ${((P.team || defaults[pl]) === d) ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select></label>
-                <input type="file" data-bnfile="${pl}" multiple accept=".csv,.tsv,.txt" style="height:auto;padding:4px;max-width:100%">
+                <input type="file" data-bnfile="${pl}" multiple accept=".csv,.tsv,.txt" class="sc-file" aria-label="${esc(PLATFORMS[pl].label)} export files">
                 <span class="sc-note">${esc(PLATFORMS[pl].hint)}</span>` : ''}
             </div>
             ${on && (P.parsed || []).length ? `<div class="sc-note gap6">${P.parsed.map(r => r.error
@@ -1365,12 +1374,12 @@ boot('scoping', async (supa, el) => {
           </div>`; }).join('')}
         <div style="border-top:1px solid var(--line);padding:8px 0">
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-            <span class="mono" style="min-width:190px;font-size:11px">Meetings, reports, creatives</span>
+            <span class="mono sc-check-w sc-small">Meetings, reports, creatives</span>
             <label class="pf shape"><span class="pfl">team</span><select id="bn-sigteam">${depts.map(d => `<option ${((B.signalsTeam || defaults.reporting || defaults.calendar) === d) ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select></label>
             <span class="sc-note">typed per month — client meetings held, reports / dashboards delivered, creatives delivered</span>
           </div>
           ${sigMonths.length ? `<div class="gridwrap gap6"><table class="sc-grid"><thead><tr><th>per month</th>${sigMonths.map(m => `<th>${mLabel(m)}</th>`).join('')}</tr></thead><tbody>
-            ${['meetings', 'reports', 'creatives_delivered'].map(k => `<tr><td class="textleft">${esc(DRIVER_LABELS[k])}</td>${sigMonths.map(m => `<td><input class="hcell" type="number" min="0" step="1" data-bnsig="${m}:${k}" value="${((B.signals[m] || {})[k]) ?? ''}"></td>`).join('')}</tr>`).join('')}
+            ${['meetings', 'reports', 'creatives_delivered'].map(k => `<tr><td class="textleft">${esc(DRIVER_LABELS[k])}</td>${sigMonths.map(m => `<td><input class="hcell" type="number" min="0" step="1" data-bnsig="${m}:${k}" aria-label="${esc(DRIVER_LABELS[k])}, ${mLabel(m)}" value="${((B.signals[m] || {})[k]) ?? ''}"></td>`).join('')}</tr>`).join('')}
             </tbody></table></div>` : `<div class="sc-note">months appear once a file is parsed (or from the flight's closed months)</div>`}
         </div>
       </div>
@@ -1398,7 +1407,7 @@ boot('scoping', async (supa, el) => {
               <td>${d.r2 != null ? (+d.r2).toFixed(2) : '—'}</td><td>${d.n}</td></tr>`) : [`<tr><td class="textleft">${esc(c.kind)}</td><td class="textleft">${esc(c.department)}</td><td>${c.n}</td><td colspan="4" class="muted">no drivers yet</td></tr>`]).join('')
             : `<tr><td colspan="7" class="empty-note">No observations yet — enrol a campaign above.</td></tr>`}</tbody></table></div>
         <div style="padding:10px 14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-          <select id="bn-fitdept"><option value="">fit a model for team…</option>${depts.map(d => `<option>${esc(d)}</option>`).join('')}</select>
+          <select id="bn-fitdept" aria-label="Team to fit a model for"><option value="">fit a model for team…</option>${depts.map(d => `<option>${esc(d)}</option>`).join('')}</select>
           <button class="ghost" id="bn-fit">Fit &amp; save</button>
           <span id="bn-fitmsg" class="sc-note">${(D.models || []).length ? 'models: ' + D.models.map(m => `<b>${esc(m.department)}</b> (${(m.kinds || []).join('/')}, n ${m.n}, r² ${m.r2 != null ? (+m.r2).toFixed(2) : '—'})`).join(', ') : 'no fitted models yet — the ratio estimator is used'}</span>
         </div>
@@ -1407,7 +1416,7 @@ boot('scoping', async (supa, el) => {
         <div class="gridwrap gap6"><table class="ledger">
           <thead><tr><th>deal</th><th>team</th><th>month</th><th>hours</th><th>drivers</th></tr></thead>
           <tbody>${D.observations.slice(0, 200).map(o => `<tr><td class="textleft">${esc(o.deal_name)}</td><td class="textleft">${esc(o.department)}</td><td>${mLabel(o.month)}</td><td>${fmtH(o.hours)}</td>
-            <td class="textleft muted" style="font-size:10px">${esc(Object.entries(o.drivers || {}).map(([k, v]) => `${DRIVER_LABELS[k] || k} ${k === 'spend' ? fmt$(v) : v}`).join(' · '))}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
+            <td class="textleft muted sc-tiny">${esc(Object.entries(o.drivers || {}).map(([k, v]) => `${DRIVER_LABELS[k] || k} ${k === 'spend' ? fmt$(v) : v}`).join(' · '))}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
       <div style="height:24px"></div>`;
 
     const p = panel();
