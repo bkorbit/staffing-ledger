@@ -7,6 +7,12 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
 - **App**: static ES-module pages in `app/`, served by GitHub Pages at
   https://bkorbit.github.io/staffing-ledger/app/. No bundler. `app/assets/shell.js`
   is the shared shell (auth, nav, helpers); `app/assets/style.css` the tokens.
+  supabase-js is VENDORED at `app/assets/vendor/supabase-js.min.mjs` (2.116.0,
+  MIT, rebuild recipe in its banner) — the jsdelivr import cost three serial
+  round trips before the first query. Every page head preconnects to Supabase
+  and to fonts.gstatic.com, `<link>`s Google Fonts directly (the @import inside
+  style.css put the fonts a round trip behind the CSS) and modulepreloads every
+  module it imports.
 - **DB**: Supabase project `zytmlowigbfchfqcilrr` (the ONLY project — an old one,
   bdtzpeazcjgnsxodwzpz, caused repeated wrong-project confusion; it should be/have
   been deleted). Anon key lives in `app/assets/shell.js`.
@@ -37,15 +43,30 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
 4. **Client and server math must agree digit-for-digit.** gpMonth/revMonth in
    `app/forecast.html` mirror `v_deal_month_forecast`. Change one → change both →
    run the SAME fixture on both.
-5. **Cache stamps**: every deploy re-stamps `?v=<short-sha>` on shell.js/style.css
-   in ALL app/*.html. The stamp once froze for a dozen deploys — users got stale
-   code and we debugged ghosts. `forecast.html` itself is NOT stamped (known gap;
-   GitHub Pages CDN can serve stale HTML — `?fresh=1` busts it manually).
+5. **Cache stamps**: `node scripts/stamp-assets.mjs` before every deploy commit —
+   it rewrites EVERY `?v=` in ALL app/*.html from the current short sha (not just
+   shell.js/style.css: a hand-edited sed only ever touched the filenames someone
+   remembered, and there are eight assets now). The stamp once froze for a dozen
+   deploys — users got stale code and we debugged ghosts. `forecast.html` itself
+   is NOT stamped (known gap; GitHub Pages CDN can serve stale HTML — `?fresh=1`
+   busts it manually).
 6. **Verify pushes**: after push, `git fetch && rev-parse HEAD == origin/main`.
 7. **Supabase returns max 1000 rows per request regardless of client limit.**
    Use the wave-parallel pager (fetchAll in shell.js) for anything unbounded.
 8. **Parallelize round trips** (the editor opens in ONE Promise.all wave with
    deal_line_months embedded in the deal_lines select).
+9. **A page asks for the keys it reads.** `rpcParts(name, args, [keys])` calls
+   db/109's `_parts` sibling; adding a payload key without naming it in the
+   caller's list means the page reads `undefined` and silently shows zero. The
+   key lists live at the call sites in index/client-profitability/project-hours/
+   team-hours.html.
+10. **Instant repeat loads are shell-owned.** shell.js hooks the Supabase
+   client's `fetch`: an opted-in page (`boot(id, main, { cache: true })`) paints
+   from the last visit's answers and re-runs `main` if a background answer
+   differs. So `main` must be safe to run TWICE against the same `#content` — a
+   window-level listener registered inside it needs a once-guard (project-hours'
+   resize). Writes clear every page's cache; write RPCs are never replayed (the
+   allowlist is `READ_RPCS`); `scripts/test/shell-cache.test.mjs` pins all of it.
 
 ## Domain truths (decided with Boris — do not re-litigate silently)
 - **Claims attribution**: a QBO project matched to a deal belongs to that deal's
@@ -139,10 +160,32 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   finds the same shape for any other deal.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 108. Key views/functions
+## Current migration head: 109. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
+- **109 is a speed-only migration**: every function it touches is asserted
+  byte-identical to the definition it replaced (109_fixture_test, plus all 27
+  older fixtures re-run unchanged). It added three primitives and one split:
+  `staff_day_rates(from, to, deal_ids)` — staff_hourly_cost per person-DAY, ONE
+  burden-stack call per (person, comp period, 401k, health-insurance) cohort,
+  which is exact because those three are the only things the breakdown reads the
+  date for; read by hours_page, project_detail and client_detail, so a deal's
+  labor is the same number on every page by construction.
+  `staff_cost_on_dates(dates[])` / `staff_base_labor_forecast_dates(dates[])` —
+  the same cohort trick per as-of DATE (a date array, not a month range:
+  labor_forecast_breakdown's series starts on today, not the 1st), replacing the
+  per-month calls in forecast_page / labor_forecast_breakdown / cashflow_forecast
+  (which was calling it per HALF-month). `line_fee` split into an inlinable
+  expression plus `line_fee_bands`: a SQL function whose body has a WITH clause
+  is NEVER inlined, so every row of v_deal_month_forecast paid ~38us — keep
+  line_fee free of WITH, FROM and subqueries or the whole app slows down again.
+  And `forecast_page_parts` / `hours_page_parts` (p_parts text[]): null is the
+  whole payload, a list builds only those keys AND skips their work, since an
+  un-taken CASE branch never evaluates its subquery. The two-argument
+  forecast_page / hours_page stay as one-line wrappers — 076_fixture_test
+  recreates that exact signature, and a defaulted third argument on the same
+  name would make forecast_page(a, b) ambiguous.
 - `v_deal_month_forecast` [100] — the commercial plan as money. Day-weighted
   media spread from 024; 058 stopped hidden deals leaking into the plan; 087
   split `pass_through` (rebilled search/social media: cash, never revenue) out
@@ -166,7 +209,7 @@ is always a new migration, so grep for the highest one before reading an old bod
   chart-of-accounts view that carries its answer (`ebitda_addback_auto`,
   `ebitda_addback_effective`) so the Forecast page's accounts panel never
   re-implements it in JS.
-- `forecast_page(p_from,p_to)` [100] — whole Forecast page in one jsonb.
+- `forecast_page(p_from,p_to)` / `forecast_page_parts(p_from,p_to,p_parts)` [109/100] — whole Forecast page in one jsonb.
   100 added `plan_month.rebate`, `plan_deal.rebate_all/rebate_future` (093's
   body otherwise verbatim); `project_detail`/`client_detail` [100] gained
   `rebate_plan` per month the same way.
@@ -179,14 +222,14 @@ is always a new migration, so grep for the highest one before reading an old bod
   the actual and the forecast half of the table's Value column). 093 dropped
   runrates.other and added addback_month + runrates.addback for the EBITDA
   line; 093_fixture_test proves everything else byte-identical to 092.
-- `cashflow_forecast(...)` [087] — half-month periods (016), programmatic COGS
+- `cashflow_forecast(...)` [109/087] — half-month periods (016), programmatic COGS
   terms knob (017), EB-shrunk per-client payment curves, overdue clamps, the
   same real labor numbers the Forecast uses (071), an opening position from
   `v_cash_accounts` [086] rather than QuickBooks' Bank type, and since 087 a
   contracted inflow of `billable + pass_through` plus a programmatic-only
   `out_contracted_cogs` (its `billable > gp` filter had been subtracting
   agency-funded search/social media from cash a second time).
-- `labor_page` / `labor_forecast_breakdown` / `staff_burdened_cost_breakdown` [077]
+- `labor_page` / `labor_forecast_breakdown` [109/077] / `staff_burdened_cost_breakdown` [077]
   — the Labor page, sourced entirely from Team setup, deliberately NOT tied to
   logged or planned hours.
 - `staff_annual_burdened_cost` / `staff_annual_labor_cost` [077], `staff_hourly_cost`
@@ -209,7 +252,7 @@ is always a new migration, so grep for the highest one before reading an old bod
   its pre-090 shape; it upserts then sweeps stale rows, so there is no blank
   window mid-run. `workflow_dispatch` input `trace` follows one client end to
   end in the log.
-- `hours_page` [108], `rev_proj_page` [092], `accounts_page` [084],
+- `hours_page` [109/108], `rev_proj_page` [092], `accounts_page` [084],
   `v_cash_accounts` [086]. 108 APPENDED to hours_page (090's body verbatim,
   108_fixture_test + the bed's identity check prove the old keys unchanged):
   `measured_before` (the server's current month), `staff_hours_deal_month`,
@@ -227,14 +270,14 @@ is always a new migration, so grep for the highest one before reading an old bod
   `profitModel` in `app/team-hours.html` (unit test lives in the scratchpad
   bed, numbers = 108_fixture_test's); a pre-108 payload falls back to the old
   whole-range rule.
-- `project_detail(deal_id)` [094] — one opened project on Project Hours: hours
+- `project_detail(deal_id)` [109/094] — one opened project on Project Hours: hours
   per ISO week per department (staff.department first, the entry's own QB Time
   department as fallback) and revenue/GP actual vs plan per month. The actual
   side restates forecast_page's rev_proj/cogs_proj per month for ONE project —
   same CTEs, same 080 fail-open rules — and 088_fixture_test asserts they agree
   to the cent. Per-person hours are NOT here; hours_page's staff_hours_deal /
   staff_deal_planned already carry them.
-- `client_detail(client_id)` [094] — project_detail unioned across a client's
+- `client_detail(client_id)` [109/094] — project_detail unioned across a client's
   deals for Client Profitability's open-client charts: hours per week per
   department over all deals; revenue/GP actual per DISTINCT claimed QB project
   (two deals on one project count it once), plan per deal. The unclaimed
@@ -456,6 +499,10 @@ is always a new migration, so grep for the highest one before reading an old bod
 - April 2026 has a −$795k below-the-line one-off ("Non Operating Loss" account,
   classified overhead → already in our chart). override_class to 'excluded' if
   Boris wants it out of the operating trend.
+- **A browser smoke test of every page is still open** — 095-109 have been
+  proved in the PGlite bed and by unit tests, never in a real browser against
+  prod. 109 must be applied in the SQL editor; until it is, the pages make one
+  failing `_parts` call each and fall back to the whole payload.
 - Nightly schedule for sync-hubspot.yml; QB Time sync rewrite; People /
   Departments pages are placeholders. **Scoping tool in progress** (plan in
   `~/.claude/plans/i-want-to-start-iridescent-sonnet.md`, 13 Sep 2026): Phase 1
