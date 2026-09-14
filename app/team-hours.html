@@ -206,10 +206,18 @@ boot('teamhours', async (supa, el) => {
     const seq = ++loadSeq;
     const cacheKey = `${rangeFrom}|${rangeTo}`;
     const cached = rangeCache.get(cacheKey) || takePrefetched(cacheKey);
-    if (cached) { rangeCache.set(cacheKey, cached); render(cached.H, cached.RP, deals, clients); return; }
+    // deals/clients are fetched once, on the first load, and reused for the
+    // life of the page. That first load can ALSO be served from the
+    // nav-hover prefetch (sessionStorage) — which carries only the hours
+    // payload, never deals/clients — so a cache hit must still wait for the
+    // static tables the first time through, or every expanded row reads
+    // "(unknown deal)" and the profit column is zero because no deal
+    // resolves to its QB project.
+    if (cached && staticLoaded) { rangeCache.set(cacheKey, cached); render(cached.H, cached.RP, deals, clients); return; }
     const panel = el.querySelector('#panel');
     if (panel) panel.classList.add('is-loading');
-    const calls = [
+    const calls = [];
+    if (!cached) calls.push(
       supa.rpc('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) }),
       // Team Hours only needs revenue-per-project (for the profit column),
       // not the whole Forecast page — forecast_page() also computes
@@ -218,19 +226,23 @@ boot('teamhours', async (supa, el) => {
       // single click. rev_proj_page (db/051) is a literal copy of just the
       // rev_proj piece.
       supa.rpc('rev_proj_page', { p_from: rangeFrom, p_to: rangeTo }),
-    ];
+    );
     if (!staticLoaded) calls.push(
       fetchAll(() => supa.from('deals').select('id,name,client_id,qbo_project_id')),
       supa.from('clients').select('id,name')
     );
     const results = await Promise.all(calls);
     if (seq !== loadSeq) return;
-    const [hp, rp, dl, cl] = results;
     for (const r of results) if (r.error) {
       el.innerHTML = `<div class="sc-panel err">${esc(r.error.message)}</div>`; return;
     }
-    if (!staticLoaded) { deals = dl.data || []; clients = cl.data || []; staticLoaded = true; }
-    const H = hp.data || {}, RP = rp.data || [];
+    let H, RP;
+    if (cached) { H = cached.H; RP = cached.RP; }
+    else { H = results[0].data || {}; RP = results[1].data || []; }
+    if (!staticLoaded) {
+      const [dl, cl] = results.slice(cached ? 0 : 2);
+      deals = dl.data || []; clients = cl.data || []; staticLoaded = true;
+    }
     rangeCache.set(cacheKey, { H, RP });
     render(H, RP, deals, clients);
   }
