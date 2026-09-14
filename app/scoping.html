@@ -479,19 +479,19 @@ boot('scoping', async (supa, el) => {
         </div>
         <span style="flex:1"></span>
         <span id="sc-msg" class="ok" role="status" aria-live="polite"></span>
-        ${ro ? '' : `<input class="vlabel" id="sc-label" type="text" placeholder="label this version (optional)" aria-label="Label for this saved version"><button class="primary" id="sc-save">Save</button>`}
-        ${S.status === 'draft' ? `<button class="ghost" id="sc-propose" title="Puts the scope in the Approvals queue">Propose</button>` : ''}
+        ${ro ? '' : `<input class="vlabel" id="sc-label" type="text" placeholder="note for this version (optional)" aria-label="Note for this saved version"><button class="primary" id="sc-save">Save</button>`}
+        ${S.status === 'draft' ? `<button class="ghost" id="sc-propose" title="Sends this scope to the Approvals queue; an approver reviews it there">Propose for approval</button>` : ''}
         ${S.status === 'proposed' ? `<button class="ghost" id="sc-draft">Back to draft</button>` : ''}
         ${S.status === 'proposed' && isApprover() ? `<button class="primary" id="sc-approve">Approve</button>` : ''}
         ${S.status === 'approved' && isApprover() ? `<button class="ghost" id="sc-unapprove">Un-approve</button>` : ''}
-        ${S.status === 'approved' && isApprover() ? `<button class="primary" id="sc-promote" title="Create the deals in the Forecast: HubSpot deals through the approval door, new deals as manual deals, re-scopes by extending the source deal">Promote</button>` : ''}
+        ${S.status === 'approved' && isApprover() ? `<button class="primary" id="sc-promote" title="Creates the deals in the Forecast: HubSpot deals through the approval door, new deals as manual deals, re-scopes by extending the source deal">Promote to Forecast</button>` : ''}
       </div>
             <div class="toolbar sc-subbar">
         <select id="sc-version" title="Versions" aria-label="Versions" style="font-size:11px">
           <option value="">v${S.version} (current)</option>
           ${(X.versions || []).filter(v => v.version !== S.version).map(v => `<option value="${v.id}">v${v.version} · ${esc(v.reason)}${v.label ? ' · ' + esc(v.label) : ''} · ${new Date(v.saved_at).toLocaleDateString()}</option>`).join('')}
         </select>
-        <button class="ghost" id="sc-terms" title="The commercial terms this scope implies, as plain sentences (templates on Settings › Scoping)">Terms</button>
+        <button class="ghost" id="sc-terms" title="The commercial terms this scope implies, as plain sentences (templates on Settings › Scoping)">Commercial terms</button>
         ${canDelete(S, X.settings.approvers) ? `<button class="ghost muted" id="sc-delete" title="Delete this scope and every version of it${S.status === 'approved' ? ' — its reserved hours leave Hour Planning' : ''}">Delete</button>` : ''}
         ${S.status === 'proposed' ? `<span class="sc-note">proposed ${S.proposed_at ? new Date(S.proposed_at).toLocaleDateString() : ''} by ${esc(S.proposed_by || '—')} — waiting in <a href="#list" data-tab-link="approvals">Approvals</a></span>` : ''}
       </div>
@@ -501,7 +501,7 @@ boot('scoping', async (supa, el) => {
         <div class="sc-panel flush sc-verdictblock">
           <div class="summary-strip sc-ribbon" id="sc-strip">${stripCells()}</div>
           <div class="chartpanel" id="sc-verdictpanel">${verdictPanelInner()}</div>
-          <div id="sc-dirty" class="sc-foot" style="display:none">unsaved changes — everything below follows your edits (labor and the verdict a moment behind); Save keeps a version</div>
+          <div id="sc-dirty" class="sc-foot" style="display:none">Unsaved changes. Money updates as you type; labor and the verdict follow a moment later. Save keeps a version.</div>
         </div>
         ${existingDealsHtml(T, clientName, ro)}
       </section>
@@ -596,7 +596,7 @@ boot('scoping', async (supa, el) => {
             <td>${ph(r.pal, +r.hours_measured + +r.hours_plan)}</td></tr>`).join('')}
           <tr class="subrow"><td class="textleft"><b>this scope</b></td><td class="muted">${esc((S.deals[0] || {}).flight_start || '')} → ${esc((S.deals[0] || {}).flight_end || '')}</td>
             <td>${fmt$(scGp)}</td><td>${fmt$(scLab)}</td><td>${fmtH(scH)}</td><td class="${(T.pal || 0) < 0 ? 'neg' : ''}"><b>${fmt$(T.pal || 0)}</b></td><td>${ph(T.pal || 0, scH)}</td></tr>
-          <tr class="gp"><td class="textleft"><b>client with this scope</b></td><td></td>
+          <tr class="gp"><td class="textleft"><b>client total with this scope</b></td><td></td>
             <td><b>${fmt$(exGp + scGp)}</b></td><td><b>${fmt$(exLab + scLab)}</b></td><td><b>${fmtH(exH + scH)}</b></td>
             <td class="${(exGp + scGp - exLab - scLab) < 0 ? 'neg' : ''}"><b>${fmt$(exGp + scGp - exLab - scLab)}</b><div class="sc-hint">was ${fmt$(exGp - exLab)} without it</div></td>
             <td><b>${ph(exGp + scGp - exLab - scLab, exH + scH)}</b>${exH > 0 ? `<div class="sc-hint">was ${ph(exGp - exLab, exH)}</div>` : ''}</td></tr>
@@ -604,13 +604,24 @@ boot('scoping', async (supa, el) => {
     </div>`;
   }
 
+  // The verdict in the reader's words. "Unclear" splits into what is actually
+  // missing; the notes name the failing check and, where it helps, the fix.
+  function verdictLabel(V) {
+    const c = V.checks || {};
+    if (!V.status) return '—';
+    if (V.status === 'unclear') return c.has_hours === false ? 'Needs hours' : c.unpriced ? 'Unpriced hours' : 'Unclear';
+    return STATUS_LABEL[V.status] || V.status;
+  }
   function verdictNotes(V) {
     const c = V.checks || {}, bits = [];
-    if (c.staff_unclear) bits.push('staff plan unclear');
-    if (c.capacity_ok === false) bits.push('someone is over capacity');
-    if (c.client_ok === false) bits.push('client roll-up goes negative');
-    if (c.monthly_positive === false && c.overall_positive !== false) bits.push('a month loses money');
-    if (c.unpriced) bits.push('hours nobody can price');
+    if (V.status === 'unclear' && c.has_hours === false) return 'type hours under The work to get a verdict';
+    if (c.unpriced) bits.push('some hours have no rate yet (an empty department, or a person without comp)');
+    if (c.overall_positive === false) bits.push('loses money over the flight');
+    else if (c.per_hour_ok === false && c.has_hours) bits.push('under the profit-per-hour target');
+    if (c.monthly_positive === false && c.overall_positive !== false) bits.push('one month loses money');
+    if (c.capacity_ok === false) bits.push('a named person is over capacity');
+    if (c.client_ok === false) bits.push('the client as a whole would lose money in a month');
+    if (c.staff_unclear) bits.push('some hours are not on a named person yet');
     return bits.join(' · ') || (V.status === 'go' ? 'clears every check' : '');
   }
 
@@ -634,7 +645,7 @@ boot('scoping', async (supa, el) => {
     const short = +(T.fee_shortfall || 0);
     const under = T.per_hour_c != null && T.per_hour_c < target;
     return `
-        <div class="summary-cell"><div class="summary-label">Verdict</div><div class="summary-value"><span class="pill ${STATUS_PILL[V.status] || ''}" style="font-size:12px">${esc(STATUS_LABEL[V.status] || '—')}</span></div>
+        <div class="summary-cell"><div class="summary-label">Verdict</div><div class="summary-value"><span class="pill ${STATUS_PILL[V.status] || ''}" style="font-size:12px">${esc(verdictLabel(V))}</span></div>
           <div class="summary-note">${verdictNotes(V)}</div></div>
         <div class="summary-cell" title="Profit after labor ÷ planned hours, against the company target (Settings › Scoping)"><div class="summary-label">Profit per hour</div>
           <div class="summary-value ${under || (T.pal || 0) < 0 ? 'neg' : ''}">${T.per_hour_c != null ? fmt$(T.per_hour_c) + '<span class="muted">/h</span>' : '—'}</div>
@@ -643,10 +654,10 @@ boot('scoping', async (supa, el) => {
           <div class="summary-note">${T.hours ? `${fmtH(T.hours)} over ${nMonths} month${nMonths === 1 ? '' : 's'}` : 'no hours planned'}</div></div>
         <div class="summary-cell"><div class="summary-label">Revenue</div><div class="summary-value" data-out="rev">${fmt$(T.billable || 0)}</div><div class="summary-note" data-out="pass"></div></div>
         <div class="summary-cell"><div class="summary-label">Gross profit</div><div class="summary-value" data-out="gp">${fmt$(T.gp || 0)}</div><div class="summary-note" data-out="rebate">${+T.rebate ? `rebate −${fmt$(T.rebate)}` : ''}</div></div>
-        <div class="summary-cell" title="Named people at their burdened cost, placeholders and uncovered demand at department averages — one number, never per person"><div class="summary-label">Labor</div><div class="summary-value">${fmt$(T.labor || 0)}</div><div class="summary-note">${fmtH(T.hours)}${+T.open_hours ? ` · ${fmtH(T.open_hours)} not yet named` : ''}${T.labor_lo != null && T.labor_lo !== T.labor_hi ? ` · range ${fmt$(T.labor_lo)}–${fmt$(T.labor_hi)}` : ''}</div></div>
+        <div class="summary-cell" title="Named people at their burdened cost, placeholders and uncovered demand at department averages — one number, never per person"><div class="summary-label">Labor</div><div class="summary-value">${fmt$(T.labor || 0)}</div><div class="summary-note">${fmtH(T.hours)}${+T.open_hours ? ` · ${fmtH(T.open_hours)} not yet on a named person` : ''}${T.labor_lo != null && T.labor_lo !== T.labor_hi ? ` · range ${fmt$(T.labor_lo)}–${fmt$(T.labor_hi)}` : ''}</div></div>
         <div class="summary-cell" title="The fee that covers each month's labor at the chosen margin — the highest month sets the contractual minimum"><div class="summary-label">Minimum fee</div>
           <div class="summary-value ${short > 0 ? 'neg' : ''}">${T.min_fee_max != null ? fmt$(T.min_fee_max) + '<span class="muted">/mo</span>' : '—'}</div>
-          <div class="summary-note">${esc(preset || '—')}${T.fee != null ? ` · planned fee ${fmt$(Math.round(T.fee / nMonths))}/mo avg` : ''}${short > 0 ? ` · <b style="color:var(--rust)">short ${fmt$(short)}</b> over the flight` : ''}</div></div>`;
+          <div class="summary-note">${T.min_fee_max != null ? `covers labor at ${(V.targets || {}).min_margin_pct ?? '—'}% margin (${esc(preset || '—')})` : 'needs hours'}${T.fee != null && T.min_fee_max != null ? ` · you charge ${fmt$(Math.round(T.fee / nMonths))}/mo avg` : ''}${short > 0 ? ` · <b style="color:var(--rust)">short ${fmt$(short)}</b> over the flight` : ''}</div></div>`;
   }
   function verdictPanelInner() {
     const V = X.verdict || {}, T = V.total || {};
@@ -660,8 +671,8 @@ boot('scoping', async (supa, el) => {
 
   // ---- deal + line cards ---------------------------------------------------
   function dealHtml(d, di, ro) {
-    const modes = d.origin_kind === 'hubspot' ? [['hubspot', 'promote through HubSpot approval']]
-      : d.origin_kind === 'deal' ? [['extend', 'extend the existing deal'], ['new', 'new deal']] : [['new', 'new deal']];
+    const modes = d.origin_kind === 'hubspot' ? [['hubspot', 'through the HubSpot approval']]
+      : d.origin_kind === 'deal' ? [['extend', 'extend the existing deal'], ['new', 'a new deal in the Forecast']] : [['new', 'a new deal in the Forecast']];
     const src = d.origin_kind === 'hubspot' ? (X.sources.pipeline || []).find(p => p.hubspot_deal_id === d.hubspot_deal_id)
       : d.origin_kind === 'deal' ? (X.sources.deals || []).find(x => x.id === d.source_deal_id) : null;
     const months = monthsBetween(d.flight_start, d.flight_end);
@@ -678,7 +689,7 @@ boot('scoping', async (supa, el) => {
         <label class="name">deal name<input class="dname" data-f="deal:${di}:name" value="${esc(d.name)}" ${ro ? 'disabled' : ''}></label>
         <label>flight start<input type="date" data-f="deal:${di}:flight_start" value="${esc(d.flight_start || '')}" ${ro ? 'disabled' : ''}></label>
         <label>flight end<input type="date" data-f="deal:${di}:flight_end" value="${esc(d.flight_end || '')}" ${ro ? 'disabled' : ''}></label>
-        <label>on promote<select data-f="deal:${di}:promote_mode" ${ro ? 'disabled' : ''}>
+        <label>when promoted<select data-f="deal:${di}:promote_mode" ${ro ? 'disabled' : ''}>
           ${modes.map(([v, lab]) => `<option value="${v}" ${d.promote_mode === v ? 'selected' : ''}>${lab}</option>`).join('')}</select></label>
         ${!d.promoted_deal_id && X.qbo && d.promote_mode !== 'extend' ? `<label>QuickBooks project${d.promote_mode === 'hubspot' ? ' (required)' : ''}
           <input list="sc-qbo-list" data-qbo="${di}" placeholder="type to search…" value="${esc(((X.qbo || []).find(p => p.id === d.qbo_project_id) || {}).name || '')}"></label>` : ''}
@@ -697,21 +708,21 @@ boot('scoping', async (supa, el) => {
     const dis = ro ? 'disabled' : '';
     const bits = [];
     if (l.kind === 'creative') bits.push(pf('structure', `<select data-f="line:${di}:${li}:cmode" ${dis}><option value="retainer" ${!isHourlyL(l) ? 'selected' : ''}>retainer $/mo</option><option value="hourly" ${isHourlyL(l) ? 'selected' : ''}>hourly</option></select>`, 'shape'));
-    if (l.kind === 'search' || l.kind === 'social') bits.push(pf('media funding', `<select data-f="line:${di}:${li}:media_funding" ${dis}><option value="client" ${l.media_funding !== 'agency' ? 'selected' : ''}>client pays</option><option value="agency" ${l.media_funding === 'agency' ? 'selected' : ''}>EMG pays &amp; rebills</option></select>`, 'shape'));
+    if (l.kind === 'search' || l.kind === 'social') bits.push(pf('media funding', `<select data-f="line:${di}:${li}:media_funding" ${dis}><option value="client" ${l.media_funding !== 'agency' ? 'selected' : ''}>client pays the platforms</option><option value="agency" ${l.media_funding === 'agency' ? 'selected' : ''}>EMG pays and rebills the client</option></select>`, 'shape'));
     if (l.kind === 'hourly') bits.push(pf('work', `<input type="text" data-f="line:${di}:${li}:label" value="${esc(l.label || '')}" placeholder="e.g. SEO audit" maxlength="80" ${dis}>`, 'work'));
     if (isFlatL(l)) bits.push(pf('$ / flight month', inp(di, li, 'amount', dollars(l.amount), dis)));
     if (l.kind === 'retainer') {
       bits.push(pf('hours included / mo', inp(di, li, 'hours_included', l.hours_included ?? '', dis + ' title="terms only: printed as “up to N hours/month”"')));
       bits.push(pf('overage $ / hr', inp(di, li, 'overage_rate', dollars(l.overage_rate), dis + ' title="terms only"')));
     }
-    if (isHourlyL(l)) { bits.push(pf('rate $ / hr', inp(di, li, 'rate', dollars(l.rate), dis))); bits.push(pf('hrs / month', inp(di, li, 'hours_per_month', l.hours_per_month ?? '', dis))); }
+    if (isHourlyL(l)) { bits.push(pf('rate $ / hr', inp(di, li, 'rate', dollars(l.rate), dis))); bits.push(pf('hours / month', inp(di, li, 'hours_per_month', l.hours_per_month ?? '', dis))); }
     let structureHtml = '';
     if (l.kind === 'search' || l.kind === 'social') {
       const mode = (st.fee && st.fee.mode) || 'flat';
-      bits.push(pf('fee structure', `<select data-f="line:${di}:${li}:fee_mode" ${dis}><option value="flat" ${mode === 'flat' ? 'selected' : ''}>flat %</option><option value="marginal" ${mode === 'marginal' ? 'selected' : ''}>marginal bands</option><option value="whole" ${mode === 'whole' ? 'selected' : ''}>whole-spend band</option></select>`, 'shape'));
+      bits.push(pf('fee structure', `<select data-f="line:${di}:${li}:fee_mode" ${dis}><option value="flat" ${mode === 'flat' ? 'selected' : ''}>flat %</option><option value="marginal" ${mode === 'marginal' ? 'selected' : ''}>tiered — each band its own %</option><option value="whole" ${mode === 'whole' ? 'selected' : ''}>tiered — one % for all spend, set by the band</option></select>`, 'shape'));
       if (mode === 'flat') bits.push(pf('fee %', inp(di, li, 'fee_pct', l.fee_pct ?? '', dis)));
       else structureHtml += bandsTable(di, li, st, dis);
-      bits.push(pf('min fee $ / mo', inp(di, li, 'fee_min', dollars(st.fee_min), dis)));
+      bits.push(pf('minimum fee $ / mo', inp(di, li, 'fee_min', dollars(st.fee_min), dis)));
       bits.push(pf('fee cap $ / mo', inp(di, li, 'fee_cap', dollars(st.fee_cap), dis)));
     }
     if (l.kind === 'programmatic') {
@@ -725,7 +736,7 @@ boot('scoping', async (supa, el) => {
     const cellKey = MEDIA(l.kind) ? 'budget' : isHourlyL(l) ? 'hours' : 'amount';
     const total = months.reduce((s, m) => s + (+((l.months[m] || {})[cellKey]) || 0), 0);
     const totalBox = (MEDIA(l.kind) || isHourlyL(l))
-      ? pf(MEDIA(l.kind) ? (l.kind === 'programmatic' ? 'Total budget $' : 'Campaign budget $') : 'total hours (spread)',
+      ? pf(MEDIA(l.kind) ? (l.kind === 'programmatic' ? 'Total budget $' : 'Campaign budget $') : 'total hours (spread evenly)',
           `<input class="totalbudget" type="number" step="any" inputmode="decimal" data-f="line:${di}:${li}:total" value="${MEDIA(l.kind) ? (total ? total / 100 : '') : (total || '')}" placeholder="${MEDIA(l.kind) ? 'spread by days in market' : 'spread evenly'}" ${dis}>`, 'tb')
       : '';
     const cells = months.map(m => { const v = (l.months[m] || {})[cellKey];
@@ -738,11 +749,11 @@ boot('scoping', async (supa, el) => {
       : MEDIA(l.kind) ? ['changes', 'active_campaigns', l.kind === 'social' ? 'ad_sets' : 'ad_groups', 'ads_live', 'creatives_refreshed', 'markets']
       : ['meetings', 'reports', 'creatives_delivered'];
     const anyDrv = months.some(m => l.months[m] && l.months[m].drivers && Object.keys(l.months[m].drivers).some(k => k !== 'spend'));
-    const drivers = months.length ? `<details class="permonth" ${anyDrv ? 'open' : ''}><summary>drivers for the hours estimate${anyDrv ? ' ✓' : ''}</summary>
+    const drivers = months.length ? `<details class="permonth" ${anyDrv ? 'open' : ''}><summary>what runs each month — for the hours estimate${anyDrv ? ' ✓' : ''}</summary>
         <div class="gridwrap gap6"><table class="sc-grid"><thead><tr><th>per month</th>${months.map(m => `<th>${mLabel(m)}</th>`).join('')}</tr></thead><tbody>
         ${DRV.map(k => `<tr><td class="textleft">${esc(DRIVER_LABELS[k] || k)}</td>${months.map(m => `<td><input class="hcell" type="number" min="0" step="1" inputmode="numeric" data-drv="${di}:${li}:${m}:${k}" aria-label="${esc(DRIVER_LABELS[k] || k)}, ${mLabel(m)}" value="${((l.months[m] || {}).drivers || {})[k] ?? ''}" ${dis}></td>`).join('')}</tr>`).join('')}
         </tbody></table></div>
-        ${dis ? '' : `<div class="cardnote"><button class="ghost" data-act="drvfill:${di}:${li}">copy the first month to every month</button> — counts of what will be live and how often it changes; the estimate uses the client's own campaigns first, then everyone's</div>`}
+        ${dis ? '' : `<div class="cardnote"><button class="ghost" data-act="drvfill:${di}:${li}">copy the first month to every month</button> — counts of what will be live and how often it changes; the estimate learns from this client's own campaigns first</div>`}
       </details>` : '';
     return `<div class="linecard" data-li="${li}">
       <div class="cardhead"><span class="chleft"><span class="kbadge" data-out="kbadge:${di}:${li}">${esc(kindLabel(l))}</span>${l.kind === 'programmatic' ? `<span class="pill margintag" data-out="margintag:${di}:${li}"></span>` : ''}</span>
@@ -775,7 +786,7 @@ boot('scoping', async (supa, el) => {
     // lines — rows appear as soon as a line exists, hours still to be filled
     const auto = new Set(autoDepartments());
     const depts = [...new Set([...S.dept_months.map(r => r.department), ...auto])].sort();
-    if (!depts.length) return `<tr><td colspan="${months.length + 3}" class="empty-note">Add a line above — its teams appear here.</td></tr>`;
+    if (!depts.length) return `<tr><td colspan="${months.length + 3}" class="empty-note">Add a line under The deal — its departments appear here.</td></tr>`;
     return depts.map(dep => {
       const vals = months.map(m => { const r = S.dept_months.find(x => x.department === dep && x.month === m); return r ? +r.hours : null; });
       const tot = vals.reduce((s, v) => s + (v || 0), 0);
@@ -793,7 +804,7 @@ boot('scoping', async (supa, el) => {
     const sb = staffById();
     const auto = new Set(autoDepartments());
     const depts = departments().filter(dep => auto.has(dep) || S.dept_months.some(r => r.department === dep) || S.staff_months.some(r => r.department === dep));
-    if (!depts.length) return `<tr><td colspan="${months.length + 3}" class="empty-note">Add a line above — its teams appear here.</td></tr>`;
+    if (!depts.length) return `<tr><td colspan="${months.length + 3}" class="empty-note">Add a line under The deal — its departments appear here.</td></tr>`;
     const capBy = {}; ((X.verdict || {}).capacity || []).forEach(c => capBy[`${c.staff_id}|${c.month}`] = c);
     const cands = (X.staffing && X.staffing.candidates) || [];
     return depts.map(dep => {
@@ -819,7 +830,7 @@ boot('scoping', async (supa, el) => {
               return `<td><input class="hcell" type="number" min="0" step="0.5" inputmode="decimal" data-ph="${esc(band)}|${dep}|${m}" value="${r ? +r.hours : ''}" aria-label="${esc(band || 'department average')} placeholder, ${esc(dep)}, ${mLabel(m)}, hours" ${ro ? 'disabled' : ''}></td>`; }).join('')}
             <td><b data-ptot="${esc(band)}|${esc(dep)}">${fmtH(rows.filter(x => !x.staff_id && (x.band || '') === band).reduce((s2, r) => s2 + (+r.hours || 0), 0))}</b></td>
             <td>${ro ? '' : `<button class="ghost sc-x" data-act="rmph:${esc(band)}:${esc(dep)}" aria-label="Remove the ${esc(band || 'department average')} placeholder from ${esc(dep)}">×</button>`}</td></tr>`).join('')}
-        <tr class="gap"><td class="textleft">not yet planned</td>
+        <tr class="gap"><td class="textleft">not yet covered</td>
           ${months.map(m => { const g = Math.max(demand(m) - supplied(m), 0); return `<td class="${g > 0.005 ? 'bad' : ''}">${g > 0.005 ? fmtH(g) : '—'}</td>`; }).join('')}
           <td>${(() => { const g = months.reduce((s, m) => s + Math.max(demand(m) - supplied(m), 0), 0); return g > 0.005 ? `<b style="color:var(--rust)">${fmtH(g)}</b>` : '—'; })()}</td><td></td></tr>
         ${ro ? '' : `<tr><td colspan="${months.length + 3}" class="textleft addrow">
@@ -917,7 +928,7 @@ boot('scoping', async (supa, el) => {
   }
   async function runPreview() {
     const seq = ++previewSeq;
-    msg('pricing…');
+    msg('updating the verdict…');
     const { data, error } = await supa.rpc('preview_scope', { p_payload: payload(), p_by: window.__email });
     if (seq !== previewSeq) return;   // typed again since — a newer preview is on its way
     if (error || !data || !data.ok) { msg(error ? error.message : (data && data.reason) || 'preview failed', true); return; }
@@ -1117,7 +1128,7 @@ boot('scoping', async (supa, el) => {
   }
   async function estimateHours() {
     if (dirty && !(await save(''))) return;
-    msg('estimating…');
+    msg('estimating hours from the benchmarks…');
     const data = await serverAct('estimate');
     if (!data) return;
     const methods = [...new Set((data.detail || []).map(d => d.method))];
@@ -1128,14 +1139,14 @@ boot('scoping', async (supa, el) => {
     msg('saving…');
     const data = await serverAct('save', { payload: payload(), label: label || null });
     if (!data) return false;
-    msg(`saved v${data.version}`);
+    msg(`Saved · version ${data.version}`);
     return true;
   }
   async function setStatus(status) {
     if (dirty && !(await save(''))) return;
     const data = await serverAct(status === 'proposed' ? 'propose' : 'draft');
     if (!data) return;
-    msg(status);
+    msg(status === 'proposed' ? 'Proposed · it is now in the Approvals queue' : 'Back to draft');
   }
   async function approve() {
     if (dirty && !(await save(''))) return;
@@ -1147,7 +1158,7 @@ boot('scoping', async (supa, el) => {
     if (!confirm(`Approve this scope?${warn.length ? '\n\n• ' + warn.join('\n• ') : ''}\n\nNamed hours are reserved in Hour Planning.`)) return;
     const data = await serverAct('approve');
     if (!data) return;
-    msg(`approved · ${data.assignments_written} person-months reserved in Hour Planning`);
+    msg(`Approved · ${data.assignments_written} person-months reserved in Hour Planning`);
   }
   // Commercial terms (102): the server words them from the saved scope; an
   // approved scope shows the text frozen at approval. Copy goes to the clipboard.
@@ -1187,29 +1198,29 @@ boot('scoping', async (supa, el) => {
       const inp = panel().querySelector(`input[data-qbo="${di}"]`);
       const name = inp ? inp.value.trim().toLowerCase() : '';
       const id = name ? byName[name] : null;
-      if (name && !id) { msg(`"${inp.value}" is not an unclaimed QuickBooks project`, true); return; }
-      if (d.promote_mode === 'hubspot' && !id && !d.qbo_project_id) { msg(`pick the QuickBooks project for ${d.name}`, true); return; }
+      if (name && !id) { msg(`"${inp.value}" is not an unclaimed QuickBooks project — pick one from the list`, true); return; }
+      if (d.promote_mode === 'hubspot' && !id && !d.qbo_project_id) { msg(`${d.name} needs a QuickBooks project before it can promote`, true); return; }
       if (id) projects[d.id] = id;
     }
     const what = S.deals.filter(d => !d.promoted_deal_id).map(d => `• ${d.name}: ${d.promote_mode === 'hubspot' ? 'through the HubSpot approval door' : d.promote_mode === 'extend' ? 'extend the existing deal from this month' : 'new deal in the Forecast'}`).join('\n');
     if (!confirm(`Promote this scope? All or nothing.\n\n${what}\n\nThe reserved hours move onto the deal in Hour Planning.`)) return;
-    msg('promoting…');
+    msg('promoting to the Forecast…');
     const data = await serverAct('promote', { projects });
     if (!data) return;
     const ids = data.deal_ids || [];
-    msg(`promoted · ${ids.length} deal${ids.length === 1 ? '' : 's'} in the Forecast`);
+    msg(`Promoted · ${ids.length} deal${ids.length === 1 ? '' : 's'} now in the Forecast`);
   }
   async function unapprove() {
     if (!confirm('Un-approve? The reserved hours leave Hour Planning and the scope becomes editable.')) return;
     const data = await serverAct('unapprove');
     if (!data) return;
-    msg('un-approved');
+    msg('Un-approved · the reserved hours are released and the scope is editable');
   }
   async function autoStaff() {
     if (dirty && !(await save(''))) return;
     const data = await serverAct('auto_staff');
     if (!data) return;
-    msg(`auto-staffed ${data.rows_written} person-months`);
+    msg(`Auto-staffed ${data.rows_written} person-months · review the people, then Save`);
   }
   async function clearAuto() { S.staff_months = S.staff_months.filter(r => r.source !== 'auto'); markDirty(); renderEditor(); }
   async function newScenario() {
@@ -1237,7 +1248,7 @@ boot('scoping', async (supa, el) => {
     S.deals = (S.deals || []).map(d => ({ ...d, lines: (d.lines || []).map(l => ({ ...l, structure: l.structure || {}, months: l.months || {} })) }));
     S.dept_months = S.dept_months || []; S.staff_months = S.staff_months || [];
     markDirty(); renderEditor(); markDirty();
-    msg(`showing v${data.version} — Save to keep it`);
+    msg(`Showing version ${data.version} — Save to keep it, or reload to discard`);
   }
 
   // ---- bench mode: enrol a campaign, upload its exports, see the coefficients --
