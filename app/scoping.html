@@ -1383,6 +1383,8 @@ boot('scoping', async (supa, el) => {
   // exports are being matched to.
   function renderBench() {
     const D = B.data, defaults = (D.settings && D.settings.platform_team_defaults) || {};
+    // the team a platform's hours are matched to: Settings › Scoping, else the group it sits in
+    const teamFor = pl => defaults[pl] || PLATFORMS[pl].group;
     const deal = (D.deals || []).find(d => d.id === B.dealId) || null;
     const enrolled = deal ? (D.enrolled || []).find(e => e.deal_id === deal.id) : null;
     const depts = D.departments || [];
@@ -1398,7 +1400,7 @@ boot('scoping', async (supa, el) => {
     const platformRow = pl => { const P = B.platforms[pl] || {}; const on = !!P.on; const ups = uploadsFor(pl);
       return `<div class="bn-row">
           <label class="mono sc-check bn-plat"><input type="checkbox" data-bnpl="${pl}" ${on ? 'checked' : ''}> ${esc(PLATFORMS[pl].label)}</label>
-          ${on ? `<label class="pf shape"><span class="pfl">team</span><select data-bnteam="${pl}" aria-label="Team that runs ${esc(PLATFORMS[pl].label)}">${depts.map(d => `<option ${((P.team || defaults[pl]) === d) ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select></label>
+          ${on ? `<label class="pf shape"><span class="pfl">team</span><select data-bnteam="${pl}" aria-label="Team that runs ${esc(PLATFORMS[pl].label)}">${depts.map(d => `<option ${((P.team || teamFor(pl)) === d) ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select></label>
                  <input type="file" data-bnfile="${pl}" multiple accept=".csv,.tsv,.txt" class="sc-file" aria-label="${esc(PLATFORMS[pl].label)} export files">` : ''}
           ${ups.length ? ups.map(u => `<span class="pill good" title="${esc(u.filename || '')} · ${esc(u.parser || '')} · ${u.row_count || 0} rows">recorded → ${esc(u.department)} · ${u.month_from ? mLabel(u.month_from) : '?'}–${u.month_to ? mLabel(u.month_to) : '?'}</span>`).join('') : ''}
           <span class="sc-note bn-hint">${esc(PLATFORMS[pl].hint)}</span>
@@ -1436,7 +1438,7 @@ boot('scoping', async (supa, el) => {
         ${allParsed.some(r => !r.error) ? Object.entries(B.platforms).filter(([, P]) => P.on && (P.parsed || []).some(r => !r.error)).map(([pl, P]) => {
           const merged = mergeMonths(P.parsed.filter(r => !r.error)); const ms = Object.keys(merged).sort();
           const cols = [...new Set(ms.flatMap(m => Object.keys(merged[m])))].sort();
-          return `<div class="sc-note gap6"><b>${esc(PLATFORMS[pl].label)}</b> → ${esc(P.team || defaults[pl] || '?')}</div>
+          return `<div class="sc-note gap6"><b>${esc(PLATFORMS[pl].label)}</b> → ${esc(P.team || teamFor(pl))}</div>
             <div class="gridwrap" style="margin-top:4px"><table class="ledger bn-preview"><thead><tr><th>month</th>${cols.map(c => `<th>${esc(DRIVER_LABELS[c] || c)}</th>`).join('')}</tr></thead><tbody>
             ${ms.map(m => `<tr><td class="textleft">${mLabel(m)}${m >= thisMonth() ? ' <span class="muted">running</span>' : ''}</td>${cols.map(c => `<td>${c === 'spend' ? fmt$(merged[m][c] || 0) : (merged[m][c] ?? '—')}</td>`).join('')}</tr>`).join('')}
             </tbody></table></div>`; }).join('') : `<div class="empty-note">Upload an export above to see its per-month counts here.</div>`}
@@ -1481,7 +1483,7 @@ boot('scoping', async (supa, el) => {
     const p = panel();
     p.querySelector('#bn-deal').onchange = e => { B.dealId = e.target.value || null; B.platforms = {}; location.hash = B.dealId ? '#bench/' + B.dealId : '#bench'; if (!B.dealId) loadBench(null); };
     const auto = p.querySelector('#bn-auto'); if (auto) auto.onchange = () => { B.excludeAuto = auto.checked; reparseAll(); };
-    p.querySelectorAll('input[data-bnpl]').forEach(cb => cb.onchange = () => { B.platforms[cb.dataset.bnpl] = { ...(B.platforms[cb.dataset.bnpl] || {}), on: cb.checked, team: (B.platforms[cb.dataset.bnpl] || {}).team || defaults[cb.dataset.bnpl] || depts[0] }; renderBench(); });
+    p.querySelectorAll('input[data-bnpl]').forEach(cb => cb.onchange = () => { B.platforms[cb.dataset.bnpl] = { ...(B.platforms[cb.dataset.bnpl] || {}), on: cb.checked, team: (B.platforms[cb.dataset.bnpl] || {}).team || teamFor(cb.dataset.bnpl) }; renderBench(); });
     p.querySelectorAll('select[data-bnteam]').forEach(s => s.onchange = () => { B.platforms[s.dataset.bnteam].team = s.value; });
     p.querySelectorAll('input[data-bnfile]').forEach(inp => inp.onchange = async () => {
       const pl = inp.dataset.bnfile; const P = B.platforms[pl];
@@ -1507,7 +1509,7 @@ boot('scoping', async (supa, el) => {
       const merged = mergeMonths(good);
       const rows = Object.entries(merged).map(([month, drivers]) => ({ month, drivers }));
       const { data, error } = await supa.rpc('record_benchmark_observations', {
-        p_upload: { deal_id: deal, platform: pl, department: P.team || defaults[pl], filename: good.map(r => r.filename).join(', '),
+        p_upload: { deal_id: deal, platform: pl, department: P.team || defaults[pl] || PLATFORMS[pl].group, filename: good.map(r => r.filename).join(', '),
                     parser: [...new Set(good.map(r => r.parser))].join(', '), row_count: good.reduce((s, r) => s + (r.rows || 0), 0),
                     summary: { files: good.length, warnings: good.flatMap(r => r.warnings || []) } },
         p_rows: rows, p_by: window.__email });

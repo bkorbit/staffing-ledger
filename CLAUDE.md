@@ -213,9 +213,12 @@ is always a new migration, so grep for the highest one before reading an old bod
   14 Sep 2026: "match the logged hours to the campaign data from the platform,
   not add stuff manually"). `benchmark_uploads.platform` is a shape check
   (`^[a-z0-9_]{2,40}$`), not a list — the registry is `PLATFORMS` in
-  `app/assets/parsers/index.js` (google_ads, meta, reddit, linkedin, dsp,
-  viant, cm360; `files`, `group` = the team that usually runs it, `parser` =
-  the family a platform shares — Viant reads through the DSP parser) plus
+  `app/assets/parsers/index.js` (google_ads, meta, reddit, linkedin, dv360,
+  ttd, viant, amazon_dsp, vistar, cm360; `dsp` kept only to label pre-112
+  uploads; `files`, `group` = the team that usually runs it — also the team
+  default when Settings has none — `parser` = the family a platform shares:
+  every programmatic platform reads through the one DSP parser, whose `hint`
+  names the exact report to pull) plus
   Settings › Scoping's team defaults (112 added viant → Programmatic, reddit /
   linkedin → Paid Media, cm360 → AdOps, existing keys untouched). New parsers
   `social.js` (Reddit: campaign → ad group → ad; LinkedIn: campaign GROUP →

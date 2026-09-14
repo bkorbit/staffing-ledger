@@ -80,4 +80,18 @@ eq(pv && pv.id, 'dsp-daily@1', 'viant hint resolves to the DSP family');
 eq(pv.parse(rv).months['2026-09-01'], { spend: 280000, active_campaigns: 1, ad_groups: 2, ads_live: 2 }, 'viant: Order and Advertiser Spend read');
 eq(detect(rcm, 'dsp') && detect(rcm, 'dsp').id, 'cm360-daily@1', 'a CM360 file with a dsp hint is not swallowed by the DSP parser');
 
+const amazon = `Date,Order,Line item,Creative,Impressions,Total cost
+2026-09-01,Holiday Streaming TV,Prospecting 25-54,Spot A,"250,000","3,750.00"
+2026-09-01,Holiday Streaming TV,Retargeting,Spot B,0,0`;
+const ra = parseCSV(amazon); const pa = detect(ra, 'amazon_dsp');
+eq(pa && pa.id, 'dsp-daily@1', 'amazon_dsp hint resolves to the DSP family');
+eq(pa.parse(ra).months['2026-09-01'], { spend: 375000, active_campaigns: 1, ad_groups: 1, ads_live: 1 }, 'amazon: Order is the campaign, Total cost is spend, the idle line item does not count');
+const vistar = `Date,Campaign,Insertion Order,Creative,DMA,Impressions,Spend
+2026-09-01,Transit Q3,Chicago boards,Board 1,Chicago,"12,000",600.00
+2026-09-01,Transit Q3,Dallas boards,Board 2,Dallas-Ft. Worth,"8,000",400.00`;
+const rvi = parseCSV(vistar); const pvi = detect(rvi, 'vistar');
+eq(pvi && pvi.id, 'dsp-daily@1', 'vistar hint resolves to the DSP family');
+eq(pvi.parse(rvi).months['2026-09-01'], { spend: 100000, active_campaigns: 1, ad_groups: 2, ads_live: 2, markets: 2 }, 'vistar: two insertion orders, two boards, two DMAs as markets');
+eq(['dv360', 'ttd'].map(h => detect(rv, h) && detect(rv, h).id), ['dsp-daily@1', 'dsp-daily@1'], 'dv360 and ttd hints resolve to the DSP family');
+
 console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

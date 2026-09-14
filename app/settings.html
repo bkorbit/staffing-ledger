@@ -9,6 +9,7 @@
 <link rel="modulepreload" href="./assets/shell.js?v=e7ad876"></head><body>
 <script type="module">
 import { boot, fmt$, esc, wireSearch, fetchAll } from './assets/shell.js?v=e7ad876';
+import { PLATFORMS } from './assets/parsers/index.js?v=e7ad876';
 
 boot('settings', async (supa, el) => {
   // Four tabs, because one flat stack of six panels made everything equally
@@ -786,13 +787,14 @@ boot('settings', async (supa, el) => {
     // ---- platform → team defaults (099): which department's hours a
     // platform's drivers are benchmarked against, preselected on the upload
     const ptd = knobVal('scope_platform_team_defaults', {});
-    // the upload platforms (app/assets/parsers/index.js PLATFORMS); the typed-signal platforms are retired (112)
-    const PLAT = [['google_ads','Google Ads'],['meta','Meta'],['reddit','Reddit Ads'],['linkedin','LinkedIn'],['dsp','DV360 / The Trade Desk'],['viant','Viant (Adelphic)'],['cm360','Campaign Manager 360 (Adswerve)']];
+    // the upload platforms come from the ONE registry (app/assets/parsers/index.js); a
+    // blank here means the platform's group — the team that usually runs it
+    const PLAT = Object.entries(PLATFORMS).filter(([, v]) => v.files).map(([k, v]) => [k, v.label, v.group]);
     document.getElementById('scopeteams').innerHTML = `<div class="sc-eyebrow" style="margin-top:0">Benchmark platforms → teams</div>
       <div class="muted" style="font-size:11px;margin-bottom:8px;max-width:640px">The team preselected when a platform's export is uploaded on Benchmarks. Paid search and paid social are pooled as one team here — the model separates them by the drivers (campaigns vs ad sets), not by department.</div>
       <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">
-        ${PLAT.map(([k,label]) => `<label class="mono" style="display:flex;flex-direction:column;gap:4px">${esc(label)}
-          <select class="k-sc-ptd" data-pl="${k}"><option value="">—</option>${scDepts.map(d=>`<option ${ptd[k]===d?'selected':''}>${esc(d)}</option>`).join('')}</select></label>`).join('')}
+        ${PLAT.map(([k,label,group]) => `<label class="mono" style="display:flex;flex-direction:column;gap:4px">${esc(label)}
+          <select class="k-sc-ptd" data-pl="${k}"><option value="">default · ${esc(group)}</option>${scDepts.map(d=>`<option ${ptd[k]===d?'selected':''}>${esc(d)}</option>`).join('')}</select></label>`).join('')}
       </div>
       <div class="sc-eyebrow">Teams a line brings to the hours grid</div>
       <div class="muted" style="font-size:11px;margin-bottom:6px;max-width:640px">When a scope gets a line of a kind, these departments appear in its hours grid automatically (104). One kind per line: <span class="mono">search: Paid Media, AdOps</span>. Kinds: retainer, creative, search, social, programmatic, hourly.</div>
