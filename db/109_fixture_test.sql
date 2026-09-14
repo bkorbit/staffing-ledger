@@ -29,7 +29,10 @@
 --                    summed by hand, and = hours_page's deal_labor cost.
 --   4. PARTS       — hours_page_parts / forecast_page_parts return exactly the
 --                    keys asked for, each byte-equal to the whole payload's,
---                    and nothing else.
+--                    and nothing else; and the whole payload still carries
+--                    every key 108 and 100 defined. Presence, not a count: a
+--                    later migration appending a key (110 did) is not a
+--                    regression in this one.
 --   5. LINE FEE    — line_fee = 096's body (inlined below as _fee_096) over a
 --                    grid: flat, marginal, whole, min, cap, min+cap, unknown
 --                    mode, empty bands, null budget / pct / structure.
@@ -314,9 +317,14 @@ with r(n, result) as (
                   and (select array_agg(k order by k) from _fp_part, jsonb_object_keys(j) k)
                      = array['labor_forecast_month','plan_month','rev_proj','runrates']
                   and not exists (select 1 from _fp_part p, _fp_full f, jsonb_object_keys(p.j) k where p.j -> k is distinct from f.j -> k)
-                  and (select count(*) from _hp_full, jsonb_object_keys(j) k) = 14
-                  and (select count(*) from _fp_full, jsonb_object_keys(j) k) = 11
-    then '4. PARTS hours_page_parts / forecast_page_parts return exactly the four keys asked for, each equal to the whole payload''s, and the whole payload still has all 14 / 11: PASS'
+                  and (select count(*) from unnest(array['staff','comp_current','staff_hours_month','staff_hours_deal',
+                         'staff_planned','staff_deal_planned','deal_labor','deal_planned','time_off','measured_before',
+                         'staff_hours_deal_month','staff_deal_planned_month','deal_forecast','staff_rate_month']) k
+                       where not (select j from _hp_full) ? k) = 0
+                  and (select count(*) from unnest(array['plan_month','plan_deal','rev_month','rev_proj','cost_month',
+                         'addback_month','cogs_proj','accounts','runrates','labor_forecast_month','projects']) k
+                       where not (select j from _fp_full) ? k) = 0
+    then '4. PARTS hours_page_parts / forecast_page_parts return exactly the four keys asked for, each equal to the whole payload''s, and the whole payload still carries every key 108 and 100 defined: PASS'
     else '4. PARTS: FAIL — hours keys ' || (select array_agg(k order by k)::text from _hp_part, jsonb_object_keys(j) k)
       || ' forecast keys ' || (select array_agg(k order by k)::text from _fp_part, jsonb_object_keys(j) k)
       || ' differing: ' || coalesce((select string_agg(k, ',') from _hp_part p, _hp_full f, jsonb_object_keys(p.j) k where p.j -> k is distinct from f.j -> k), 'none') end

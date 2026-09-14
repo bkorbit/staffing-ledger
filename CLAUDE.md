@@ -160,7 +160,7 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   finds the same shape for any other deal.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 109. Key views/functions
+## Current migration head: 110. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
@@ -186,6 +186,17 @@ is always a new migration, so grep for the highest one before reading an old bod
   forecast_page / hours_page stay as one-line wrappers — 076_fixture_test
   recreates that exact signature, and a defaulted third argument on the same
   name would make forecast_page(a, b) ambiguous.
+- **110 moved two roll-ups off the browser**: `hours_page_parts` gained
+  `deal_week_hours` (hours per ISO week per deal — Home was fetching every
+  time_entries row in its range, ~14k over six months in fourteen paged
+  requests, to bucket them in JS; `date_trunc('week')` is Monday-based exactly
+  as Home's `weekStart()` is). It reproduces Home's query EXACTLY, which means
+  it does NOT apply 090's attribution filter — that chart counts excluded hours
+  every other number on the page leaves out, flagged for Boris, not changed.
+  And `v_deal_month_gp` = v_deal_month_forecast summed per month, for Home's and
+  Sales Forecast's committed-GP line (they were paging the whole ledger to make
+  two dozen numbers). Both pages keep their own accumulation, so the JS shape
+  did not change.
 - `v_deal_month_forecast` [100] — the commercial plan as money. Day-weighted
   media spread from 024; 058 stopped hidden deals leaking into the plan; 087
   split `pass_through` (rebilled search/social media: cash, never revenue) out
@@ -252,7 +263,7 @@ is always a new migration, so grep for the highest one before reading an old bod
   its pre-090 shape; it upserts then sweeps stale rows, so there is no blank
   window mid-run. `workflow_dispatch` input `trace` follows one client end to
   end in the log.
-- `hours_page` [109/108], `rev_proj_page` [092], `accounts_page` [084],
+- `hours_page` [110/109/108], `rev_proj_page` [092], `accounts_page` [084],
   `v_cash_accounts` [086]. 108 APPENDED to hours_page (090's body verbatim,
   108_fixture_test + the bed's identity check prove the old keys unchanged):
   `measured_before` (the server's current month), `staff_hours_deal_month`,
@@ -499,10 +510,15 @@ is always a new migration, so grep for the highest one before reading an old bod
 - April 2026 has a −$795k below-the-line one-off ("Non Operating Loss" account,
   classified overhead → already in our chart). override_class to 'excluded' if
   Boris wants it out of the operating trend.
-- **A browser smoke test of every page is still open** — 095-109 have been
+- **A browser smoke test of every page is still open** — 095-110 have been
   proved in the PGlite bed and by unit tests, never in a real browser against
-  prod. 109 must be applied in the SQL editor; until it is, the pages make one
-  failing `_parts` call each and fall back to the whole payload.
+  prod. 109 and 110 must be applied in the SQL editor; until 109 is, the pages
+  make one failing `_parts` call each and fall back to the whole payload, and
+  until 110 is, Home falls back to fetching raw time entries for its weekly
+  chart (that fallback can be deleted once it is applied).
+- **Home's weekly-by-project chart counts hours nothing else counts** (110's
+  `deal_week_hours` preserves it): excluded people and excluded jobcodes with a
+  deal_id. Ask Boris whether to apply 090's attribution filter there.
 - Nightly schedule for sync-hubspot.yml; QB Time sync rewrite; People /
   Departments pages are placeholders. **Scoping tool in progress** (plan in
   `~/.claude/plans/i-want-to-start-iridescent-sonnet.md`, 13 Sep 2026): Phase 1

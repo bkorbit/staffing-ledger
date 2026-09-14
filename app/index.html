@@ -4,9 +4,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="./assets/style.css?v=0371be4">
-<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=0371be4">
-<link rel="modulepreload" href="./assets/shell.js?v=0371be4">
+<link rel="stylesheet" href="./assets/style.css?v=6b08439">
+<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=6b08439">
+<link rel="modulepreload" href="./assets/shell.js?v=6b08439">
 <style>
 /* Sales Forecast panel — carried over from sales.html's own local overrides
    (its chart isn't drawn through the shared barChart/bandChart helpers, so
@@ -35,7 +35,7 @@ svg.chart .colgroup{outline:none}
 svg.chart .colgroup:focus-visible{outline:2px solid var(--brand-2);outline-offset:-2px}
 </style></head><body>
 <script type="module">
-import { boot, rpcParts, esc, fetchAll, barChart, bandChart, donutChart, makePopover } from './assets/shell.js?v=0371be4';
+import { boot, rpcParts, esc, fetchAll, barChart, bandChart, donutChart, makePopover } from './assets/shell.js?v=6b08439';
 
 // The Hour-tracking Dashboard, back on Home — bottom-up from actual hours
 // (time_entries) x each staff member's own resolved comp rate, joined
@@ -154,17 +154,21 @@ boot('home', async (supa, el) => {
 
   async function load() {
     const kpiPanel = document.getElementById('kpi-panel');
-    const [hp, fp, dl, cl, te] = await Promise.all([
+    const [hp, fp, dl, cl] = await Promise.all([
+      // 110: deal_week_hours is the weekly-by-project chart, bucketed by the
+      // server. This page used to fetch every time_entries row in the range —
+      // about fourteen thousand over six months, which Supabase's 1000-row cap
+      // turns into fourteen requests in three serial waves — and add them up
+      // here.
       rpcParts('hours_page', { p_from: rangeFrom, p_to: endOfMonth(rangeTo) },
-        ['staff', 'comp_current', 'staff_hours_month', 'staff_hours_deal', 'deal_labor', 'time_off']),
+        ['staff', 'comp_current', 'staff_hours_month', 'staff_hours_deal', 'deal_labor',
+         'time_off', 'deal_week_hours']),
       rpcParts('forecast_page', { p_from: rangeFrom, p_to: rangeTo },
         ['plan_month', 'rev_month', 'rev_proj', 'cost_month', 'runrates']),
       fetchAll(() => supa.from('deals').select('id,name,client_id,qbo_project_id')),
-      supa.from('clients').select('id,name'),
-      fetchAll(() => supa.from('time_entries').select('worked_on,deal_id,hours')
-        .gte('worked_on', rangeFrom).lte('worked_on', endOfMonth(rangeTo)).not('deal_id', 'is', null))
+      supa.from('clients').select('id,name')
     ]);
-    for (const r of [hp, fp, dl, cl, te]) if (r.error) {
+    for (const r of [hp, fp, dl, cl]) if (r.error) {
       kpiPanel.innerHTML = `<div class="sc-panel err">${esc(r.error.message)}</div>`; return;
     }
     const H = hp.data || {}, P = fp.data || {};
@@ -304,13 +308,20 @@ boot('home', async (supa, el) => {
     const billByMonth = {};
     (P.plan_month || []).forEach(r => { billByMonth[r.month] = +r.billable; });
 
-    // ---- weekly hours by project: top 4 deals by logged hours + everyone else
-    const teRows = te.data || [];
+    // ---- weekly hours by project: top 4 deals by logged hours + everyone else.
+    // date_trunc('week') in db/110 is Monday-based, exactly as weekStart() is,
+    // so the buckets are the same buckets. The fallback is for a database that
+    // has not had 110 applied yet and can be deleted once it has.
+    const weekRows = H.deal_week_hours || (await (async () => {
+      const raw = await fetchAll(() => supa.from('time_entries').select('worked_on,deal_id,hours')
+        .gte('worked_on', rangeFrom).lte('worked_on', endOfMonth(rangeTo)).not('deal_id', 'is', null));
+      return (raw.data || []).map(r => ({ week: weekStart(r.worked_on), deal_id: r.deal_id, hours: r.hours }));
+    })());
     const hoursByWeekDeal = {}, weekTotalAll = {}, dealTotals = {};
-    teRows.forEach(r => {
-      const wk = weekStart(r.worked_on), key = wk + '|' + r.deal_id;
+    weekRows.forEach(r => {
+      const key = r.week + '|' + r.deal_id;
       hoursByWeekDeal[key] = (hoursByWeekDeal[key] || 0) + +r.hours;
-      weekTotalAll[wk] = (weekTotalAll[wk] || 0) + +r.hours;
+      weekTotalAll[r.week] = (weekTotalAll[r.week] || 0) + +r.hours;
       dealTotals[r.deal_id] = (dealTotals[r.deal_id] || 0) + +r.hours;
     });
     const topDealIds = Object.entries(dealTotals).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([id]) => id);
@@ -897,7 +908,11 @@ async function mountSalesPanel(supa, el, initFrom, initTo) {
   const [pd, st, fc, promoted] = await Promise.all([
     fetchAll(() => supa.from('pipeline_deals').select('*')),
     supa.from('settings').select('key,value').in('key', ['sales_probability_threshold', 'programmatic_margin_default']),
-    fetchAll(() => supa.from('v_deal_month_forecast').select('month,gp')),
+    // 110: one row per month (v_deal_month_gp) rather than every deal-line-month
+    // in the ledger, which had outgrown the 1000-row cap and arrived in five
+    // paged requests to make two dozen numbers. The per-month accumulation
+    // below is unchanged — summing one row per month is the same answer.
+    supa.from('v_deal_month_gp').select('month,gp'),
     fetchAll(() => supa.from('deals').select('hubspot_deal_id,reviewed_at').eq('origin', 'hubspot').in('status', ['won', 'active']))
   ]);
   for (const r of [pd, st, fc, promoted]) if (r.error) {
