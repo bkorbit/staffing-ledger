@@ -14,9 +14,7 @@
 .sc-deal { border:1px solid var(--line); border-radius:6px; background:var(--paper-raised); padding:12px 18px 14px; margin-bottom:14px; }
 .sc-dealtop { display:flex; align-items:center; gap:10px; flex-wrap:wrap; min-height:26px; margin-bottom:10px; }
 .sc-dealform { grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); }
-.sc-dealform label.name { grid-column:span 2; }
 .sc-form input.dname { font-family:var(--font-body); font-size:14px; font-weight:600; }
-@media (max-width:640px) { .sc-dealform label.name { grid-column:1 / -1; } }
 .sc-deal .linecards { margin-top:12px; }
 .sc-addline { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
 .sc-addline button { padding:4px 10px; font-size:11px; }
@@ -46,8 +44,8 @@ table.bands button { padding:1px 7px; font-size:11px; }
 .sc-grid td.addrow { background:var(--wash-row); padding:8px 10px 10px; }
 .sc-grid .cap { font-size:9px; padding:0 5px; }
 .sc-hint { font-family:var(--font-mono); font-size:9.5px; color:var(--slate); margin-top:2px; }
-.sc-vstrip { display:flex; gap:6px; flex-wrap:wrap; padding:6px 14px 12px; }
-.sc-callout { background:var(--gold-bg); padding:8px 12px; font-size:12px; margin:6px 14px 12px; border-radius:6px; }
+.sc-vstrip { display:flex; gap:6px; flex-wrap:wrap; padding:6px 18px 12px; }
+.sc-callout { background:var(--gold-bg); padding:8px 12px; font-size:12px; margin:6px 18px 12px; border-radius:6px; }
 .sc-callout.bad { background:var(--rust-bg); }
 .sc-note { font-size:11px; color:var(--slate); }
 /* deal terms + quick check: one form grid, labels in the mono caption voice */
@@ -72,7 +70,7 @@ h2.sc-eyebrow.inset14, h3.sc-eyebrow.inset14 { padding:12px 14px 0; margin:0; }
 .sc-section { margin-top:34px; }
 .sc-section.sc-answer { margin-top:0; }
 .sc-phead { display:flex; align-items:baseline; gap:8px 14px; flex-wrap:wrap; margin-bottom:12px; }
-.sc-phead.inset { padding:12px 14px 0; margin-bottom:6px; }
+.sc-phead.inset { padding:12px 18px 0; margin-bottom:6px; }
 .sc-ptitle { font-family:var(--font-body); font-size:14px; font-weight:700; line-height:1.2; color:var(--ink); margin:0; letter-spacing:0; text-transform:none; }
 .sc-phint { font-size:11.5px; color:var(--slate); line-height:1.4; }
 .sc-phead > button, .sc-phead-actions { margin-left:auto; }
@@ -92,12 +90,16 @@ h2.sc-eyebrow.inset14, h3.sc-eyebrow.inset14 { padding:12px 14px 0; margin:0; }
 .sc-note.sc-inset { padding:0 18px; }
 /* the answer is one block: ribbon on top, the monthly chart and pills under it, the unsaved note as its foot */
 .summary-strip.sc-ribbon { border:0; border-bottom:1px solid var(--line); border-radius:6px 6px 0 0; margin-bottom:0; }
-.sc-foot { border-top:1px solid var(--line); padding:8px 14px 10px; font-size:11px; color:var(--slate); }
-/* the bar holds identity and the one primary action; the row under it holds the rest */
-.toolbar.sc-bar.has-sub { margin-bottom:8px; }   /* only when a sub-bar follows (the editor); the list keeps its 22px */
-.toolbar.sc-subbar { margin-bottom:22px; gap:8px; }
-.sc-subbar > button, .sc-subbar > select { height:26px; font-size:10.5px; padding:0 9px; }
-.sc-subbar .sc-note { align-self:center; }
+.sc-foot { border-top:1px solid var(--line); padding:8px 18px 10px; font-size:11px; color:var(--slate); }
+/* one bar: the scope's name reads as a title (border only on hover/focus), status and
+   version share a pill, the rarely-used controls sit in a quieter 26px cluster */
+.sc-bar input.sc-titlein { border-color:transparent; background:transparent; padding-left:6px; font-size:16px; font-weight:700; letter-spacing:-.01em; }
+.sc-bar input.sc-titlein:hover { border-color:var(--line); }
+.sc-bar input.sc-titlein:focus { border-color:var(--brand-2); background:var(--paper-raised); }
+.sc-bar input.sc-titlein:disabled { background:transparent; color:var(--ink); }
+.sc-more { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.sc-more > button, .sc-more > select { height:26px; font-size:10.5px; padding:0 9px; }
+.sc-more > select { max-width:200px; }
 /* helpers that replace the inline styles the page kept repeating */
 .sc-panel.flush { padding:0; }
 .gridwrap.tight { margin-top:0; }
@@ -105,7 +107,9 @@ h2.sc-eyebrow.inset14, h3.sc-eyebrow.inset14 { padding:12px 14px 0; margin:0; }
 .sc-note.lead { margin-bottom:8px; }
 .chart-head.flush { padding:0 0 6px; }
 .sc-btn-sm { padding:3px 9px; font-size:11px; }
-.sc-x { padding:0; width:24px; height:24px; min-width:24px; line-height:22px; font-size:12px; text-align:center; }   /* a real hit area for × */
+.sc-x { display:inline-flex; align-items:center; justify-content:center; padding:0; width:24px; height:24px; min-width:24px; line-height:1; font-size:13px; color:var(--rust); border-color:var(--line); }   /* a real hit area for ×, glyph dead-centre */
+.sc-x:hover { border-color:var(--rust); background:var(--rust-bg); color:var(--rust); }
+.sc-grid td > .sc-x { margin:0 auto; display:flex; }
 .nowrap { white-space:nowrap; }
 .sc-back { font-size:12px; }
 .summary-value .muted { font-size:12px; }
@@ -117,6 +121,7 @@ h2.sc-eyebrow.inset14, h3.sc-eyebrow.inset14 { padding:12px 14px 0; margin:0; }
 /* seven cells, even columns; a wrapped cell keeps its width instead of stretching */
 #sc-strip { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); }
 #sc-strip .summary-note { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#sc-strip .summary-cell { padding:12px 18px; }
 .sc-vstrip .pill .why { font-weight:600; opacity:.9; }
 @media (prefers-reduced-motion: reduce) { .chart-tip { transition:none; } }
 @media (max-width:640px) { .sc-dealhead input.dname { flex-basis:100%; } .sc-grid col.c-name { width:140px; } .sc-grid { width:calc(140px + var(--extra, 0px) + var(--n, 1) * 66px + 66px); } }
@@ -485,14 +490,22 @@ boot('scoping', async (supa, el) => {
 
     panel().innerHTML = `
       <h1 class="sr-only">Scope: ${esc(S.name)} (${esc(S.scenario)})</h1>
-      <div class="toolbar sc-bar has-sub">
+      <div class="toolbar sc-bar">
         <a href="#list" class="muted sc-back">← scopes</a>
-        <input class="dname" id="sc-name" value="${esc(S.name)}" ${ro ? 'disabled' : ''} aria-label="Scope name">
-        <span class="pill ${stPill}">${esc(S.status)}</span>
-        <span class="pill">v${S.version}</span>
+        <input class="dname sc-titlein" id="sc-name" value="${esc(S.name)}" ${ro ? 'disabled' : ''} aria-label="Scope name" title="Scope name — click to rename">
+        <span class="pill ${stPill}">${esc(S.status)} · v${S.version}</span>
         <div class="rp rp-sm" id="sc-scen" title="Scenarios of this target">
           ${sibs.map(s => `<button class="seg ${s.id === S.id ? 'on' : ''}" data-scope="${s.id}" title="${esc(s.name)} · ${esc(STATUS_LABEL[s.kpis && s.kpis.status] || '')}">${esc(s.scenario)}</button>`).join('')}
           <button class="seg" id="sc-newscen" title="Copy this scope as a new scenario" aria-label="New scenario">+</button>
+        </div>
+        <div class="sc-more">
+          <select id="sc-version" title="Versions" aria-label="Versions">
+            <option value="">v${S.version} · current</option>
+            ${(X.versions || []).filter(v => v.version !== S.version).map(v => `<option value="${v.id}">v${v.version} · ${esc(v.reason)}${v.label ? ' · ' + esc(v.label) : ''} · ${new Date(v.saved_at).toLocaleDateString()}</option>`).join('')}
+          </select>
+          <button class="ghost" id="sc-terms" title="The commercial terms this scope implies, as plain sentences (templates on Settings › Scoping)">Commercial terms</button>
+          ${canDelete(S, X.settings.approvers) ? `<button class="ghost" id="sc-delete" title="Delete this scope and every version of it${S.status === 'approved' ? ' — its reserved hours leave Hour Planning' : ''}">Delete</button>` : ''}
+          ${S.status === 'proposed' ? `<span class="sc-note">proposed ${S.proposed_at ? new Date(S.proposed_at).toLocaleDateString() : ''} by ${esc((S.proposed_by || '—').split('@')[0])} — in <a href="#list" data-tab-link="approvals">Approvals</a></span>` : ''}
         </div>
         <span style="flex:1"></span>
         <span id="sc-msg" class="ok" role="status" aria-live="polite"></span>
@@ -502,15 +515,6 @@ boot('scoping', async (supa, el) => {
         ${S.status === 'proposed' && isApprover() ? `<button class="primary" id="sc-approve">Approve</button>` : ''}
         ${S.status === 'approved' && isApprover() ? `<button class="ghost" id="sc-unapprove">Un-approve</button>` : ''}
         ${S.status === 'approved' && isApprover() ? `<button class="primary" id="sc-promote" title="Creates the deals in the Forecast: HubSpot deals through the approval door, new deals as manual deals, re-scopes by extending the source deal">Promote to Forecast</button>` : ''}
-      </div>
-            <div class="toolbar sc-subbar">
-        <select id="sc-version" title="Versions" aria-label="Versions" style="font-size:11px">
-          <option value="">v${S.version} (current)</option>
-          ${(X.versions || []).filter(v => v.version !== S.version).map(v => `<option value="${v.id}">v${v.version} · ${esc(v.reason)}${v.label ? ' · ' + esc(v.label) : ''} · ${new Date(v.saved_at).toLocaleDateString()}</option>`).join('')}
-        </select>
-        <button class="ghost" id="sc-terms" title="The commercial terms this scope implies, as plain sentences (templates on Settings › Scoping)">Commercial terms</button>
-        ${canDelete(S, X.settings.approvers) ? `<button class="ghost muted" id="sc-delete" title="Delete this scope and every version of it${S.status === 'approved' ? ' — its reserved hours leave Hour Planning' : ''}">Delete</button>` : ''}
-        ${S.status === 'proposed' ? `<span class="sc-note">proposed ${S.proposed_at ? new Date(S.proposed_at).toLocaleDateString() : ''} by ${esc(S.proposed_by || '—')} — waiting in <a href="#list" data-tab-link="approvals">Approvals</a></span>` : ''}
       </div>
 
       <section class="sc-section sc-answer" aria-labelledby="sc-h-answer">
@@ -644,7 +648,7 @@ boot('scoping', async (supa, el) => {
     const parts = (X.staffing && X.staffing.hire || []).filter(x => x.recommend).map(x =>
       `<b>${esc(x.department)}</b> ${fmtH(x.hours)}${x.cost_hire != null ? ` · hire ≈ ${fmt$(x.cost_hire)}` : ' · no hire cost in Settings'}${x.cost_contractor != null ? ` · contractor ≈ ${fmt$(x.cost_contractor)}` : ''}`);
     const alt = V.status === 'go_with_hire' ? `Viable with a hire: after labor ${fmt$(h.pal_hire)}.` : V.status === 'go_with_contractor' ? `Viable with a contractor: after labor ${fmt$(h.pal_contractor)}.` : '';
-    return `<div class="sc-callout ${V.status === 'no_go' ? 'bad' : ''}" style="margin:6px 14px 12px">Not enough free capacity: ${parts.join('; ')}. ${alt}</div>`;
+    return `<div class="sc-callout ${V.status === 'no_go' ? 'bad' : ''}">Not enough free capacity: ${parts.join('; ')}. ${alt}</div>`;
   }
 
   // The ribbon: the verdict and the numbers behind it. Repainted on its own
@@ -691,7 +695,6 @@ boot('scoping', async (supa, el) => {
     const months = monthsBetween(d.flight_start, d.flight_end);
     return `<div class="sc-deal" data-di="${di}">
       <div class="sc-dealtop">
-        <span class="kbadge">${esc(d.origin_kind === 'hubspot' ? 'HubSpot' : d.origin_kind === 'deal' ? 're-scope' : 'new deal')}</span>
         ${src ? `<span class="sc-note">${d.origin_kind === 'hubspot' ? `HubSpot: ${esc(src.company || '')} · ${src.amount != null ? fmt$(src.amount) : ''}${src.url ? ` · <a href="${esc(src.url)}" target="_blank" rel="noopener">open</a>` : ''}` : `source deal: ${esc(src.name)} (${esc(src.flight_start || '')} → ${esc(src.flight_end || '')})`}</span>` : ''}
         ${d.promoted_deal_id ? `<span class="pill st-live">promoted</span><a class="sc-note" href="./forecast.html?open=${d.promoted_deal_id}">open in Forecast →</a>` : ''}
         <span style="flex:1"></span>
@@ -699,7 +702,6 @@ boot('scoping', async (supa, el) => {
         ${ro || S.deals.length < 2 ? '' : `<button class="danger" data-act="rmdeal:${di}" title="remove this deal from the scope" aria-label="Remove deal ${esc(d.name)}">✕</button>`}
       </div>
       <div class="sc-form sc-dealform">
-        <label class="name">deal name<input class="dname" data-f="deal:${di}:name" value="${esc(d.name)}" ${ro ? 'disabled' : ''}></label>
         <label>flight start<input type="date" data-f="deal:${di}:flight_start" value="${esc(d.flight_start || '')}" ${ro ? 'disabled' : ''}></label>
         <label>flight end<input type="date" data-f="deal:${di}:flight_end" value="${esc(d.flight_end || '')}" ${ro ? 'disabled' : ''}></label>
         <label>when promoted<select data-f="deal:${di}:promote_mode" ${ro ? 'disabled' : ''}>
@@ -1131,7 +1133,9 @@ boot('scoping', async (supa, el) => {
   }
   function payload() {
     const p = JSON.parse(JSON.stringify(S));
-    p.deals = p.deals.map((d, i) => ({ ...d, ord: i, lines: (d.lines || []).map((l, j) => {
+    p.deals = p.deals.map((d, i) => ({ ...d, ord: i,
+      name: d.origin_kind === 'new' || !d.name ? (p.deals.length > 1 ? `${p.name} · ${i + 1}` : p.name) : d.name,
+      lines: (d.lines || []).map((l, j) => {
       // a media line month that carries drivers also carries its spend (the
       // budget cell, in cents) — the one driver a quick check has too
       if (MEDIA(l.kind)) for (const [m, c] of Object.entries(l.months || {})) {
