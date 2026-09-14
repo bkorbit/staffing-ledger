@@ -645,6 +645,9 @@ boot('settings', async (supa, el) => {
         <label class="mono" style="display:flex;flex-direction:column;gap:4px">CPM billing: default platform share %
           <input id="k-sc-cpm" type="number" min="0" max="100" step="any" style="width:120px;text-align:right" value="${esc(String(knobVal('scope_cpm_platform_share_pct', 50)))}"></label>
       </div>
+      <div class="sc-eyebrow">Minimum-fee margin presets</div>
+      <div class="muted" style="font-size:11px;margin-bottom:6px;max-width:640px">A scope's minimum monthly fee is computed, not typed: the month's labor (unassigned hours at department average included) ÷ (1 − margin). One preset per line as <span class="mono">name: %</span>; the scope picks one (default Slight margin).</div>
+      <textarea id="k-sc-presets" class="mono" rows="3" style="width:min(320px,100%);font-size:12px">${esc((knobVal('scope_min_margin_presets', [{name:'Break even',pct:0},{name:'Slight margin',pct:15},{name:'Target',pct:35}])||[]).map(p=>`${p.name}: ${p.pct}`).join('\n'))}</textarea>
       <div class="sc-eyebrow">Approvers</div>
       <div class="muted" style="font-size:11px;margin-bottom:6px;max-width:640px">Only these emails can approve a scope (reserving its hours in Hour Planning) or promote it. One per line. Enforced in the database, not just by the button.</div>
       <textarea id="k-sc-approvers" class="mono" rows="3" style="width:min(420px,100%);font-size:12px">${esc((approvers||[]).join('\n'))}</textarea>
@@ -682,6 +685,7 @@ boot('settings', async (supa, el) => {
         { key:'scope_cpm_platform_share_pct', value:+document.getElementById('k-sc-cpm').value||50, ...stamp },
         { key:'scope_approver_emails', value:document.getElementById('k-sc-approvers').value.split(/\n|,/).map(s=>s.trim().toLowerCase()).filter(Boolean), ...stamp },
         { key:'scope_comp_bands', value:newBands, ...stamp },
+        { key:'scope_min_margin_presets', value:document.getElementById('k-sc-presets').value.split(/\n/).map(l=>{ const m=l.match(/^\s*(.+?)\s*:\s*([\d.]+)\s*%?\s*$/); return m?{name:m[1],pct:+m[2]}:null; }).filter(Boolean), ...stamp },
         { key:'scope_hire_costs', value:costs, ...stamp }], { onConflict:'key' });
       document.getElementById('sc-knobs-msg').className = error ? 'err' : 'ok';
       document.getElementById('sc-knobs-msg').textContent = error ? error.message : 'saved';

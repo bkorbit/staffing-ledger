@@ -2,45 +2,62 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EMG — Scoping</title><link rel="stylesheet" href="./assets/style.css?v=7ae3880">
 <style>
-/* page-local: the editor's sections and grids. Cards reuse forecast's .linecard system. */
-.sc-deal { border:1px solid var(--line); border-radius:8px; background:var(--paper-raised); padding:12px 14px; margin-top:14px; }
-.sc-dealhead { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-.sc-dealhead input.dname { flex:1 1 220px; min-width:160px; height:32px; font-family:var(--font-body); font-size:14px; font-weight:600; }
-.sc-dealhead .pf.shape select, .sc-dealhead input[type=date] { height:30px; }
+/* page-local: the editor's sections and grids. Cards reuse forecast's .linecard system.
+   ONE gutter system: full-width panels (.sc-panel padding 16px 18px) and the summary
+   strip; bare control rows are .toolbar (inset 18px) so their controls sit on the
+   panels' inner edge. Nothing else carries a horizontal margin. */
+.sc-bar > button, .sc-bar > select, .sc-bar > input, .sc-bar .rp .seg { height:30px; }
+.sc-bar .rp .seg { padding:0 9px; }
+.sc-bar .rp.rp-sm .seg { height:28px; }
+.sc-bar .pill { align-self:center; }
+.sc-bar input.dname { flex:1 1 220px; min-width:160px; font-family:var(--font-body); font-size:14px; font-weight:600; }
+.sc-deal { border:1px solid var(--line); border-radius:6px; background:var(--paper-raised); padding:12px 18px 14px; margin-bottom:14px; }
+.sc-dealhead { display:flex; align-items:center; gap:10px; flex-wrap:wrap; min-height:30px; }
+.sc-dealhead input.dname { flex:1 1 220px; min-width:160px; height:30px; font-family:var(--font-body); font-size:14px; font-weight:600; }
+.sc-dealhead .pf.shape select, .sc-dealhead input[type=date], .sc-dealhead input[list] { height:30px; }
+.sc-deal .linecards { margin-top:12px; }
 .sc-addline { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
 .sc-addline button { padding:4px 10px; font-size:11px; }
 table.bands { width:auto; margin-top:4px; }
 table.bands th, table.bands td { padding:2px 4px; border:none; text-align:left; }
 table.bands input { width:96px; height:26px; text-align:right; font-family:var(--font-mono); font-size:11.5px; }
 table.bands button { padding:1px 7px; font-size:11px; }
+/* the hour grids (demand, supply, drivers) share one column system: a fixed label
+   column and equal month columns, so a month lands at the same x in every table */
 .sc-grid { width:auto; }
 .sc-grid th, .sc-grid td { padding:4px 6px; white-space:nowrap; }
+.sc-grid th:first-child, .sc-grid td:first-child { min-width:240px; max-width:240px; width:240px; text-align:left; overflow:hidden; text-overflow:ellipsis; }
+.sc-grid th:not(:first-child), .sc-grid td:not(:first-child) { min-width:112px; width:112px; }
 .sc-grid input.hcell { width:64px; height:26px; text-align:right; font-family:var(--font-mono); font-size:11.5px; padding:0 5px; }
-.sc-grid tr.dept td { background:#f2f2f2; font-family:var(--font-mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); text-align:left; }
+.sc-grid tr.dept td { background:#f2f2f2; font-family:var(--font-mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); text-align:left; max-width:none; }
 .sc-grid tr.ph td:first-child { color:var(--slate); font-style:italic; }
 .sc-grid tr.auto input.hcell { color:var(--slate); font-style:italic; }
 .sc-grid tr.gap td { color:var(--slate); font-style:italic; }
 .sc-grid tr.gap td.bad { color:var(--rust); font-style:normal; font-weight:600; }
+.sc-grid td.addrow { max-width:none; width:auto; white-space:normal; }
 .sc-grid .cap { font-size:9px; padding:0 5px; margin-left:3px; vertical-align:middle; }
 .sc-hint { font-family:var(--font-mono); font-size:9.5px; color:var(--slate); margin-top:2px; }
 .sc-cands { font-size:10.5px; color:var(--slate); margin:4px 0 8px; }
 .sc-cands b { color:var(--ink); font-weight:600; }
 .sc-vstrip { display:flex; gap:6px; flex-wrap:wrap; padding:6px 14px 12px; }
-.sc-callout { border-left:3px solid var(--gold); background:var(--gold-bg); padding:8px 12px; font-size:12px; margin:10px 0; border-radius:0 6px 6px 0; }
-.sc-callout.bad { border-color:var(--rust); background:var(--rust-bg); }
+.sc-callout { background:var(--gold-bg); padding:8px 12px; font-size:12px; margin:6px 14px 12px; border-radius:6px; }
+.sc-callout.bad { background:var(--rust-bg); }
 .sc-note { font-size:11px; color:var(--slate); }
-.sc-targets .rp .seg { height:30px; }
-.sc-quick { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; align-items:end; }
-.sc-quick label { display:flex; flex-direction:column; gap:3px; font-family:var(--font-mono); font-size:10px; color:var(--slate); }
-.sc-quick input, .sc-quick select { height:30px; }
+/* deal terms + quick check: one form grid, labels in the mono caption voice */
+.sc-form { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px 24px; align-items:end; }
+.sc-form label { display:flex; flex-direction:column; gap:4px; font-family:var(--font-mono); font-size:9px; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); min-width:0; }
+.sc-form label.wide { grid-column:1 / -1; }
+.sc-form input, .sc-form select { height:30px; font-size:12px; width:100%; min-width:0; }
+.sc-form .row { display:flex; gap:6px; align-items:center; }
+.sc-form .row input, .sc-form .row select { flex:1; }
+.sc-form .row .unit { font-family:var(--font-mono); font-size:11px; color:var(--slate); flex:none; }
 .gold-chip { display:inline-block; background:var(--gold-bg); color:var(--ink); padding:1px 6px; border-radius:4px; }
-.editorbar .pill { align-self:center; }
 tr.namerow[data-open] { cursor:pointer; }
-@media (max-width:640px) { .sc-dealhead input.dname { flex-basis:100%; } .sc-grid input.hcell { width:56px; } }
-</style></head><body>
+@media (max-width:640px) { .sc-dealhead input.dname { flex-basis:100%; } .sc-grid input.hcell { width:56px; } .sc-grid th:first-child, .sc-grid td:first-child { min-width:160px; width:160px; } }
+</style></style></head><body>
 <script type="module">
 import { boot, esc, fmt$, wireSearch, fetchAll } from './assets/shell.js?v=7ae3880';
-import { lineFee, progSuggestMargin, progParams, lineMonth, scopeMonths, monthsBetween, shiftM, spreadTotal, fitModel } from './assets/scope-math.js?v=7ae3880';
+import { lineFee, lineRebate, progSuggestMargin, progParams, lineMonth, scopeMonths, monthsBetween, shiftM, spreadTotal, fitModel } from './assets/scope-math.js?v=7ae3880';
 import { loadStatus, statusPill, fmtH, mLabel, thisMonth } from './assets/capacity.js?v=7ae3880';
 import { scopeChart, verdictStrip, scopeStat, STATUS_LABEL, STATUS_PILL } from './assets/scope-chart.js?v=7ae3880';
 import { parseFile, mergeMonths, PLATFORMS, DRIVER_LABELS } from './assets/parsers/index.js?v=7ae3880';
@@ -108,27 +125,46 @@ boot('scoping', async (supa, el) => {
   window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
 
   // ---- list --------------------------------------------------------------
+  const nameKey = v => String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
   async function loadList() {
     panel().innerHTML = 'loading…';
-    const [scopes, pipe, promos, deals, clients, knobs] = await Promise.all([
-      fetchAll(() => supa.from('scopes').select('id,family_id,name,scenario,client_id,status,version,set_by,set_at,created_at').order('set_at', { ascending: false })),
-      fetchAll(() => supa.from('pipeline_deals').select('hubspot_deal_id,name,company,amount,campaign_start,campaign_end,stage,probability,pipeline,is_won,url')),
+    const [scopes, pipe, promos, deals, clients, knobs, dismissed, scoped] = await Promise.all([
+      fetchAll(() => supa.from('scopes').select('id,family_id,name,scenario,client_id,status,version,set_by,set_at,created_at,proposed_by,proposed_at').order('set_at', { ascending: false })),
+      fetchAll(() => supa.from('pipeline_deals').select('hubspot_deal_id,name,company,amount,campaign_start,campaign_end,close_date,stage,probability,pipeline,is_won,url')),
       fetchAll(() => supa.from('promotions').select('hubspot_deal_id')),
       fetchAll(() => supa.from('deals').select('id,name,client_id,status,flight_start,flight_end,hidden,hubspot_deal_id').in('status', ['won', 'active']).eq('hidden', false)),
       supa.from('clients').select('id,name,active').eq('active', true).order('name'),
-      supa.from('settings').select('key,value').in('key', ['scope_target_profit_per_hour', 'scope_approver_emails'])
+      supa.from('settings').select('key,value').in('key', ['scope_target_profit_per_hour', 'scope_approver_emails', 'hubspot_promote_pipelines', 'sales_probability_threshold']),
+      supa.from('won_deal_dismissals').select('hubspot_deal_id'),
+      fetchAll(() => supa.from('scope_deals').select('hubspot_deal_id,scope_id').not('hubspot_deal_id', 'is', null))
     ]);
-    const err = [scopes, pipe, promos, deals, clients, knobs].find(r => r.error);
+    const err = [scopes, pipe, promos, deals, clients, knobs, dismissed, scoped].find(r => r.error);
     if (err) {
-      const missing = /scopes/.test(err.error.message) && /not exist|schema cache/i.test(err.error.message);
-      panel().innerHTML = `<div class="sc-panel err">${esc(err.error.message)}${missing ? '\n\nThis page needs db/096_scopes.sql and db/097_scope_page_verdict_staffing.sql applied in the Supabase SQL editor.' : ''}</div>`;
+      const missing = /scopes|scope_deals/.test(err.error.message) && /not exist|schema cache/i.test(err.error.message);
+      panel().innerHTML = `<div class="sc-panel err">${esc(err.error.message)}${missing ? '\n\nThis page needs db/096…103 applied in the Supabase SQL editor.' : ''}</div>`;
       return;
     }
+    const K = Object.fromEntries((knobs.data || []).map(k => [k.key, k.value]));
+    // The Pipeline tab is Sales Forecast's population: promotable pipelines only,
+    // not dismissed, not promoted — and, here, not already attached to a scope
+    // (that deal shows under Scopes). Open deals with a probability, or won
+    // deals waiting at the promotion door; campaigns that ended before 2026 are gone.
     const promoted = new Set((promos.data || []).map(p => p.hubspot_deal_id));
-    const scopedHs = new Set();
-    L = { scopes: scopes.data || [], pipeline: (pipe.data || []).filter(p => !promoted.has(p.hubspot_deal_id)),
-          deals: deals.data || [], clients: clients.data || [], knobs: Object.fromEntries((knobs.data || []).map(k => [k.key, k.value])),
-          q: '', tab: localStorage.getItem('sc_list_tab') || 'scopes', scopedHs };
+    const dismissedIds = new Set((dismissed.data || []).map(r => r.hubspot_deal_id));
+    const scopedBy = {}; (scoped.data || []).forEach(r => scopedBy[r.hubspot_deal_id] = r.scope_id);
+    const allowed = new Set((K.hubspot_promote_pipelines || []).map(nameKey));
+    const touches = d => !d.campaign_end || d.campaign_end >= '2026-01-01';
+    const pipeline = (pipe.data || []).filter(p => !promoted.has(p.hubspot_deal_id) && !dismissedIds.has(p.hubspot_deal_id) && !scopedBy[p.hubspot_deal_id]
+      && (!allowed.size || allowed.has(nameKey(p.pipeline))) && (p.is_won || (p.probability ?? 0) > 0) && touches(p));
+    L = { scopes: scopes.data || [], pipeline, deals: deals.data || [], clients: clients.data || [], knobs: K,
+          approvers: (K.scope_approver_emails || []).map(e => String(e).toLowerCase().trim()),
+          q: '', tab: localStorage.getItem('sc_list_tab') || 'scopes', approvals: null };
+    renderList();
+  }
+
+  async function loadApprovals() {
+    const { data, error } = await supa.rpc('approvals_queue');
+    L.approvals = error ? { error: error.message } : (data || []);
     renderList();
   }
 
@@ -138,38 +174,24 @@ boot('scoping', async (supa, el) => {
     const onClient = route.client || null;
     const scopes = L.scopes.filter(s => (!onClient || s.client_id === onClient) && (!q || (s.name + ' ' + (clientName[s.client_id] || '') + ' ' + s.scenario).toLowerCase().includes(q)));
     const pipeline = L.pipeline.filter(p => !q || ((p.company || '') + ' ' + p.name).toLowerCase().includes(q))
-      .sort((a, b) => (b.amount || 0) - (a.amount || 0)).slice(0, 80);
+      .sort((a, b) => nameKey(a.company).localeCompare(nameKey(b.company)) || (b.amount || 0) - (a.amount || 0));
     const deals = L.deals.filter(d => (!onClient || d.client_id === onClient) && (!q || ((clientName[d.client_id] || '') + ' ' + d.name).toLowerCase().includes(q)))
       .sort((a, b) => ((clientName[a.client_id] || '') + a.name).localeCompare((clientName[b.client_id] || '') + b.name));
     const statusPillCls = { draft: '', proposed: 'st-pending', approved: 'good', promoted: 'st-live' };
     const tab = L.tab;
+    const waiting = L.scopes.filter(s => s.status === 'proposed').length;
+    const TABS = [['scopes', 'Scopes'], ['approvals', `Approvals${waiting ? ' · ' + waiting : ''}`], ['pipeline', 'Pipeline'], ['deals', 'Live deals'], ['clients', 'Clients'], ['quick', 'Quick check']];
     panel().innerHTML = `
-      <div class="toolbar">
+      <div class="toolbar sc-bar">
         <div class="rp" role="tablist">
-          ${[['scopes', 'Scopes'], ['pipeline', 'HubSpot pipeline'], ['deals', 'Live deals'], ['clients', 'Clients']].map(([k, lab]) =>
-            `<button class="seg ${tab === k ? 'on' : ''}" data-tab="${k}" role="tab">${lab}</button>`).join('')}
+          ${TABS.map(([k, lab]) => `<button class="seg ${tab === k ? 'on' : ''}" data-tab="${k}" role="tab" aria-selected="${tab === k}">${lab}</button>`).join('')}
         </div>
-        <input id="sc-q" type="text" placeholder="search…" value="${esc(L.q)}" style="max-width:240px" aria-label="Search">
+        ${tab === 'quick' || tab === 'approvals' ? '' : `<input id="sc-q" type="text" placeholder="search…" value="${esc(L.q)}" style="max-width:240px" aria-label="Search">`}
         ${onClient ? `<span class="pill">client: ${esc(clientName[onClient] || '?')}</span><a class="muted" href="#list" style="font-size:11px">all</a>` : ''}
         <span style="flex:1"></span>
         <button class="ghost" data-go="#bench" title="Enrol live campaigns and upload their platform exports: the hours model is fitted on them">Benchmarks</button>
-        <button class="primary" data-go="#new">+ Blank scope</button>
         ${onClient ? `<button class="ghost" data-go="#new?client=${onClient}">+ Scope for this client</button>` : ''}
-      </div>
-      <div class="sc-panel" id="sc-quick">
-        <div class="sc-eyebrow" style="margin-top:0">Quick check</div>
-        <div class="sc-quick">
-          <label>channel<select id="qc-kind">${['search', 'social', 'programmatic', 'retainer', 'hourly'].map(k => `<option>${k}</option>`).join('')}</select></label>
-          <label>media $ / month<input id="qc-budget" type="number" step="any" inputmode="decimal" placeholder="100000"></label>
-          <label>fee %<input id="qc-fee" type="number" step="any" inputmode="decimal" placeholder="10"></label>
-          <label>backend margin % (programmatic)<input id="qc-margin" type="number" step="any" inputmode="decimal" placeholder="default"></label>
-          <label>$ / month (retainer / hourly)<input id="qc-amount" type="number" step="any" inputmode="decimal" placeholder="10000"></label>
-          <label>months<input id="qc-months" type="number" min="1" value="6"></label>
-          <label>department<select id="qc-dept">${(L.departments || []).map(d => `<option>${esc(d)}</option>`).join('')}</select></label>
-          <label>hours / month (blank = estimate from benchmarks)<input id="qc-hours" type="number" step="any" inputmode="decimal" placeholder="benchmarks"></label>
-          <button class="primary" id="qc-run">Check</button>
-        </div>
-        <div id="qc-out" class="sc-note" style="margin-top:8px"></div>
+        <button class="primary" data-go="#new">+ Blank scope</button>
       </div>
       ${tab === 'scopes' ? `<div class="sc-panel" style="padding:0"><div class="gridwrap" style="margin-top:0"><table class="ledger">
         <thead><tr><th>Scope</th><th>Client</th><th>Scenario</th><th>Status</th><th>v</th><th>Last saved</th></tr></thead>
@@ -180,17 +202,19 @@ boot('scoping', async (supa, el) => {
             <td><span class="pill ${statusPillCls[s.status] || ''}">${esc(s.status)}</span></td>
             <td>${s.version}</td>
             <td class="muted" style="white-space:nowrap">${new Date(s.set_at).toLocaleDateString()} · ${esc((s.set_by || '').split('@')[0])}</td>
-          </tr>`).join('') : `<tr><td colspan="6" class="empty-note">No scopes yet. Start from the HubSpot pipeline, a live deal, a client, or blank.</td></tr>`}</tbody></table></div></div>` : ''}
+          </tr>`).join('') : `<tr><td colspan="6" class="empty-note">No scopes yet. Start from the pipeline, a live deal, a client, or blank.</td></tr>`}</tbody></table></div></div>` : ''}
+      ${tab === 'approvals' ? approvalsHtml(clientName) : ''}
       ${tab === 'pipeline' ? `<div class="sc-panel" style="padding:0"><div class="gridwrap" style="margin-top:0"><table class="ledger">
-        <thead><tr><th>HubSpot deal</th><th>Company</th><th>Stage</th><th>Amount</th><th>Campaign</th><th></th></tr></thead>
+        <thead><tr><th>Company</th><th>Deal</th><th>Stage</th><th>Close</th><th>Amount</th><th>Campaign</th><th></th></tr></thead>
         <tbody>${pipeline.length ? pipeline.map(p => `<tr>
-            <td class="textleft"><b>${esc(p.name)}</b>${p.is_won ? ' <span class="pill st-pending">won · not promoted</span>' : ''}</td>
-            <td class="textleft">${esc(p.company || '—')}</td>
-            <td class="textleft">${esc(p.stage || '')}${p.probability != null ? ` <span class="muted">${Math.round(p.probability * 100)}%</span>` : ''}</td>
+            <td class="textleft"><b>${esc(p.company || '—')}</b></td>
+            <td class="textleft">${esc(p.name)}${p.url ? ` <a href="${esc(p.url)}" target="_blank" rel="noopener" class="muted" style="font-size:10px">HubSpot ↗</a>` : ''}</td>
+            <td class="textleft">${p.is_won ? '<span class="pill st-pending">won · not promoted</span>' : `${esc(p.stage || '')}${p.probability != null ? ` <span class="muted">${Math.round(p.probability * 100)}%</span>` : ''}`}</td>
+            <td class="muted" style="white-space:nowrap">${esc(p.close_date || '—')}</td>
             <td>${p.amount != null ? fmt$(p.amount) : '—'}</td>
             <td class="muted" style="white-space:nowrap">${esc(p.campaign_start || '?')} → ${esc(p.campaign_end || '?')}</td>
             <td><button class="ghost" data-go="#new?hs=${encodeURIComponent(p.hubspot_deal_id)}" style="padding:3px 9px;font-size:11px">Scope</button></td>
-          </tr>`).join('') : `<tr><td colspan="6" class="empty-note">Nothing in the mirror that is not already promoted.</td></tr>`}</tbody></table></div></div>` : ''}
+          </tr>`).join('') : `<tr><td colspan="7" class="empty-note">Nothing left to scope: every promotable deal is promoted, dismissed, or already has a scope.</td></tr>`}</tbody></table></div></div>` : ''}
       ${tab === 'deals' ? `<div class="sc-panel" style="padding:0"><div class="gridwrap" style="margin-top:0"><table class="ledger">
         <thead><tr><th>Live deal</th><th>Client</th><th>Flight</th><th></th></tr></thead>
         <tbody>${deals.length ? deals.map(d => `<tr>
@@ -206,16 +230,74 @@ boot('scoping', async (supa, el) => {
             <td>${L.deals.filter(d => d.client_id === c.id).length}</td>
             <td>${L.scopes.filter(s => s.client_id === c.id).length}</td>
             <td><button class="ghost" data-go="#new?client=${c.id}" style="padding:3px 9px;font-size:11px">+ Scope</button></td>
-          </tr>`).join('')}</tbody></table></div></div>` : ''}`;
+          </tr>`).join('')}</tbody></table></div></div>` : ''}
+      ${tab === 'quick' ? quickHtml() : ''}`;
     panel().querySelectorAll('.rp .seg').forEach(b => b.onclick = () => { L.tab = b.dataset.tab; localStorage.setItem('sc_list_tab', L.tab); renderList(); });
     panel().querySelectorAll('button[data-go]').forEach(b => b.onclick = () => { location.hash = b.dataset.go; });
-    wireSearch(panel(), '#sc-q', v => { L.q = v; renderList(); });
+    if (panel().querySelector('#sc-q')) wireSearch(panel(), '#sc-q', v => { L.q = v; renderList(); });
     panel().querySelectorAll('tr.namerow[data-open]').forEach(tr => {
       const open = () => { location.hash = '#' + tr.dataset.open; };
       tr.onclick = e => { if (e.target.closest('a,button')) return; open(); };
       tr.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } };
     });
-    // departments for the quick check come from the roster — load lazily once
+    if (tab === 'approvals') {
+      if (!L.approvals) loadApprovals();
+      panel().querySelectorAll('button[data-approve]').forEach(b => b.onclick = () => queueAction(b.dataset.approve, 'approve'));
+      panel().querySelectorAll('button[data-sendback]').forEach(b => b.onclick = () => queueAction(b.dataset.sendback, 'sendback'));
+    }
+    if (tab === 'quick') wireQuick();
+  }
+
+  // The approvals queue: every proposed scope, its verdict and who is waiting.
+  // Approvers act from here; everyone can see where a scope sits.
+  function approvalsHtml(clientName) {
+    const isApp = L.approvers.includes(me());
+    if (!L.approvals) return `<div class="sc-panel"><div class="empty-note">loading…</div></div>`;
+    if (L.approvals.error) return `<div class="sc-panel err">${esc(L.approvals.error)}</div>`;
+    const rows = L.approvals;
+    return `<div class="sc-panel" style="padding:0"><div class="gridwrap" style="margin-top:0"><table class="ledger">
+      <thead><tr><th>Scope</th><th>Client</th><th>Proposed</th><th>Verdict</th><th>After labor</th><th>$ / h</th><th>Hours</th><th>Deals</th><th></th></tr></thead>
+      <tbody>${rows.length ? rows.map(r => { const k = r.kpis || {}; return `<tr class="namerow" data-open="s/${r.id}" tabindex="0" role="button">
+          <td class="textleft"><b>${esc(r.name)}</b> <span class="muted">${esc(r.scenario)} · v${r.version}</span></td>
+          <td class="textleft">${esc(r.client_name || clientName[r.client_id] || '—')}</td>
+          <td class="textleft muted" style="white-space:nowrap">${r.proposed_at ? new Date(r.proposed_at).toLocaleDateString() : '—'} · ${esc((r.proposed_by || '').split('@')[0])}</td>
+          <td><span class="pill ${STATUS_PILL[k.status] || ''}">${esc(STATUS_LABEL[k.status] || '—')}</span></td>
+          <td class="${(k.pal || 0) < 0 ? 'neg' : ''}">${fmt$(k.pal || 0)}</td>
+          <td>${k.per_hour_c != null ? fmt$(k.per_hour_c) : '—'}</td>
+          <td>${fmtH(k.hours)}</td>
+          <td class="textleft muted" style="font-size:10.5px">${(r.deals || []).map(d => `${esc(d.name)} (${esc(d.flight_start || '?')} → ${esc(d.flight_end || '?')})`).join('<br>')}</td>
+          <td style="white-space:nowrap">${isApp ? `<button class="primary" data-approve="${r.id}" style="padding:3px 9px;font-size:11px">Approve</button> <button class="ghost" data-sendback="${r.id}" style="padding:3px 9px;font-size:11px">Send back</button>` : '<span class="muted" style="font-size:10.5px">waiting for an approver</span>'}</td>
+        </tr>`; }).join('') : `<tr><td colspan="9" class="empty-note">Nothing waiting. A scope lands here when someone presses Propose.</td></tr>`}</tbody></table></div></div>`;
+  }
+  async function queueAction(id, what) {
+    if (what === 'approve' && !confirm('Approve this scope? Its named hours are reserved in Hour Planning.')) return;
+    if (what === 'sendback' && !confirm('Send this scope back to draft?')) return;
+    const { data, error } = what === 'approve'
+      ? await supa.rpc('approve_scope', { p_scope_id: id, p_by: window.__email })
+      : await supa.rpc('set_scope_status', { p_scope_id: id, p_status: 'draft', p_by: window.__email });
+    if (error || !data.ok) { alert(error ? error.message : data.reason); return; }
+    L.approvals = null; await loadList();
+  }
+
+  // Quick check: one channel, a few numbers, an answer — its own tab.
+  function quickHtml() {
+    return `<div class="sc-panel">
+      <div class="sc-note" style="margin-bottom:10px">One channel, a monthly budget and a fee: GP, labor at department averages (or the benchmark estimate when hours are left blank), profit after labor and per hour against the target. Open it as a scope when it is worth shaping.</div>
+      <div class="sc-form">
+        <label>channel<select id="qc-kind">${['search', 'social', 'programmatic', 'retainer', 'hourly'].map(k => `<option>${k}</option>`).join('')}</select></label>
+        <label>media $ / month<input id="qc-budget" type="number" step="any" inputmode="decimal" placeholder="100000"></label>
+        <label>fee %<input id="qc-fee" type="number" step="any" inputmode="decimal" placeholder="10"></label>
+        <label>backend margin % (programmatic)<input id="qc-margin" type="number" step="any" inputmode="decimal" placeholder="default"></label>
+        <label>$ / month (retainer / hourly)<input id="qc-amount" type="number" step="any" inputmode="decimal" placeholder="10000"></label>
+        <label>months<input id="qc-months" type="number" min="1" value="6"></label>
+        <label>department<select id="qc-dept">${(L.departments || []).map(d => `<option>${esc(d)}</option>`).join('')}</select></label>
+        <label>hours / month (blank = benchmarks)<input id="qc-hours" type="number" step="any" inputmode="decimal" placeholder="estimate"></label>
+        <label>&nbsp;<button class="primary" id="qc-run" style="height:30px">Check</button></label>
+      </div>
+      <div id="qc-out" class="sc-note" style="margin-top:12px;font-size:12px"></div>
+    </div>`;
+  }
+  function wireQuick() {
     if (!L.departments) {
       supa.from('staff').select('department').eq('active', true).eq('tracks_capacity', true).then(r => {
         L.departments = [...new Set((r.data || []).map(s => s.department).filter(Boolean))].sort();
@@ -260,8 +342,8 @@ boot('scoping', async (supa, el) => {
     const { data, error } = await supa.rpc('scope_page', { p_scope_id: id });
     if (error) { panel().innerHTML = `<div class="sc-panel err">${esc(error.message)}</div>`; return; }
     if (!data || !data.id) { panel().innerHTML = `<div class="sc-panel err">Scope not found.</div>`; return; }
-    const { econ, labor, staffing, verdict, versions, siblings, staff, departments, clients, settings, sources, ...state } = data;
-    S = state; X = { econ, labor, staffing, verdict, versions, siblings, staff, departments, clients, settings, sources, qbo: null };
+    const { econ, labor, staffing, verdict, versions, siblings, staff, departments, clients, settings, sources, existing_deals, ...state } = data;
+    S = state; X = { econ, labor, staffing, verdict, versions, siblings, staff, departments, clients, settings, sources, existing_deals, qbo: null };
     // an approved scope is about to promote: the QuickBooks projects its deals
     // will claim are picked here (101) — loaded only when that is possible
     if (S.status === 'approved' && (settings.approvers || []).map(e => String(e).toLowerCase().trim()).includes(me())) {
@@ -287,6 +369,10 @@ boot('scoping', async (supa, el) => {
   const departments = () => [...new Set([...(X.departments || []), ...S.dept_months.map(r => r.department), ...S.staff_months.map(r => r.department)])].filter(Boolean).sort();
 
   // ---- editor ------------------------------------------------------------
+  // Reading order (Boris): the answer first — verdict strip and chart — then
+  // the deal terms, the lines, what the client already runs in these months,
+  // the hours, the people, the scenarios. Every section is a full-width panel
+  // on one gutter; the bar is a .toolbar so its controls sit on the same edge.
   function renderEditor() {
     const months = allMonths();
     const ro = readOnly();
@@ -295,59 +381,79 @@ boot('scoping', async (supa, el) => {
     const stPill = { draft: '', proposed: 'st-pending', approved: 'good', promoted: 'st-live' }[S.status] || '';
     const sibs = (X.siblings || []);
     const clientName = Object.fromEntries((X.clients || []).map(c => [c.id, c.name]));
+    const presets = X.settings.min_margin_presets || [];
+    const preset = S.min_margin_preset || (presets.find(p => p.name === 'Slight margin') || presets[0] || {}).name || '';
+    const nMonths = (V.months || []).length || months.length || 1;
+    const short = +(T.fee_shortfall || 0);
 
     panel().innerHTML = `
-      <div class="editorbar">
+      <div class="toolbar sc-bar">
         <a href="#list" class="muted" style="font-size:12px">← scopes</a>
-        <input class="dname" id="sc-name" value="${esc(S.name)}" ${ro ? 'disabled' : ''} style="flex:1 1 240px;min-width:180px;height:32px;font-family:var(--font-body);font-size:14px;font-weight:600" aria-label="Scope name">
+        <input class="dname" id="sc-name" value="${esc(S.name)}" ${ro ? 'disabled' : ''} aria-label="Scope name">
         <span class="pill ${stPill}">${esc(S.status)}</span>
         <span class="pill">v${S.version}</span>
         <div class="rp rp-sm" id="sc-scen" title="Scenarios of this target">
           ${sibs.map(s => `<button class="seg ${s.id === S.id ? 'on' : ''}" data-scope="${s.id}" title="${esc(s.name)} · ${esc(STATUS_LABEL[s.kpis && s.kpis.status] || '')}">${esc(s.scenario)}</button>`).join('')}
           <button class="seg" id="sc-newscen" title="Copy this scope as a new scenario">+</button>
         </div>
-        <select id="sc-version" title="Versions" style="height:30px;font-size:11px">
+        <select id="sc-version" title="Versions" style="font-size:11px">
           <option value="">v${S.version} (current)</option>
           ${(X.versions || []).filter(v => v.version !== S.version).map(v => `<option value="${v.id}">v${v.version} · ${esc(v.reason)}${v.label ? ' · ' + esc(v.label) : ''} · ${new Date(v.saved_at).toLocaleDateString()}</option>`).join('')}
         </select>
         <button class="ghost" id="sc-terms" title="The commercial terms this scope implies, as plain sentences (templates on Settings › Scoping)">Terms</button>
         <span style="flex:1"></span>
+        <span id="sc-msg" class="ok" style="font-size:12px"></span>
         ${ro ? '' : `<button class="primary" id="sc-save">Save</button>`}
-        ${S.status === 'draft' ? `<button class="ghost" id="sc-propose">Propose</button>` : ''}
+        ${S.status === 'draft' ? `<button class="ghost" id="sc-propose" title="Puts the scope in the Approvals queue">Propose</button>` : ''}
         ${S.status === 'proposed' ? `<button class="ghost" id="sc-draft">Back to draft</button>` : ''}
         ${S.status === 'proposed' && isApprover() ? `<button class="primary" id="sc-approve">Approve</button>` : ''}
         ${S.status === 'approved' && isApprover() ? `<button class="ghost" id="sc-unapprove">Un-approve</button>` : ''}
         ${S.status === 'approved' && isApprover() ? `<button class="primary" id="sc-promote" title="Create the deals in the Forecast: HubSpot deals through the approval door, new deals as manual deals, re-scopes by extending the source deal">Promote</button>` : ''}
-        <span id="sc-msg" class="ok" style="font-size:12px"></span>
       </div>
+      ${S.status === 'proposed' ? `<div class="sc-note" style="margin:-14px 18px 12px">proposed ${S.proposed_at ? new Date(S.proposed_at).toLocaleDateString() : ''} by ${esc(S.proposed_by || '—')} — waiting in <a href="#list" data-tab-link="approvals">Approvals</a></div>` : ''}
 
       <div class="summary-strip" id="sc-strip">
+        <div class="summary-cell"><div class="summary-label">Verdict</div><div class="summary-value"><span class="pill ${STATUS_PILL[V.status] || ''}" style="font-size:12px">${esc(STATUS_LABEL[V.status] || '—')}</span></div>
+          <div class="summary-note">${verdictNotes(V)}</div></div>
+        <div class="summary-cell"><div class="summary-label">Profit after labor</div><div class="summary-value ${(T.pal || 0) < 0 ? 'neg' : ''}"><span class="gold-chip">${fmt$(T.pal || 0)}</span></div>
+          <div class="summary-note">${T.per_hour_c != null ? `<b>${fmt$(T.per_hour_c)}/h</b> vs ${fmt$(target)} target` : 'no hours planned'}</div></div>
         <div class="summary-cell"><div class="summary-label">Revenue</div><div class="summary-value" data-out="rev">${fmt$(T.billable || 0)}</div><div class="summary-note" data-out="pass"></div></div>
         <div class="summary-cell"><div class="summary-label">Gross profit</div><div class="summary-value" data-out="gp">${fmt$(T.gp || 0)}</div><div class="summary-note" data-out="rebate">${+T.rebate ? `rebate −${fmt$(T.rebate)}` : ''}</div></div>
         <div class="summary-cell" title="Named people at their burdened cost, placeholders and uncovered demand at department averages — one number, never per person"><div class="summary-label">Labor</div><div class="summary-value">${fmt$(T.labor || 0)}</div><div class="summary-note">${fmtH(T.hours)}${+T.open_hours ? ` · ${fmtH(T.open_hours)} not yet named` : ''}${T.labor_lo != null && T.labor_lo !== T.labor_hi ? ` · range ${fmt$(T.labor_lo)}–${fmt$(T.labor_hi)}` : ''}</div></div>
-        <div class="summary-cell"><div class="summary-label">Profit after labor</div><div class="summary-value ${(T.pal || 0) < 0 ? 'neg' : ''}"><span class="gold-chip">${fmt$(T.pal || 0)}</span></div>
-          <div class="summary-note">${T.per_hour_c != null ? `<b>${fmt$(T.per_hour_c)}/h</b> vs ${fmt$(target)} target` : 'no hours planned'}</div></div>
-        <div class="summary-cell"><div class="summary-label">Verdict</div><div class="summary-value"><span class="pill ${STATUS_PILL[V.status] || ''}" style="font-size:12px">${esc(STATUS_LABEL[V.status] || '—')}</span></div>
-          <div class="summary-note">${verdictNotes(V)}</div></div>
+        <div class="summary-cell" title="The fee that covers each month's labor at the chosen margin — the highest month sets the contractual minimum"><div class="summary-label">Minimum fee</div>
+          <div class="summary-value ${short > 0 ? 'neg' : ''}">${T.min_fee_max != null ? fmt$(T.min_fee_max) + '<span class="muted" style="font-size:12px">/mo</span>' : '—'}</div>
+          <div class="summary-note">${esc(preset || '—')}${T.fee != null ? ` · planned fee ${fmt$(Math.round(T.fee / nMonths))}/mo avg` : ''}${short > 0 ? ` · <b style="color:var(--rust)">short ${fmt$(short)}</b> over the flight` : ''}</div></div>
       </div>
-      <div id="sc-dirty" class="sc-note" style="margin:-14px 18px 14px;display:none">unsaved changes — money totals below are live; labor, capacity and the verdict refresh on Save</div>
+      <div id="sc-dirty" class="sc-note" style="margin:-8px 18px 14px;display:none">unsaved changes — money totals are live; labor, minimum fee, capacity and the verdict refresh on Save</div>
 
-      <div class="settings dealform" style="padding:0 18px">
-        <div class="setrow"><span class="setlabel">Client</span>
-          <select id="sc-client" ${ro ? 'disabled' : ''}><option value="">— none yet —</option>
-            ${(X.clients || []).map(c => `<option value="${c.id}" ${c.id === S.client_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
-        <div class="setrow"><span class="setlabel">Payment terms</span>
-          <input id="sc-net" type="number" min="0" style="width:80px" value="${S.payment_net_days ?? 30}" ${ro ? 'disabled' : ''}><span class="muted">days</span></div>
-        <div class="setrow wide"><span class="setlabel">Notes</span>
-          <input id="sc-notes" class="dname" value="${esc(S.notes || '')}" ${ro ? 'disabled' : ''} placeholder="anything the terms or the reviewer should know"></div>
+      <div class="sc-panel chartpanel">
+        <div class="chart-head"><div class="sc-eyebrow">Monthly verdict</div><div class="stat-inline muted" style="font-size:11px;display:flex;gap:14px;flex-wrap:wrap">${scopeStat(T, target)}</div></div>
+        <div class="chart-body"><div id="sc-chart"></div></div>
+        <div class="sc-vstrip" id="sc-vstrip"></div>
+        ${hireHtml(V)}
+        ${clientRollupHtml(V, clientName)}
+      </div>
+
+      <div class="sc-panel">
+        <div class="sc-eyebrow" style="margin-top:0">Deal terms</div>
+        <div class="sc-form">
+          <label>client<select id="sc-client" ${ro ? 'disabled' : ''}><option value="">— none yet —</option>
+            ${(X.clients || []).map(c => `<option value="${c.id}" ${c.id === S.client_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
+          <label>payment terms<span class="row"><input id="sc-net" type="number" min="0" value="${S.payment_net_days ?? 30}" ${ro ? 'disabled' : ''}><span class="unit">days</span></span></label>
+          <label title="Paid back to the client, booked COGS Other — applies to every line of the deal">rebate<span class="row"><input id="sc-rebate-pct" type="number" step="any" min="0" max="100" inputmode="decimal" placeholder="none" value="${S.rebate_pct ?? ''}" ${ro ? 'disabled' : ''}><span class="unit">% of</span>
+            <select id="sc-rebate-basis" ${ro ? 'disabled' : ''}><option value="media" ${S.rebate_basis !== 'fee' ? 'selected' : ''}>media spend</option><option value="fee" ${S.rebate_basis === 'fee' ? 'selected' : ''}>all fees</option></select></span></label>
+          <label title="The minimum monthly fee is computed: the month's labor (unassigned hours at department average included) ÷ (1 − this margin)">minimum fee margin<select id="sc-minpreset" ${ro ? 'disabled' : ''}>
+            ${presets.map(p => `<option value="${esc(p.name)}" ${p.name === preset ? 'selected' : ''}>${esc(p.name)} · ${p.pct}%</option>`).join('')}</select></label>
+          <label class="wide">notes<input id="sc-notes" value="${esc(S.notes || '')}" ${ro ? 'disabled' : ''} placeholder="anything the terms or the approver should know"></label>
+        </div>
       </div>
 
       ${X.qbo ? `<datalist id="sc-qbo-list">${X.qbo.map(p => `<option value="${esc(p.name)}"></option>`).join('')}</datalist>` : ''}
-      <div id="sc-deals" style="padding:0 18px">${S.deals.map((d, di) => dealHtml(d, di, ro)).join('')}
-        ${ro ? '' : `<div style="margin-top:10px"><button class="ghost" id="sc-adddeal">+ add a deal to this scope</button></div>`}
-      </div>
+      <div id="sc-deals">${S.deals.map((d, di) => dealHtml(d, di, ro)).join('')}</div>
 
-      <div class="sc-panel" style="margin:18px 18px 0">
+      ${existingDealsHtml(T, clientName, ro)}
+
+      <div class="sc-panel">
         <div class="chart-head" style="padding:0 0 6px"><div class="sc-eyebrow" style="margin:0">Hours needed, per department per month</div>
           ${ro ? '' : `<button class="ghost" id="sc-estimate" title="Fill from the benchmark library (each media line's drivers × hours per driver from comparable campaigns, client's own first) and the catalog products' default hours. Rows you typed are kept.">Estimate from benchmarks</button>`}</div>
         <div class="sc-note" style="margin-bottom:8px">Demand. Type it, or fill each media line's <b>drivers</b> (on its card) and estimate — rows marked benchmark / catalog were filled that way; typing over one makes it yours.</div>
@@ -357,7 +463,7 @@ boot('scoping', async (supa, el) => {
         ${ro ? '' : `<div class="hp-addrow"><select id="sc-adddept"><option value="">+ department…</option>${departments().filter(d => !S.dept_months.some(r => r.department === d)).map(d => `<option>${esc(d)}</option>`).join('')}</select></div>`}
       </div>
 
-      <div class="sc-panel" style="margin:14px 18px 0">
+      <div class="sc-panel">
         <div class="chart-head" style="padding:0 0 6px"><div class="sc-eyebrow" style="margin:0">Who does the work</div>
           ${ro ? '' : `<span style="display:flex;gap:6px;flex-wrap:wrap"><button class="ghost" id="sc-autostaff" title="Fill the uncovered hours with the best-ranked free people, fewest people first">Auto-staff</button><button class="ghost" id="sc-clearauto" title="Remove the auto-staffed rows">Clear auto</button></span>`}
         </div>
@@ -367,15 +473,7 @@ boot('scoping', async (supa, el) => {
           <tbody>${supplyRows(months, ro)}</tbody></table></div>
       </div>
 
-      <div class="sc-panel chartpanel" style="margin:14px 18px 0">
-        <div class="chart-head"><div class="sc-eyebrow">Monthly verdict</div><div class="stat-inline muted" style="font-size:11px;display:flex;gap:14px;flex-wrap:wrap">${scopeStat(T, target)}</div></div>
-        <div class="chart-body"><div id="sc-chart"></div></div>
-        <div class="sc-vstrip" id="sc-vstrip"></div>
-        ${hireHtml(V)}
-        ${clientRollupHtml(V, clientName)}
-      </div>
-
-      ${sibs.length > 1 ? `<div class="sc-panel" style="margin:14px 18px 0;padding:0"><div class="sc-eyebrow" style="padding:12px 14px 0">Scenarios</div>
+      ${sibs.length > 1 ? `<div class="sc-panel" style="padding:0"><div class="sc-eyebrow" style="padding:12px 18px 0">Scenarios</div>
         <div class="gridwrap" style="margin-top:6px"><table class="ledger">
           <thead><tr><th>Scenario</th><th>Status</th><th>Revenue</th><th>GP</th><th>Labor</th><th>After labor</th><th>$/h</th><th>Hours</th><th>Verdict</th></tr></thead>
           <tbody>${sibs.map(s => { const k = s.kpis || {}; return `<tr class="namerow" data-open="s/${s.id}" tabindex="0" role="button" ${s.id === S.id ? 'style="font-weight:600"' : ''}>
@@ -389,6 +487,43 @@ boot('scoping', async (supa, el) => {
     verdictStrip(panel().querySelector('#sc-vstrip'), V.months || [], target);
     wire(ro);
     recompute();
+  }
+
+  // The client's live deals whose flights overlap the scope's months, and
+  // what this scope does to the client total. Auto-included by the dates
+  // (Boris) — nothing to pick. A second deal inside the scope is the rare case
+  // and lives behind a small link here rather than a primary button.
+  function existingDealsHtml(T, clientName, ro) {
+    const rows = X.existing_deals || [];
+    const sum = k => rows.reduce((s, r) => s + (+r[k] || 0), 0);
+    const exGp = sum('gp_measured') + sum('gp_plan'), exLab = sum('labor_measured') + sum('labor_plan'), exH = sum('hours_measured') + sum('hours_plan');
+    const scGp = (T.gp || 0) - (T.rebate || 0), scLab = T.labor || 0, scH = +T.hours || 0;
+    const ph = (pal, h) => h > 0 ? fmt$(Math.round(pal / h)) + '/h' : '—';
+    const client = clientName[S.client_id];
+    return `<div class="sc-panel" style="padding:0">
+      <div class="chart-head"><div class="sc-eyebrow">${client ? `Already running for ${esc(client)} in these months` : 'Already running in these months'}</div>
+        ${ro ? '' : `<button class="ghost" id="sc-adddeal" style="height:26px;padding:0 9px;font-size:10.5px" title="Scope a second future deal alongside this one (rare)">+ another deal in this scope</button>`}</div>
+      ${!S.client_id ? `<div class="empty-note" style="padding:14px 18px">Pick a client in Deal terms to see what already runs alongside this scope.</div>`
+      : `<div class="gridwrap" style="margin-top:0"><table class="ledger">
+        <thead><tr><th>Deal</th><th>Flight</th><th>GP</th><th>Labor</th><th>Hours</th><th>After labor</th><th>$ / h</th></tr></thead>
+        <tbody>
+          ${rows.length ? rows.map(r => `<tr>
+            <td class="textleft"><a href="./forecast.html?open=${r.id}">${esc(r.name)}</a></td>
+            <td class="muted" style="white-space:nowrap">${esc(r.flight_start || '')} → ${esc(r.flight_end || '')}</td>
+            <td>${fmt$(r.gp_measured + r.gp_plan)}<div class="sc-hint">${fmt$(r.gp_measured)} measured · ${fmt$(r.gp_plan)} planned</div></td>
+            <td>${fmt$(r.labor_measured + r.labor_plan)}<div class="sc-hint">${fmt$(r.labor_measured)} logged · ${fmt$(r.labor_plan)} planned</div></td>
+            <td>${fmtH(+r.hours_measured + +r.hours_plan)}</td>
+            <td class="${r.pal < 0 ? 'neg' : ''}"><b>${fmt$(r.pal)}</b></td>
+            <td>${ph(r.pal, +r.hours_measured + +r.hours_plan)}</td></tr>`).join('')
+          : `<tr><td colspan="7" class="empty-note">No other live deal of this client overlaps the scope's months.</td></tr>`}
+          <tr class="subrow"><td class="textleft"><b>this scope</b></td><td class="muted">${esc((S.deals[0] || {}).flight_start || '')} → ${esc((S.deals[0] || {}).flight_end || '')}</td>
+            <td>${fmt$(scGp)}</td><td>${fmt$(scLab)}</td><td>${fmtH(scH)}</td><td class="${(T.pal || 0) < 0 ? 'neg' : ''}"><b>${fmt$(T.pal || 0)}</b></td><td>${ph(T.pal || 0, scH)}</td></tr>
+          <tr class="gp"><td class="textleft"><b>client with this scope</b></td><td></td>
+            <td><b>${fmt$(exGp + scGp)}</b></td><td><b>${fmt$(exLab + scLab)}</b></td><td><b>${fmtH(exH + scH)}</b></td>
+            <td class="${(exGp + scGp - exLab - scLab) < 0 ? 'neg' : ''}"><b>${fmt$(exGp + scGp - exLab - scLab)}</b>${rows.length ? `<div class="sc-hint">was ${fmt$(exGp - exLab)} without it</div>` : ''}</td>
+            <td><b>${ph(exGp + scGp - exLab - scLab, exH + scH)}</b>${rows.length && exH > 0 ? `<div class="sc-hint">was ${ph(exGp - exLab, exH)}</div>` : ''}</td></tr>
+        </tbody></table></div>`}
+    </div>`;
   }
 
   function verdictNotes(V) {
@@ -481,10 +616,8 @@ boot('scoping', async (supa, el) => {
       if (model === 'cpm') bits.push(pf('platform share %', inp(di, li, 'platform_share_pct', st.prog && st.prog.platform_share_pct != null ? st.prog.platform_share_pct : '', dis + ` placeholder="${X.settings.cpm_platform_share_pct}"`)));
       else { bits.push(pf('fee %', inp(di, li, 'fee_pct', l.fee_pct ?? '', dis))); bits.push(pf('backend margin %', inp(di, li, 'margin_pct', l.margin_pct ?? '', dis + ` placeholder="${X.settings.margin_default}"`))); }
     }
-    if (MEDIA(l.kind)) {
-      bits.push(pf('rebate %', inp(di, li, 'rebate_pct', st.rebate && st.rebate.pct != null ? st.rebate.pct : '', dis + ' title="paid back to the client, booked COGS Other — reduces GP"')));
-      bits.push(pf('rebate on', `<select data-f="line:${di}:${li}:rebate_basis" ${dis}><option value="media" ${!(st.rebate && st.rebate.basis === 'fee') ? 'selected' : ''}>media spend</option><option value="fee" ${st.rebate && st.rebate.basis === 'fee' ? 'selected' : ''}>the fee</option></select>`, 'shape'));
-    }
+    // the rebate is a DEAL term (Deal terms panel, 103); a line-level rebate
+    // saved before that still prices but is not offered here
     const cellKey = MEDIA(l.kind) ? 'budget' : isHourlyL(l) ? 'hours' : 'amount';
     const total = months.reduce((s, m) => s + (+((l.months[m] || {})[cellKey]) || 0), 0);
     const totalBox = (MEDIA(l.kind) || isHourlyL(l))
@@ -577,7 +710,7 @@ boot('scoping', async (supa, el) => {
         <tr class="gap"><td class="textleft">not yet planned</td>
           ${months.map(m => { const g = Math.max(demand(m) - supplied(m), 0); return `<td class="${g > 0.005 ? 'bad' : ''}">${g > 0.005 ? fmtH(g) : '—'}</td>`; }).join('')}
           <td>${(() => { const g = months.reduce((s, m) => s + Math.max(demand(m) - supplied(m), 0), 0); return g > 0.005 ? `<b style="color:var(--rust)">${fmtH(g)}</b>` : '—'; })()}</td><td></td></tr>
-        ${ro ? '' : `<tr><td colspan="${months.length + 3}" class="textleft">
+        ${ro ? '' : `<tr><td colspan="${months.length + 3}" class="textleft addrow">
           <div class="hp-addrow">
             <select data-addperson="${esc(dep)}"><option value="">+ person…</option>
               ${(X.staff || []).filter(s => !used.has(s.id)).sort((a, b) => (a.department === dep ? 0 : 1) - (b.department === dep ? 0 : 1) || a.name.localeCompare(b.name))
@@ -600,7 +733,19 @@ boot('scoping', async (supa, el) => {
       let dgp = 0;
       (d.lines || []).forEach((l, li) => {
         let lgp = 0, lrev = 0, lfee = 0, lreb = 0;
-        months.forEach(m => { const r = lineMonth(l, m, c); lgp += r.gp; lrev += r.billable; lfee += r.fee; lreb += r.rebate; pass += r.pass; });
+        // a line's own rebate wins (legacy data); otherwise the scope's applies —
+        // basis media only to media lines, basis fee to every line (scope_months, 103)
+        const ownReb = !!(l.structure && l.structure.rebate && +l.structure.rebate.pct);
+        const media = MEDIA(l.kind);
+        const scopeReb = (r, m) => {
+          if (ownReb) return r.rebate;
+          const pct = +S.rebate_pct || 0; if (!pct) return 0;
+          const basis = S.rebate_basis === 'fee' ? 'fee' : 'media';
+          if (basis === 'media' && !media) return 0;
+          const feeRaw = media ? lineFee(r.budget, l.kind === 'programmatic' ? progParams(l, c).feePct : (l.fee_pct || 0), l.structure) : r.gp;
+          return Math.round(lineRebate(r.budget, feeRaw, pct, basis));
+        };
+        months.forEach(m => { const r = lineMonth(l, m, c); lgp += r.gp; lrev += r.billable; lfee += r.fee; lreb += scopeReb(r, m); pass += r.pass; });
         dgp += lgp; gp += lgp; rev += lrev; reb += lreb;
         const n = months.length || 1;
         paint(`lgp:${di}:${li}`, `${fmt$(lgp - lreb)} GP`);
@@ -633,11 +778,15 @@ boot('scoping', async (supa, el) => {
     on('sc-approve', approve); on('sc-unapprove', unapprove); on('sc-promote', promote); on('sc-adddeal', () => { S.deals.push({ ord: S.deals.length, name: 'Deal ' + (S.deals.length + 1), origin_kind: 'new', promote_mode: 'new', flight_start: null, flight_end: null, lines: [] }); markDirty(); renderEditor(); });
     on('sc-autostaff', autoStaff); on('sc-clearauto', clearAuto);
     p.querySelectorAll('tr.namerow[data-open]').forEach(tr => { tr.onclick = () => { location.hash = '#' + tr.dataset.open; }; });
+    const tl = p.querySelector('a[data-tab-link]'); if (tl) tl.onclick = () => { localStorage.setItem('sc_list_tab', tl.dataset.tabLink); };
     if (ro) return;
     p.querySelector('#sc-name').oninput = e => { S.name = e.target.value; markDirty(); };
     p.querySelector('#sc-client').onchange = e => { S.client_id = e.target.value || null; markDirty(); };
     p.querySelector('#sc-net').oninput = e => { S.payment_net_days = +e.target.value || 0; markDirty(); };
     p.querySelector('#sc-notes').oninput = e => { S.notes = e.target.value; markDirty(); };
+    p.querySelector('#sc-rebate-pct').oninput = e => { S.rebate_pct = e.target.value === '' ? null : num(e.target.value); markDirty(); recompute(); };
+    p.querySelector('#sc-rebate-basis').onchange = e => { S.rebate_basis = e.target.value; markDirty(); recompute(); };
+    p.querySelector('#sc-minpreset').onchange = e => { S.min_margin_preset = e.target.value; markDirty(); };
     const ad = p.querySelector('#sc-adddept'); if (ad) ad.onchange = () => { if (!ad.value) return; allMonths().forEach(m => S.dept_months.push({ department: ad.value, month: m, hours: 0, source: 'manual' })); markDirty(); renderEditor(); };
     p.querySelectorAll('select[data-addperson]').forEach(sel => sel.onchange = () => { if (!sel.value) return;
       allMonths().forEach(m => S.staff_months.push({ staff_id: sel.value, department: sel.dataset.addperson, band: null, month: m, hours: 0, source: 'manual' })); markDirty(); renderEditor(); });

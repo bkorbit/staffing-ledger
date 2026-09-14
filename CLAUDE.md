@@ -139,7 +139,7 @@ Boris is the owner-operator; direct, ships fast, verifies with real data.
   finds the same shape for any other deal.
 - Forecast axis: bounds snap to $250k, gridlines every $500k ($1M if >13 lines).
 
-## Current migration head: 102. Key views/functions
+## Current migration head: 103. Key views/functions
 The number in brackets is the migration holding the CURRENT definition — a fix
 is always a new migration, so grep for the highest one before reading an old body.
 
@@ -349,6 +349,22 @@ is always a new migration, so grep for the highest one before reading an old bod
   payment terms, notes. The programmatic BACKEND MARGIN is never printed.
   `approve_scope` [102] freezes the text into `scopes.terms_text`. Helpers
   `render_template`, `fmt_money` ($50,000.00), `fmt_pct` (12.5 not 12.500).
+- **Deal-level terms** (103, Boris after the first walk-through): the REBATE is
+  a deal term (`scopes.rebate_pct/rebate_basis`, media → media lines only, fee →
+  every line; a line's own `structure.rebate` still wins but the UI no longer
+  offers it) — `scope_months` [103] and `promote_scope_lines` [103] resolve it
+  identically so the handoff identity holds. The MINIMUM fee is COMPUTED, never
+  typed: `scope_verdict` [103] months carry `fee` and `min_fee` = labor ÷ (1 −
+  preset margin) (`scope_min_margin_presets`: Break even 0 / Slight margin 15 /
+  Target 35, `scopes.min_margin_preset`), totals carry `min_fee_max` and
+  `fee_shortfall`; informative, not a gate; `scope_terms` [103] prints the
+  highest month as the minimum monthly fee and one scope-level rebate sentence.
+  `set_scope_status` [103] stamps `proposed_by/at`; `approvals_queue()` feeds
+  the Approvals tab; `scope_existing_deals(scope_id)` = the client's live deals
+  overlapping the scope's months (GP/labor measured + planned, hours, PAL) for
+  the editor's "already running" panel. Page: Quick check and Approvals are
+  tabs, the HubSpot tab is "Pipeline" with Sales Forecast's population minus
+  deals already scoped, the verdict is pinned at the top, one gutter system.
 - `match_deals_to_projects()` [010/037] — residual deal↔QBO-project fill-gaps
   pass; never guesses, never clobbers a human's match.
 
