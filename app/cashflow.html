@@ -4,11 +4,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="./assets/style.css?v=07098ec">
-<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=07098ec">
-<link rel="modulepreload" href="./assets/shell.js?v=07098ec"></head><body>
+<link rel="stylesheet" href="./assets/style.css?v=9765ee9">
+<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=9765ee9">
+<link rel="modulepreload" href="./assets/shell.js?v=9765ee9"></head><body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script type="module">
-import { boot, fmt$, bandChart, fetchAll } from './assets/shell.js?v=07098ec';
+import { boot, fmt$, bandChart, fetchAll } from './assets/shell.js?v=9765ee9';
 
 boot('cashflow', async (supa, el) => {
   el.innerHTML = `<div class="range">
@@ -21,6 +22,8 @@ boot('cashflow', async (supa, el) => {
       border-radius:4px;padding:5px 9px">half-month periods — H1 is the 1st–15th,
       H2 the 16th to month end. Programmatic pays its media in the spend half; the client
       pays on their curve, usually two to three halves later.</span>
+      <span style="flex:1"></span>
+      <button id="cf-export" title="Months as columns, the chart's own three lines — paste into PowerPoint">Export chart</button>
     </div>
     <div class="summary-strip" id="kpis" aria-live="polite"></div>
     <div class="sc-panel chartpanel"><div id="chart"><div style="padding:16px 18px">loading…</div></div></div>
@@ -290,10 +293,79 @@ boot('cashflow', async (supa, el) => {
           2-week-ahead ones in a couple of weeks.</td></tr>`;
   })();
 
+  /* ------------------------------------------ export (xlsx): the chart grid */
+  // For a deck, not for analysis: months as COLUMNS, the chart's own three
+  // lines as ROWS, so the block pastes straight into a PowerPoint graph (blank
+  // corner cell = Excel reads row 1 as categories and column A as series
+  // names). The model runs in HALF-months and every one of these numbers is a
+  // POSITION — a bank balance, not a flow — so a month's figure is the last
+  // half-period that lands in it, never a sum. The horizon's first and last
+  // months can be half-covered (the series starts at today's half-period), so
+  // the period each column was read from sits under a blank row.
+  let cfRows = [];
+  const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const mLabel = ym => MO[+ym.slice(5,7) - 1] + ' ' + ym.slice(2,4);
+  const MONEY_FMT = '"$"#,##0;-"$"#,##0';
+  const CHART_SERIES = [
+    ['Optimistic', r => r.position_optimistic],
+    ['Regular',    r => r.position_expected],
+    ['Worst case', r => r.position_conservative],
+  ];
+  async function exportChart() {
+    const btn = document.getElementById('cf-export');
+    if (!btn || btn.disabled) return;
+    const label = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Exporting…';
+    try {
+      // last half-period per month, in the order the chart draws them
+      const cols = [];
+      cfRows.forEach(r => {
+        const ym = r.week_start.slice(0, 7);
+        const last = cols[cols.length - 1];
+        if (last && last.ym === ym) last.r = r; else cols.push({ ym, r });
+      });
+      if (!cols.length) { alert('No periods to export.'); return; }
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Cashflow');
+      ws.columns = [{ width:14 }, ...cols.map(() => ({ width:11 }))];
+      const head = ws.addRow(['', ...cols.map(c => mLabel(c.ym))]);
+      for (let i = 1; i <= cols.length + 1; i++) {
+        const cell = head.getCell(i);
+        cell.font = { bold:true, color:{ argb:'FFFFFFFF' } };
+        cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF0A493C' } };
+        cell.alignment = { horizontal:'center' };
+      }
+      CHART_SERIES.forEach(([name, valueOf]) => {
+        const row = ws.addRow([name, ...cols.map(c => valueOf(c.r) / 100)]);
+        row.getCell(1).font = { bold:true };
+        cols.forEach((_, i) => { row.getCell(2 + i).numFmt = MONEY_FMT; });
+      });
+      ws.addRow([]);
+      const basis = ws.addRow(['Position at', ...cols.map(c => c.r.period_label)]);
+      for (let i = 1; i <= cols.length + 1; i++)
+        basis.getCell(i).font = { italic:true, color:{ argb:'FF67706D' } };
+
+      const buf = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `emg-cashflow-chart_${cols[0].ym}_${cols[cols.length-1].ym}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Export failed: ' + (err.message || err));
+    } finally {
+      btn.disabled = false; btn.textContent = label;
+    }
+  }
+  document.getElementById('cf-export').onclick = exportChart;
+
   // ---- horizon-dependent: the only part that needs to re-run on a horizon change
   async function renderPeriods(periods) {
     const { data: rows, error } = await supa.rpc('cashflow_forecast', { periods });
     if (error) throw error;
+    cfRows = rows;
 
     const months = periods / 2;
     const endExpected = rows[rows.length-1].position_expected;

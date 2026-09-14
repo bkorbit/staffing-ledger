@@ -4,10 +4,10 @@
 // Drivers are plain counts; spend is in CENTS (the SQL side stores cents).
 // The platform hint narrows detection to that platform's parsers first; any
 // parser may still match when the hint is wrong, and the result says which.
-import { parseCSV } from './csv.js?v=07098ec';
-import { googleAdsDaily, googleAdsChanges } from './google-ads.js?v=07098ec';
-import { metaDaily, metaActivity } from './meta-ads.js?v=07098ec';
-import { dspDaily } from './dsp.js?v=07098ec';
+import { parseCSV } from './csv.js?v=9765ee9';
+import { googleAdsDaily, googleAdsChanges } from './google-ads.js?v=9765ee9';
+import { metaDaily, metaActivity } from './meta-ads.js?v=9765ee9';
+import { dspDaily } from './dsp.js?v=9765ee9';
 
 export const PARSERS = [googleAdsDaily, googleAdsChanges, metaDaily, metaActivity, dspDaily];
 export const PLATFORMS = {

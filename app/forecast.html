@@ -4,10 +4,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="./assets/style.css?v=07098ec">
-<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=07098ec">
-<link rel="modulepreload" href="./assets/shell.js?v=07098ec">
-<link rel="modulepreload" href="./assets/scope-math.js?v=07098ec">
+<link rel="stylesheet" href="./assets/style.css?v=9765ee9">
+<link rel="modulepreload" href="./assets/vendor/supabase-js.min.mjs?v=9765ee9">
+<link rel="modulepreload" href="./assets/shell.js?v=9765ee9">
+<link rel="modulepreload" href="./assets/scope-math.js?v=9765ee9">
 <style>
 /* .range and .rl are now fully covered by the shared style.css rules (22px
    margin, 18px horizontal inset to match .sc-panel, 34px buttons) — no
@@ -22,10 +22,10 @@ tr.clientrow:focus-visible,tr.deallist:focus-visible,tr.projrow:focus-visible,th
 </style></head><body>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script type="module">
-import { boot, esc, fmt$, barChart, fetchAll } from './assets/shell.js?v=07098ec';
+import { boot, esc, fmt$, barChart, fetchAll } from './assets/shell.js?v=9765ee9';
 // 100: the ONE copy of the fee-structure and rebate math (twin of line_fee /
 // line_rebate in db/096, which v_deal_month_forecast prices with since 100)
-import { lineFee, lineRebate } from './assets/scope-math.js?v=07098ec';
+import { lineFee, lineRebate } from './assets/scope-math.js?v=9765ee9';
 /*
   The Forecast, remodelled on the v1 ledger's Forecast view, recovered from git:
   months as ROWS in a P&L ledger — Revenue billed, COGS, Forecast GP, Actual GP,
@@ -693,6 +693,68 @@ boot('forecast', async (supa, el) => {
     }
   }
 
+  /* ------------------------------------------ export (xlsx): the chart grid */
+  // For a deck, not for analysis: months as COLUMNS, the chart's own series as
+  // ROWS, so the block pastes straight into a PowerPoint graph (blank corner
+  // cell = Excel reads row 1 as categories and column A as series names). The
+  // numbers ARE the chart's — the same rowFor() values, over the same range the
+  // range picker holds, in dollars. Note EBITDA carries the add-back (093), so
+  // the column does not foot from the cost rows above it; Basis sits under a
+  // blank row so selecting the grid never picks it up by accident.
+  async function saveWorkbook(wb, filename) {
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
+  const CHART_SERIES = [
+    ['Revenue',  r => r.revenue],
+    ['COGS',     r => r.cogs],
+    ['Labor',    r => r.labour],
+    ['Overhead', r => r.other],
+    ['Other',    r => r.misc],
+    ['Fixed',    r => r.fixed],
+    ['EBITDA',   r => r.ebitda],
+  ];
+  async function exportChart() {
+    const btn = el.querySelector('#export-chart');
+    if (!btn || btn.disabled) return;
+    const label = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Exporting…';
+    try {
+      const rows = plRowsCache;
+      if (!rows.length) { alert('No months in range to export.'); return; }
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Forecast');
+      ws.columns = [{ width:14 }, ...rows.map(() => ({ width:11 }))];
+      const head = ws.addRow(['', ...rows.map(r => mLabel(r.m))]);
+      for (let i = 1; i <= rows.length + 1; i++) {
+        const cell = head.getCell(i);
+        cell.font = { bold:true, color:{ argb:'FFFFFFFF' } };
+        cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF0A493C' } };
+        cell.alignment = { horizontal:'center' };
+      }
+      CHART_SERIES.forEach(([name, valueOf]) => {
+        const row = ws.addRow([name, ...rows.map(r => valueOf(r) / 100)]);
+        row.getCell(1).font = { bold:true };
+        rows.forEach((_, i) => { row.getCell(2 + i).numFmt = MONEY_FMT; });
+      });
+      ws.addRow([]);
+      const basis = ws.addRow(['Basis', ...rows.map(r => r.measured ? 'measured' : 'forecast')]);
+      for (let i = 1; i <= rows.length + 1; i++)
+        basis.getCell(i).font = { italic:true, color:{ argb:'FF67706D' } };
+      await saveWorkbook(wb,
+        `emg-forecast-chart_${rows[0].m.slice(0,7)}_${rows[rows.length-1].m.slice(0,7)}.xlsx`);
+    } catch (err) {
+      alert('Export failed: ' + (err.message || err));
+    } finally {
+      btn.disabled = false; btn.textContent = label;
+    }
+  }
+
   /* ---------------------------------------------------------------- render */
   function render() {
     el.innerHTML = `
@@ -702,6 +764,7 @@ boot('forecast', async (supa, el) => {
         <span class="rd">to</span>
         <input type="month" id="r-to" aria-label="Range to" value="${rangeTo.slice(0,7)}">
         <span style="flex:1"></span>
+        <button id="export-chart" title="Months as columns, the chart's own rows — paste into PowerPoint">Export chart</button>
         <button id="export-fc">Export forecast</button>
         <button id="costs-how" aria-expanded="false" aria-controls="how-panel">How costs are counted ▸</button>
       </div>
@@ -759,6 +822,7 @@ boot('forecast', async (supa, el) => {
     el.querySelector('#r-from').onchange = e => { rangeFrom = e.target.value+'-01'; loadAll(); };
     el.querySelector('#r-to').onchange   = e => { rangeTo   = e.target.value+'-01'; loadAll(); };
     el.querySelector('#export-fc').onclick = exportForecast;
+    el.querySelector('#export-chart').onclick = exportChart;
 
     // ---- fixed costs still feed the projected net line; edited on Settings ----
     const fixedTotal = () => fixedCosts.reduce((s,f)=>s+(f.amount||0),0);
