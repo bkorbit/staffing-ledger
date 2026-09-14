@@ -58,10 +58,30 @@ table.bands button { padding:1px 7px; font-size:11px; }
 .gold-chip { display:inline-block; background:var(--gold-bg); color:var(--ink); padding:1px 6px; border-radius:4px; }
 tr.namerow[data-open] { cursor:pointer; }
 /* structure: the section titles ARE headings — same eyebrow voice, real <h2> */
-h2.sc-eyebrow { margin:0 0 10px; font-weight:500; line-height:1.4; }
-h2.sc-eyebrow.tight { margin:0; }
-h2.sc-eyebrow.inset { padding:12px 18px 0; margin:0; }
-h2.sc-eyebrow.inset14 { padding:12px 14px 0; margin:0; }
+h2.sc-eyebrow, h3.sc-eyebrow { margin:0 0 10px; font-weight:500; line-height:1.4; }
+h2.sc-eyebrow.tight, h3.sc-eyebrow.tight { margin:0; }
+h2.sc-eyebrow.inset, h3.sc-eyebrow.inset { padding:12px 18px 0; margin:0; }
+h2.sc-eyebrow.inset14, h3.sc-eyebrow.inset14 { padding:12px 14px 0; margin:0; }
+/* the editor reads in four sections — Verdict · The deal · The work · Scenarios.
+   Sections are separated by a generous 34px and titled in the body voice
+   (Montserrat 14.5/700, DESIGN.md "title") with one sentence of lede; panels
+   INSIDE a section sit 12px apart and keep the mono eyebrow. Two levels the
+   squint test can tell apart. */
+.sc-section { margin-top:34px; }
+.sc-section.sc-answer { margin-top:0; }
+.sc-title { font-family:var(--font-body); font-size:14.5px; font-weight:700; line-height:1.2; color:var(--ink); margin:0 0 4px; padding:0 18px; }
+.sc-lede { font-size:12.5px; line-height:1.5; color:var(--slate); margin:0 0 12px; padding:0 18px; max-width:72ch; }
+.sc-section > .sc-panel, .sc-section .sc-deal { margin-bottom:12px; }
+.sc-section > .sc-panel:last-child { margin-bottom:0; }
+.sc-note.sc-inset { padding:0 18px; }
+/* the answer is one block: ribbon on top, the monthly chart and pills under it, the unsaved note as its foot */
+.summary-strip.sc-ribbon { border:0; border-bottom:1px solid var(--line); border-radius:6px 6px 0 0; margin-bottom:0; }
+.sc-foot { border-top:1px solid var(--line); padding:8px 14px 10px; font-size:11px; color:var(--slate); }
+/* the bar holds identity and the one primary action; the row under it holds the rest */
+.toolbar.sc-bar.has-sub { margin-bottom:8px; }   /* only when a sub-bar follows (the editor); the list keeps its 22px */
+.toolbar.sc-subbar { margin-bottom:22px; gap:8px; }
+.sc-subbar > button, .sc-subbar > select { height:26px; font-size:10.5px; padding:0 9px; }
+.sc-subbar .sc-note { align-self:center; }
 /* helpers that replace the inline styles the page kept repeating */
 .sc-panel.flush { padding:0; }
 .gridwrap.tight { margin-top:0; }
@@ -428,10 +448,13 @@ boot('scoping', async (supa, el) => {
   const departments = () => [...new Set([...(X.departments || []), ...autoDepartments(), ...S.dept_months.map(r => r.department), ...S.staff_months.map(r => r.department)])].filter(Boolean).sort();
 
   // ---- editor ------------------------------------------------------------
-  // Reading order (Boris): the answer first — verdict strip and chart — then
-  // the deal terms, the lines, what the client already runs in these months,
-  // the hours, the people, the scenarios. Every section is a full-width panel
-  // on one gutter; the bar is a .toolbar so its controls sit on the same edge.
+  // Reading order (Boris): the answer first, then the inputs in the order you
+  // fill them. Four titled sections — Verdict (ribbon + monthly chart + what the
+  // client already runs, one block) · The deal (terms, then lines) · The work
+  // (hours, then people) · Scenarios. Titles in the body voice with one lede
+  // sentence; panels inside a section keep the mono eyebrow. Every panel is
+  // full width on one gutter; the bar is a .toolbar so its controls sit on the
+  // same edge, with a quiet second row for versions, terms and delete.
   function renderEditor() {
     const months = allMonths();
     const ro = readOnly();
@@ -445,7 +468,7 @@ boot('scoping', async (supa, el) => {
 
     panel().innerHTML = `
       <h1 class="sr-only">Scope: ${esc(S.name)} (${esc(S.scenario)})</h1>
-      <div class="toolbar sc-bar">
+      <div class="toolbar sc-bar has-sub">
         <a href="#list" class="muted sc-back">← scopes</a>
         <input class="dname" id="sc-name" value="${esc(S.name)}" ${ro ? 'disabled' : ''} aria-label="Scope name">
         <span class="pill ${stPill}">${esc(S.status)}</span>
@@ -454,12 +477,6 @@ boot('scoping', async (supa, el) => {
           ${sibs.map(s => `<button class="seg ${s.id === S.id ? 'on' : ''}" data-scope="${s.id}" title="${esc(s.name)} · ${esc(STATUS_LABEL[s.kpis && s.kpis.status] || '')}">${esc(s.scenario)}</button>`).join('')}
           <button class="seg" id="sc-newscen" title="Copy this scope as a new scenario" aria-label="New scenario">+</button>
         </div>
-        <select id="sc-version" title="Versions" aria-label="Versions" style="font-size:11px">
-          <option value="">v${S.version} (current)</option>
-          ${(X.versions || []).filter(v => v.version !== S.version).map(v => `<option value="${v.id}">v${v.version} · ${esc(v.reason)}${v.label ? ' · ' + esc(v.label) : ''} · ${new Date(v.saved_at).toLocaleDateString()}</option>`).join('')}
-        </select>
-        <button class="ghost" id="sc-terms" title="The commercial terms this scope implies, as plain sentences (templates on Settings › Scoping)">Terms</button>
-        ${canDelete(S, X.settings.approvers) ? `<button class="ghost muted" id="sc-delete" title="Delete this scope and every version of it${S.status === 'approved' ? ' — its reserved hours leave Hour Planning' : ''}">Delete</button>` : ''}
         <span style="flex:1"></span>
         <span id="sc-msg" class="ok" role="status" aria-live="polite"></span>
         ${ro ? '' : `<input class="vlabel" id="sc-label" type="text" placeholder="label this version (optional)" aria-label="Label for this saved version"><button class="primary" id="sc-save">Save</button>`}
@@ -469,15 +486,31 @@ boot('scoping', async (supa, el) => {
         ${S.status === 'approved' && isApprover() ? `<button class="ghost" id="sc-unapprove">Un-approve</button>` : ''}
         ${S.status === 'approved' && isApprover() ? `<button class="primary" id="sc-promote" title="Create the deals in the Forecast: HubSpot deals through the approval door, new deals as manual deals, re-scopes by extending the source deal">Promote</button>` : ''}
       </div>
-      ${S.status === 'proposed' ? `<div class="sc-note" style="margin:-14px 18px 12px">proposed ${S.proposed_at ? new Date(S.proposed_at).toLocaleDateString() : ''} by ${esc(S.proposed_by || '—')} — waiting in <a href="#list" data-tab-link="approvals">Approvals</a></div>` : ''}
+            <div class="toolbar sc-subbar">
+        <select id="sc-version" title="Versions" aria-label="Versions" style="font-size:11px">
+          <option value="">v${S.version} (current)</option>
+          ${(X.versions || []).filter(v => v.version !== S.version).map(v => `<option value="${v.id}">v${v.version} · ${esc(v.reason)}${v.label ? ' · ' + esc(v.label) : ''} · ${new Date(v.saved_at).toLocaleDateString()}</option>`).join('')}
+        </select>
+        <button class="ghost" id="sc-terms" title="The commercial terms this scope implies, as plain sentences (templates on Settings › Scoping)">Terms</button>
+        ${canDelete(S, X.settings.approvers) ? `<button class="ghost muted" id="sc-delete" title="Delete this scope and every version of it${S.status === 'approved' ? ' — its reserved hours leave Hour Planning' : ''}">Delete</button>` : ''}
+        ${S.status === 'proposed' ? `<span class="sc-note">proposed ${S.proposed_at ? new Date(S.proposed_at).toLocaleDateString() : ''} by ${esc(S.proposed_by || '—')} — waiting in <a href="#list" data-tab-link="approvals">Approvals</a></span>` : ''}
+      </div>
 
-      <div class="summary-strip" id="sc-strip">${stripCells()}</div>
-      <div id="sc-dirty" class="sc-note" style="margin:-8px 18px 14px;display:none">unsaved changes — everything below follows your edits (labor and the verdict a moment behind); Save keeps a version</div>
+      <section class="sc-section sc-answer" aria-labelledby="sc-h-answer">
+        <h2 id="sc-h-answer" class="sr-only">Verdict</h2>
+        <div class="sc-panel flush sc-verdictblock">
+          <div class="summary-strip sc-ribbon" id="sc-strip">${stripCells()}</div>
+          <div class="chartpanel" id="sc-verdictpanel">${verdictPanelInner()}</div>
+          <div id="sc-dirty" class="sc-foot" style="display:none">unsaved changes — everything below follows your edits (labor and the verdict a moment behind); Save keeps a version</div>
+        </div>
+        ${existingDealsHtml(T, clientName, ro)}
+      </section>
 
-      <div class="sc-panel chartpanel" id="sc-verdictpanel">${verdictPanelInner()}</div>
-
+      <section class="sc-section" aria-labelledby="sc-h-deal">
+        <h2 id="sc-h-deal" class="sc-title">The deal</h2>
+        <p class="sc-lede">What EMG sells. Terms that apply to the whole deal first, then each line — a media channel, a retainer, hours. Money follows every keystroke; labor and the verdict a moment later.</p>
       <div class="sc-panel">
-        <h2 class="sc-eyebrow">Deal terms</h2>
+        <h3 class="sc-eyebrow">Deal terms</h3>
         <div class="sc-form">
           <label>client<select id="sc-client" ${ro ? 'disabled' : ''}><option value="">— none yet —</option>
             ${(X.clients || []).map(c => `<option value="${c.id}" ${c.id === S.client_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
@@ -493,14 +526,16 @@ boot('scoping', async (supa, el) => {
 
       ${X.qbo ? `<datalist id="sc-qbo-list">${X.qbo.map(p => `<option value="${esc(p.name)}"></option>`).join('')}</datalist>` : ''}
       <div id="sc-deals">${S.deals.map((d, di) => dealHtml(d, di, ro)).join('')}</div>
-      ${ro ? '' : `<div class="sc-note" style="margin:-8px 18px 14px"><button class="sc-linkbtn" id="sc-adddeal" title="Scope a second future deal alongside this one (rare)">+ another deal in this scope</button></div>`}
+      ${ro ? '' : `<div class="sc-note sc-inset"><button class="sc-linkbtn" id="sc-adddeal" title="Scope a second future deal alongside this one (rare)">+ another deal in this scope</button></div>`}
+      </section>
 
-      ${existingDealsHtml(T, clientName, ro)}
-
+      <section class="sc-section" aria-labelledby="sc-h-work">
+        <h2 id="sc-h-work" class="sc-title">The work</h2>
+        <p class="sc-lede">Hours per department per month, then who covers them. Labor is one number for everyone: named people at their own cost, the rest at department averages.</p>
       <div class="sc-panel">
-        <div class="chart-head flush"><h2 class="sc-eyebrow tight">Hours needed, per department per month</h2>
+        <div class="chart-head flush"><h3 class="sc-eyebrow tight">Hours needed</h3>
           ${ro ? '' : `<button class="ghost" id="sc-estimate" title="Fill from the benchmark library (each media line's drivers × hours per driver from comparable campaigns, client's own first) and the catalog products' default hours. Rows you typed are kept.">Estimate from benchmarks</button>`}</div>
-        <div class="sc-note lead">Demand. Type it, or fill each media line's <b>drivers</b> (on its card) and estimate — rows marked benchmark / catalog were filled that way; typing over one makes it yours.</div>
+        <div class="sc-note lead">Type the hours, or estimate them from the benchmarks (each media line's drivers × hours per driver). Estimated cells show in italics until you type over them.</div>
         <div class="gridwrap tight"><table class="sc-grid">
           <thead><tr><th>department</th><th class="per" title="Type once here to fill every flight month of the row">every month</th>${months.map(m => `<th>${mLabel(m)}</th>`).join('')}<th>total</th></tr></thead>
           <tbody>${demandRows(months, ro)}</tbody></table></div>
@@ -508,23 +543,24 @@ boot('scoping', async (supa, el) => {
       </div>
 
       <div class="sc-panel">
-        <div class="chart-head flush"><h2 class="sc-eyebrow tight">Who does the work</h2>
+        <div class="chart-head flush"><h3 class="sc-eyebrow tight">Who does the work</h3>
           ${ro ? '' : `<span style="display:flex;gap:6px;flex-wrap:wrap"><button class="ghost" id="sc-autostaff" title="Fill the uncovered hours with the best-ranked free people, fewest people first">Auto-staff</button><button class="ghost" id="sc-clearauto" title="Remove the auto-staffed rows">Clear auto</button></span>`}
         </div>
-        <div class="sc-note lead">Named people are priced at their own cost, placeholders at their band's average, uncovered hours at the department average — shown only as one labor total. Ranking: worked this client → worked this kind → free hours → cost.</div>
+        <div class="sc-note lead">Suggestions rank people by: worked this client → worked this kind → free hours → cost. Auto-staff fills the gap with the fewest people.</div>
         <div class="gridwrap tight"><table class="sc-grid">
           <thead><tr><th>person / placeholder</th>${months.map(m => `<th>${mLabel(m)}</th>`).join('')}<th>total</th><th></th></tr></thead>
           <tbody>${supplyRows(months, ro)}</tbody></table></div>
       </div>
+      </section>
 
-      ${sibs.length > 1 ? `<div class="sc-panel flush"><h2 class="sc-eyebrow inset">Scenarios</h2>
+      ${sibs.length > 1 ? `<section class="sc-section" aria-labelledby="sc-h-scen"><h2 id="sc-h-scen" class="sc-title">Scenarios</h2><p class="sc-lede">The same target, shaped differently. Open one to edit it.</p><div class="sc-panel flush">
         <div class="gridwrap gap6"><table class="ledger">
           <thead><tr><th>Scenario</th><th>Status</th><th>Revenue</th><th>GP</th><th>Labor</th><th>After labor</th><th>$/h</th><th>Hours</th><th>Verdict</th></tr></thead>
           <tbody>${sibs.map(s => { const k = s.kpis || {}; return `<tr class="namerow" data-open="s/${s.id}" tabindex="0" role="button" ${s.id === S.id ? 'style="font-weight:600"' : ''}>
             <td class="textleft">${esc(s.scenario)} <span class="muted">v${s.version}</span></td><td><span class="pill">${esc(s.status)}</span></td>
             <td>${fmt$(k.billable || 0)}</td><td>${fmt$(k.gp || 0)}</td><td>${fmt$(k.labor || 0)}</td><td>${fmt$(k.pal || 0)}</td>
             <td>${k.per_hour_c != null ? fmt$(k.per_hour_c) : '—'}</td><td>${fmtH(k.hours)}</td>
-            <td><span class="pill ${STATUS_PILL[k.status] || ''}">${esc(STATUS_LABEL[k.status] || '—')}</span></td></tr>`; }).join('')}</tbody></table></div></div>` : ''}
+            <td><span class="pill ${STATUS_PILL[k.status] || ''}">${esc(STATUS_LABEL[k.status] || '—')}</span></td></tr>`; }).join('')}</tbody></table></div></div></section>` : ''}
       <div style="height:24px"></div>`;
 
     wire(ro);
@@ -546,7 +582,7 @@ boot('scoping', async (supa, el) => {
     // rare "second deal in this scope" entry lives under the deals instead
     if (!S.client_id || !rows.length) return '';
     return `<div class="sc-panel flush">
-      <div class="chart-head"><h2 class="sc-eyebrow">${client ? `Already running for ${esc(client)} in these months` : 'Already running in these months'}</h2></div>
+      <div class="chart-head"><h3 class="sc-eyebrow">${client ? `Already running for ${esc(client)} in these months` : 'Already running in these months'}</h3></div>
       <div class="gridwrap tight"><table class="ledger">
         <thead><tr><th>Deal</th><th>Flight</th><th>GP</th><th>Labor</th><th>Hours</th><th>After labor</th><th>$ / h</th></tr></thead>
         <tbody>
@@ -616,7 +652,7 @@ boot('scoping', async (supa, el) => {
     const V = X.verdict || {}, T = V.total || {};
     const target = +(X.settings.per_hour || 150) * 100;
     return `
-        <div class="chart-head"><h2 class="sc-eyebrow">Monthly verdict</h2><div class="stat-inline muted" style="font-size:11px;display:flex;gap:14px;flex-wrap:wrap">${scopeStat(T, target)}</div></div>
+        <div class="chart-head"><h3 class="sc-eyebrow">Monthly verdict</h3><div class="stat-inline muted" style="font-size:11px;display:flex;gap:14px;flex-wrap:wrap">${scopeStat(T, target)}</div></div>
         <div class="chart-body"><div id="sc-chart"></div></div>
         <div class="sc-vstrip" id="sc-vstrip"></div>
         ${hireHtml(V)}`;
