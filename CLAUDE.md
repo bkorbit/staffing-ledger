@@ -385,6 +385,15 @@ is always a new migration, so grep for the highest one before reading an old bod
   (focused field + caret + scroll restored; a stale reply is dropped when the
   user typed again). Save still writes the version. Never make the preview
   autosave — Boris chose a version per deliberate Save.
+  Hours cells (demand, people, placeholders) update the state and their row
+  total IN PLACE on `input` — never re-render while a field is focused (it
+  dropped the cursor and half-typed digits); a preview that lands mid-typing
+  repaints only the ribbon (`stripCells`) and the Monthly verdict
+  (`verdictPanelInner`), the grids catch up on focusout (`pendingRender`).
+  The demand grid's first column is "every month" (`data-dmall`) — one number
+  fills the row. The ribbon carries Profit per hour vs target; the client
+  roll-up table is gone from the UI (Boris: no insight) — `client_ok` still
+  gates the verdict and shows in the verdict notes.
 - **Deal-level terms** (103, Boris after the first walk-through): the REBATE is
   a deal term (`scopes.rebate_pct/rebate_basis`, media → media lines only, fee →
   every line; a line's own `structure.rebate` still wins but the UI no longer

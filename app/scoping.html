@@ -28,9 +28,11 @@ table.bands button { padding:1px 7px; font-size:11px; }
    column and equal month columns, so a month lands at the same x in every table */
 .sc-grid { width:auto; }
 .sc-grid th, .sc-grid td { padding:4px 6px; white-space:nowrap; }
-.sc-grid th:first-child, .sc-grid td:first-child { min-width:240px; max-width:240px; width:240px; text-align:left; overflow:hidden; text-overflow:ellipsis; }
-.sc-grid th:not(:first-child), .sc-grid td:not(:first-child) { min-width:112px; width:112px; }
-.sc-grid input.hcell { width:64px; height:26px; text-align:right; font-family:var(--font-mono); font-size:11.5px; padding:0 5px; }
+.sc-grid th:first-child, .sc-grid td:first-child { min-width:150px; max-width:200px; text-align:left; overflow:hidden; text-overflow:ellipsis; }
+.sc-grid th:not(:first-child), .sc-grid td:not(:first-child) { padding:3px 4px; }   /* sized by content: twelve months fit without a scroll */
+.sc-grid input.hcell { width:54px; height:26px; text-align:right; font-family:var(--font-mono); font-size:11.5px; padding:0 4px; }
+.sc-grid th.per, .sc-grid td.per { border-right:2px solid #d6d6d6; background:#fafaf8; }
+.sc-grid input.hcell.per { font-weight:600; }
 .sc-grid tr.dept td { background:#f2f2f2; font-family:var(--font-mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); text-align:left; max-width:none; }
 .sc-grid tr.ph td:first-child { color:var(--slate); font-style:italic; }
 .sc-grid tr.auto input.hcell { color:var(--slate); font-style:italic; }
@@ -55,7 +57,7 @@ table.bands button { padding:1px 7px; font-size:11px; }
 .sc-form .row .unit { font-family:var(--font-mono); font-size:11px; color:var(--slate); flex:none; }
 .gold-chip { display:inline-block; background:var(--gold-bg); color:var(--ink); padding:1px 6px; border-radius:4px; }
 tr.namerow[data-open] { cursor:pointer; }
-@media (max-width:640px) { .sc-dealhead input.dname { flex-basis:100%; } .sc-grid input.hcell { width:56px; } .sc-grid th:first-child, .sc-grid td:first-child { min-width:160px; width:160px; } }
+@media (max-width:640px) { .sc-dealhead input.dname { flex-basis:100%; } .sc-grid th:first-child, .sc-grid td:first-child { min-width:120px; max-width:140px; } }
 </style></style></head><body>
 <script type="module">
 import { boot, esc, fmt$, wireSearch, fetchAll } from './assets/shell.js?v=3987346';
@@ -414,8 +416,6 @@ boot('scoping', async (supa, el) => {
     const clientName = Object.fromEntries((X.clients || []).map(c => [c.id, c.name]));
     const presets = X.settings.min_margin_presets || [];
     const preset = S.min_margin_preset || (presets.find(p => p.name === 'Slight margin') || presets[0] || {}).name || '';
-    const nMonths = (V.months || []).length || months.length || 1;
-    const short = +(T.fee_shortfall || 0);
 
     panel().innerHTML = `
       <div class="toolbar sc-bar">
@@ -444,27 +444,10 @@ boot('scoping', async (supa, el) => {
       </div>
       ${S.status === 'proposed' ? `<div class="sc-note" style="margin:-14px 18px 12px">proposed ${S.proposed_at ? new Date(S.proposed_at).toLocaleDateString() : ''} by ${esc(S.proposed_by || '—')} — waiting in <a href="#list" data-tab-link="approvals">Approvals</a></div>` : ''}
 
-      <div class="summary-strip" id="sc-strip">
-        <div class="summary-cell"><div class="summary-label">Verdict</div><div class="summary-value"><span class="pill ${STATUS_PILL[V.status] || ''}" style="font-size:12px">${esc(STATUS_LABEL[V.status] || '—')}</span></div>
-          <div class="summary-note">${verdictNotes(V)}</div></div>
-        <div class="summary-cell"><div class="summary-label">Profit after labor</div><div class="summary-value ${(T.pal || 0) < 0 ? 'neg' : ''}"><span class="gold-chip">${fmt$(T.pal || 0)}</span></div>
-          <div class="summary-note">${T.per_hour_c != null ? `<b>${fmt$(T.per_hour_c)}/h</b> vs ${fmt$(target)} target` : 'no hours planned'}</div></div>
-        <div class="summary-cell"><div class="summary-label">Revenue</div><div class="summary-value" data-out="rev">${fmt$(T.billable || 0)}</div><div class="summary-note" data-out="pass"></div></div>
-        <div class="summary-cell"><div class="summary-label">Gross profit</div><div class="summary-value" data-out="gp">${fmt$(T.gp || 0)}</div><div class="summary-note" data-out="rebate">${+T.rebate ? `rebate −${fmt$(T.rebate)}` : ''}</div></div>
-        <div class="summary-cell" title="Named people at their burdened cost, placeholders and uncovered demand at department averages — one number, never per person"><div class="summary-label">Labor</div><div class="summary-value">${fmt$(T.labor || 0)}</div><div class="summary-note">${fmtH(T.hours)}${+T.open_hours ? ` · ${fmtH(T.open_hours)} not yet named` : ''}${T.labor_lo != null && T.labor_lo !== T.labor_hi ? ` · range ${fmt$(T.labor_lo)}–${fmt$(T.labor_hi)}` : ''}</div></div>
-        <div class="summary-cell" title="The fee that covers each month's labor at the chosen margin — the highest month sets the contractual minimum"><div class="summary-label">Minimum fee</div>
-          <div class="summary-value ${short > 0 ? 'neg' : ''}">${T.min_fee_max != null ? fmt$(T.min_fee_max) + '<span class="muted" style="font-size:12px">/mo</span>' : '—'}</div>
-          <div class="summary-note">${esc(preset || '—')}${T.fee != null ? ` · planned fee ${fmt$(Math.round(T.fee / nMonths))}/mo avg` : ''}${short > 0 ? ` · <b style="color:var(--rust)">short ${fmt$(short)}</b> over the flight` : ''}</div></div>
-      </div>
+      <div class="summary-strip" id="sc-strip">${stripCells()}</div>
       <div id="sc-dirty" class="sc-note" style="margin:-8px 18px 14px;display:none">unsaved changes — everything below follows your edits (labor and the verdict a moment behind); Save keeps a version</div>
 
-      <div class="sc-panel chartpanel">
-        <div class="chart-head"><div class="sc-eyebrow">Monthly verdict</div><div class="stat-inline muted" style="font-size:11px;display:flex;gap:14px;flex-wrap:wrap">${scopeStat(T, target)}</div></div>
-        <div class="chart-body"><div id="sc-chart"></div></div>
-        <div class="sc-vstrip" id="sc-vstrip"></div>
-        ${hireHtml(V)}
-        ${clientRollupHtml(V, clientName)}
-      </div>
+      <div class="sc-panel chartpanel" id="sc-verdictpanel">${verdictPanelInner()}</div>
 
       <div class="sc-panel">
         <div class="sc-eyebrow" style="margin-top:0">Deal terms</div>
@@ -491,7 +474,7 @@ boot('scoping', async (supa, el) => {
           ${ro ? '' : `<button class="ghost" id="sc-estimate" title="Fill from the benchmark library (each media line's drivers × hours per driver from comparable campaigns, client's own first) and the catalog products' default hours. Rows you typed are kept.">Estimate from benchmarks</button>`}</div>
         <div class="sc-note" style="margin-bottom:8px">Demand. Type it, or fill each media line's <b>drivers</b> (on its card) and estimate — rows marked benchmark / catalog were filled that way; typing over one makes it yours.</div>
         <div class="gridwrap" style="margin-top:0"><table class="sc-grid">
-          <thead><tr><th>department</th>${months.map(m => `<th>${mLabel(m)}</th>`).join('')}<th>total</th></tr></thead>
+          <thead><tr><th>department</th><th class="per" title="Type once here to fill every flight month of the row">every month</th>${months.map(m => `<th>${mLabel(m)}</th>`).join('')}<th>total</th></tr></thead>
           <tbody>${demandRows(months, ro)}</tbody></table></div>
         ${ro ? '' : `<div class="hp-addrow"><select id="sc-adddept"><option value="">+ department…</option>${departments().filter(d => !S.dept_months.some(r => r.department === d)).map(d => `<option>${esc(d)}</option>`).join('')}</select></div>`}
       </div>
@@ -576,14 +559,39 @@ boot('scoping', async (supa, el) => {
     return `<div class="sc-callout ${V.status === 'no_go' ? 'bad' : ''}" style="margin:6px 14px 12px">Not enough free capacity: ${parts.join('; ')}. ${alt}</div>`;
   }
 
-  function clientRollupHtml(V, clientName) {
-    const rows = V.client || [];
-    if (!rows.length) return '';
-    return `<div style="padding:0 14px 12px"><div class="sc-eyebrow">Client roll-up · ${esc(clientName[S.client_id] || '')}</div>
-      <div class="gridwrap" style="margin-top:4px"><table class="sc-grid">
-        <thead><tr><th>month</th><th>existing GP</th><th>existing labor</th><th>this scope GP</th><th>this scope labor</th><th>combined after labor</th></tr></thead>
-        <tbody>${rows.map(r => `<tr><td class="textleft">${mLabel(r.month)}</td><td>${fmt$(r.gp_existing)}</td><td>${fmt$(r.labor_existing)}</td>
-          <td>${fmt$(r.gp_scope - r.rebate_scope)}</td><td>${fmt$(r.labor_scope)}</td><td class="${r.pal_combined < 0 ? 'bad' : ''}" style="${r.pal_combined < 0 ? 'color:var(--rust);font-weight:600' : ''}">${fmt$(r.pal_combined)}</td></tr>`).join('')}</tbody></table></div></div>`;
+  // The ribbon: the verdict and the numbers behind it. Repainted on its own
+  // (with the verdict panel) when a preview lands while a field is focused.
+  function stripCells() {
+    const V = X.verdict || {}, T = V.total || {};
+    const target = +(X.settings.per_hour || 150) * 100;
+    const presets = X.settings.min_margin_presets || [];
+    const preset = S.min_margin_preset || (presets.find(p => p.name === 'Slight margin') || presets[0] || {}).name || '';
+    const nMonths = (V.months || []).length || allMonths().length || 1;
+    const short = +(T.fee_shortfall || 0);
+    const under = T.per_hour_c != null && T.per_hour_c < target;
+    return `
+        <div class="summary-cell"><div class="summary-label">Verdict</div><div class="summary-value"><span class="pill ${STATUS_PILL[V.status] || ''}" style="font-size:12px">${esc(STATUS_LABEL[V.status] || '—')}</span></div>
+          <div class="summary-note">${verdictNotes(V)}</div></div>
+        <div class="summary-cell" title="Profit after labor ÷ planned hours, against the company target (Settings › Scoping)"><div class="summary-label">Profit per hour</div>
+          <div class="summary-value ${under || (T.pal || 0) < 0 ? 'neg' : ''}">${T.per_hour_c != null ? fmt$(T.per_hour_c) + '<span class="muted" style="font-size:12px">/h</span>' : '—'}</div>
+          <div class="summary-note">${T.per_hour_c != null ? `${under ? `<b style="color:var(--rust)">under</b> the` : 'clears the'} ${fmt$(target)}/h target` : 'no hours planned yet'}</div></div>
+        <div class="summary-cell"><div class="summary-label">Profit after labor</div><div class="summary-value ${(T.pal || 0) < 0 ? 'neg' : ''}"><span class="gold-chip">${fmt$(T.pal || 0)}</span></div>
+          <div class="summary-note">${T.hours ? `${fmtH(T.hours)} over ${nMonths} month${nMonths === 1 ? '' : 's'}` : 'no hours planned'}</div></div>
+        <div class="summary-cell"><div class="summary-label">Revenue</div><div class="summary-value" data-out="rev">${fmt$(T.billable || 0)}</div><div class="summary-note" data-out="pass"></div></div>
+        <div class="summary-cell"><div class="summary-label">Gross profit</div><div class="summary-value" data-out="gp">${fmt$(T.gp || 0)}</div><div class="summary-note" data-out="rebate">${+T.rebate ? `rebate −${fmt$(T.rebate)}` : ''}</div></div>
+        <div class="summary-cell" title="Named people at their burdened cost, placeholders and uncovered demand at department averages — one number, never per person"><div class="summary-label">Labor</div><div class="summary-value">${fmt$(T.labor || 0)}</div><div class="summary-note">${fmtH(T.hours)}${+T.open_hours ? ` · ${fmtH(T.open_hours)} not yet named` : ''}${T.labor_lo != null && T.labor_lo !== T.labor_hi ? ` · range ${fmt$(T.labor_lo)}–${fmt$(T.labor_hi)}` : ''}</div></div>
+        <div class="summary-cell" title="The fee that covers each month's labor at the chosen margin — the highest month sets the contractual minimum"><div class="summary-label">Minimum fee</div>
+          <div class="summary-value ${short > 0 ? 'neg' : ''}">${T.min_fee_max != null ? fmt$(T.min_fee_max) + '<span class="muted" style="font-size:12px">/mo</span>' : '—'}</div>
+          <div class="summary-note">${esc(preset || '—')}${T.fee != null ? ` · planned fee ${fmt$(Math.round(T.fee / nMonths))}/mo avg` : ''}${short > 0 ? ` · <b style="color:var(--rust)">short ${fmt$(short)}</b> over the flight` : ''}</div></div>`;
+  }
+  function verdictPanelInner() {
+    const V = X.verdict || {}, T = V.total || {};
+    const target = +(X.settings.per_hour || 150) * 100;
+    return `
+        <div class="chart-head"><div class="sc-eyebrow">Monthly verdict</div><div class="stat-inline muted" style="font-size:11px;display:flex;gap:14px;flex-wrap:wrap">${scopeStat(T, target)}</div></div>
+        <div class="chart-body"><div id="sc-chart"></div></div>
+        <div class="sc-vstrip" id="sc-vstrip"></div>
+        ${hireHtml(V)}`;
   }
 
   // ---- deal + line cards ---------------------------------------------------
@@ -703,13 +711,17 @@ boot('scoping', async (supa, el) => {
     // lines — rows appear as soon as a line exists, hours still to be filled
     const auto = new Set(autoDepartments());
     const depts = [...new Set([...S.dept_months.map(r => r.department), ...auto])].sort();
-    if (!depts.length) return `<tr><td colspan="${months.length + 2}" class="empty-note">Add a line above — its teams appear here.</td></tr>`;
+    if (!depts.length) return `<tr><td colspan="${months.length + 3}" class="empty-note">Add a line above — its teams appear here.</td></tr>`;
     return depts.map(dep => {
-      const tot = S.dept_months.filter(r => r.department === dep && months.includes(r.month)).reduce((s, r) => s + (+r.hours || 0), 0);
+      const vals = months.map(m => { const r = S.dept_months.find(x => x.department === dep && x.month === m); return r ? +r.hours : null; });
+      const tot = vals.reduce((s, v) => s + (v || 0), 0);
+      // the "every month" box shows the common value when the row is flat, else blank
+      const flat = months.length && vals.every(v => v != null && v === vals[0]) ? vals[0] : '';
       return `<tr><td class="textleft"><b>${esc(dep)}</b>${ro || auto.has(dep) ? '' : ` <button class="ghost" data-act="rmdept:${esc(dep)}" style="padding:0 6px;font-size:10px" aria-label="remove">×</button>`}</td>
+        <td class="per"><input class="hcell per" type="number" min="0" step="0.5" inputmode="decimal" data-dmall="${esc(dep)}" value="${flat}" placeholder="all" title="hours per month, every month of the flight" ${ro ? 'disabled' : ''}></td>
         ${months.map(m => { const r = S.dept_months.find(x => x.department === dep && x.month === m);
           return `<td><input class="hcell${r && r.source !== 'manual' ? ' ghost' : ''}" type="number" min="0" step="0.5" inputmode="decimal" data-dm="${esc(dep)}|${m}" value="${r ? +r.hours : ''}" title="${r && r.source !== 'manual' ? 'from the ' + esc(r.source) + ' estimate — type to make it yours' : ''}" ${ro ? 'disabled' : ''}></td>`; }).join('')}
-        <td><b>${fmtH(tot)}</b></td></tr>`;
+        <td><b data-dtot="${esc(dep)}">${fmtH(tot)}</b></td></tr>`;
     }).join('');
   }
 
@@ -736,12 +748,12 @@ boot('scoping', async (supa, el) => {
               const c = capBy[`${p.staff_id}|${m}`];
               const cap = c ? `<span class="pill cap ${c.over ? 'bad' : (c.free_after < (c.capacity_hours || 0) * 0.2 ? 'warn' : 'good')}" title="${fmtH(c.scope_hours)} here · ${fmtH(c.committed_other)} elsewhere · ${fmtH(c.capacity_hours)} plannable · ${fmtH(c.free_after)} left">${c.over ? 'over' : fmtH(c.free_after) + ' free'}</span>` : '';
               return `<td><input class="hcell" type="number" min="0" step="0.5" inputmode="decimal" data-sm="${p.staff_id}|${p.source}|${dep}|${m}" value="${r ? +r.hours : ''}" ${ro ? 'disabled' : ''}>${cap}</td>`; }).join('')}
-            <td><b>${fmtH(rows.filter(x => x.staff_id === p.staff_id && (x.source || 'manual') === p.source).reduce((s2, r) => s2 + (+r.hours || 0), 0))}</b></td>
+            <td><b data-stot="${p.staff_id}|${p.source}|${esc(dep)}">${fmtH(rows.filter(x => x.staff_id === p.staff_id && (x.source || 'manual') === p.source).reduce((s2, r) => s2 + (+r.hours || 0), 0))}</b></td>
             <td>${ro ? '' : `<button class="ghost" data-act="rmperson:${p.staff_id}:${p.source}:${esc(dep)}" aria-label="remove">×</button>`}</td></tr>`; }).join('')}
         ${phs.map(band => `<tr class="ph"><td class="textleft">placeholder${band ? ` · ${esc(band)}` : ' · department average'}</td>
             ${months.map(m => { const r = rows.find(x => !x.staff_id && (x.band || '') === band && x.month === m);
               return `<td><input class="hcell" type="number" min="0" step="0.5" inputmode="decimal" data-ph="${esc(band)}|${dep}|${m}" value="${r ? +r.hours : ''}" ${ro ? 'disabled' : ''}></td>`; }).join('')}
-            <td><b>${fmtH(rows.filter(x => !x.staff_id && (x.band || '') === band).reduce((s2, r) => s2 + (+r.hours || 0), 0))}</b></td>
+            <td><b data-ptot="${esc(band)}|${esc(dep)}">${fmtH(rows.filter(x => !x.staff_id && (x.band || '') === band).reduce((s2, r) => s2 + (+r.hours || 0), 0))}</b></td>
             <td>${ro ? '' : `<button class="ghost" data-act="rmph:${esc(band)}:${esc(dep)}" aria-label="remove">×</button>`}</td></tr>`).join('')}
         <tr class="gap"><td class="textleft">not yet planned</td>
           ${months.map(m => { const g = Math.max(demand(m) - supplied(m), 0); return `<td class="${g > 0.005 ? 'bad' : ''}">${g > 0.005 ? fmtH(g) : '—'}</td>`; }).join('')}
@@ -847,21 +859,27 @@ boot('scoping', async (supa, el) => {
     if (error || !data || !data.ok) { msg(error ? error.message : (data && data.reason) || 'preview failed', true); return; }
     const pg = data.page || {};
     X = { ...X, econ: pg.econ, labor: pg.labor, staffing: pg.staffing, verdict: pg.verdict, existing_deals: pg.existing_deals, prog_margin: pg.prog_margin };
-    rerenderKeepingFocus();
+    applyPreview();
     msg('');
   }
-  function rerenderKeepingFocus() {
-    const p = panel(), a = document.activeElement;
-    let sel = null, ss = null, se = null;
-    if (a && p.contains(a) && a.tagName !== 'BODY') {
-      sel = a.id ? '#' + a.id : a.tagName.toLowerCase() + [...a.attributes].filter(x => x.name.startsWith('data-')).map(x => `[${x.name}="${x.value.replace(/"/g, '\\"')}"]`).join('');
-      try { ss = a.selectionStart; se = a.selectionEnd; } catch {}
+  let pendingRender = false;
+  const typingIn = p => { const a = document.activeElement; return !!(a && p.contains(a) && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)); };
+  // While a field is focused only the ribbon and the Monthly verdict repaint
+  // (they hold no inputs); the grids follow when focus leaves. Otherwise the
+  // whole editor re-renders in place.
+  function applyPreview() {
+    const p = panel();
+    if (typingIn(p)) {
+      const strip = p.querySelector('#sc-strip'), vp = p.querySelector('#sc-verdictpanel');
+      if (strip) strip.innerHTML = stripCells();
+      if (vp) vp.innerHTML = verdictPanelInner();
+      recompute();
+      pendingRender = true;
+      return;
     }
-    const y = window.scrollY;
-    renderEditor(); showDirty();
-    if (sel) { let n = null; try { n = p.querySelector(sel); } catch {} if (n) { n.focus({ preventScroll: true }); if (ss != null && n.setSelectionRange) try { n.setSelectionRange(ss, se); } catch {} } }
-    window.scrollTo(0, y);
+    rerenderKeepingScroll();
   }
+  function rerenderKeepingScroll() { const y = window.scrollY; renderEditor(); showDirty(); window.scrollTo(0, y); }
 
   // ---- wiring: delegated ----------------------------------------------------
   function wire(ro) {
@@ -893,14 +911,33 @@ boot('scoping', async (supa, el) => {
     p.querySelector('#sc-deals').oninput = e => { const t = e.target; if (t.dataset.f) onField(t); else if (t.dataset.cell) onCell(t); else if (t.dataset.band) onBand(t); else if (t.dataset.drv) onDriver(t); };
     on('sc-estimate', estimateHours);
     p.querySelector('#sc-deals').onchange = e => { const t = e.target; if (t.tagName === 'SELECT' && t.dataset.f) onField(t, true); };
-    p.querySelectorAll('input[data-dm]').forEach(i => i.onchange = () => { const [dep, m] = i.dataset.dm.split('|'); let r = S.dept_months.find(x => x.department === dep && x.month === m);
-      if (!r) { r = { department: dep, month: m, hours: 0, source: 'manual' }; S.dept_months.push(r); } r.hours = Math.max(0, +i.value || 0); r.source = 'manual'; markDirty(); renderEditor(); });
-    p.querySelectorAll('input[data-sm]').forEach(i => i.onchange = () => { const [sid, source, dep, m] = i.dataset.sm.split('|');
+    // Hours cells update the state and their row total IN PLACE on every
+    // keystroke — no re-render while a hand is on the keyboard (re-rendering
+    // dropped the cursor and half-typed digits). The grid catches up with the
+    // server (gap row, capacity pills, suggestions) once focus leaves the fields.
+    const flightMonths = allMonths();
+    const setDept = (dep, m, v) => { let r = S.dept_months.find(x => x.department === dep && x.month === m);
+      if (!r) { r = { department: dep, month: m, hours: 0, source: 'manual' }; S.dept_months.push(r); } r.hours = v; r.source = 'manual'; };
+    const deptTotal = dep => { const n = p.querySelector(`[data-dtot="${dep}"]`); if (n) n.textContent = fmtH(S.dept_months.filter(r => r.department === dep && flightMonths.includes(r.month)).reduce((s2, r) => s2 + (+r.hours || 0), 0)); };
+    p.querySelectorAll('input[data-dm]').forEach(i => i.oninput = () => { const [dep, m] = i.dataset.dm.split('|');
+      setDept(dep, m, Math.max(0, +i.value || 0)); i.classList.remove('ghost'); i.title = '';
+      const all = p.querySelector(`input[data-dmall="${dep}"]`); if (all) all.value = '';
+      deptTotal(dep); markDirty(); });
+    p.querySelectorAll('input[data-dmall]').forEach(i => i.oninput = () => { const dep = i.dataset.dmall; const v = Math.max(0, +i.value || 0);
+      flightMonths.forEach(m => { setDept(dep, m, v); const c = p.querySelector(`input[data-dm="${dep}|${m}"]`); if (c) { c.value = i.value === '' ? '' : v; c.classList.remove('ghost'); c.title = ''; } });
+      deptTotal(dep); markDirty(); });
+    p.querySelectorAll('input[data-sm]').forEach(i => i.oninput = () => { const [sid, source, dep, m] = i.dataset.sm.split('|');
       let r = S.staff_months.find(x => x.staff_id === sid && x.month === m && (x.source || 'manual') === source && x.department === dep);
-      if (!r) { r = { staff_id: sid, department: dep, band: null, month: m, hours: 0, source }; S.staff_months.push(r); } r.hours = Math.max(0, +i.value || 0); if (source === 'auto') r.source = 'manual'; markDirty(); renderEditor(); });
-    p.querySelectorAll('input[data-ph]').forEach(i => i.onchange = () => { const [band, dep, m] = i.dataset.ph.split('|');
+      if (!r) { r = { staff_id: sid, department: dep, band: null, month: m, hours: 0, source }; S.staff_months.push(r); } r.hours = Math.max(0, +i.value || 0); if (source === 'auto') r.source = 'manual';
+      const n = p.querySelector(`[data-stot="${sid}|${source}|${dep}"]`); if (n) n.textContent = fmtH(S.staff_months.filter(x => x.staff_id === sid && (x.source || 'manual') === source && x.department === dep).reduce((s2, x) => s2 + (+x.hours || 0), 0));
+      markDirty(); });
+    p.querySelectorAll('input[data-ph]').forEach(i => i.oninput = () => { const [band, dep, m] = i.dataset.ph.split('|');
       let r = S.staff_months.find(x => !x.staff_id && (x.band || '') === band && x.department === dep && x.month === m);
-      if (!r) { r = { staff_id: null, department: dep, band: band || null, month: m, hours: 0, source: 'manual' }; S.staff_months.push(r); } r.hours = Math.max(0, +i.value || 0); markDirty(); renderEditor(); });
+      if (!r) { r = { staff_id: null, department: dep, band: band || null, month: m, hours: 0, source: 'manual' }; S.staff_months.push(r); } r.hours = Math.max(0, +i.value || 0);
+      const n = p.querySelector(`[data-ptot="${band}|${dep}"]`); if (n) n.textContent = fmtH(S.staff_months.filter(x => !x.staff_id && (x.band || '') === band && x.department === dep).reduce((s2, x) => s2 + (+x.hours || 0), 0));
+      markDirty(); });
+    // a preview that landed while typing is applied once the hands leave the fields
+    p.onfocusout = () => setTimeout(() => { if (pendingRender && !typingIn(p)) { pendingRender = false; rerenderKeepingScroll(); } }, 0);
     p.onclick = e => { const b = e.target.closest('button[data-act]'); if (b) { e.preventDefault(); act(b.dataset.act); } };
   }
 
