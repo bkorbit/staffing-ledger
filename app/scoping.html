@@ -1386,7 +1386,7 @@ boot('scoping', async (supa, el) => {
       </div>
       <div class="sc-panel" style="margin:14px 18px 0">
         <div class="chart-head flush"><h2 class="sc-eyebrow tight">3 · What will be recorded</h2>
-          <span class="sc-phead-actions"><button class="primary" id="bn-submit" ${B.busy || (!allParsed.some(r => !r.error) && !Object.keys(B.signals).length) ? 'disabled' : ''}>Record for ${esc(deal.name)}</button><span id="bn-msg" class="ok" style="font-size:12px"></span></span></div>
+          <span class="sc-phead-actions"><button class="primary" id="bn-submit" ${B.busy || (!allParsed.some(r => !r.error) && !Object.keys(B.signals).length) ? 'disabled' : ''}>Record for ${esc(deal.name)}</button><span id="bn-msg" class="ok sc-back" role="status" aria-live="polite"></span></span></div>
         ${allParsed.some(r => !r.error) ? Object.entries(B.platforms).filter(([, P]) => P.on && (P.parsed || []).some(r => !r.error)).map(([pl, P]) => {
           const merged = mergeMonths(P.parsed.filter(r => !r.error)); const ms = Object.keys(merged).sort();
           const cols = [...new Set(ms.flatMap(m => Object.keys(merged[m])))].sort();
