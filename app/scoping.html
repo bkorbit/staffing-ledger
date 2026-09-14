@@ -119,6 +119,7 @@ h2.sc-eyebrow.inset14, h3.sc-eyebrow.inset14 { padding:12px 14px 0; margin:0; }
 .sc-grid td > .sc-x { margin:0 auto; display:flex; }
 .nowrap { white-space:nowrap; }
 .sc-back { font-size:12px; }
+.pill.sc-vpill { font-size:12px; }
 .sc-small { font-size:11px; } .sc-tiny { font-size:10.5px; }
 .sc-check { display:flex; align-items:center; gap:6px; font-size:11px; }
 .sc-check input[type="checkbox"] { height:auto; }
@@ -366,7 +367,7 @@ boot('scoping', async (supa, el) => {
           <td>${k.per_hour_c != null ? fmt$(k.per_hour_c) : '—'}</td>
           <td>${fmtH(k.hours)}</td>
           <td class="textleft muted sc-tiny">${(r.deals || []).map(d => `${esc(d.name)} (${esc(d.flight_start || '?')} → ${esc(d.flight_end || '?')})`).join('<br>')}</td>
-          <td class="nowrap">${isApp ? `<button class="primary sc-btn-sm" data-approve="${r.id}">Approve</button> <button class="ghost sc-btn-sm" data-sendback="${r.id}">Send back</button>` : '<span class="muted" style="font-size:10.5px">waiting for an approver</span>'}</td>
+          <td class="nowrap">${isApp ? `<button class="primary sc-btn-sm" data-approve="${r.id}">Approve</button> <button class="ghost sc-btn-sm" data-sendback="${r.id}">Send back</button>` : '<span class="muted sc-tiny">waiting for an approver</span>'}</td>
         </tr>`; }).join('') : `<tr><td colspan="9" class="empty-note">Nothing waiting. A scope lands here when someone presses Propose.</td></tr>`}</tbody></table></div></div>`;
   }
   async function queueAction(id, what) {
@@ -677,7 +678,7 @@ boot('scoping', async (supa, el) => {
     const short = +(T.fee_shortfall || 0);
     const under = T.per_hour_c != null && T.per_hour_c < target;
     return `
-        <div class="summary-cell"><div class="summary-label">Verdict</div><div class="summary-value"><span class="pill ${STATUS_PILL[V.status] || ''}" style="font-size:12px">${esc(verdictLabel(V))}</span></div>
+        <div class="summary-cell"><div class="summary-label">Verdict</div><div class="summary-value"><span class="pill sc-vpill ${STATUS_PILL[V.status] || ''}">${esc(verdictLabel(V))}</span></div>
           <div class="summary-note">${verdictNotes(V)}</div></div>
         <div class="summary-cell" title="Profit after labor ÷ planned hours, against the company target (Settings › Scoping)"><div class="summary-label">Profit per hour</div>
           <div class="summary-value ${under || (T.pal || 0) < 0 ? 'neg' : ''}">${T.per_hour_c != null ? fmt$(T.per_hour_c) + '<span class="muted">/h</span>' : '—'}</div>
@@ -1385,7 +1386,7 @@ boot('scoping', async (supa, el) => {
       </div>
       <div class="sc-panel" style="margin:14px 18px 0">
         <div class="chart-head flush"><h2 class="sc-eyebrow tight">3 · What will be recorded</h2>
-          <span style="display:flex;gap:8px;align-items:center"><button class="primary" id="bn-submit" ${B.busy || (!allParsed.some(r => !r.error) && !Object.keys(B.signals).length) ? 'disabled' : ''}>Record for ${esc(deal.name)}</button><span id="bn-msg" class="ok" style="font-size:12px"></span></span></div>
+          <span class="sc-phead-actions"><button class="primary" id="bn-submit" ${B.busy || (!allParsed.some(r => !r.error) && !Object.keys(B.signals).length) ? 'disabled' : ''}>Record for ${esc(deal.name)}</button><span id="bn-msg" class="ok" style="font-size:12px"></span></span></div>
         ${allParsed.some(r => !r.error) ? Object.entries(B.platforms).filter(([, P]) => P.on && (P.parsed || []).some(r => !r.error)).map(([pl, P]) => {
           const merged = mergeMonths(P.parsed.filter(r => !r.error)); const ms = Object.keys(merged).sort();
           const cols = [...new Set(ms.flatMap(m => Object.keys(merged[m])))].sort();
