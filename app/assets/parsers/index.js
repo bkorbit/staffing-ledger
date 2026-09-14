@@ -4,12 +4,12 @@
 // Drivers are plain counts; spend is in CENTS (the SQL side stores cents).
 // The platform hint narrows detection to that platform's parsers first; any
 // parser may still match when the hint is wrong, and the result says which.
-import { parseCSV } from './csv.js?v=9765ee9';
-import { googleAdsDaily, googleAdsChanges } from './google-ads.js?v=9765ee9';
-import { metaDaily, metaActivity } from './meta-ads.js?v=9765ee9';
-import { dspDaily } from './dsp.js?v=9765ee9';
-import { redditDaily, linkedinDaily } from './social.js?v=9765ee9';
-import { cm360Daily } from './cm360.js?v=9765ee9';
+import { parseCSV } from './csv.js?v=e7ad876';
+import { googleAdsDaily, googleAdsChanges } from './google-ads.js?v=e7ad876';
+import { metaDaily, metaActivity } from './meta-ads.js?v=e7ad876';
+import { dspDaily } from './dsp.js?v=e7ad876';
+import { redditDaily, linkedinDaily } from './social.js?v=e7ad876';
+import { cm360Daily } from './cm360.js?v=e7ad876';
 
 // Order matters when no platform hint is given: the exclusive shapes first
 // (a Placement column = CM360; Campaign group / Total spent = LinkedIn; Ad

@@ -10,7 +10,7 @@
 // for tslib/phoenix/iceberg — ~200ms on an origin needing its own DNS and TLS.
 // Same origin, one file, and every page <link rel=modulepreload>s it next to
 // shell.js so both start downloading while the HTML is still parsing.
-import { createClient } from './vendor/supabase-js.min.mjs?v=9765ee9';
+import { createClient } from './vendor/supabase-js.min.mjs?v=e7ad876';
 
 export const supa = createClient(
   'https://zytmlowigbfchfqcilrr.supabase.co',
