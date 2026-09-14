@@ -24,11 +24,10 @@ table.bands input { width:96px; height:30px; text-align:right; font-family:var(-
 table.bands button { padding:1px 7px; font-size:11px; }
 /* the hour grids (demand, supply, drivers) share one column system: a fixed label
    column and equal month columns, so a month lands at the same x in every table */
-.sc-grid { table-layout:fixed; width:calc(220px + var(--extra, 0px) + var(--n, 1) * 66px + 66px); max-width:none; }   /* fixed columns: a long add-row wraps instead of stretching a month */
-.sc-grid.demand { --extra:70px; }
+.sc-grid { table-layout:fixed; width:calc(220px + var(--extra, 0px) + var(--n, 1) * 66px + var(--tot, 66px)); max-width:none; }   /* fixed columns: a long add-row wraps instead of stretching a month; one month drops the total */
 .sc-grid.people { --extra:34px; }
 .sc-grid col.c-name { width:220px; } .sc-grid col.c-per { width:70px; } .sc-grid col.c-m, .sc-grid col.c-tot { width:66px; } .sc-grid col.c-x { width:34px; }
-.sc-grid th, .sc-grid td { padding:4px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sc-grid th, .sc-grid td { padding:4px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; vertical-align:middle; }
 .sc-grid th:first-child, .sc-grid td:first-child { text-align:left; }
 .sc-grid th:not(:first-child), .sc-grid td:not(:first-child) { padding:3px 4px; }
 .sc-grid td.addrow, .sc-grid tr.dept td { white-space:normal; overflow:visible; }
@@ -36,11 +35,19 @@ table.bands button { padding:1px 7px; font-size:11px; }
 .sc-grid input.hcell { width:54px; height:30px; text-align:right; font-family:var(--font-mono); font-size:11.5px; padding:0 4px; }   /* 30px: the page's one control height */
 .sc-grid th.per, .sc-grid td.per { border-right:2px solid var(--line); background:var(--wash-row); }
 .sc-grid input.hcell.per { font-weight:600; }
-.sc-grid tr.dept td { background:var(--wash-col); font-family:var(--font-mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); text-align:left; max-width:none; }
+.sc-grid tr.dept td { background:var(--wash-col); font-family:var(--font-mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); text-align:left; max-width:none; vertical-align:middle; }
+.sc-grid tr.dept td.bad { color:var(--rust); font-weight:600; }
+/* the department header answers the question first: needed · have · open, with a coverage bar */
+.sc-grid tr.dept .dname { display:block; color:var(--ink); }
+.sc-grid tr.dept .cov { display:block; margin-top:3px; letter-spacing:0; text-transform:none; font-size:10px; white-space:nowrap; }
+.sc-grid tr.dept .cov .open { color:var(--rust); font-weight:600; }
+.sc-grid tr.dept .covbar { display:inline-block; width:56px; height:4px; margin-left:8px; vertical-align:middle; background:var(--line); border-radius:2px; overflow:hidden; }
+.sc-grid tr.dept .covbar b { display:block; height:100%; background:var(--brand-2); border-radius:2px; }
+.sc-addline-row { display:flex; align-items:center; gap:8px 14px; flex-wrap:wrap; }
+.sc-pickers { display:flex; gap:6px; flex-wrap:wrap; margin-left:auto; }
+.sc-pickers select { height:26px; font-size:11px; }
 .sc-grid tr.ph td:first-child { color:var(--slate); font-style:italic; }
 .sc-grid tr.auto input.hcell { color:var(--slate); font-style:italic; }
-.sc-grid tr.gap td { color:var(--slate); font-style:italic; }
-.sc-grid tr.gap td.bad { color:var(--rust); font-style:normal; font-weight:600; }
 .sc-grid td.addrow { background:var(--wash-row); padding:8px 10px 10px; }
 .sc-grid .cap { font-size:9px; padding:0 5px; }
 .sc-hint { font-family:var(--font-mono); font-size:9.5px; color:var(--slate); margin-top:2px; }
@@ -80,9 +87,9 @@ h2.sc-eyebrow.inset14, h3.sc-eyebrow.inset14 { padding:12px 14px 0; margin:0; }
 .sc-result-l { font-family:var(--font-mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); }
 .sc-result-v { font-family:var(--font-mono); font-size:15px; font-weight:700; color:var(--brand); margin-right:2px; }
 /* one-click staffing suggestions */
-.sc-cands { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:6px 0 2px; }
+.sc-cands { display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap; }
 .sc-cands-l { font-family:var(--font-mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); margin-right:2px; }
-.sc-chip { display:inline-flex; align-items:baseline; gap:6px; height:26px; padding:0 10px; border:1px solid var(--line); border-radius:99px; background:var(--paper-raised); font-family:var(--font-body); font-size:11.5px; color:var(--ink); cursor:pointer; }
+.sc-chip { display:inline-flex; align-items:center; gap:6px; height:26px; line-height:1; padding:0 10px; border:1px solid var(--line); border-radius:99px; background:var(--paper-raised); font-family:var(--font-body); font-size:11.5px; color:var(--ink); cursor:pointer; }
 .sc-chip span { font-family:var(--font-mono); font-size:10px; color:var(--slate); }
 .sc-chip:hover { border-color:var(--brand-2); background:var(--mint); }
 .sc-section > .sc-panel, .sc-section .sc-deal { margin-bottom:12px; }
@@ -554,8 +561,8 @@ boot('scoping', async (supa, el) => {
       <div class="sc-panel">
         <div class="sc-phead"><h3 class="sc-ptitle">Hours needed</h3><span class="sc-phint">per department per month — type them, or estimate from the benchmarks</span>
           ${ro ? '' : `<button class="ghost" id="sc-estimate" title="Fill from the benchmark library (each media line's drivers × hours per driver from comparable campaigns, client's own first) and the catalog products' default hours. Rows you typed are kept.">Estimate from benchmarks</button>`}</div>
-        <div class="gridwrap tight"><table class="sc-grid demand" style="--n:${months.length}"><colgroup><col class="c-name"><col class="c-per">${months.map(() => '<col class="c-m">').join('')}<col class="c-tot"></colgroup>
-          <thead><tr><th>department</th><th class="per" title="Type once here to fill every flight month of the row">every month</th>${months.map(m => `<th>${mLabel(m)}</th>`).join('')}<th>total</th></tr></thead>
+        <div class="gridwrap tight"><table class="sc-grid demand" style="--n:${months.length};--extra:${months.length === 1 ? 0 : 70}px;--tot:${months.length === 1 ? 0 : 66}px"><colgroup><col class="c-name">${months.length === 1 ? '' : '<col class="c-per">'}${months.map(() => '<col class="c-m">').join('')}${months.length === 1 ? '' : '<col class="c-tot">'}</colgroup>
+          <thead><tr><th>department</th>${months.length === 1 ? '' : '<th class="per" title="Type once here to fill every flight month of the row">every month</th>'}${months.map(m => `<th>${mLabel(m)}</th>`).join('')}${months.length === 1 ? '' : '<th>total</th>'}</tr></thead>
           <tbody>${demandRows(months, ro)}</tbody></table></div>
         ${ro ? '' : `<div class="hp-addrow"><select id="sc-adddept" aria-label="Add a department"><option value="">+ department…</option>${departments().filter(d => !S.dept_months.some(r => r.department === d)).map(d => `<option>${esc(d)}</option>`).join('')}</select></div>`}
       </div>
@@ -564,8 +571,8 @@ boot('scoping', async (supa, el) => {
         <div class="sc-phead"><h3 class="sc-ptitle">Who does the work</h3><span class="sc-phint">named people at their own cost, placeholders at the band average — labor stays one number</span>
           ${ro ? '' : `<span class="sc-phead-actions"><button class="ghost" id="sc-autostaff" title="Fill the uncovered hours with the best-ranked free people, fewest people first">Auto-staff</button><button class="ghost" id="sc-clearauto" title="Remove the auto-staffed rows">Clear auto</button></span>`}
         </div>
-        <div class="gridwrap tight"><table class="sc-grid people" style="--n:${months.length}"><colgroup><col class="c-name">${months.map(() => '<col class="c-m">').join('')}<col class="c-tot"><col class="c-x"></colgroup>
-          <thead><tr><th>person / placeholder</th>${months.map(m => `<th>${mLabel(m)}</th>`).join('')}<th>total</th><th></th></tr></thead>
+        <div class="gridwrap tight"><table class="sc-grid people" style="--n:${months.length};--tot:${months.length === 1 ? 0 : 66}px"><colgroup><col class="c-name">${months.map(() => '<col class="c-m">').join('')}${months.length === 1 ? '' : '<col class="c-tot">'}<col class="c-x"></colgroup>
+          <thead><tr><th>who</th>${months.map(m => `<th>${mLabel(m)}</th>`).join('')}${months.length === 1 ? '' : '<th>total</th>'}<th></th></tr></thead>
           <tbody>${supplyRows(months, ro)}</tbody></table></div>
       </div>
       </section>
@@ -798,7 +805,10 @@ boot('scoping', async (supa, el) => {
   function demandRows(months, ro) {
     // the lines bring their teams (search → Paid Media + AdOps …) and the
     // always-on teams (account management / planning) are there whatever the
-    // lines — rows appear as soon as a line exists, hours still to be filled
+    // lines — rows appear as soon as a line exists, hours still to be filled.
+    // One flight month: no "every month" box and no total — they would repeat
+    // the single cell.
+    const one = months.length === 1;
     const auto = new Set(autoDepartments());
     const depts = [...new Set([...S.dept_months.map(r => r.department), ...auto])].sort();
     if (!depts.length) return `<tr><td colspan="${months.length + 3}" class="empty-note">Add a line under The deal — its departments appear here.</td></tr>`;
@@ -808,55 +818,76 @@ boot('scoping', async (supa, el) => {
       // the "every month" box shows the common value when the row is flat, else blank
       const flat = months.length && vals.every(v => v != null && v === vals[0]) ? vals[0] : '';
       return `<tr><td class="textleft"><b>${esc(dep)}</b>${ro || auto.has(dep) ? '' : ` <button class="ghost sc-x" data-act="rmdept:${esc(dep)}" aria-label="Remove ${esc(dep)} from the hours">×</button>`}</td>
-        <td class="per"><input class="hcell per" type="number" min="0" step="0.5" inputmode="decimal" data-dmall="${esc(dep)}" value="${flat}" placeholder="all" title="hours per month, every month of the flight" aria-label="${esc(dep)}, every month, hours" ${ro ? 'disabled' : ''}></td>
+        ${one ? '' : `<td class="per"><input class="hcell per" type="number" min="0" step="0.5" inputmode="decimal" data-dmall="${esc(dep)}" value="${flat}" placeholder="all" title="hours per month, every month of the flight" aria-label="${esc(dep)}, every month, hours" ${ro ? 'disabled' : ''}></td>`}
         ${months.map(m => { const r = S.dept_months.find(x => x.department === dep && x.month === m);
           return `<td><input class="hcell${r && r.source !== 'manual' ? ' ghost' : ''}" type="number" min="0" step="0.5" inputmode="decimal" data-dm="${esc(dep)}|${m}" value="${r ? +r.hours : ''}" aria-label="${esc(dep)}, ${mLabel(m)}, hours" title="${r && r.source !== 'manual' ? 'from the ' + esc(r.source) + ' estimate — type to make it yours' : ''}" ${ro ? 'disabled' : ''}></td>`; }).join('')}
-        <td><b data-dtot="${esc(dep)}">${fmtH(tot)}</b></td></tr>`;
+        ${one ? '' : `<td><b data-dtot="${esc(dep)}">${fmtH(tot)}</b></td>`}</tr>`;
     }).join('');
   }
 
+  // need · have · open for one department over the flight, with a coverage bar —
+  // the header of its group, refreshed in place as hours are typed
+  function coverageHtml(dep, months) {
+    const demand = m => +((S.dept_months.find(r => r.department === dep && r.month === m) || {}).hours || 0);
+    const supplied = m => S.staff_months.filter(r => r.department === dep && r.month === m).reduce((s, r) => s + (+r.hours || 0), 0);
+    const need = months.reduce((s, m) => s + demand(m), 0), have = months.reduce((s, m) => s + supplied(m), 0);
+    const open = months.reduce((s, m) => s + Math.max(demand(m) - supplied(m), 0), 0);
+    const pct = need > 0 ? Math.min(100, Math.round(100 * Math.min(have, need) / need)) : 0;
+    const text = need <= 0 ? (have > 0 ? `${fmtH(have)} planned · no hours needed yet` : 'no hours needed yet — type them above')
+      : open > 0.005 ? `need ${fmtH(need)} · have ${fmtH(have)} · <b class="open">${fmtH(open)} open</b>` : `need ${fmtH(need)} · covered`;
+    return `${text}${need > 0 ? `<i class="covbar" aria-hidden="true"><b style="width:${pct}%"></b></i>` : ''}`;
+  }
+  // Who does the work: one group per department. The group's header row says
+  // what matters first — how many hours are needed, how many are covered, how
+  // many are still open (and, over several months, which months are open) —
+  // then the people and placeholders with their hours, then one row to add
+  // someone: the ranked suggestions as one-click chips, and the pickers.
   function supplyRows(months, ro) {
+    const one = months.length === 1;
     const sb = staffById();
     const auto = new Set(autoDepartments());
     const depts = departments().filter(dep => auto.has(dep) || S.dept_months.some(r => r.department === dep) || S.staff_months.some(r => r.department === dep));
     if (!depts.length) return `<tr><td colspan="${months.length + 3}" class="empty-note">Add a line under The deal — its departments appear here.</td></tr>`;
     const capBy = {}; ((X.verdict || {}).capacity || []).forEach(c => capBy[`${c.staff_id}|${c.month}`] = c);
     const cands = (X.staffing && X.staffing.candidates) || [];
+    const totCell = html => one ? '' : `<td>${html}</td>`;
     return depts.map(dep => {
       const rows = S.staff_months.filter(r => r.department === dep);
       const people = [...new Map(rows.filter(r => r.staff_id).map(r => [r.staff_id + '|' + (r.source || 'manual'), { staff_id: r.staff_id, source: r.source || 'manual' }])).values()]
         .sort((a, b) => ((sb[a.staff_id] || {}).name || '').localeCompare((sb[b.staff_id] || {}).name || '') || a.source.localeCompare(b.source));
       const phs = [...new Set(rows.filter(r => !r.staff_id).map(r => r.band || ''))];
-      const demand = m => (S.dept_months.find(r => r.department === dep && r.month === m) || {}).hours || 0;
+      const demand = m => +((S.dept_months.find(r => r.department === dep && r.month === m) || {}).hours || 0);
       const supplied = m => rows.filter(r => r.month === m).reduce((s, r) => s + (+r.hours || 0), 0);
       const topCands = cands.filter(c => c.department === dep && !people.some(p => p.staff_id === c.staff_id)).slice(0, 3);
       const used = new Set(people.map(p => p.staff_id));
-      return `<tr class="dept"><td colspan="${months.length + 3}">${esc(dep)}</td></tr>
+      return `<tr class="dept"><td class="textleft"><span class="dname">${esc(dep)}</span><span class="cov" data-cov="${esc(dep)}">${coverageHtml(dep, months)}</span></td>
+          ${months.map(m => { const g = Math.max(demand(m) - supplied(m), 0);
+            return `<td class="${g > 0.005 ? 'bad' : ''}">${one ? '' : g > 0.005 ? `${fmtH(g)} open` : demand(m) > 0 ? 'covered' : ''}</td>`; }).join('')}
+          ${totCell('')}<td></td></tr>
         ${people.map(p => { const s = sb[p.staff_id] || { name: '(inactive)' };
           return `<tr class="${p.source === 'auto' ? 'auto' : ''}"><td class="textleft">${esc(s.name)}${p.source === 'auto' ? ' <span class="pill" title="auto-staffed — edit to make it yours">auto</span>' : ''}</td>
             ${months.map(m => { const r = rows.find(x => x.staff_id === p.staff_id && x.month === m && (x.source || 'manual') === p.source);
               const c = capBy[`${p.staff_id}|${m}`];
               const cap = c ? `<span class="pill cap ${c.over ? 'bad' : (c.free_after < (c.capacity_hours || 0) * 0.2 ? 'warn' : 'good')}" title="${fmtH(c.scope_hours)} here · ${fmtH(c.committed_other)} elsewhere · ${fmtH(c.capacity_hours)} plannable · ${fmtH(c.free_after)} left">${c.over ? 'over' : fmtH(c.free_after) + ' free'}</span>` : '';
               return `<td><input class="hcell" type="number" min="0" step="0.5" inputmode="decimal" data-sm="${p.staff_id}|${p.source}|${dep}|${m}" value="${r ? +r.hours : ''}" aria-label="${esc(s.name)}, ${mLabel(m)}, hours" ${ro ? 'disabled' : ''}>${cap}</td>`; }).join('')}
-            <td><b data-stot="${p.staff_id}|${p.source}|${esc(dep)}">${fmtH(rows.filter(x => x.staff_id === p.staff_id && (x.source || 'manual') === p.source).reduce((s2, r) => s2 + (+r.hours || 0), 0))}</b></td>
+            ${totCell(`<b data-stot="${p.staff_id}|${p.source}|${esc(dep)}">${fmtH(rows.filter(x => x.staff_id === p.staff_id && (x.source || 'manual') === p.source).reduce((s2, r) => s2 + (+r.hours || 0), 0))}</b>`)}
             <td>${ro ? '' : `<button class="ghost sc-x" data-act="rmperson:${p.staff_id}:${p.source}:${esc(dep)}" aria-label="Remove ${esc(s.name)} from ${esc(dep)}">×</button>`}</td></tr>`; }).join('')}
         ${phs.map(band => `<tr class="ph"><td class="textleft">placeholder${band ? ` · ${esc(band)}` : ' · department average'}</td>
             ${months.map(m => { const r = rows.find(x => !x.staff_id && (x.band || '') === band && x.month === m);
               return `<td><input class="hcell" type="number" min="0" step="0.5" inputmode="decimal" data-ph="${esc(band)}|${dep}|${m}" value="${r ? +r.hours : ''}" aria-label="${esc(band || 'department average')} placeholder, ${esc(dep)}, ${mLabel(m)}, hours" ${ro ? 'disabled' : ''}></td>`; }).join('')}
-            <td><b data-ptot="${esc(band)}|${esc(dep)}">${fmtH(rows.filter(x => !x.staff_id && (x.band || '') === band).reduce((s2, r) => s2 + (+r.hours || 0), 0))}</b></td>
+            ${totCell(`<b data-ptot="${esc(band)}|${esc(dep)}">${fmtH(rows.filter(x => !x.staff_id && (x.band || '') === band).reduce((s2, r) => s2 + (+r.hours || 0), 0))}</b>`)}
             <td>${ro ? '' : `<button class="ghost sc-x" data-act="rmph:${esc(band)}:${esc(dep)}" aria-label="Remove the ${esc(band || 'department average')} placeholder from ${esc(dep)}">×</button>`}</td></tr>`).join('')}
-        <tr class="gap"><td class="textleft">not yet covered</td>
-          ${months.map(m => { const g = Math.max(demand(m) - supplied(m), 0); return `<td class="${g > 0.005 ? 'bad' : ''}">${g > 0.005 ? fmtH(g) : '—'}</td>`; }).join('')}
-          <td>${(() => { const g = months.reduce((s, m) => s + Math.max(demand(m) - supplied(m), 0), 0); return g > 0.005 ? `<b style="color:var(--rust)">${fmtH(g)}</b>` : '—'; })()}</td><td></td></tr>
-        ${ro ? '' : `<tr><td colspan="${months.length + 3}" class="textleft addrow">
-          <div class="hp-addrow">
-            <select data-addperson="${esc(dep)}" aria-label="Add a person to ${esc(dep)}"><option value="">+ person…</option>
-              ${(X.staff || []).filter(s => !used.has(s.id)).sort((a, b) => (a.department === dep ? 0 : 1) - (b.department === dep ? 0 : 1) || a.name.localeCompare(b.name))
-                .map(s => `<option value="${s.id}">${esc(s.name)}${s.department !== dep ? ` (${esc(s.department || '—')})` : ''}</option>`).join('')}</select>
-            <select data-addph="${esc(dep)}" aria-label="Add a placeholder to ${esc(dep)}"><option value="">+ placeholder…</option><option value="">department average</option>
-              ${(X.settings.comp_bands || []).filter(b => !phs.includes(b.name)).map(b => `<option value="${esc(b.name)}">${esc(b.name)}${b.upto_c ? ` (≤ ${fmt$(b.upto_c)}/h)` : ' (top)'}</option>`).join('')}</select>
+        ${ro ? '' : `<tr><td colspan="${months.length + (one ? 2 : 3)}" class="textleft addrow">
+          <div class="sc-addline-row">
+            ${topCands.length ? `<span class="sc-cands"><span class="sc-cands-l">suggested</span>${topCands.map(c => `<button class="sc-chip" data-addsug="${c.staff_id}|${esc(dep)}" title="Add ${esc(c.name)} to ${esc(dep)} for every month, then type their hours"><b>${esc(c.name)}</b><span>${c.client_hours ? `${fmtH(c.client_hours)} this client` : c.kind_hours ? `${fmtH(c.kind_hours)} this kind` : 'no history'} · ${fmtH(Object.values(c.free || {}).reduce((s, v) => s + +v, 0))} free</span></button>`).join('')}</span>` : ''}
+            <span class="sc-pickers">
+              <select data-addperson="${esc(dep)}" aria-label="Add a person to ${esc(dep)}"><option value="">+ person…</option>
+                ${(X.staff || []).filter(s => !used.has(s.id)).sort((a, b) => (a.department === dep ? 0 : 1) - (b.department === dep ? 0 : 1) || a.name.localeCompare(b.name))
+                  .map(s => `<option value="${s.id}">${esc(s.name)}${s.department !== dep ? ` (${esc(s.department || '—')})` : ''}</option>`).join('')}</select>
+              <select data-addph="${esc(dep)}" aria-label="Add a placeholder to ${esc(dep)}"><option value="">+ placeholder…</option><option value="">department average</option>
+                ${(X.settings.comp_bands || []).filter(b => !phs.includes(b.name)).map(b => `<option value="${esc(b.name)}">${esc(b.name)}${b.upto_c ? ` (≤ ${fmt$(b.upto_c)}/h)` : ' (top)'}</option>`).join('')}</select>
+            </span>
           </div>
-          ${topCands.length ? `<div class="sc-cands"><span class="sc-cands-l">suggested</span>${topCands.map(c => `<button class="sc-chip" data-addsug="${c.staff_id}|${esc(dep)}" title="Add ${esc(c.name)} to ${esc(dep)} for every month, then type their hours"><b>${esc(c.name)}</b><span>${c.client_hours ? `${fmtH(c.client_hours)} this client` : c.kind_hours ? `${fmtH(c.kind_hours)} this kind` : 'no history'} · ${fmtH(Object.values(c.free || {}).reduce((s, v) => s + +v, 0))} free</span></button>`).join('')}</div>` : ''}
         </td></tr>`}`;
     }).join('');
   }
@@ -1014,7 +1045,8 @@ boot('scoping', async (supa, el) => {
     const flightMonths = allMonths();
     const setDept = (dep, m, v) => { let r = S.dept_months.find(x => x.department === dep && x.month === m);
       if (!r) { r = { department: dep, month: m, hours: 0, source: 'manual' }; S.dept_months.push(r); } r.hours = v; r.source = 'manual'; };
-    const deptTotal = dep => { const n = p.querySelector(`[data-dtot="${dep}"]`); if (n) n.textContent = fmtH(S.dept_months.filter(r => r.department === dep && flightMonths.includes(r.month)).reduce((s2, r) => s2 + (+r.hours || 0), 0)); };
+    const deptTotal = dep => { const n = p.querySelector(`[data-dtot="${dep}"]`); if (n) n.textContent = fmtH(S.dept_months.filter(r => r.department === dep && flightMonths.includes(r.month)).reduce((s2, r) => s2 + (+r.hours || 0), 0));
+      const c = p.querySelector(`[data-cov="${dep}"]`); if (c) c.innerHTML = coverageHtml(dep, flightMonths); };
     p.querySelectorAll('input[data-dm]').forEach(i => i.oninput = () => { const [dep, m] = i.dataset.dm.split('|');
       setDept(dep, m, Math.max(0, +i.value || 0)); i.classList.remove('ghost'); i.title = '';
       const all = p.querySelector(`input[data-dmall="${dep}"]`); if (all) all.value = '';
@@ -1026,12 +1058,12 @@ boot('scoping', async (supa, el) => {
       let r = S.staff_months.find(x => x.staff_id === sid && x.month === m && (x.source || 'manual') === source && x.department === dep);
       if (!r) { r = { staff_id: sid, department: dep, band: null, month: m, hours: 0, source }; S.staff_months.push(r); } r.hours = Math.max(0, +i.value || 0); if (source === 'auto') r.source = 'manual';
       const n = p.querySelector(`[data-stot="${sid}|${source}|${dep}"]`); if (n) n.textContent = fmtH(S.staff_months.filter(x => x.staff_id === sid && (x.source || 'manual') === source && x.department === dep).reduce((s2, x) => s2 + (+x.hours || 0), 0));
-      markDirty(); });
+      deptTotal(dep); markDirty(); });
     p.querySelectorAll('input[data-ph]').forEach(i => i.oninput = () => { const [band, dep, m] = i.dataset.ph.split('|');
       let r = S.staff_months.find(x => !x.staff_id && (x.band || '') === band && x.department === dep && x.month === m);
       if (!r) { r = { staff_id: null, department: dep, band: band || null, month: m, hours: 0, source: 'manual' }; S.staff_months.push(r); } r.hours = Math.max(0, +i.value || 0);
       const n = p.querySelector(`[data-ptot="${band}|${dep}"]`); if (n) n.textContent = fmtH(S.staff_months.filter(x => !x.staff_id && (x.band || '') === band && x.department === dep).reduce((s2, x) => s2 + (+x.hours || 0), 0));
-      markDirty(); });
+      deptTotal(dep); markDirty(); });
     // a preview that landed while typing is applied once the hands leave the fields
     p.onfocusout = () => setTimeout(() => { if (pendingRender && !typingIn(p)) { pendingRender = false; rerenderKeepingScroll(); } }, 0);
     p.onclick = e => { const b = e.target.closest('button[data-act]'); if (b) { e.preventDefault(); act(b.dataset.act); } };
