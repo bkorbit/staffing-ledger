@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EMG — Team Hours</title><link rel="stylesheet" href="./assets/style.css?v=77bee8a">
+<title>EMG — Team Hours</title><link rel="stylesheet" href="./assets/style.css?v=2d1e369">
 <style>
 /* Same whole-row-clickable focus ring forecast.html (.clientrow/.deallist/
    .projrow) and sales.html (.crow/.drow.hasitems) already give this exact
@@ -15,7 +15,7 @@ tr.namerow:focus-visible { outline:none; box-shadow:inset 0 0 0 2px var(--brand-
 </style>
 </head><body>
 <script type="module">
-import { boot, esc, wireSearch, fetchAll } from './assets/shell.js?v=77bee8a';
+import { boot, esc, wireSearch, fetchAll } from './assets/shell.js?v=2d1e369';
 
 // Read-only by design: this page is for GETTING information, not providing
 // it. Salary, capacity, department, and start/end dates are all managed on
@@ -44,7 +44,10 @@ import { boot, esc, wireSearch, fetchAll } from './assets/shell.js?v=77bee8a';
 //                      method as Client Profitability/Project Hours, joined
 //                      against rev_proj_page()'s rev_proj (051, a literal
 //                      copy of forecast_page's own rev_proj) so no page ever
-//                      disagrees about what counts as revenue.
+//                      disagrees about what counts as revenue. Measured
+//                      months only, though (092): the current month and any
+//                      later one run on FORECAST revenue instead (108,
+//                      Boris 13 Sep 2026) — see profitModel below.
 const fmtHours = h => (+h || 0).toLocaleString(undefined, { maximumFractionDigits: 1 });
 const fmt$0 = c => (c < 0 ? '-$' : '$') + Math.abs(Math.round((c || 0) / 100)).toLocaleString();
 
@@ -138,6 +141,86 @@ const SORT_ACCESSORS = {
   pacing: r => r.assignedHours,
   plan: r => r.clientHours - r.assignedHours,
 };
+
+// The profit column's arithmetic, one place. Returns, per staff id, the
+// revenue attributed to them over the range and the FORWARD cost (cents)
+// of assigned hours not yet worked, so profit = attributed − logged cost −
+// forward cost.
+//
+// Measured months (before the server's current month, H.measured_before):
+//   the deal's measured revenue over those months (rev_proj_page, closed
+//   months only since 092) splits across the hours logged on it in those
+//   months, proportional to hours — the rule this page always had.
+// The current month and later:
+//   the deal's FORECAST revenue over those months (deal_forecast, 108 —
+//   v_deal_month_forecast.billable, never pass_through) splits across each
+//   person's hours BASIS per month: their assigned hours while their logged
+//   hours are under the assignment, their logged hours to date once they are
+//   over it. The sum of bases is the deal's denominator, so attributed
+//   revenue adds up to the forecast exactly. Cost follows the same basis:
+//   what was logged at its real day rate (already in staff_hours_month) plus
+//   the unworked remainder of each month's assignment at
+//   staff_hourly_cost(person, month) (staff_rate_month, 108).
+// A pre-108 payload (no staff_hours_deal_month) gets the old rule over the
+// whole range, so the page never breaks between deploy and migration.
+function profitModel(H, revProj, dealsById) {
+  const attributed = {}, forwardCost = {};
+  const add = (o, k, v) => { o[k] = (o[k] || 0) + v; };
+  const revByProj = {}; (revProj || []).forEach(r => revByProj[r.qbo_project_id] = +r.total);
+  const forecastAware = Array.isArray(H.staff_hours_deal_month) && !!H.measured_before;
+  if (!forecastAware) {
+    const revPerHourByDeal = {};
+    (H.deal_labor || []).forEach(r => {
+      const deal = dealsById[r.deal_id]; if (!deal || !deal.qbo_project_id) return;
+      const rev = revByProj[deal.qbo_project_id] || 0;
+      if (rev > 0 && +r.hours > 0) revPerHourByDeal[r.deal_id] = rev / +r.hours;
+    });
+    (H.staff_hours_deal || []).forEach(r => {
+      const rph = revPerHourByDeal[r.deal_id]; if (rph) add(attributed, r.staff_id, +r.hours * rph);
+    });
+    return { forecastAware, attributed, forwardCost };
+  }
+  const cur = H.measured_before;
+  // measured side: hours logged in closed months, per deal and per person-deal
+  const closedByDeal = {}, closedByStaffDeal = {};
+  // forecast side: per person-deal, logged and assigned hours by open month
+  const open = {};
+  const cell = (sid, did) => open[`${sid}|${did}`]
+    || (open[`${sid}|${did}`] = { staff_id: sid, deal_id: did, loggedM: {}, assignedM: {} });
+  (H.staff_hours_deal_month || []).forEach(r => {
+    if (r.month < cur) { add(closedByDeal, r.deal_id, +r.hours); add(closedByStaffDeal, `${r.staff_id}|${r.deal_id}`, +r.hours); }
+    else add(cell(r.staff_id, r.deal_id).loggedM, r.month, +r.hours);
+  });
+  (H.staff_deal_planned_month || []).forEach(r => {
+    if (r.month >= cur) add(cell(r.staff_id, r.deal_id).assignedM, r.month, +r.planned_hours);
+  });
+  Object.entries(closedByStaffDeal).forEach(([k, hours]) => {
+    const [sid, did] = k.split('|');
+    const deal = dealsById[did]; if (!deal || !deal.qbo_project_id) return;
+    const rev = revByProj[deal.qbo_project_id] || 0, denom = closedByDeal[did] || 0;
+    if (rev > 0 && denom > 0) add(attributed, sid, hours * (rev / denom));
+  });
+  const forecastByDeal = {}; (H.deal_forecast || []).forEach(r => add(forecastByDeal, r.deal_id, +r.billable));
+  const rateBy = {}; (H.staff_rate_month || []).forEach(r => rateBy[`${r.staff_id}|${r.month}`] = +r.rate);
+  const basisByDeal = {};
+  Object.values(open).forEach(c => {
+    c.basis = 0; c.forward = 0;
+    const months = new Set([...Object.keys(c.loggedM), ...Object.keys(c.assignedM)]);
+    months.forEach(m => {
+      const logged = c.loggedM[m] || 0, assigned = c.assignedM[m] || 0;
+      c.basis += Math.max(logged, assigned);
+      const left = assigned - logged, rate = rateBy[`${c.staff_id}|${m}`];
+      if (left > 0 && rate) c.forward += left * rate;
+    });
+    add(basisByDeal, c.deal_id, c.basis);
+  });
+  Object.values(open).forEach(c => {
+    const rev = forecastByDeal[c.deal_id] || 0, denom = basisByDeal[c.deal_id] || 0;
+    if (rev > 0 && denom > 0) add(attributed, c.staff_id, c.basis * (rev / denom));
+    if (c.forward > 0) add(forwardCost, c.staff_id, c.forward);
+  });
+  return { forecastAware, attributed, forwardCost };
+}
 
 boot('teamhours', async (supa, el) => {
   const thisMonth = monthOf(iso(new Date()));
@@ -264,13 +347,9 @@ boot('teamhours', async (supa, el) => {
     const plannedByStaffDeal = {}; // "staffId|dealId" -> planned hours (db/035)
     (H.staff_deal_planned || []).forEach(r => plannedByStaffDeal[`${r.staff_id}|${r.deal_id}`] = +r.planned_hours);
 
-    const revByProj = {}; (revProj || []).forEach(r => revByProj[r.qbo_project_id] = r.total);
-    const revPerHourByDeal = {};
-    (H.deal_labor || []).forEach(r => {
-      const deal = dealsById[r.deal_id]; if (!deal || !deal.qbo_project_id) return;
-      const rev = revByProj[deal.qbo_project_id] || 0;
-      if (rev > 0 && +r.hours > 0) revPerHourByDeal[r.deal_id] = rev / +r.hours;
-    });
+    // Profit inputs — measured revenue over closed months, forecast revenue
+    // from the current month on (108). One place: profitModel, above boot().
+    const PM = profitModel(H, revProj, dealsById);
 
     const rangeToEnd = endOfMonth(rangeTo);
     // Whether this person's own employment window (start_date/end_date, set
@@ -336,9 +415,14 @@ boot('teamhours', async (supa, el) => {
       // utilization bar's own red segment already uses.
       const capStatus = capPct > 100 ? 'over' : capPct >= 90 ? 'high' : capPct >= 75 ? 'normal' : 'under';
       const assignedHours = plannedByStaff[s.id] || 0;
-      let attributed = 0;
-      deals2.forEach(d => { const rph = revPerHourByDeal[d.deal_id]; if (rph) attributed += +d.hours * rph; });
-      const profit = attributed - hc.cost;
+      // Attributed revenue minus what the hours cost: logged hours at their
+      // real day rate (hc.cost, client + internal) plus, from the current
+      // month on, the unworked remainder of the assignment at this month's
+      // rate (PM.forwardCost) — so a future month reads as the plan's profit,
+      // not $0 revenue against $0 cost.
+      const attributed = PM.attributed[s.id] || 0;
+      const forwardCost = PM.forwardCost[s.id] || 0;
+      const profit = attributed - hc.cost - forwardCost;
       // Which clients/projects this person actually logged hours against —
       // the "assigned to" breakout, revealed by expanding the row.
       const assignments = deals2.map(d => {
@@ -423,7 +507,9 @@ boot('teamhours', async (supa, el) => {
         <table class="ledger" style="table-layout:fixed">
           <colgroup><col style="width:20%"><col style="width:11%"><col style="width:5%">
             <col style="width:22%"><col style="width:21%"><col style="width:21%"></colgroup>
-          <tr>${sortTh('name', 'name')}${sortTh('cap', 'logged / cap')}${sortTh('profit', '<span title="Attributed revenue minus labor cost — cost includes employer FICA + FUTA on top of base pay (040)">profit</span>')}${sortTh('util', 'utilization', 'textleft')}${sortTh('pacing', 'pacing (assigned)', 'textleft')}${sortTh('plan', 'plan vs. logged', 'textleft')}</tr>
+          <tr>${sortTh('name', 'name')}${sortTh('cap', 'logged / cap')}${sortTh('profit', `<span title="${esc(PM.forecastAware
+            ? 'Attributed revenue minus labor cost. Closed months: measured revenue split over the hours logged on each deal. This month and later: FORECAST revenue split over assigned hours (logged hours once over the assignment), with the unworked remainder of the assignment costed at the person\'s burdened rate. Cost includes employer FICA + FUTA on top of base pay (040).'
+            : 'Attributed revenue minus labor cost — cost includes employer FICA + FUTA on top of base pay (040)')}">profit</span>`)}${sortTh('util', 'utilization', 'textleft')}${sortTh('pacing', 'pacing (assigned)', 'textleft')}${sortTh('plan', 'plan vs. logged', 'textleft')}</tr>
           ${!rows.length ? `<tr><td colspan="6" class="empty-note">No people match the current filters.</td></tr>` : rows.map(r => {
             // Utilization: client + internal + time-off, all against capacity.
             const util = utilizationBar(r.cap, r.internalHours, r.ptoHours, r.clientHours);
